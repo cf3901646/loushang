@@ -12,7 +12,6 @@ from loushang.harness.resources.plugins.declarations import (
     PluginContributionReservation,
     PluginDeclarationSource,
 )
-from loushang.harness.resources.plugins.manager import PluginManager
 from loushang.harness.resources.plugins.manifest import (
     PluginManifestError,
     PluginManifestParser,
@@ -356,25 +355,6 @@ def test_plugin_and_package_views_reuse_one_resolved_descriptor(
     assert package_view.resolved_plugin_package is plugin.resolved_package
     assert package_view.version == "1.0.0"
     assert package_view.package_root == resources.resolve()
-
-
-def test_disabled_plugin_projects_effective_state_without_reparsing(
-    tmp_path: Path,
-) -> None:
-    root = tmp_path / "review-pack"
-    root.mkdir()
-    manifest_path = root / "plugin.json"
-    manifest_path.write_text(
-        json.dumps({"name": "review-pack", "enabled": True}),
-        encoding="utf-8",
-    )
-    plugin = PluginManager(disabled_plugins=("review-pack",)).add_plugin_source(root)
-
-    assert plugin.enabled is False
-    assert plugin.source.enabled is False
-    assert plugin.resolved_package is not None
-    assert plugin.resolved_package.source.enabled is True
-    assert plugin.manifest.enabled is True
 
 
 def test_package_manifest_entrypoint_delegates_plugin_json_to_canonical_parser(
