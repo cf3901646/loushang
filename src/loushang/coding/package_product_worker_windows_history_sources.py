@@ -29,6 +29,10 @@ from .package_product_worker_windows_gc_history import (
     CodingWindowsWorkerGcHistoryAuthority,
     _require_known_windows_worker_state_names,
 )
+from .package_product_worker_windows_recovery_inventory import (
+    CodingWindowsWorkerOfflineRecoverySnapshotV1,
+    _inspect_coding_windows_product_worker_offline_recovery_under_gc_guard,
+)
 
 _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_FILES = 8192
@@ -164,6 +168,30 @@ class CodingWindowsWorkerHistorySettlementReviewV1:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class CodingWindowsWorkerHistorySemanticReadV1:
+    """One source/semantic read under shared Product locks, without cutover."""
+
+    source_snapshot: CodingWindowsWorkerHistorySourceSnapshotV1
+    offline_recovery: CodingWindowsWorkerOfflineRecoverySnapshotV1
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.source_snapshot) is not CodingWindowsWorkerHistorySourceSnapshotV1
+            or type(self.offline_recovery)
+            is not CodingWindowsWorkerOfflineRecoverySnapshotV1
+            or self.source_snapshot.store_id != self.offline_recovery.store_id
+            or self.source_snapshot.lease_owner_revision
+            != self.offline_recovery.lease_owner_revision
+            or self.offline_recovery.gc_revision_refs
+            or any(
+                observation.worker_backup_supported or observation.references
+                for observation in self.offline_recovery.worker_backup_observations
+            )
+        ):
+            raise ValueError("Windows Worker history semantic read is invalid")
+
+
 def capture_coding_windows_worker_history_sources(
     product: WindowsLocalWheelProductSessionOwner,
 ) -> CodingWindowsWorkerHistorySourceSnapshotV1:
@@ -183,6 +211,58 @@ def review_coding_windows_worker_settled_history_sources(
         _capture_coding_windows_worker_history_sources(
             product, require_settled_history=True
         )
+    )
+
+
+def read_coding_windows_worker_history_semantics(
+    product: WindowsLocalWheelProductSessionOwner,
+) -> CodingWindowsWorkerHistorySemanticReadV1:
+    """Join settled source bytes and retained semantics without publication."""
+
+    if (
+        os.name != "nt"
+        or type(product) is not WindowsLocalWheelProductSessionOwner
+        or product.policy.product_id != "coding"
+    ):
+        raise ValueError("Windows Worker history requires its Product owner")
+    registry = product.epoch_runtime.registry
+    with registry.exclusive_runtime_quiescence(
+        store_id=registry.store_id
+    ) as quiescence:
+        if quiescence.active_runtime_lease_ids:
+            raise ValueError("Windows Worker history runtime remains active")
+        product.assert_root_gc_authority_current()
+        with product.gc_gate.read_snapshot_guard() as gc_snapshot:
+            if gc_snapshot.active:
+                raise ValueError("Windows Worker history GC reservation remains")
+            source_snapshot = (
+                _capture_coding_windows_worker_history_sources_under_gc_guard(
+                    product,
+                    store_id=registry.store_id,
+                    lease_owner_revision=quiescence.owner_revision,
+                    require_settled_history=True,
+                )
+            )
+            offline_recovery = (
+                _inspect_coding_windows_product_worker_offline_recovery_under_gc_guard(
+                    product,
+                    store_id=registry.store_id,
+                    lease_owner_revision=quiescence.owner_revision,
+                    gc_snapshot=gc_snapshot,
+                )
+            )
+            if source_snapshot != (
+                _capture_coding_windows_worker_history_sources_under_gc_guard(
+                    product,
+                    store_id=registry.store_id,
+                    lease_owner_revision=quiescence.owner_revision,
+                    require_settled_history=False,
+                )
+            ):
+                raise ValueError("Windows Worker history sources changed")
+        product.assert_root_gc_authority_current()
+    return CodingWindowsWorkerHistorySemanticReadV1(
+        source_snapshot=source_snapshot, offline_recovery=offline_recovery
     )
 
 
@@ -207,98 +287,118 @@ def _capture_coding_windows_worker_history_sources(
             raise ValueError("Windows Worker history runtime remains active")
         product.assert_root_gc_authority_current()
         with product.gc_gate.guard(require_write=True):
-            with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
-                with WindowsPrivateDirectoryAcl() as acl:
-                    acl.validate(root)
-                    if not os.path.samestat(os.fstat(root), product.state_root.lstat()):
-                        raise ValueError("Windows Worker history root changed")
-                    before = tuple(windows_listdir_at(root))
-                    _require_known_windows_worker_state_names(before)
-                    names = tuple(
-                        sorted(
-                            name
-                            for name in before
-                            if name.casefold().startswith(("worker-", ".worker-"))
+            snapshot = _capture_coding_windows_worker_history_sources_under_gc_guard(
+                product,
+                store_id=registry.store_id,
+                lease_owner_revision=quiescence.owner_revision,
+                require_settled_history=require_settled_history,
+            )
+        product.assert_root_gc_authority_current()
+    return snapshot
+
+
+def _capture_coding_windows_worker_history_sources_under_gc_guard(
+    product: WindowsLocalWheelProductSessionOwner,
+    *,
+    store_id: str,
+    lease_owner_revision: int,
+    require_settled_history: bool,
+) -> CodingWindowsWorkerHistorySourceSnapshotV1:
+    """Pin all source bytes while the caller owns quiescence and the GC gate."""
+
+    product.assert_root_gc_authority_current()
+    with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
+        with WindowsPrivateDirectoryAcl() as acl:
+            acl.validate(root)
+            if not os.path.samestat(os.fstat(root), product.state_root.lstat()):
+                raise ValueError("Windows Worker history root changed")
+            before = tuple(windows_listdir_at(root))
+            _require_known_windows_worker_state_names(before)
+            names = tuple(
+                sorted(
+                    name
+                    for name in before
+                    if name.casefold().startswith(("worker-", ".worker-"))
+                )
+            )
+            if any(name.casefold().endswith(".stage") for name in names):
+                raise ValueError("Windows Worker history stage remains")
+            if len(names) > _MAX_FILES:
+                raise ValueError(
+                    "Windows Worker history inventory exceeds bound"
+                )
+            files: list[CodingWindowsWorkerHistorySourceFileV1] = []
+            total = 0
+            for name in names:
+                descriptor = open_windows_regular_file_at(
+                    root, name, create_new=False, write=False, read_control=True
+                )
+                with os.fdopen(descriptor, "rb") as source:
+                    acl.validate(source.fileno())
+                    if windows_regular_file_stream_names(source.fileno()) != (
+                        "::$DATA",
+                    ):
+                        raise ValueError(
+                            "Windows Worker history stream changed"
+                        )
+                    opened = os.fstat(source.fileno())
+                    digest = sha256()
+                    size = 0
+                    while chunk := source.read(64 * 1024):
+                        size += len(chunk)
+                        total += len(chunk)
+                        if size > _MAX_FILE_BYTES or total > _MAX_TOTAL_BYTES:
+                            raise ValueError(
+                                "Windows Worker history bytes exceed bound"
+                            )
+                        digest.update(chunk)
+                    closed = os.fstat(source.fileno())
+                    if (
+                        opened.st_dev,
+                        opened.st_ino,
+                        opened.st_size,
+                        opened.st_mtime_ns,
+                        opened.st_ctime_ns,
+                    ) != (
+                        closed.st_dev,
+                        closed.st_ino,
+                        closed.st_size,
+                        closed.st_mtime_ns,
+                        closed.st_ctime_ns,
+                    ) or size != opened.st_size:
+                        raise ValueError(
+                            "Windows Worker history source changed"
+                        )
+                    visible = windows_stat_at(root, name)
+                    if (
+                        not os.path.samestat(closed, visible)
+                        or visible.st_size != size
+                        or visible.st_mtime_ns != closed.st_mtime_ns
+                        or visible.st_ctime_ns != closed.st_ctime_ns
+                    ):
+                        raise ValueError(
+                            "Windows Worker history source changed"
+                        )
+                    files.append(
+                        CodingWindowsWorkerHistorySourceFileV1(
+                            name=name,
+                            size=size,
+                            sha256_digest=digest.hexdigest(),
                         )
                     )
-                    if any(name.casefold().endswith(".stage") for name in names):
-                        raise ValueError("Windows Worker history stage remains")
-                    if len(names) > _MAX_FILES:
-                        raise ValueError(
-                            "Windows Worker history inventory exceeds bound"
-                        )
-                    files: list[CodingWindowsWorkerHistorySourceFileV1] = []
-                    total = 0
-                    for name in names:
-                        descriptor = open_windows_regular_file_at(
-                            root, name, create_new=False, write=False, read_control=True
-                        )
-                        with os.fdopen(descriptor, "rb") as source:
-                            acl.validate(source.fileno())
-                            if windows_regular_file_stream_names(source.fileno()) != (
-                                "::$DATA",
-                            ):
-                                raise ValueError(
-                                    "Windows Worker history stream changed"
-                                )
-                            opened = os.fstat(source.fileno())
-                            digest = sha256()
-                            size = 0
-                            while chunk := source.read(64 * 1024):
-                                size += len(chunk)
-                                total += len(chunk)
-                                if size > _MAX_FILE_BYTES or total > _MAX_TOTAL_BYTES:
-                                    raise ValueError(
-                                        "Windows Worker history bytes exceed bound"
-                                    )
-                                digest.update(chunk)
-                            closed = os.fstat(source.fileno())
-                            if (
-                                opened.st_dev,
-                                opened.st_ino,
-                                opened.st_size,
-                                opened.st_mtime_ns,
-                                opened.st_ctime_ns,
-                            ) != (
-                                closed.st_dev,
-                                closed.st_ino,
-                                closed.st_size,
-                                closed.st_mtime_ns,
-                                closed.st_ctime_ns,
-                            ) or size != opened.st_size:
-                                raise ValueError(
-                                    "Windows Worker history source changed"
-                                )
-                            visible = windows_stat_at(root, name)
-                            if (
-                                not os.path.samestat(closed, visible)
-                                or visible.st_size != size
-                                or visible.st_mtime_ns != closed.st_mtime_ns
-                                or visible.st_ctime_ns != closed.st_ctime_ns
-                            ):
-                                raise ValueError(
-                                    "Windows Worker history source changed"
-                                )
-                            files.append(
-                                CodingWindowsWorkerHistorySourceFileV1(
-                                    name=name,
-                                    size=size,
-                                    sha256_digest=digest.hexdigest(),
-                                )
-                            )
-                    if require_settled_history:
-                        CodingWindowsWorkerGcHistoryAuthority(product).require_settled(
-                            observed_names=before
-                        )
-                    if set(windows_listdir_at(root)) != set(before):
-                        raise ValueError("Windows Worker history inventory changed")
-                    if not os.path.samestat(os.fstat(root), product.state_root.lstat()):
-                        raise ValueError("Windows Worker history root changed")
-        product.assert_root_gc_authority_current()
+            if require_settled_history:
+                CodingWindowsWorkerGcHistoryAuthority(product).require_settled(
+                    observed_names=before
+                )
+            if set(windows_listdir_at(root)) != set(before):
+                raise ValueError("Windows Worker history inventory changed")
+            if not os.path.samestat(os.fstat(root), product.state_root.lstat()):
+                raise ValueError("Windows Worker history root changed")
+    product.assert_root_gc_authority_current()
     return CodingWindowsWorkerHistorySourceSnapshotV1.create(
         scope_id=product.policy.project_scope_id,
-        store_id=registry.store_id,
-        lease_owner_revision=quiescence.owner_revision,
+        store_id=store_id,
+        lease_owner_revision=lease_owner_revision,
         files=tuple(files),
     )
 
@@ -307,6 +407,8 @@ __all__ = [
     "CodingWindowsWorkerHistorySourceFileV1",
     "CodingWindowsWorkerHistorySourceSnapshotV1",
     "CodingWindowsWorkerHistorySettlementReviewV1",
+    "CodingWindowsWorkerHistorySemanticReadV1",
     "capture_coding_windows_worker_history_sources",
+    "read_coding_windows_worker_history_semantics",
     "review_coding_windows_worker_settled_history_sources",
 ]

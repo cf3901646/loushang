@@ -2122,7 +2122,11 @@ ACL and alternate-stream checks, refuses unknown or changed inventory, and
 records the Product scope, Store, and lease-owner revision. This is byte
 identity evidence for a later semantic checkpoint; it neither publishes a
 cutover nor prunes a source. The native Windows GC job includes an isolated
-source-file and unknown-name refusal case; its result remains pending.
+source-file and unknown-name refusal case. That source case passed in the
+Windows GC job of Actions run `38123824672`
+at PR #672 head `dd5aa604`: 3 tests passed, zero skipped or failed. The
+old-base workflow was then canceled after that target job; final integrated
+CI remains required after the branch rejoins current `main`.
 A separate read-only settlement review now joins that exact source snapshot to
 the existing Windows GC history reader under the same runtime quiescence and
 GC write gate. It refuses an active runtime or an unsettled cross-owner
@@ -2130,6 +2134,14 @@ attempt, and binds the successful momentary review to the source digest. This
 is a prerequisite candidate for semantic checkpoint preparation; it contains
 no Package lease, backup, or Desired State closure and authorizes no cutover
 or deletion. Native settled-attempt evidence remains pending.
+The next read-only semantic input joins that same source snapshot with the
+existing offline Windows recovery projection under one runtime quiescence and
+GC snapshot guard. It refuses active GC reservations and Worker backup
+references, rereads every source byte after the semantic read, and returns
+only matching Store and lease-owner revisions. The guarded helper extraction
+preserves the ordinary recovery reader. This input has no durable checkpoint
+record, high-water publication, cutover, or deletion authority; its native
+Windows case remains pending.
 
 1. **Author artifact.** A versioned author recipe packages one Worker
    declaration document, a platform-specific executable, and a manifest whose

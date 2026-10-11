@@ -60,7 +60,9 @@ def test_windows_worker_history_source_capture_is_private_and_fail_closed(
         open_coding_fenced_product_application_owner,
     )
     from loushang.coding.package_product_worker_windows_history_sources import (
+        CodingWindowsWorkerHistorySemanticReadV1,
         capture_coding_windows_worker_history_sources,
+        read_coding_windows_worker_history_semantics,
         review_coding_windows_worker_settled_history_sources,
     )
     from loushang.foundation.windows_private_acl import WindowsPrivateDirectoryAcl
@@ -105,6 +107,17 @@ def test_windows_worker_history_source_capture_is_private_and_fail_closed(
         before = capture_coding_windows_worker_history_sources(product)
         settled = review_coding_windows_worker_settled_history_sources(product)
         assert settled.source_snapshot == before
+        semantic = read_coding_windows_worker_history_semantics(product)
+        assert semantic.source_snapshot == before
+        assert semantic.offline_recovery.store_id == before.store_id
+        assert semantic.offline_recovery.gc_revision_refs == frozenset()
+        with pytest.raises(ValueError, match="semantic read is invalid"):
+            CodingWindowsWorkerHistorySemanticReadV1(
+                source_snapshot=before,
+                offline_recovery=replace(
+                    semantic.offline_recovery, store_id="different-store"
+                ),
+            )
         session_id = "windows-history-source-active"
         factory = product.factory_for_session(
             session_id=session_id,
@@ -121,6 +134,8 @@ def test_windows_worker_history_source_capture_is_private_and_fail_closed(
                 capture_coding_windows_worker_history_sources(product)
             with pytest.raises(ValueError, match="runtime remains active"):
                 review_coding_windows_worker_settled_history_sources(product)
+            with pytest.raises(ValueError, match="runtime remains active"):
+                read_coding_windows_worker_history_semantics(product)
         finally:
             runtime.dispose_runtime()
         name = "worker-opt-in.jsonl.lock"
