@@ -4735,8 +4735,10 @@ finally:
                                             )
                                             == "Review symbol"
                                         )
-                                        worker_consumer = bind_coding_worker_query_consumer(
-                                            ordinary_session
+                                        worker_consumer = (
+                                            bind_coding_worker_query_consumer(
+                                                ordinary_session
+                                            )
                                         )
                                         if disable_while_ordinary_session_open:
                                             snapshot = (
@@ -4785,7 +4787,9 @@ finally:
                                                 CapabilityWorkerFacetProxyError,
                                                 match="worker_capability_facet_proxy_owner_unavailable",
                                             ):
-                                                await worker_consumer.query(symbol="review")
+                                                await worker_consumer.query(
+                                                    symbol="review"
+                                                )
                                         if crash_after_ordinary_query:
                                             print(
                                                 "windows-public-worker-healthy:direct",
@@ -7432,6 +7436,236 @@ def test_windows_coding_product_gc_reclaims_only_removed_builtin_root(
         assert status.state == "succeeded"
     finally:
         owner.close()
+
+
+@pytest.mark.requires_host_runtime
+def test_windows_worker_update_gc_keeps_selected_revision(
+    windows_worker_test_root: Path,
+) -> None:
+    if os.name != "nt":
+        pytest.skip("native Windows Product path is required")
+    workspace = windows_worker_test_root / "workspace"
+    workspace.mkdir()
+    lifecycle = resolve_ephemeral_coding_plugin_lifecycle_state_layout(
+        windows_worker_test_root / "session-state", cwd=workspace
+    )
+    settings = SettingsManager(
+        global_settings_path=windows_worker_test_root / "global" / "settings.json",
+        project_settings_path=workspace / ".loushang" / "settings.json",
+    )
+    cutover = prepare_and_cutover_coding_package_store_from_legacy(
+        lifecycle,
+        settings,
+        namespace_id="d" * 64,
+        minimum_runtime_version="2.0.0",
+        minimum_runtime_protocol_epoch=2,
+    )
+    assert cutover.attempt.result.disposition == "fenced"
+    assert bootstrap_coding_builtin_product_plugins(
+        lifecycle,
+        settings,
+        workspace=workspace,
+        runtime_version="2.0.0",
+        runtime_protocol_epoch=2,
+        windows_candidate=True,
+    )
+    executable = bytearray(512)
+    executable[:2] = b"MZ"
+    pack_into("<I", executable, 0x3C, 0x80)
+    executable[0x80:0x84] = b"PE\x00\x00"
+    pack_into("<H", executable, 0x84, 0x8664)
+    pack_into("<H", executable, 0x86, 1)
+    pack_into("<H", executable, 0x94, 112)
+    pack_into("<H", executable, 0x96, 0x0002)
+    pack_into("<H", executable, 0x98, 0x20B)
+    admission = PackageProductLocalWorkerAdmissionV1(
+        contribution_id="query-provider",
+        owner_id="coding",
+        native_platform="windows-amd64",
+    )
+    records = []
+    for version_number in ("1", "2"):
+        payload = build_coding_local_worker_candidate_wheel(
+            plugin_id="workerprobe",
+            version=version_number,
+            contribution_id="query-provider",
+            owner_id="coding",
+            native_platform="windows-amd64",
+            wheel_tag="py3-none-win_amd64",
+            executable=bytes(executable),
+        )
+        source = (
+            windows_worker_test_root
+            / f"workerprobe-{version_number}-py3-none-win_amd64.whl"
+        )
+        source.write_bytes(payload)
+        records.append(
+            admit_coding_external_worker_wheel(
+                lifecycle,
+                source=source,
+                admission=admission,
+            )
+        )
+    owner = open_coding_fenced_product_application_owner(
+        lifecycle,
+        workspace=workspace,
+        runtime_version="2.0.0",
+        runtime_protocol_epoch=2,
+        worker_candidates=True,
+        windows_candidate=True,
+    )
+    runtime = None
+    try:
+        product = owner.runtime_owner.product_owner
+        assert isinstance(product, WindowsLocalWheelProductSessionOwner)
+        sources = tuple(
+            record.policy_binding(product.policy.source_root).source_identity
+            for record in records
+        )
+        factory = product.factory_for_session(
+            session_id="windows-worker-update",
+            cwd=workspace,
+            runtime_id="runtime:windows-worker-update",
+        )
+        runtime = factory.create(
+            PackageProductRuntimeRequestV1(
+                product_id="coding",
+                session_id="windows-worker-update",
+                cwd=str(workspace),
+            )
+        )
+        runtime.activate()
+        installed = runtime.lifecycle.route(
+            PackageProductLifecycleIntentV1(
+                operation_id="windows-worker-install-v1",
+                action="install",
+                source=sources[0],
+                scope="project",
+            ),
+            entrypoint="cli",
+        )
+        assert installed.handled and installed.record is not None
+        assert installed.record.lifecycle == "installed"
+        snapshot = product.desired_state.snapshot()
+        installation = next(
+            item
+            for item in snapshot.installations
+            if item.installation_key.plugin_id == "workerprobe"
+        )
+        enabled = product.management.submit(
+            PluginManagementCommandV1(
+                action="enable",
+                mutation=PluginDesiredStateMutationV1(
+                    operation_id="windows-worker-enable-v1",
+                    idempotency_key="windows-worker-enable-v1",
+                    expected_inventory_revision=snapshot.inventory_revision,
+                    installation_key=installation.installation_key,
+                    desired_state="installed_enabled",
+                    package_revision=None,
+                    actor_id=product.actor_id,
+                    policy_revision=product.desired_policy_revision,
+                ),
+            )
+        )
+        assert enabled.status == "terminal"
+        old_selected = runtime.capture_selected_plugin_manifest_for(
+            "workerprobe",
+            max_files=16,
+            max_total_bytes=16 * 1024 * 1024,
+        )
+        assert old_selected.manifest.version == "1"
+        updated = runtime.lifecycle.route(
+            PackageProductLifecycleIntentV1(
+                operation_id="windows-worker-update-v2",
+                action="update",
+                source=sources[1],
+                scope="project",
+            ),
+            entrypoint="cli",
+        )
+        assert updated.handled and updated.record is not None
+        assert updated.record.lifecycle == "installed"
+        current = product.desired_state.snapshot().installation(
+            installation.installation_key
+        )
+        assert current is not None
+        current_revision = current.selection.package_revision
+        assert current_revision is not None and current_revision.plugin_version == "2"
+        gc = open_windows_local_wheel_product_root_gc(product)
+        with pytest.raises(PackageProductGcExecutionError) as active:
+            gc.prepare()
+        assert active.value.code == "plugin_package_gc_runtime_active"
+    finally:
+        if runtime is not None:
+            runtime.dispose_runtime()
+        owner.close()
+    reopened = open_coding_fenced_product_application_owner(
+        lifecycle,
+        workspace=workspace,
+        runtime_version="2.0.0",
+        runtime_protocol_epoch=2,
+        worker_candidates=True,
+        windows_candidate=True,
+    )
+    try:
+        product = reopened.runtime_owner.product_owner
+        gc = open_windows_local_wheel_product_root_gc(product)
+        gc.prepare()
+        (old_candidate,) = tuple(
+            item
+            for item in gc.candidates()
+            if item.package_revision.plugin_id == "workerprobe"
+        )
+        assert old_candidate.package_revision.plugin_version == "1"
+        executor = gc.application.executor
+        roots = tuple(
+            product.plugin_store_root
+            / resolve_plugin_package_gc_root_target(
+                revision,
+                bindings=product.gc_bindings.records(),
+                claims=product.gc_bindings.claims(),
+                committed_sets=executor.committed_sets.records(),
+                settlements=executor.root_settlements.records(),
+            ).settlement.final_name
+            for revision in (old_candidate.package_revision, current_revision)
+        )
+        assert all(root.is_dir() for root in roots)
+        command = PackageProductRootGcCommandV1(
+            candidate=old_candidate,
+            reservation_operation_id="windows-worker-gc-reserve-v1",
+            reservation_idempotency_key="windows-worker-gc-reserve-v1",
+            attempt_operation_id="windows-worker-gc-delete-v1",
+            attempt_idempotency_key="windows-worker-gc-delete-v1",
+        )
+        result = gc.execute(command)
+        assert result.disposition == "succeeded"
+        assert not roots[0].exists() and roots[1].is_dir()
+        assert gc.execute(command) == result
+        factory = product.factory_for_session(
+            session_id="windows-worker-after-gc",
+            cwd=workspace,
+            runtime_id="runtime:windows-worker-after-gc",
+        )
+        fresh = factory.create(
+            PackageProductRuntimeRequestV1(
+                product_id="coding",
+                session_id="windows-worker-after-gc",
+                cwd=str(workspace),
+            )
+        )
+        try:
+            fresh.activate()
+            selected = fresh.capture_selected_plugin_manifest_for(
+                "workerprobe",
+                max_files=16,
+                max_total_bytes=16 * 1024 * 1024,
+            )
+            assert selected.manifest.version == "2"
+            fresh.assert_selected_plugin_manifest_current(selected)
+        finally:
+            fresh.dispose_runtime()
+    finally:
+        reopened.close()
 
 
 @pytest.mark.parametrize("legacy_input", ("settings", "desired", "package"))
