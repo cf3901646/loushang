@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import replace
+from hashlib import sha256
+from pathlib import Path
 
 import pytest
 
@@ -41,6 +44,127 @@ def test_windows_worker_gc_accepts_current_owned_state_names() -> None:
             "committed-sets.jsonl",
         )
     )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native Windows Product root required")
+def test_windows_worker_history_source_capture_is_private_and_fail_closed(
+    tmp_path: Path,
+) -> None:
+    from loushang.coding._plugin_lifecycle import (
+        resolve_ephemeral_coding_plugin_lifecycle_state_layout,
+    )
+    from loushang.coding.package_pre_b_snapshot import (
+        cutover_and_bootstrap_coding_package_product,
+    )
+    from loushang.coding.package_product_runtime import (
+        open_coding_fenced_product_application_owner,
+    )
+    from loushang.coding.package_product_worker_windows_history_sources import (
+        capture_coding_windows_worker_history_sources,
+    )
+    from loushang.foundation.windows_private_acl import WindowsPrivateDirectoryAcl
+    from loushang.harness.config.agent import SettingsManager
+    from loushang.harness.resources.packages.plugin_lifecycle.windows_quarantine import (
+        open_windows_regular_file_at,
+        windows_flush_directory,
+        windows_flush_file,
+        windows_unlink_at,
+    )
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    lifecycle = resolve_ephemeral_coding_plugin_lifecycle_state_layout(
+        tmp_path / "session-state", cwd=workspace
+    )
+    settings = SettingsManager(
+        global_settings_path=tmp_path / "global" / "settings.json",
+        project_settings_path=workspace / ".loushang" / "settings.json",
+    )
+    cutover_and_bootstrap_coding_package_product(
+        lifecycle,
+        settings,
+        workspace=workspace,
+        namespace_id="e" * 64,
+        runtime_version="2.0.0",
+        runtime_protocol_epoch=2,
+        windows_candidate=True,
+    )
+    owner = open_coding_fenced_product_application_owner(
+        lifecycle,
+        workspace=workspace,
+        runtime_version="2.0.0",
+        runtime_protocol_epoch=2,
+        windows_candidate=True,
+    )
+    try:
+        product = owner.runtime_owner.product_owner
+        before = capture_coding_windows_worker_history_sources(product)
+        name = "worker-opt-in.jsonl.lock"
+        payload = b"history-source-byte-identity"
+        with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
+            with WindowsPrivateDirectoryAcl() as acl:
+                descriptor = open_windows_regular_file_at(
+                    root,
+                    name,
+                    create_new=True,
+                    write=True,
+                    security_descriptor=acl.security_descriptor,
+                )
+                try:
+                    assert os.write(descriptor, payload) == len(payload)
+                    windows_flush_file(descriptor)
+                finally:
+                    os.close(descriptor)
+            windows_flush_directory(root)
+        captured = capture_coding_windows_worker_history_sources(product)
+        assert captured.snapshot_digest != before.snapshot_digest
+        assert {item.name for item in captured.files} == {
+            item.name for item in before.files
+        } | {name}
+        retained = next(item for item in captured.files if item.name == name)
+        assert retained.size == len(payload)
+        assert retained.sha256_digest == sha256(payload).hexdigest()
+
+        with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
+            with WindowsPrivateDirectoryAcl() as acl:
+                unknown = open_windows_regular_file_at(
+                    root,
+                    "worker-future-reference.json",
+                    create_new=True,
+                    write=True,
+                    security_descriptor=acl.security_descriptor,
+                )
+                os.close(unknown)
+            windows_flush_directory(root)
+        with pytest.raises(ValueError, match="state owner is unrecognized"):
+            capture_coding_windows_worker_history_sources(product)
+        with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
+            windows_unlink_at(root, "worker-future-reference.json")
+            windows_unlink_at(root, name)
+            windows_flush_directory(root)
+        assert (
+            capture_coding_windows_worker_history_sources(product).files == before.files
+        )
+
+        stage_name = "worker-stage-retired-" + "ab" * 16 + ".json.stage"
+        with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
+            with WindowsPrivateDirectoryAcl() as acl:
+                staged = open_windows_regular_file_at(
+                    root,
+                    stage_name,
+                    create_new=True,
+                    write=True,
+                    security_descriptor=acl.security_descriptor,
+                )
+                os.close(staged)
+            windows_flush_directory(root)
+        with pytest.raises(ValueError, match="history stage remains"):
+            capture_coding_windows_worker_history_sources(product)
+        with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
+            windows_unlink_at(root, stage_name)
+            windows_flush_directory(root)
+    finally:
+        owner.close()
 
 
 @pytest.mark.parametrize(

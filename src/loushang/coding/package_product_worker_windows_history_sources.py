@@ -1,0 +1,241 @@
+"""Read-only Windows Worker history source inventory for a future cutover.
+
+This captures byte identities under Product quiescence. It grants no history
+retirement, new Worker attempt, or Package GC authority.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+from dataclasses import dataclass
+from hashlib import sha256
+
+from loushang.foundation.windows_private_acl import WindowsPrivateDirectoryAcl
+from loushang.harness.package_product.product_local_wheel_runtime import (
+    WindowsLocalWheelProductSessionOwner,
+)
+from loushang.harness.resources.packages.plugin_lifecycle.records import (
+    canonical_json_bytes,
+)
+from loushang.harness.resources.packages.plugin_lifecycle.windows_quarantine import (
+    open_windows_regular_file_at,
+    windows_listdir_at,
+    windows_regular_file_stream_names,
+    windows_stat_at,
+)
+
+from .package_product_worker_windows_gc_history import (
+    _require_known_windows_worker_state_names,
+)
+
+_DIGEST = re.compile(r"[0-9a-f]{64}\Z")
+_MAX_FILES = 8192
+_MAX_FILE_BYTES = 64 * 1024 * 1024
+_MAX_TOTAL_BYTES = 256 * 1024 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class CodingWindowsWorkerHistorySourceFileV1:
+    name: str
+    size: int
+    sha256_digest: str
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.name) is not str
+            or not self.name.casefold().startswith(("worker-", ".worker-"))
+            or self.name.casefold().endswith(".stage")
+            or type(self.size) is not int
+            or not 0 <= self.size <= _MAX_FILE_BYTES
+            or type(self.sha256_digest) is not str
+            or _DIGEST.fullmatch(self.sha256_digest) is None
+        ):
+            raise ValueError("Windows Worker history source file is invalid")
+        _require_known_windows_worker_state_names((self.name,))
+
+    def to_dict(self) -> dict[str, object]:
+        return {"name": self.name, "size": self.size, "sha256": self.sha256_digest}
+
+
+@dataclass(frozen=True, slots=True)
+class CodingWindowsWorkerHistorySourceSnapshotV1:
+    scope_id: str
+    store_id: str
+    lease_owner_revision: int
+    files: tuple[CodingWindowsWorkerHistorySourceFileV1, ...]
+    snapshot_digest: str
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.scope_id) is not str
+            or not self.scope_id
+            or len(self.scope_id) > 128
+            or type(self.store_id) is not str
+            or not self.store_id
+            or len(self.store_id) > 128
+            or type(self.lease_owner_revision) is not int
+            or self.lease_owner_revision < 0
+            or type(self.files) is not tuple
+            or len(self.files) > _MAX_FILES
+            or any(
+                type(item) is not CodingWindowsWorkerHistorySourceFileV1
+                for item in self.files
+            )
+            or self.files != tuple(sorted(self.files, key=lambda item: item.name))
+            or len({item.name.casefold() for item in self.files}) != len(self.files)
+            or sum(item.size for item in self.files) > _MAX_TOTAL_BYTES
+            or type(self.snapshot_digest) is not str
+            or self.snapshot_digest
+            != sha256(canonical_json_bytes(self._unsigned_dict())).hexdigest()
+        ):
+            raise ValueError("Windows Worker history source snapshot is invalid")
+
+    def _unsigned_dict(self) -> dict[str, object]:
+        return {
+            "scopeId": self.scope_id,
+            "storeId": self.store_id,
+            "leaseOwnerRevision": self.lease_owner_revision,
+            "files": [item.to_dict() for item in self.files],
+        }
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        scope_id: str,
+        store_id: str,
+        lease_owner_revision: int,
+        files: tuple[CodingWindowsWorkerHistorySourceFileV1, ...],
+    ) -> CodingWindowsWorkerHistorySourceSnapshotV1:
+        unsigned = {
+            "scopeId": scope_id,
+            "storeId": store_id,
+            "leaseOwnerRevision": lease_owner_revision,
+            "files": [item.to_dict() for item in files],
+        }
+        return cls(
+            scope_id=scope_id,
+            store_id=store_id,
+            lease_owner_revision=lease_owner_revision,
+            files=files,
+            snapshot_digest=sha256(canonical_json_bytes(unsigned)).hexdigest(),
+        )
+
+
+def capture_coding_windows_worker_history_sources(
+    product: WindowsLocalWheelProductSessionOwner,
+) -> CodingWindowsWorkerHistorySourceSnapshotV1:
+    """Hash all recognized Worker-owned files without changing Product state."""
+
+    if (
+        os.name != "nt"
+        or type(product) is not WindowsLocalWheelProductSessionOwner
+        or product.policy.product_id != "coding"
+    ):
+        raise ValueError("Windows Worker history requires its Product owner")
+    registry = product.epoch_runtime.registry
+    with registry.exclusive_runtime_quiescence(
+        store_id=registry.store_id
+    ) as quiescence:
+        if quiescence.active_runtime_lease_ids:
+            raise ValueError("Windows Worker history runtime remains active")
+        product.assert_root_gc_authority_current()
+        with product.gc_gate.guard(require_write=True):
+            with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
+                with WindowsPrivateDirectoryAcl() as acl:
+                    acl.validate(root)
+                    if not os.path.samestat(os.fstat(root), product.state_root.lstat()):
+                        raise ValueError("Windows Worker history root changed")
+                    before = tuple(windows_listdir_at(root))
+                    _require_known_windows_worker_state_names(before)
+                    names = tuple(
+                        sorted(
+                            name
+                            for name in before
+                            if name.casefold().startswith(("worker-", ".worker-"))
+                        )
+                    )
+                    if any(name.casefold().endswith(".stage") for name in names):
+                        raise ValueError("Windows Worker history stage remains")
+                    if len(names) > _MAX_FILES:
+                        raise ValueError(
+                            "Windows Worker history inventory exceeds bound"
+                        )
+                    files: list[CodingWindowsWorkerHistorySourceFileV1] = []
+                    total = 0
+                    for name in names:
+                        descriptor = open_windows_regular_file_at(
+                            root, name, create_new=False, write=False, read_control=True
+                        )
+                        with os.fdopen(descriptor, "rb") as source:
+                            acl.validate(source.fileno())
+                            if windows_regular_file_stream_names(source.fileno()) != (
+                                "::$DATA",
+                            ):
+                                raise ValueError(
+                                    "Windows Worker history stream changed"
+                                )
+                            opened = os.fstat(source.fileno())
+                            digest = sha256()
+                            size = 0
+                            while chunk := source.read(64 * 1024):
+                                size += len(chunk)
+                                total += len(chunk)
+                                if size > _MAX_FILE_BYTES or total > _MAX_TOTAL_BYTES:
+                                    raise ValueError(
+                                        "Windows Worker history bytes exceed bound"
+                                    )
+                                digest.update(chunk)
+                            closed = os.fstat(source.fileno())
+                            if (
+                                opened.st_dev,
+                                opened.st_ino,
+                                opened.st_size,
+                                opened.st_mtime_ns,
+                                opened.st_ctime_ns,
+                            ) != (
+                                closed.st_dev,
+                                closed.st_ino,
+                                closed.st_size,
+                                closed.st_mtime_ns,
+                                closed.st_ctime_ns,
+                            ) or size != opened.st_size:
+                                raise ValueError(
+                                    "Windows Worker history source changed"
+                                )
+                            visible = windows_stat_at(root, name)
+                            if (
+                                not os.path.samestat(closed, visible)
+                                or visible.st_size != size
+                                or visible.st_mtime_ns != closed.st_mtime_ns
+                                or visible.st_ctime_ns != closed.st_ctime_ns
+                            ):
+                                raise ValueError(
+                                    "Windows Worker history source changed"
+                                )
+                            files.append(
+                                CodingWindowsWorkerHistorySourceFileV1(
+                                    name=name,
+                                    size=size,
+                                    sha256_digest=digest.hexdigest(),
+                                )
+                            )
+                    if set(windows_listdir_at(root)) != set(before):
+                        raise ValueError("Windows Worker history inventory changed")
+                    if not os.path.samestat(os.fstat(root), product.state_root.lstat()):
+                        raise ValueError("Windows Worker history root changed")
+        product.assert_root_gc_authority_current()
+    return CodingWindowsWorkerHistorySourceSnapshotV1.create(
+        scope_id=product.policy.project_scope_id,
+        store_id=registry.store_id,
+        lease_owner_revision=quiescence.owner_revision,
+        files=tuple(files),
+    )
+
+
+__all__ = [
+    "CodingWindowsWorkerHistorySourceFileV1",
+    "CodingWindowsWorkerHistorySourceSnapshotV1",
+    "capture_coding_windows_worker_history_sources",
+]

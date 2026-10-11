@@ -2115,6 +2115,15 @@ boundary, and a fresh Worker query after retirement. Each negative case must
 show a no-write refusal or durable debt. This contract remains a candidate;
 the current Windows journals and GC reader still retain complete history.
 
+The first read-only implementation captures a Product-owned source inventory
+under exclusive runtime quiescence and the GC write gate. It hashes every
+recognized Worker state-root file through a pinned native handle with private
+ACL and alternate-stream checks, refuses unknown or changed inventory, and
+records the Product scope, Store, and lease-owner revision. This is byte
+identity evidence for a later semantic checkpoint; it neither publishes a
+cutover nor prunes a source. The native Windows GC job includes an isolated
+source-file and unknown-name refusal case; its result remains pending.
+
 1. **Author artifact.** A versioned author recipe packages one Worker
    declaration document, a platform-specific executable, and a manifest whose
    v3 reservation exactly matches the v3 declaration. The recipe validates
