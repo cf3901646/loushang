@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 
 import pytest
 
@@ -70,9 +71,9 @@ def test_worker_turn_tool_uses_only_bound_read_only_query() -> None:
 
 
 def test_cli_worker_query_choice_requires_persisted_standard_session(tmp_path) -> None:
-    assert parse_args(["--worker-query-plugin", "reviewworker"]).worker_query_plugin == (
-        "reviewworker"
-    )
+    assert parse_args(
+        ["--worker-query-plugin", "reviewworker"]
+    ).worker_query_plugin == ("reviewworker")
     for extra in (
         ["--composition-set", "coding-minimal"],
         ["--no-session"],
@@ -83,8 +84,10 @@ def test_cli_worker_query_choice_requires_persisted_standard_session(tmp_path) -
             default_runtime_builder(
                 args=parse_args(
                     [
-                        "--mode", "print",
-                        "--worker-query-plugin", "reviewworker",
+                        "--mode",
+                        "print",
+                        "--worker-query-plugin",
+                        "reviewworker",
                         *extra,
                     ]
                 ),
@@ -94,13 +97,39 @@ def test_cli_worker_query_choice_requires_persisted_standard_session(tmp_path) -
                 tool_registry=WorkspaceToolRegistry(),
             )
 
+    if sys.platform not in {"linux", "win32"}:
+        with pytest.raises(ValueError, match="Worker query requires"):
+            default_runtime_builder(
+                args=parse_args(
+                    [
+                        "--mode",
+                        "print",
+                        "--cwd",
+                        str(tmp_path),
+                        "--composition-set",
+                        "coding-standard",
+                        "--worker-query-plugin",
+                        "reviewworker",
+                    ]
+                ),
+                cwd=tmp_path,
+                session_dir=tmp_path / "sessions",
+                services=create_services(),
+                tool_registry=WorkspaceToolRegistry(),
+            )
+        return
+
     runtime = default_runtime_builder(
         args=parse_args(
             [
-                "--mode", "print",
-                "--cwd", str(tmp_path),
-                "--composition-set", "coding-standard",
-                "--worker-query-plugin", "reviewworker",
+                "--mode",
+                "print",
+                "--cwd",
+                str(tmp_path),
+                "--composition-set",
+                "coding-standard",
+                "--worker-query-plugin",
+                "reviewworker",
             ]
         ),
         cwd=tmp_path,
