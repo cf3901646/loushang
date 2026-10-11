@@ -4105,6 +4105,9 @@ def _assert_windows_worker_retired_history_allows_gc(
         )
         semantic = read_coding_windows_worker_history_semantics(product)
         assert semantic.source_snapshot == history_review.source_snapshot
+        assert semantic.desired_inventory_revision is not None
+        assert semantic.desired_history_digest is not None
+        assert len(semantic.desired_history_digest) == 64
         native_base = (
             CodingWindowsWorkerNativeProvisioningSemanticBaseV1.from_semantic_read(
                 CodingWindowsWorkerHistoryPreparationV1.create(semantic), semantic

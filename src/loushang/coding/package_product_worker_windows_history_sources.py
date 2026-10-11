@@ -219,6 +219,8 @@ class CodingWindowsWorkerHistorySemanticReadV1:
 
     source_snapshot: CodingWindowsWorkerHistorySourceSnapshotV1
     offline_recovery: CodingWindowsWorkerOfflineRecoverySnapshotV1
+    desired_inventory_revision: int | None = None
+    desired_history_digest: str | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -228,6 +230,19 @@ class CodingWindowsWorkerHistorySemanticReadV1:
             or self.source_snapshot.store_id != self.offline_recovery.store_id
             or self.source_snapshot.lease_owner_revision
             != self.offline_recovery.lease_owner_revision
+            or (
+                (self.desired_inventory_revision is None)
+                != (self.desired_history_digest is None)
+            )
+            or (
+                self.desired_inventory_revision is not None
+                and (
+                    type(self.desired_inventory_revision) is not int
+                    or self.desired_inventory_revision < 0
+                    or type(self.desired_history_digest) is not str
+                    or _DIGEST.fullmatch(self.desired_history_digest) is None
+                )
+            )
             or self.offline_recovery.gc_revision_refs
             or any(
                 observation.worker_backup_supported or observation.references
@@ -296,6 +311,9 @@ def read_coding_windows_worker_history_semantics(
                     gc_snapshot=gc_snapshot,
                 )
             )
+            desired_revision, desired_digest = (
+                _capture_coding_windows_worker_desired_history_under_gc_guard(product)
+            )
             if source_snapshot != (
                 _capture_coding_windows_worker_history_sources_under_gc_guard(
                     product,
@@ -307,8 +325,33 @@ def read_coding_windows_worker_history_semantics(
                 raise ValueError("Windows Worker history sources changed")
         product.assert_root_gc_authority_current()
     return CodingWindowsWorkerHistorySemanticReadV1(
-        source_snapshot=source_snapshot, offline_recovery=offline_recovery
+        source_snapshot=source_snapshot,
+        offline_recovery=offline_recovery,
+        desired_inventory_revision=desired_revision,
+        desired_history_digest=desired_digest,
     )
+
+
+def _capture_coding_windows_worker_desired_history_under_gc_guard(
+    product: WindowsLocalWheelProductSessionOwner,
+) -> tuple[int, str]:
+    """Bind current Desired selection and its complete transition provenance."""
+
+    product.assert_root_gc_authority_current()
+    snapshot, transitions = product.desired_state.capture_read_only()
+    if snapshot.inventory_revision != len(transitions):
+        raise ValueError("Windows Worker Desired history revision changed")
+    digest = sha256(
+        canonical_json_bytes(
+            {
+                "inventoryRevision": snapshot.inventory_revision,
+                "installations": [item.to_dict() for item in snapshot.installations],
+                "transitions": [item.to_dict() for item in transitions],
+            }
+        )
+    ).hexdigest()
+    product.assert_root_gc_authority_current()
+    return snapshot.inventory_revision, digest
 
 
 def _capture_coding_windows_worker_history_sources(
