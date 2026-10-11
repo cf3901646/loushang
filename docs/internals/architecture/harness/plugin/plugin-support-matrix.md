@@ -22,7 +22,7 @@ does not add a second Plugin registry or change a default route.
 Ordinary Windows Coding Sessions select the fenced B Product in Direct,
 Session Runtime, and Hosted construction. This does not activate Worker queries.
 The Windows AMD64 `--worker-query-plugin` route requires an explicit persisted
-`coding-standard` print-mode Session, exact Product selection, approved native
+`coding-standard` print- or text-mode Session, exact Product selection, approved native
 release, and per-install opt-in. It adds only one read-only query Tool; default
 Worker routing remains closed. PR #662 records the earlier ordinary B Session
 acceptance, separate from this Worker route.

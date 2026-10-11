@@ -5090,6 +5090,46 @@ finally:
                                             await cli_runtime.dispose_session_runtime()
 
                                     asyncio.run(exercise_cli_worker())
+                                    text_cli_parent = tmp_path / "text-cli-store"
+                                    text_cli_parent.mkdir()
+                                    text_cli_dir = text_cli_parent / "transcripts"
+                                    text_cli_dir.mkdir()
+                                    text_cli_args = parse_args(
+                                        [
+                                            "--mode",
+                                            "text",
+                                            "--cwd",
+                                            str(workspace),
+                                            "--composition-set",
+                                            "coding-standard",
+                                            "--worker-query-plugin",
+                                            "workerprobe",
+                                        ]
+                                    )
+                                    with patch.object(
+                                        application,
+                                        "create_agent_session_runtime",
+                                        side_effect=lambda **kwargs: (
+                                            create_agent_session_runtime(
+                                                model=query_model,
+                                                stream_fn=worker_turn_stream,
+                                                **kwargs,
+                                            )
+                                        ),
+                                    ):
+                                        cli_runtime = (
+                                            application.default_runtime_builder(
+                                                args=text_cli_args,
+                                                cwd=workspace,
+                                                session_dir=text_cli_dir,
+                                                services=create_services(
+                                                    settings_manager=settings
+                                                ),
+                                                tool_registry=WorkspaceToolRegistry(),
+                                            )
+                                        )
+                                    worker_turn_calls = 0
+                                    asyncio.run(exercise_cli_worker())
                                     return
                             else:
                                 hosted_runtime = create_agent_session_runtime(
