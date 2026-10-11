@@ -7838,39 +7838,40 @@ def test_windows_worker_update_gc_keeps_selected_revision(
             for item in snapshot.installations
             if item.installation_key.plugin_id == "workerprobe"
         )
-        enabled = product.management.submit(
-            PluginManagementCommandV1(
-                action="enable",
-                mutation=PluginDesiredStateMutationV1(
-                    operation_id="windows-worker-enable-v1",
-                    idempotency_key="windows-worker-enable-v1",
-                    expected_inventory_revision=snapshot.inventory_revision,
-                    installation_key=installation.installation_key,
-                    desired_state="installed_enabled",
-                    package_revision=None,
-                    actor_id=product.actor_id,
-                    policy_revision=product.desired_policy_revision,
-                ),
-            )
+        enabled = execute_windows_worker_candidate_command(
+            product,
+            Namespace(
+                action="candidate-enable",
+                plugin_id="workerprobe",
+                artifact_digest=records[0].artifact_digest,
+                operation_id="windows-worker-enable-v1",
+                expected_inventory_revision=snapshot.inventory_revision,
+            ),
         )
-        assert enabled.status == "terminal"
+        assert enabled["candidateManagementOperation"]["status"] == "terminal"
         old_selected = runtime.capture_selected_plugin_manifest_for(
             "workerprobe",
             max_files=16,
             max_total_bytes=16 * 1024 * 1024,
         )
         assert old_selected.manifest.version == "1"
-        updated = runtime.lifecycle.route(
-            PackageProductLifecycleIntentV1(
-                operation_id="windows-worker-update-v2",
-                action="update",
-                source=sources[1],
-                scope="project",
-            ),
-            entrypoint="cli",
+        update_args = Namespace(
+            action="candidate-update",
+            plugin_id="workerprobe",
+            from_artifact_digest=records[0].artifact_digest,
+            artifact_digest=records[1].artifact_digest,
+            operation_id="windows-worker-update-v2",
+            expected_inventory_revision=product.desired_state.snapshot().inventory_revision,
         )
-        assert updated.handled and updated.record is not None
-        assert updated.record.lifecycle == "installed"
+        with pytest.raises(ValueError, match="update selection changed"):
+            execute_windows_worker_candidate_command(
+                product,
+                Namespace(**{**vars(update_args), "expected_inventory_revision": 0}),
+            )
+        updated = execute_windows_worker_candidate_command(product, update_args)
+        assert updated["candidateUpdate"]["alreadyUpdated"] is False
+        replayed = execute_windows_worker_candidate_command(product, update_args)
+        assert replayed["candidateUpdate"]["alreadyUpdated"] is True
         current = product.desired_state.snapshot().installation(
             installation.installation_key
         )
@@ -7950,6 +7951,26 @@ def test_windows_worker_update_gc_keeps_selected_revision(
             fresh.assert_selected_plugin_manifest_current(selected)
         finally:
             fresh.dispose_runtime()
+        disable_args = Namespace(
+            action="candidate-disable",
+            plugin_id="workerprobe",
+            artifact_digest=records[1].artifact_digest,
+            operation_id="windows-worker-disable-v2",
+            expected_inventory_revision=product.desired_state.snapshot().inventory_revision,
+        )
+        disabled = execute_windows_worker_candidate_command(product, disable_args)
+        assert disabled["candidateManagementOperation"]["status"] == "terminal"
+        remove_args = Namespace(
+            action="candidate-remove",
+            plugin_id="workerprobe",
+            artifact_digest=records[1].artifact_digest,
+            operation_id="windows-worker-remove-v2",
+            expected_inventory_revision=product.desired_state.snapshot().inventory_revision,
+        )
+        removed = execute_windows_worker_candidate_command(product, remove_args)
+        assert removed["candidateManagementOperation"]["status"] == "terminal"
+        assert removed["packageRetirement"] == "not_checked"
+        assert execute_windows_worker_candidate_command(product, remove_args) == removed
     finally:
         reopened.close()
 
