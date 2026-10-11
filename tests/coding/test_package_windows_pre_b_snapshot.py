@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+from argparse import Namespace
 from base64 import urlsafe_b64encode
 from collections.abc import Iterator
 from ctypes import wintypes
@@ -55,6 +56,9 @@ from loushang.coding.bootstrap import (
 )
 from loushang.coding.cli.package_cutover import main as cutover_cli_main
 from loushang.coding.cli.package_gc import main as gc_cli_main
+from loushang.coding.cli.package_worker_windows_candidate import (
+    _execute as execute_windows_worker_candidate_command,
+)
 from loushang.coding.cli.package_worker_windows_candidate import (
     main as windows_worker_candidate_main,
 )
@@ -4679,6 +4683,39 @@ finally:
                     assert allowed.opt_in is not None
                     assert allowed.opt_in.native_platform == "windows-amd64"
                     assert opt_in_owner.current("workerprobe") == allowed
+                    assert (
+                        execute_windows_worker_candidate_command(
+                            worker_product, Namespace(action="release-status")
+                        )["approvalDecision"]
+                        == approved.to_dict()
+                    )
+                    assert (
+                        execute_windows_worker_candidate_command(
+                            worker_product,
+                            Namespace(action="release-review", wheel=str(wheels[0])),
+                        )["nativeReleaseReview"]
+                        == review.to_dict()
+                    )
+                    assert (
+                        execute_windows_worker_candidate_command(
+                            worker_product,
+                            Namespace(
+                                action="release-install",
+                                wheel=str(wheels[0]),
+                                review_id=review.review_id,
+                            ),
+                        )["approvalGeneration"]
+                        == approved.generation
+                    )
+                    assert (
+                        execute_windows_worker_candidate_command(
+                            worker_product,
+                            Namespace(
+                                action="candidate-status", plugin_id="workerprobe"
+                            ),
+                        )["candidateOptInDecision"]
+                        == allowed.to_dict()
+                    )
                     if ordinary_entry_kind is not None:
                         assert owner_id == "coding"
                         assert ordinary_entry_kind in {"direct", "hosted"}
