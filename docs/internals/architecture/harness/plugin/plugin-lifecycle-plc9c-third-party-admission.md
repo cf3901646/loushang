@@ -2217,6 +2217,19 @@ a read-only preflight input; it does not commit a checkpoint, switch journal
 readers or writers, or authorize source deletion. Native Windows Product CI for
 this new review remains required.
 
+The Windows Product now has a canonical checkpoint record and a private
+publisher. Under Package runtime quiescence and the GC write gate, publication
+requires the exact durable preparation bytes, the guarded Package/backup
+preflight, Desired history, and all six typed bases. The record preserves the
+source byte inventory, semantic base digests, retained operation/receipt/attempt
+identities, GC reservation revision, and backup topology revision. An
+interrupted private stage remains a refusal for ordinary readers; only the
+publisher may reprove the full current input and finish those exact bytes.
+The published record remains pre-cutover evidence: old journals retain sole
+authority, and no reader/writer switch, capacity rollover, or source deletion
+is enabled. Native Windows publication, restart, and staged-retry evidence
+awaits CI.
+
 1. **Author artifact.** A versioned author recipe packages one Worker
    declaration document, a platform-specific executable, and a manifest whose
    v3 reservation exactly matches the v3 declaration. The recipe validates

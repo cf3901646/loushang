@@ -46,6 +46,8 @@ _PREPARATION_NAMES = frozenset(
     {
         "worker-history-preparation-v1.json",
         "worker-history-preparation-v1.json.stage",
+        "worker-history-checkpoint-v1.json",
+        "worker-history-checkpoint-v1.json.stage",
     }
 )
 
@@ -240,13 +242,9 @@ class CodingWindowsWorkerHistorySemanticReadV1:
                 (self.desired_inventory_revision is None)
                 != (self.desired_history_digest is None)
             )
+            or ((self.desired_snapshot is None) != (self.desired_transitions is None))
             or (
-                (self.desired_snapshot is None)
-                != (self.desired_transitions is None)
-            )
-            or (
-                (self.desired_snapshot is None)
-                != (self.desired_history_digest is None)
+                (self.desired_snapshot is None) != (self.desired_history_digest is None)
             )
             or (
                 self.desired_inventory_revision is not None
@@ -433,6 +431,7 @@ def _capture_coding_windows_worker_history_sources_under_gc_guard(
     store_id: str,
     lease_owner_revision: int,
     require_settled_history: bool,
+    allow_checkpoint_stage: bool = False,
 ) -> CodingWindowsWorkerHistorySourceSnapshotV1:
     """Pin all source bytes while the caller owns quiescence and the GC gate."""
 
@@ -444,7 +443,10 @@ def _capture_coding_windows_worker_history_sources_under_gc_guard(
                 raise ValueError("Windows Worker history root changed")
             before = tuple(windows_listdir_at(root))
             _require_known_windows_worker_state_names(before)
-            if "worker-history-preparation-v1.json.stage" in before:
+            if "worker-history-preparation-v1.json.stage" in before or (
+                "worker-history-checkpoint-v1.json.stage" in before
+                and not allow_checkpoint_stage
+            ):
                 raise ValueError("Windows Worker history stage remains")
             names = tuple(
                 sorted(
@@ -457,9 +459,7 @@ def _capture_coding_windows_worker_history_sources_under_gc_guard(
             if any(name.casefold().endswith(".stage") for name in names):
                 raise ValueError("Windows Worker history stage remains")
             if len(names) > _MAX_FILES:
-                raise ValueError(
-                    "Windows Worker history inventory exceeds bound"
-                )
+                raise ValueError("Windows Worker history inventory exceeds bound")
             files: list[CodingWindowsWorkerHistorySourceFileV1] = []
             total = 0
             for name in names:
@@ -471,9 +471,7 @@ def _capture_coding_windows_worker_history_sources_under_gc_guard(
                     if windows_regular_file_stream_names(source.fileno()) != (
                         "::$DATA",
                     ):
-                        raise ValueError(
-                            "Windows Worker history stream changed"
-                        )
+                        raise ValueError("Windows Worker history stream changed")
                     opened = os.fstat(source.fileno())
                     digest = sha256()
                     size = 0
@@ -499,9 +497,7 @@ def _capture_coding_windows_worker_history_sources_under_gc_guard(
                         closed.st_mtime_ns,
                         closed.st_ctime_ns,
                     ) or size != opened.st_size:
-                        raise ValueError(
-                            "Windows Worker history source changed"
-                        )
+                        raise ValueError("Windows Worker history source changed")
                     visible = windows_stat_at(root, name)
                     if (
                         not os.path.samestat(closed, visible)
@@ -509,9 +505,7 @@ def _capture_coding_windows_worker_history_sources_under_gc_guard(
                         or visible.st_mtime_ns != closed.st_mtime_ns
                         or visible.st_ctime_ns != closed.st_ctime_ns
                     ):
-                        raise ValueError(
-                            "Windows Worker history source changed"
-                        )
+                        raise ValueError("Windows Worker history source changed")
                     files.append(
                         CodingWindowsWorkerHistorySourceFileV1(
                             name=name,
@@ -521,7 +515,8 @@ def _capture_coding_windows_worker_history_sources_under_gc_guard(
                     )
             if require_settled_history:
                 CodingWindowsWorkerGcHistoryAuthority(product).require_settled(
-                    observed_names=before
+                    observed_names=before,
+                    allow_checkpoint_stage=allow_checkpoint_stage,
                 )
             if set(windows_listdir_at(root)) != set(before):
                 raise ValueError("Windows Worker history inventory changed")

@@ -267,6 +267,7 @@ def _review_coding_windows_worker_package_references_under_guard(
     *,
     quiescence: PackageWindowsRuntimeQuiescenceV1,
     gc_snapshot: PluginPackageGcReservationSnapshotV1,
+    allow_checkpoint_stage: bool = False,
 ) -> tuple[
     CodingWindowsWorkerPackageReferenceReviewV1,
     CodingWindowsWorkerHistoryPreparationV1,
@@ -282,6 +283,7 @@ def _review_coding_windows_worker_package_references_under_guard(
         store_id=quiescence.store_id,
         lease_owner_revision=quiescence.owner_revision,
         require_settled_history=True,
+        allow_checkpoint_stage=allow_checkpoint_stage,
     )
     recovery = _inspect_coding_windows_product_worker_offline_recovery_under_gc_guard(
         product,
@@ -297,6 +299,7 @@ def _review_coding_windows_worker_package_references_under_guard(
         store_id=quiescence.store_id,
         lease_owner_revision=quiescence.owner_revision,
         require_settled_history=False,
+        allow_checkpoint_stage=allow_checkpoint_stage,
     ):
         raise ValueError("Windows Worker history sources changed")
     semantic = CodingWindowsWorkerHistorySemanticReadV1(

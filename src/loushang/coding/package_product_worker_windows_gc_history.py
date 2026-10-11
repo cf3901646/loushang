@@ -57,6 +57,8 @@ _EXACT = frozenset(
         "worker-native-backend-release-v1.whl",
         "worker-history-preparation-v1.json",
         "worker-history-preparation-v1.json.stage",
+        "worker-history-checkpoint-v1.json",
+        "worker-history-checkpoint-v1.json.stage",
     }
 )
 
@@ -131,7 +133,9 @@ class CodingWindowsWorkerGcHistoryAuthority:
     def product_owner(self) -> WindowsLocalWheelProductSessionOwner:
         return self._product
 
-    def require_settled(self, *, observed_names: tuple[str, ...]) -> None:
+    def require_settled(
+        self, *, observed_names: tuple[str, ...], allow_checkpoint_stage: bool = False
+    ) -> None:
         """Verify every retained attempt without mutating Worker or Package state.
 
         The caller holds runtime quiescence and the Product GC guard. Names are
@@ -147,7 +151,10 @@ class CodingWindowsWorkerGcHistoryAuthority:
             if set(windows_listdir_at(root)) != set(observed_names):
                 raise ValueError("Windows Worker GC inventory changed")
             _require_known_windows_worker_state_names(observed_names)
-            if "worker-history-preparation-v1.json.stage" in observed_names:
+            if "worker-history-preparation-v1.json.stage" in observed_names or (
+                "worker-history-checkpoint-v1.json.stage" in observed_names
+                and not allow_checkpoint_stage
+            ):
                 raise ValueError("Windows Worker history preparation remains staged")
 
             inventory = _inspect_windows_worker_recovery_inventory_under_gc_guard(
