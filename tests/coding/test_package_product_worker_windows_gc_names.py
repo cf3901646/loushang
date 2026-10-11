@@ -16,9 +16,34 @@ from loushang.coding.package_product_worker_windows_gc_history import (
     _require_c5_gc_history,
     _require_known_windows_worker_state_names,
 )
+from loushang.coding.package_product_worker_windows_history_sources import (
+    CodingWindowsWorkerHistorySourceFileV1,
+    CodingWindowsWorkerHistorySourceSnapshotV1,
+)
 from loushang.coding.package_product_worker_windows_recovery_inventory import (
     CodingWindowsWorkerRecoveryAttemptV1,
 )
+
+
+def test_windows_worker_history_source_identity_round_trips_strictly() -> None:
+    source = CodingWindowsWorkerHistorySourceFileV1(
+        name="worker-opt-in.jsonl", size=3, sha256_digest=sha256(b"abc").hexdigest()
+    )
+    snapshot = CodingWindowsWorkerHistorySourceSnapshotV1.create(
+        scope_id="scope-a", store_id="store-a", lease_owner_revision=2, files=(source,)
+    )
+    assert (
+        CodingWindowsWorkerHistorySourceSnapshotV1.from_dict(snapshot.to_dict())
+        == snapshot
+    )
+    changed = snapshot.to_dict()
+    changed["snapshotDigest"] = sha256(b"changed").hexdigest()
+    with pytest.raises(ValueError, match="source snapshot is invalid"):
+        CodingWindowsWorkerHistorySourceSnapshotV1.from_dict(changed)
+    changed = snapshot.to_dict()
+    changed["files"] = [{**source.to_dict(), "size": True}]
+    with pytest.raises(ValueError, match="source file is invalid"):
+        CodingWindowsWorkerHistorySourceSnapshotV1.from_dict(changed)
 
 
 def test_windows_worker_gc_accepts_current_owned_state_names() -> None:
