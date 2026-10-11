@@ -3130,6 +3130,7 @@ def test_windows_worker_hosted_first_session_reaches_selected_product(
         "windows-amd64",
         owner_id="coding",
         ordinary_entry_kind="hosted",
+        author_example=True,
     )
 
 
@@ -3145,6 +3146,7 @@ def test_windows_worker_public_session_disable_fences_pinned_product(
         owner_id="coding",
         ordinary_entry_kind="direct",
         disable_while_ordinary_session_open=True,
+        author_example=True,
     )
 
 
@@ -3167,6 +3169,7 @@ module = runpy.run_path(sys.argv[1])
 module["_exercise_windows_worker_wheel_transaction"](
     Path(sys.argv[2]), "windows-amd64", owner_id="coding",
     ordinary_entry_kind=sys.argv[3], crash_after_ordinary_query=True,
+    author_example=True,
 )
 """
     child_stdout = tmp_path / f"public-{entry_kind}-crash.stdout"
@@ -3608,7 +3611,7 @@ def test_windows_worker_clean_retirement_allows_fresh_product_launch(
         pytest.skip("native Windows backend review is required")
     tmp_path = windows_worker_test_root
     _exercise_windows_worker_wheel_transaction(
-        tmp_path, "windows-amd64", clean_rotation=True
+        tmp_path, "windows-amd64", clean_rotation=True, author_example=True
     )
     _assert_windows_worker_retired_history_allows_gc(
         tmp_path, partial_attempt_id="b" * 32
@@ -4141,7 +4144,10 @@ def test_windows_worker_native_normal_exit_c5_cleanup_evidence(
     if os.name != "nt" or os.environ.get("LOUSHANG_WINDOWS_BACKEND_REVIEW") != "1":
         pytest.skip("native Windows backend review is required")
     _exercise_windows_worker_wheel_transaction(
-        windows_worker_test_root, "windows-amd64", c5_cleanup_review=True
+        windows_worker_test_root,
+        "windows-amd64",
+        c5_cleanup_review=True,
+        author_example=True,
     )
 
 
