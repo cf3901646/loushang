@@ -37,6 +37,9 @@ from loushang.harness.worker.product_activation import (
 )
 
 from .package_product_worker_policy import coding_worker_session_scope_id
+from .package_product_worker_windows_history_write_fence import (
+    require_windows_worker_legacy_history_writable,
+)
 from .package_product_worker_windows_launch_intent import (
     _read_intent_under_gc_guard,
 )
@@ -230,12 +233,11 @@ class CodingWindowsProductWorkerProvisioningStateStore:
                 worker_request=self._worker_request,
             )
             self._product.assert_session_runtime_current(self._runtime)
-            self._require_store_current(
-                desired_phase=document.get("phase"), write=True
-            )
+            self._require_store_current(desired_phase=document.get("phase"), write=True)
             with (
                 self._product.epoch_runtime.borrow_product_state_root_descriptor() as root
             ):
+                require_windows_worker_legacy_history_writable(root)
                 committed = self._journal.compare_and_swap(
                     expected_revision=expected_revision,
                     document=document,
