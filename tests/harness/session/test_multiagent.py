@@ -744,6 +744,36 @@ def test_standard_agent_session_binding_reuses_the_root_input_queue() -> None:
     assert session.multiagent_input.queue is queue
 
 
+def test_registered_spawn_schema_lists_only_admitted_session_types() -> None:
+    queue: HostInputQueue[ApplicationMessage] = HostInputQueue()
+    registered = []
+    session = SimpleNamespace(
+        runtime=SimpleNamespace(
+            queue=SimpleNamespace(input_queue=queue),
+            is_active=False,
+        ),
+        register_runtime_tools=lambda definitions, **_kwargs: registered.extend(
+            definitions
+        ),
+    )
+
+    bind_agent_session_multiagent(
+        session,
+        child_factory=_Factory(),
+        agent_types=AgentTypeRegistry((AgentTypeSpec(name="reviewer"),)),
+        agent_type_hints={
+            "reviewer": "review",
+            "implementation_worker": "implementation in an isolated worktree",
+        },
+        register_tools=True,
+    )
+
+    spawn = next(tool for tool in registered if tool.name == "spawn_agent")
+    agent_type = spawn.parameters["properties"]["agent_type"]
+    assert agent_type["enum"] == ["reviewer"]
+    assert agent_type["description"] == "Choose an admitted type: reviewer (review)."
+
+
 def test_agent_input_projection_preserves_routing_metadata() -> None:
     control = _control()
     child = control.spawn(
