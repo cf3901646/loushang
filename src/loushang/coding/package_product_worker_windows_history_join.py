@@ -112,12 +112,12 @@ class CodingWindowsWorkerHistorySemanticJoinV1:
             != tuple(sorted(set(self.launched_attempt_ids)))
             or not set(self.effect_attempt_ids).issubset(self.observed_attempt_ids)
             or not set(self.launched_attempt_ids).issubset(self.effect_attempt_ids)
-            or self.launched_attempt_ids != self.launch_intent.intent_attempt_ids
+            or self.launched_attempt_ids != self.supervisor.retired_attempt_ids
+            or not set(self.launched_attempt_ids).issubset(
+                self.launch_intent.intent_attempt_ids
+            )
             or self.effect_attempt_ids != self.native_provisioning.attempt_ids
             or self.effect_attempt_ids != self.c5.retired_attempt_ids
-            or not set(self.supervisor.retired_attempt_ids).issubset(
-                self.launched_attempt_ids
-            )
             or type(self.review_digest) is not str
             or self.review_digest
             != sha256(canonical_json_bytes(self._unsigned_dict())).hexdigest()
@@ -183,7 +183,9 @@ class CodingWindowsWorkerHistorySemanticJoinV1:
                 or item.supervisor_phase is not None
             )
         )
-        launched = tuple(sorted(item.attempt_id for item in recovery.launch_intents))
+        # A durable launch intent can retire before Supervisor starts. Only a
+        # retained Supervisor attempt proves that the Worker was launched.
+        launched = supervisor.retired_attempt_ids
         receipts = {item.receipt.fingerprint: item for item in recovery.receipt_records}
         if len(receipts) != len(recovery.receipt_records):
             raise ValueError("Windows Worker history receipt inventory is invalid")
@@ -233,16 +235,30 @@ class CodingWindowsWorkerHistorySemanticJoinV1:
                     raise ValueError(
                         "Windows Worker history unlaunched join is incomplete"
                     )
-            elif (
-                supervised is None
-                or native_receipt != intent.receipt_fingerprint
-                or provisioned.identity["workerRequestFingerprint"]
-                != intent.request_fingerprint
-                or supervised.identity_fingerprint != intent.identity_fingerprint
-                or item.supervisor_phase not in ("stopped", "process_settled")
-                or item.supervisor_process_settled is not True
-            ):
-                raise ValueError("Windows Worker history launched join is incomplete")
+            else:
+                if (
+                    native_receipt != intent.receipt_fingerprint
+                    or provisioned.identity["workerRequestFingerprint"]
+                    != intent.request_fingerprint
+                ):
+                    raise ValueError("Windows Worker history launch join is incomplete")
+                if supervised is None:
+                    if (
+                        item.supervisor_phase is not None
+                        or item.supervisor_process_settled is not None
+                        or item.supervisor_identity_fingerprint is not None
+                    ):
+                        raise ValueError(
+                            "Windows Worker history unlaunched join is incomplete"
+                        )
+                elif (
+                    supervised.identity_fingerprint != intent.identity_fingerprint
+                    or item.supervisor_phase not in ("stopped", "process_settled")
+                    or item.supervisor_process_settled is not True
+                ):
+                    raise ValueError(
+                        "Windows Worker history launched join is incomplete"
+                    )
         unsigned = {
             "c5": c5.record_digest,
             "effectAttemptIds": list(effects),

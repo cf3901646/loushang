@@ -3978,6 +3978,10 @@ def _assert_windows_worker_retired_history_allows_gc(
         )
         assert joined.native_provisioning == native_base
         assert joined.launched_attempt_ids
+        assert joined.launched_attempt_ids == joined.supervisor.retired_attempt_ids
+        assert "9" * 32 in joined.launched_attempt_ids
+        assert "a" * 32 in joined.launch_intent.intent_attempt_ids
+        assert "a" * 32 not in joined.launched_attempt_ids
         assert "operator:windows-worker-gc-revoke" in (
             semantic.offline_recovery.retained_opt_in_operation_ids
         )
