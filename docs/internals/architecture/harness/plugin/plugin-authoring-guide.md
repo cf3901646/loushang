@@ -473,6 +473,15 @@ roots and checks their physical absence. `candidate-remove` itself never claims
 that deletion. An unsettled attempt or retained reference keeps GC closed; the
 operator must use the exact review and repair path for that debt.
 
+On Windows AMD64, the same candidate update, disable, and remove arguments are
+available through `loushang-worker-windows-candidate --workspace PATH
+--windows-candidate`. Revoke the per-install opt-in before update or removal,
+pass the current inventory revision to each mutation, and use the new digest
+returned by `candidate-capture` for an update. The command returns the Product
+operation or exact update replay; `candidate-remove` still leaves Package
+retirement and GC to their separate Product commands. This remains an explicit
+candidate route and does not grant general Worker admission.
+
 On Linux, a Product operator can inspect or change per-install Worker opt-in
 with `loushang-worker-native --workspace PATH candidate-status`,
 `candidate-allow`, and `candidate-revoke`, each with `--plugin-id PLUGIN`.
