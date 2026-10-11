@@ -447,11 +447,17 @@ def _grant_windows_world_read(path: Path) -> None:
                 assert not acl._kernel.LocalFree(descriptor)
 
 
-def _compile_windows_query_worker(build_root: Path, executable: Path) -> None:
-    """Build the same bounded protocol fixture used by the Linux Product gate."""
+def _compile_windows_query_worker(
+    build_root: Path, executable: Path, *, author_example: bool = False
+) -> None:
+    """Build the bounded protocol fixture or the public author example."""
 
     source = (
-        Path(__file__).resolve().parents[1] / "fixtures/worker/contained_query_worker.c"
+        Path(__file__).resolve().parents[2]
+        / "examples/plugins/coding_worker_query/query_worker.c"
+        if author_example
+        else Path(__file__).resolve().parents[1]
+        / "fixtures/worker/contained_query_worker.c"
     )
     compiler = shutil.which("cl")
     arguments = (
@@ -3109,6 +3115,7 @@ def test_windows_worker_public_coding_session_reaches_selected_product(
         "windows-amd64",
         owner_id="coding",
         ordinary_entry_kind="direct",
+        author_example=True,
     )
 
 
@@ -4150,6 +4157,7 @@ def _exercise_windows_worker_wheel_transaction(
     owner_id: str = "coding",
     ordinary_entry_kind: str | None = None,
     disable_while_ordinary_session_open: bool = False,
+    author_example: bool = False,
 ) -> None:
     """Only the explicit Product opener reads the inert Worker candidate."""
 
@@ -4213,7 +4221,9 @@ def _exercise_windows_worker_wheel_transaction(
             build_root = tmp_path / "worker-native-build"
             build_root.mkdir()
             compiled = tmp_path / "compiled-worker.exe"
-            _compile_windows_query_worker(build_root, compiled)
+            _compile_windows_query_worker(
+                build_root, compiled, author_example=author_example
+            )
             executable = bytearray(compiled.read_bytes())
         payload = build_coding_local_worker_candidate_wheel(
             plugin_id="workerprobe",
