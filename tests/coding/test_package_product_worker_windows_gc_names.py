@@ -58,6 +58,8 @@ def test_windows_worker_gc_accepts_current_owned_state_names() -> None:
             "worker-native-backend-release-v1.whl",
             "worker-history-preparation-v1.json",
             "worker-history-preparation-v1.json.stage",
+            "worker-history-checkpoint-v1.json",
+            "worker-history-checkpoint-v1.json.stage",
             "worker-activation-receipts.jsonl",
             "worker-activation-receipts.jsonl.lock",
             "worker-activation-state.jsonl",
@@ -86,6 +88,9 @@ def test_windows_worker_history_source_capture_is_private_and_fail_closed(
     )
     from loushang.coding.package_product_runtime import (
         open_coding_fenced_product_application_owner,
+    )
+    from loushang.coding.package_product_worker_windows_checkpoint import (
+        publish_coding_windows_worker_history_checkpoint,
     )
     from loushang.coding.package_product_worker_windows_history_preparation import (
         prepare_coding_windows_worker_history,
@@ -155,6 +160,18 @@ def test_windows_worker_history_source_capture_is_private_and_fail_closed(
         assert prepare_coding_windows_worker_history(product) == prepared
         assert capture_coding_windows_worker_history_sources(product) == before
         assert read_coding_windows_worker_history_semantics(product) == semantic
+        with patch(
+            "loushang.coding.package_legacy_windows_receipt.windows_rename_at",
+            side_effect=RuntimeError("injected checkpoint publication interruption"),
+        ):
+            with pytest.raises(RuntimeError, match="publication interruption"):
+                publish_coding_windows_worker_history_checkpoint(product)
+        with pytest.raises(ValueError, match="stage remains"):
+            capture_coding_windows_worker_history_sources(product)
+        checkpoint = publish_coding_windows_worker_history_checkpoint(product)
+        assert checkpoint.source_snapshot == before
+        assert publish_coding_windows_worker_history_checkpoint(product) == checkpoint
+        assert capture_coding_windows_worker_history_sources(product) == before
         with pytest.raises(ValueError, match="semantic read is invalid"):
             CodingWindowsWorkerHistorySemanticReadV1(
                 source_snapshot=before,
