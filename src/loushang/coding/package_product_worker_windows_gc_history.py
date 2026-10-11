@@ -55,6 +55,8 @@ _EXACT = frozenset(
         "worker-native-release-approvals.jsonl",
         "worker-native-release-approvals.jsonl.lock",
         "worker-native-backend-release-v1.whl",
+        "worker-history-preparation-v1.json",
+        "worker-history-preparation-v1.json.stage",
     }
 )
 
@@ -145,6 +147,8 @@ class CodingWindowsWorkerGcHistoryAuthority:
             if set(windows_listdir_at(root)) != set(observed_names):
                 raise ValueError("Windows Worker GC inventory changed")
             _require_known_windows_worker_state_names(observed_names)
+            if "worker-history-preparation-v1.json.stage" in observed_names:
+                raise ValueError("Windows Worker history preparation remains staged")
 
             inventory = _inspect_windows_worker_recovery_inventory_under_gc_guard(
                 self._product
