@@ -2151,6 +2151,17 @@ record is a precommit witness, not a typed compacted base or a cutover. Old
 journals remain authoritative, and the record cannot authorize history
 deletion or a new Worker attempt. Native Windows publication and
 interrupted-stage evidence remains pending.
+The next source-bound projections decode that prepared semantic read into
+strict canonical opt-in, receipt, and Supervisor bases. They retain the
+latest opt-in decision per plugin, all retired operation IDs, the receipt
+issue-sequence and fingerprint watermarks, and the latest Supervisor state
+plus every claimed attempt ID. The receipt projection joins each old receipt
+to its original `allow` even after a later revoke; Supervisor replay rejects
+old attempt IDs, stale epochs, nonconsecutive revisions, and invalid phase
+transitions. These projections are not yet a committed checkpoint: they do
+not join C5, launch-intent, native provisioning, Desired, Package, backup, or
+live Session references. No Product reader or writer uses them to retire old
+bytes, and no Windows cutover acceptance has been claimed.
 
 1. **Author artifact.** A versioned author recipe packages one Worker
    declaration document, a platform-specific executable, and a manifest whose
