@@ -3868,6 +3868,10 @@ def _retain_windows_c5_test_attempt(
 def _assert_windows_worker_retired_history_allows_gc(
     tmp_path: Path, *, partial_attempt_id: str | None
 ) -> None:
+    from loushang.coding.package_product_worker_windows_history_sources import (
+        review_coding_windows_worker_settled_history_sources,
+    )
+
     workspace = tmp_path / "workspace"
     lifecycle = resolve_ephemeral_coding_plugin_lifecycle_state_layout(
         tmp_path / "session-state", cwd=workspace
@@ -3937,6 +3941,8 @@ def _assert_windows_worker_retired_history_allows_gc(
         )
         staged_history.write_bytes(b"unpublished")
         try:
+            with pytest.raises(ValueError, match="history stage remains"):
+                review_coding_windows_worker_settled_history_sources(product)
             with pytest.raises(PackageProductGcExecutionError) as staged:
                 gc.prepare()
             assert staged.value.code == "plugin_package_gc_worker_history_unsettled"
@@ -4069,6 +4075,11 @@ def _assert_windows_worker_retired_history_allows_gc(
                 "plugin_package_gc_worker_history_unsettled"
             )
         gc.prepare()
+        history_review = review_coding_windows_worker_settled_history_sources(product)
+        assert any(
+            item.name == "worker-activation-receipts.jsonl"
+            for item in history_review.source_snapshot.files
+        )
         candidate = next(
             item for item in gc.candidates() if item.package_revision == revision
         )
