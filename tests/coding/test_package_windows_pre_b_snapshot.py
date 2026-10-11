@@ -7442,8 +7442,8 @@ def test_windows_coding_product_gc_reclaims_only_removed_builtin_root(
 def test_windows_worker_update_gc_keeps_selected_revision(
     windows_worker_test_root: Path,
 ) -> None:
-    if os.name != "nt" or os.environ.get("LOUSHANG_WINDOWS_BACKEND_REVIEW") != "1":
-        pytest.skip("native Windows backend review is required")
+    if os.name != "nt":
+        pytest.skip("native Windows Product path is required")
     workspace = windows_worker_test_root / "workspace"
     workspace.mkdir()
     lifecycle = resolve_ephemeral_coding_plugin_lifecycle_state_layout(
