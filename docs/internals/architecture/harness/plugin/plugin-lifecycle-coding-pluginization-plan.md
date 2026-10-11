@@ -102,8 +102,7 @@
   GC, and Arch private-data owners have implemented routes; explicit Windows
   Worker Session and GC candidate journeys passed native CI. CLI, optional
   Coding RPC, TUI, and local SDK have Product-backed management paths.
-  General third-party Worker admission, default routing, ordinary unflagged
-  Windows routing, the Windows update/GC combination, and Windows private-data
+  General third-party Worker admission, default routing, and Windows private-data
   production use retain separate gates. See the
   [support matrix](plugin-support-matrix.md) for current entry-route limits.
 - Worker canary boundary: explicit Linux/Windows AMD64 Coding Product opt-in
