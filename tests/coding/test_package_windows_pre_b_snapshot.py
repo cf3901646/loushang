@@ -3752,6 +3752,9 @@ def _assert_windows_worker_retired_history_allows_gc(
         read_coding_windows_worker_history_semantics,
         review_coding_windows_worker_settled_history_sources,
     )
+    from loushang.coding.package_product_worker_windows_package_references import (
+        review_coding_windows_worker_package_references,
+    )
     from loushang.coding.package_product_worker_windows_provisioning_base import (
         CodingWindowsWorkerNativeProvisioningSemanticBaseV1,
     )
@@ -3987,6 +3990,15 @@ def _assert_windows_worker_retired_history_allows_gc(
         desired_review = CodingWindowsWorkerDesiredReferenceReviewV1.from_semantic_read(
             CodingWindowsWorkerHistoryPreparationV1.create(semantic), semantic
         )
+        package_review = review_coding_windows_worker_package_references(product)
+        assert package_review.desired_review_digest == desired_review.review_digest
+        assert package_review.history_join_digest == joined.review_digest
+        assert package_review.lease_owner_revision == (
+            semantic.source_snapshot.lease_owner_revision
+        )
+        assert {
+            attempt_id for attempt_id, _ in package_review.worker_backup_observations
+        } == {item.attempt_id for item in semantic.offline_recovery.attempts}
         assert {
             fingerprint
             for fingerprint, _, _ in desired_review.retained_receipt_revisions

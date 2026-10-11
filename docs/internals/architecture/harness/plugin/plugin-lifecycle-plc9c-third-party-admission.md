@@ -2205,6 +2205,18 @@ erase that historical reference. This review has portable positive and changed
 artifact coverage; its native Product assertion awaits CI. Package lease and
 backup closure, a durable checkpoint, owner switch, and deletion remain open.
 
+The next guarded Product review holds Package runtime quiescence and the
+Product GC/Desired gate together while rereading source, recovery, and Desired
+history. It binds the six-ledger join and Desired reference review to the same
+source digest and lease-owner revision, retains terminal repaired Worker runtime
+lease IDs, and requires exactly one closed backup-topology observation for each
+retained attempt. It also probes the Product backup topology when no attempt
+exists. Active runtime leases, GC reservations, unsupported Worker
+backup writers, or an unmatched backup observation refuse the review. This is
+a read-only preflight input; it does not commit a checkpoint, switch journal
+readers or writers, or authorize source deletion. Native Windows Product CI for
+this new review remains required.
+
 1. **Author artifact.** A versioned author recipe packages one Worker
    declaration document, a platform-specific executable, and a manifest whose
    v3 reservation exactly matches the v3 declaration. The recipe validates
