@@ -3755,6 +3755,8 @@ def _assert_windows_worker_retired_history_allows_gc(
         with pytest.raises(PackageProductGcExecutionError) as live_stage:
             gc.prepare()
         assert live_stage.value.code == "plugin_package_gc_worker_payload_unsettled"
+        with pytest.raises(ValueError):
+            review_coding_windows_worker_settled_history_sources(product)
 
         if partial_attempt_id is None:
             review = review_coding_windows_product_worker_complete_stage(
@@ -3781,9 +3783,6 @@ def _assert_windows_worker_retired_history_allows_gc(
             assert not (
                 product.state_root / ("worker-payload-" + partial_attempt_id)
             ).exists()
-
-        with pytest.raises(ValueError):
-            review_coding_windows_worker_settled_history_sources(product)
 
         without_worker_proof = open_windows_local_wheel_product_root_gc(product)
         with pytest.raises(PackageProductGcExecutionError) as unproved:
