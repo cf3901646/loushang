@@ -23,6 +23,9 @@ from .package_legacy_windows_receipt import (
     read_windows_private_receipt,
     write_windows_private_receipt,
 )
+from .package_product_worker_native_approval import (
+    CodingWorkerNativeApprovalDecisionV1,
+)
 from .package_product_worker_windows_history_join import (
     CodingWindowsWorkerHistorySemanticJoinV1,
 )
@@ -32,6 +35,9 @@ from .package_product_worker_windows_history_preparation import (
 from .package_product_worker_windows_history_sources import (
     CodingWindowsWorkerHistorySemanticReadV1,
     CodingWindowsWorkerHistorySourceSnapshotV1,
+)
+from .package_product_worker_windows_native_approval_journal import (
+    CodingWindowsWorkerNativeApprovalJournal,
 )
 from .package_product_worker_windows_package_references import (
     CodingWindowsWorkerPackageReferenceReviewV1,
@@ -64,6 +70,9 @@ class CodingWindowsWorkerHistoryCheckpointV1:
     backup_topology_revision: str
     gc_reservation_revision: int
     base_digests: tuple[tuple[str, str], ...]
+    native_approval_record_digests: tuple[str, ...]
+    native_approval_operation_ids: tuple[str, ...]
+    native_approval_generation: int
     opt_in_operation_ids: tuple[str, ...]
     receipt_fingerprints: tuple[str, ...]
     attempt_ids: tuple[str, ...]
@@ -98,6 +107,23 @@ class CodingWindowsWorkerHistoryCheckpointV1:
             or type(self.base_digests) is not tuple
             or tuple(name for name, _ in self.base_digests) != _BASE_NAMES
             or any(_DIGEST.fullmatch(digest) is None for _, digest in self.base_digests)
+            or type(self.native_approval_record_digests) is not tuple
+            or any(
+                type(value) is not str or _DIGEST.fullmatch(value) is None
+                for value in self.native_approval_record_digests
+            )
+            or type(self.native_approval_operation_ids) is not tuple
+            or self.native_approval_operation_ids
+            != tuple(sorted(set(self.native_approval_operation_ids)))
+            or len(self.native_approval_operation_ids)
+            != len(self.native_approval_record_digests)
+            or any(
+                type(value) is not str or not value or len(value) > 128
+                for value in self.native_approval_operation_ids
+            )
+            or type(self.native_approval_generation) is not int
+            or self.native_approval_generation
+            != len(self.native_approval_record_digests)
             or self.opt_in_operation_ids
             != tuple(sorted(set(self.opt_in_operation_ids)))
             or any(
@@ -133,6 +159,9 @@ class CodingWindowsWorkerHistoryCheckpointV1:
             "desiredHistoryDigest": self.desired_history_digest,
             "gcReservationRevision": self.gc_reservation_revision,
             "nativeProvisioningAttemptIds": list(self.native_provisioning_attempt_ids),
+            "nativeApprovalGeneration": self.native_approval_generation,
+            "nativeApprovalOperationIds": list(self.native_approval_operation_ids),
+            "nativeApprovalRecordDigests": list(self.native_approval_record_digests),
             "optInOperationIds": list(self.opt_in_operation_ids),
             "packageReferenceDigest": self.package_reference_digest,
             "preparationDigest": self.preparation_digest,
@@ -163,6 +192,9 @@ class CodingWindowsWorkerHistoryCheckpointV1:
                 "desiredHistoryDigest",
                 "gcReservationRevision",
                 "nativeProvisioningAttemptIds",
+                "nativeApprovalGeneration",
+                "nativeApprovalOperationIds",
+                "nativeApprovalRecordDigests",
                 "optInOperationIds",
                 "packageReferenceDigest",
                 "preparationDigest",
@@ -182,6 +214,13 @@ class CodingWindowsWorkerHistoryCheckpointV1:
                 backup_topology_revision=value["backupTopologyRevision"],
                 gc_reservation_revision=value["gcReservationRevision"],
                 base_digests=tuple(tuple(item) for item in value["baseDigests"]),
+                native_approval_record_digests=tuple(
+                    value["nativeApprovalRecordDigests"]
+                ),
+                native_approval_operation_ids=tuple(
+                    value["nativeApprovalOperationIds"]
+                ),
+                native_approval_generation=value["nativeApprovalGeneration"],
                 opt_in_operation_ids=tuple(value["optInOperationIds"]),
                 receipt_fingerprints=tuple(value["receiptFingerprints"]),
                 attempt_ids=tuple(value["attemptIds"]),
@@ -203,6 +242,7 @@ class CodingWindowsWorkerHistoryCheckpointV1:
         prepared: CodingWindowsWorkerHistoryPreparationV1,
         semantic: CodingWindowsWorkerHistorySemanticReadV1,
         package_review: CodingWindowsWorkerPackageReferenceReviewV1,
+        native_approvals: tuple[CodingWorkerNativeApprovalDecisionV1, ...],
     ) -> CodingWindowsWorkerHistoryCheckpointV1:
         """Derive the canonical record from one held Product preflight read."""
 
@@ -221,8 +261,37 @@ class CodingWindowsWorkerHistoryCheckpointV1:
             or package_review.store_id != source.store_id
             or package_review.scope_id != source.scope_id
             or semantic.desired_history_digest is None
+            or type(native_approvals) is not tuple
+            or any(
+                type(item) is not CodingWorkerNativeApprovalDecisionV1
+                or item.scope_id != source.scope_id
+                or item.journal_revision != index
+                or item.generation != index
+                for index, item in enumerate(native_approvals, start=1)
+            )
+            or len({item.operation_id for item in native_approvals})
+            != len(native_approvals)
         ):
             raise ValueError("Windows Worker checkpoint references changed")
+        raw_approvals = b"".join(
+            canonical_json_bytes(item.to_dict()) + b"\n" for item in native_approvals
+        )
+        approval_source = next(
+            (
+                item
+                for item in source.files
+                if item.name == "worker-native-release-approvals.jsonl"
+            ),
+            None,
+        )
+        if (approval_source is None) != (not native_approvals) or (
+            approval_source is not None
+            and (
+                approval_source.size != len(raw_approvals)
+                or approval_source.sha256_digest != sha256(raw_approvals).hexdigest()
+            )
+        ):
+            raise ValueError("Windows Worker native approval history changed")
         bases = (
             ("optIn", joined.opt_in.record_digest),
             ("receipt", joined.receipt.record_digest),
@@ -240,6 +309,13 @@ class CodingWindowsWorkerHistoryCheckpointV1:
             "nativeProvisioningAttemptIds": list(
                 joined.native_provisioning.attempt_ids
             ),
+            "nativeApprovalGeneration": len(native_approvals),
+            "nativeApprovalOperationIds": sorted(
+                item.operation_id for item in native_approvals
+            ),
+            "nativeApprovalRecordDigests": [
+                item.record_digest for item in native_approvals
+            ],
             "optInOperationIds": list(recovery.retained_opt_in_operation_ids),
             "packageReferenceDigest": package_review.review_digest,
             "preparationDigest": prepared.record_digest,
@@ -255,6 +331,13 @@ class CodingWindowsWorkerHistoryCheckpointV1:
             backup_topology_revision=package_review.backup_topology_revision,
             gc_reservation_revision=recovery.gc_reservation_revision,
             base_digests=bases,
+            native_approval_record_digests=tuple(
+                item.record_digest for item in native_approvals
+            ),
+            native_approval_operation_ids=tuple(
+                sorted(item.operation_id for item in native_approvals)
+            ),
+            native_approval_generation=len(native_approvals),
             opt_in_operation_ids=recovery.retained_opt_in_operation_ids,
             receipt_fingerprints=recovery.retained_receipt_fingerprints,
             attempt_ids=joined.observed_attempt_ids,
@@ -312,8 +395,13 @@ def publish_coding_windows_worker_history_checkpoint(
             )
             if retained_preparation != prepared.to_bytes():
                 raise ValueError("Windows Worker checkpoint preparation changed")
+            with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
+                native_approvals = CodingWindowsWorkerNativeApprovalJournal(
+                    product.state_root / "worker-native-release-approvals.jsonl",
+                    scope_id=product.policy.project_scope_id,
+                ).history_read_only(directory_fd=root)
             checkpoint = CodingWindowsWorkerHistoryCheckpointV1.from_guarded_read(
-                prepared, semantic, review
+                prepared, semantic, review, native_approvals
             )
             candidate = checkpoint.to_bytes()
             if any(raw is not None and raw != candidate for raw in (published, staged)):
