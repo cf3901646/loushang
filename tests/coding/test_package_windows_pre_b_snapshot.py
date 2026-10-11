@@ -5230,6 +5230,80 @@ finally:
                                             await cli_runtime.dispose_session_runtime()
 
                                     asyncio.run(exercise_cli_worker())
+                                    print_attempts = tuple(
+                                        item
+                                        for item in inspect_coding_windows_product_worker_recovery_inventory(
+                                            worker_product
+                                        )
+                                        if item.native_phase == "settled"
+                                        and item.supervisor_phase == "stopped"
+                                        and item.payload_directory_identity is not None
+                                    )
+                                    assert len(print_attempts) == 1
+                                    print_attempt_id = print_attempts[0].attempt_id
+                                    print_review = (
+                                        execute_windows_worker_candidate_command(
+                                            worker_product,
+                                            Namespace(
+                                                action="review-normal",
+                                                attempt_id=print_attempt_id,
+                                            ),
+                                        )["normalStageReview"]
+                                    )
+                                    print_retirement = (
+                                        execute_windows_worker_candidate_command(
+                                            worker_product,
+                                            Namespace(
+                                                action="retire-normal",
+                                                attempt_id=print_attempt_id,
+                                                review_id=print_review["reviewId"],
+                                            ),
+                                        )["normalStageRetirement"]
+                                    )
+                                    assert (
+                                        print_retirement["reviewId"]
+                                        == print_review["reviewId"]
+                                    )
+                                    text_cli_parent = tmp_path / "text-cli-store"
+                                    text_cli_parent.mkdir()
+                                    text_cli_dir = text_cli_parent / "transcripts"
+                                    text_cli_dir.mkdir()
+                                    text_cli_args = parse_args(
+                                        [
+                                            "--mode",
+                                            "text",
+                                            "--cwd",
+                                            str(workspace),
+                                            "--composition-set",
+                                            "coding-standard",
+                                            "--worker-query-plugin",
+                                            "workerprobe",
+                                        ]
+                                    )
+                                    with patch.object(
+                                        application,
+                                        "create_agent_session_runtime",
+                                        side_effect=lambda **kwargs: (
+                                            create_agent_session_runtime(
+                                                model=query_model,
+                                                stream_fn=worker_turn_stream,
+                                                **kwargs,
+                                            )
+                                        ),
+                                    ):
+                                        cli_runtime = (
+                                            application.default_runtime_builder(
+                                                args=text_cli_args,
+                                                cwd=workspace,
+                                                session_dir=text_cli_dir,
+                                                services=create_services(
+                                                    settings_manager=settings
+                                                ),
+                                                tool_registry=WorkspaceToolRegistry(),
+                                            )
+                                        )
+                                    worker_turn_calls = 0
+                                    asyncio.run(exercise_cli_worker())
                                     return
                             else:
                                 hosted_runtime = create_agent_session_runtime(

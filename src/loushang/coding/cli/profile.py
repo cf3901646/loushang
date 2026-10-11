@@ -229,7 +229,7 @@ CODING_CLI_PROFILE: CliProfile = _CODING_STANDARD_CLI_PROFILE.augment(
             metavar="PLUGIN_ID",
             help=(
                 "Explicitly select one approved read-only query Worker for a "
-                "new Linux x86-64 standard Session."
+                "new Linux or Windows x86-64 standard print or text Session."
             ),
         ),
         CliArgumentSpec(
