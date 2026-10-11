@@ -2250,6 +2250,12 @@ all six published bytes against the same current Product evidence. These files
 remain pre-cutover copies: old journals still own reads and writes, and the
 cutover owner and deletion ledger are not yet implemented. Native Windows
 publication and staged-retry evidence awaits CI.
+A separate read-only persisted-base reader decodes the checkpoint and all six
+private base files directly, checks their scope, Store, source digest,
+cross-ledger attempt sets, receipt and opt-in high-water marks, and rereads
+exact bytes under runtime quiescence and the Product GC gate. It does not need
+the old journal bytes to validate those bases. This is a prerequisite for the
+future owner commit; the actual writer switch and deletion ledger remain open.
 
 1. **Author artifact.** A versioned author recipe packages one Worker
    declaration document, a platform-specific executable, and a manifest whose
