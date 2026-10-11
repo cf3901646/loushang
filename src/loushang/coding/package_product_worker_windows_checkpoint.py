@@ -358,6 +358,7 @@ def _current_checkpoint_under_guard(
     quiescence: PackageWindowsRuntimeQuiescenceV1,
     gc_snapshot: PluginPackageGcReservationSnapshotV1,
     allow_checkpoint_stage: bool,
+    allow_base_stage: bool = False,
 ) -> CodingWindowsWorkerHistoryCheckpointV1:
     review, prepared, semantic = (
         _review_coding_windows_worker_package_references_under_guard(
@@ -365,6 +366,7 @@ def _current_checkpoint_under_guard(
             quiescence=quiescence,
             gc_snapshot=gc_snapshot,
             allow_checkpoint_stage=allow_checkpoint_stage,
+            allow_base_stage=allow_base_stage,
         )
     )
     retained_preparation = read_windows_private_receipt(

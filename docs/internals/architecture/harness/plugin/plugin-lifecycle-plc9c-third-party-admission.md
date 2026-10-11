@@ -2241,6 +2241,15 @@ A guarded read-only checkpoint reader now rederives the same Package, Desired,
 backup, native-approval, and six-ledger inputs before accepting published
 bytes. It refuses an absent or stale checkpoint. This does not switch the
 Worker history owner; the native read assertion also awaits CI.
+The six typed semantic bases now have fixed Product-owned private files. A
+publisher rederives the current checkpoint and all six bases under runtime
+quiescence and the GC write gate, preflights every existing or staged byte
+before writing, and can finish only an exact interrupted stage. Ordinary
+readers and Package GC reject any remaining base stage; a guarded read checks
+all six published bytes against the same current Product evidence. These files
+remain pre-cutover copies: old journals still own reads and writes, and the
+cutover owner and deletion ledger are not yet implemented. Native Windows
+publication and staged-retry evidence awaits CI.
 
 1. **Author artifact.** A versioned author recipe packages one Worker
    declaration document, a platform-specific executable, and a manifest whose

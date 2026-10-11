@@ -25,6 +25,10 @@ from .package_product_worker_activation_history import (
 from .package_product_worker_windows_activation_state_journal import (
     CodingWindowsWorkerActivationStateJournal,
 )
+from .package_product_worker_windows_base_files import (
+    WINDOWS_WORKER_BASE_NAMES,
+    WINDOWS_WORKER_BASE_STAGE_NAMES,
+)
 from .package_product_worker_windows_opt_in_journal import (
     CodingWindowsWorkerOptInJournal,
 )
@@ -42,24 +46,28 @@ from .package_product_worker_windows_stage_retirement import _RETIREMENT_NAME
 _INTENT = re.compile(r"worker-launch-intent-[0-9a-f]{32}\.json\Z")
 _NATIVE = re.compile(r"worker-native-provisioning-[0-9a-f]{32}\.jsonl(?:\.lock)?\Z")
 _C5_HEAD = re.compile(r"worker-activation-state\.h[0-9]{8}\.json\Z")
-_EXACT = frozenset(
-    {
-        "worker-activation-state.jsonl",
-        "worker-activation-state.jsonl.lock",
-        "worker-supervisor.jsonl",
-        "worker-supervisor.jsonl.lock",
-        "worker-activation-receipts.jsonl",
-        "worker-activation-receipts.jsonl.lock",
-        "worker-opt-in.jsonl",
-        "worker-opt-in.jsonl.lock",
-        "worker-native-release-approvals.jsonl",
-        "worker-native-release-approvals.jsonl.lock",
-        "worker-native-backend-release-v1.whl",
-        "worker-history-preparation-v1.json",
-        "worker-history-preparation-v1.json.stage",
-        "worker-history-checkpoint-v1.json",
-        "worker-history-checkpoint-v1.json.stage",
-    }
+_EXACT = (
+    frozenset(
+        {
+            "worker-activation-state.jsonl",
+            "worker-activation-state.jsonl.lock",
+            "worker-supervisor.jsonl",
+            "worker-supervisor.jsonl.lock",
+            "worker-activation-receipts.jsonl",
+            "worker-activation-receipts.jsonl.lock",
+            "worker-opt-in.jsonl",
+            "worker-opt-in.jsonl.lock",
+            "worker-native-release-approvals.jsonl",
+            "worker-native-release-approvals.jsonl.lock",
+            "worker-native-backend-release-v1.whl",
+            "worker-history-preparation-v1.json",
+            "worker-history-preparation-v1.json.stage",
+            "worker-history-checkpoint-v1.json",
+            "worker-history-checkpoint-v1.json.stage",
+        }
+    )
+    | WINDOWS_WORKER_BASE_NAMES
+    | WINDOWS_WORKER_BASE_STAGE_NAMES
 )
 
 
@@ -134,7 +142,11 @@ class CodingWindowsWorkerGcHistoryAuthority:
         return self._product
 
     def require_settled(
-        self, *, observed_names: tuple[str, ...], allow_checkpoint_stage: bool = False
+        self,
+        *,
+        observed_names: tuple[str, ...],
+        allow_checkpoint_stage: bool = False,
+        allow_base_stage: bool = False,
     ) -> None:
         """Verify every retained attempt without mutating Worker or Package state.
 
@@ -151,9 +163,16 @@ class CodingWindowsWorkerGcHistoryAuthority:
             if set(windows_listdir_at(root)) != set(observed_names):
                 raise ValueError("Windows Worker GC inventory changed")
             _require_known_windows_worker_state_names(observed_names)
-            if "worker-history-preparation-v1.json.stage" in observed_names or (
-                "worker-history-checkpoint-v1.json.stage" in observed_names
-                and not allow_checkpoint_stage
+            if (
+                "worker-history-preparation-v1.json.stage" in observed_names
+                or (
+                    "worker-history-checkpoint-v1.json.stage" in observed_names
+                    and not allow_checkpoint_stage
+                )
+                or (
+                    not allow_base_stage
+                    and WINDOWS_WORKER_BASE_STAGE_NAMES.intersection(observed_names)
+                )
             ):
                 raise ValueError("Windows Worker history preparation remains staged")
 

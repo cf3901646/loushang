@@ -45,6 +45,12 @@ def test_windows_worker_history_source_identity_round_trips_strictly() -> None:
     changed["files"] = [{**source.to_dict(), "size": True}]
     with pytest.raises(ValueError, match="source file is invalid"):
         CodingWindowsWorkerHistorySourceSnapshotV1.from_dict(changed)
+    with pytest.raises(ValueError, match="source file is invalid"):
+        CodingWindowsWorkerHistorySourceFileV1(
+            name="worker-history-base-opt-in-v1.json",
+            size=3,
+            sha256_digest=sha256(b"abc").hexdigest(),
+        )
 
 
 def test_windows_worker_gc_accepts_current_owned_state_names() -> None:
@@ -60,6 +66,13 @@ def test_windows_worker_gc_accepts_current_owned_state_names() -> None:
             "worker-history-preparation-v1.json.stage",
             "worker-history-checkpoint-v1.json",
             "worker-history-checkpoint-v1.json.stage",
+            "worker-history-base-opt-in-v1.json",
+            "worker-history-base-opt-in-v1.json.stage",
+            "worker-history-base-receipt-v1.json",
+            "worker-history-base-supervisor-v1.json",
+            "worker-history-base-c5-v1.json",
+            "worker-history-base-launch-intent-v1.json",
+            "worker-history-base-native-provisioning-v1.json",
             "worker-activation-receipts.jsonl",
             "worker-activation-receipts.jsonl.lock",
             "worker-activation-state.jsonl",
