@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -57,4 +58,33 @@ def test_windows_worker_explicit_operator_command_needs_no_candidate_switch(
         )
     layout.assert_called_once_with(tmp_path)
     action.assert_called_once()
+    assert '"workerSelection": "checked"' in capsys.readouterr().out
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires native Windows")
+def test_native_windows_worker_operator_accepts_command_without_candidate_switch(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with (
+        patch.object(cli, "resolve_coding_plugin_lifecycle_state_layout") as layout,
+        patch.object(
+            cli, "_run_product_action", return_value={"workerSelection": "checked"}
+        ) as action,
+    ):
+        assert (
+            cli.main(
+                (
+                    "--workspace",
+                    str(tmp_path),
+                    "candidate-status",
+                    "--plugin-id",
+                    "demo",
+                )
+            )
+            == 0
+        )
+    layout.assert_called_once_with(tmp_path)
+    action.assert_called_once()
+    assert action.call_args.args[2].windows_candidate is False
     assert '"workerSelection": "checked"' in capsys.readouterr().out
