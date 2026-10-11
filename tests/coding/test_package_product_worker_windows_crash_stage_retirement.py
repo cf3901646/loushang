@@ -232,6 +232,9 @@ def test_windows_crash_stage_retirement_resumes_after_root_delete(
 
     monkeypatch.setattr(retirement, "WindowsLocalWheelProductSessionOwner", Product)
     monkeypatch.setattr(
+        retirement, "require_windows_worker_legacy_history_writable", lambda _root: None
+    )
+    monkeypatch.setattr(
         retirement,
         "os",
         SimpleNamespace(
