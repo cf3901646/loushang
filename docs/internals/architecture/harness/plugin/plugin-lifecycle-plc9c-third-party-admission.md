@@ -2188,6 +2188,10 @@ seen only in the recovery inventory for a later retirement decision. Native
 Product acceptance of this review is pending. The review has no Desired,
 Package, or backup reference closure and cannot commit a cutover or delete
 history.
+An immutable launch intent may also belong to a settled, never-launched stage.
+The join counts an attempt as launched only when Supervisor history exists;
+it still binds a settled attempt without Supervisor history to its launch
+intent, provisioning record, receipt, C5 settlement, and absent native Job.
 
 The same guarded semantic read now hashes the complete Desired State snapshot
 and transition provenance at one inventory revision and binds that digest into
