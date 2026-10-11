@@ -1276,6 +1276,32 @@ def test_installation_binds_root_input_to_the_existing_queue() -> None:
     assert session.multiagent_input.queue is session.runtime.queue.input_queue
 
 
+def test_coding_spawn_tool_describes_admitted_agent_types() -> None:
+    session = _RootSession()
+    registered = []
+    session.register_runtime_tools = lambda definitions, **_kwargs: registered.extend(
+        definitions
+    )
+    admitted = coding_agent_types()
+
+    install_coding_multiagent_session(
+        session,  # type: ignore[arg-type]
+        child_factory=_UnusedFactory(),
+        agent_types=admitted,
+        register_tools=True,
+    )
+
+    spawn = next(tool for tool in registered if tool.name == "spawn_agent")
+    agent_type = spawn.parameters["properties"]["agent_type"]
+    assert agent_type["enum"] == [spec.name for spec in admitted.values()]
+    assert "explorer (read-only investigation)" in agent_type["description"]
+    assert "reviewer (review)" in agent_type["description"]
+    assert (
+        "implementation_worker (implementation in an isolated worktree)"
+        in (agent_type["description"])
+    )
+
+
 def test_coding_completion_notice_uses_hidden_agent_mailbox() -> None:
     session = _RootSession()
     runtime = install_coding_multiagent_session(
