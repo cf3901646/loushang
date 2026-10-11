@@ -190,10 +190,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     revoke.add_argument("--operation-id", required=True)
     revoke.add_argument("--expected-generation", type=int, required=True)
     args = parser.parse_args(argv)
-    if (
-        os.name != "nt"
-        or platform.machine().lower() not in {"x86_64", "amd64"}
-    ):
+    if os.name != "nt" or platform.machine().lower() not in {"x86_64", "amd64"}:
         sys.stderr.write(
             "Windows Worker candidate refused: windows_worker_candidate_platform_closed\n"
         )

@@ -43,9 +43,18 @@ def test_windows_worker_explicit_operator_command_needs_no_candidate_switch(
             cli, "_run_product_action", return_value={"workerSelection": "checked"}
         ) as action,
     ):
-        assert cli.main(
-            ("--workspace", str(tmp_path), "candidate-status", "--plugin-id", "demo")
-        ) == 0
+        assert (
+            cli.main(
+                (
+                    "--workspace",
+                    str(tmp_path),
+                    "candidate-status",
+                    "--plugin-id",
+                    "demo",
+                )
+            )
+            == 0
+        )
     layout.assert_called_once_with(tmp_path)
     action.assert_called_once()
     assert '"workerSelection": "checked"' in capsys.readouterr().out
