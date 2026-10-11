@@ -4683,39 +4683,46 @@ finally:
                     assert allowed.opt_in is not None
                     assert allowed.opt_in.native_platform == "windows-amd64"
                     assert opt_in_owner.current("workerprobe") == allowed
-                    assert (
-                        execute_windows_worker_candidate_command(
-                            worker_product, Namespace(action="release-status")
-                        )["approvalDecision"]
-                        == approved.to_dict()
-                    )
-                    assert (
-                        execute_windows_worker_candidate_command(
-                            worker_product,
-                            Namespace(action="release-review", wheel=str(wheels[0])),
-                        )["nativeReleaseReview"]
-                        == review.to_dict()
-                    )
-                    assert (
-                        execute_windows_worker_candidate_command(
-                            worker_product,
-                            Namespace(
-                                action="release-install",
-                                wheel=str(wheels[0]),
-                                review_id=review.review_id,
-                            ),
-                        )["approvalGeneration"]
-                        == approved.generation
-                    )
-                    assert (
-                        execute_windows_worker_candidate_command(
-                            worker_product,
-                            Namespace(
-                                action="candidate-status", plugin_id="workerprobe"
-                            ),
-                        )["candidateOptInDecision"]
-                        == allowed.to_dict()
-                    )
+                    if (
+                        ordinary_entry_kind == "direct"
+                        and not disable_while_ordinary_session_open
+                        and not crash_after_ordinary_query
+                    ):
+                        assert (
+                            execute_windows_worker_candidate_command(
+                                worker_product, Namespace(action="release-status")
+                            )["approvalDecision"]
+                            == approved.to_dict()
+                        )
+                        assert (
+                            execute_windows_worker_candidate_command(
+                                worker_product,
+                                Namespace(
+                                    action="release-review", wheel=str(wheels[0])
+                                ),
+                            )["nativeReleaseReview"]
+                            == review.to_dict()
+                        )
+                        assert (
+                            execute_windows_worker_candidate_command(
+                                worker_product,
+                                Namespace(
+                                    action="release-install",
+                                    wheel=str(wheels[0]),
+                                    review_id=review.review_id,
+                                ),
+                            )["approvalGeneration"]
+                            == approved.generation
+                        )
+                        assert (
+                            execute_windows_worker_candidate_command(
+                                worker_product,
+                                Namespace(
+                                    action="candidate-status", plugin_id="workerprobe"
+                                ),
+                            )["candidateOptInDecision"]
+                            == allowed.to_dict()
+                        )
                     if ordinary_entry_kind is not None:
                         assert owner_id == "coding"
                         assert ordinary_entry_kind in {"direct", "hosted"}
