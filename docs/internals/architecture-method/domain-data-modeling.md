@@ -5,7 +5,7 @@
 - Authority: normative — supporting method for domain and data modeling
 - Design status: accepted
 - Implementation status: not-applicable
-- Owner: Loushang architecture method
+- Owner: archmethod maintainers
 
 Use this method with the [canonical architecture method](README.md) to clarify
 domain meaning, the information lifecycle and implementation mappings. The

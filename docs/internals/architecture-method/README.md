@@ -5,16 +5,17 @@
 - Authority: normative — architecture method
 - Design status: accepted
 - Implementation status: partial
-- Owner: Loushang architecture method
+- Owner: archmethod maintainers
 
 This document is the canonical method for designing, recording, reviewing, and
-governing architecture. It combines the existing black-box and
+governing architecture in this repository. It combines the existing black-box and
 component-design method with a recursive Architecture Scope model, explicit
 Current/Target/History separation, executable current facts, and change
 governance.
 
-Loushang applies this reusable method through its project-specific
-[Architecture Governance Profile](../architecture/governance-profile.md).
+Each adopting project defines its own governance profile (responsibilities,
+paths, checks and adoption version). Project profiles and architecture decisions
+remain in their respective project repositories; they are not defined here.
 
 The focused
 [Component Design Method](component-design.md) and

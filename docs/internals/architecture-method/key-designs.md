@@ -5,7 +5,7 @@
 - Authority: normative — supporting method for key designs
 - Design status: accepted
 - Implementation status: not-applicable
-- Owner: Loushang architecture method
+- Owner: archmethod maintainers
 
 A key design explains the mechanism, responsibilities and constraints of one
 structurally important or high-risk concern. Apply the [canonical method](README.md)

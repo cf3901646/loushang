@@ -11,7 +11,15 @@
 
 This document binds the project-neutral
 [Architecture Design And Governance Method](../architecture-method/README.md)
-to the Loushang repository. The method defines how architecture work is done;
+to the Loushang repository. This repository adopts the latest archmethod version
+at the time of synchronization: `method-v0.1.0` from
+`git@gitee.com:zhnt/archmethod.git`, commit
+`5b31521605ce12e20134de74fa3877b5717127e4`. The method directory
+contains a read-only snapshot of the shared method; the two Loushang-specific
+files under `architecture-method/history/` are local historical records, not
+part of that snapshot. Later upstream revisions require an explicit sync,
+review, and update of this recorded tag and commit; "latest" does not mean
+automatic tracking. The method defines how architecture work is done;
 this profile defines which Loushang artifacts, scopes, owners, evidence, and
 local practices realize that method.
 

@@ -5,7 +5,7 @@
 - Authority: normative — supporting method for architecture review
 - Design status: accepted
 - Implementation status: not-applicable
-- Owner: Loushang architecture method
+- Owner: archmethod maintainers
 
 This method defines review inputs, views, findings and closure. The
 [canonical method](README.md) governs scope ownership and the

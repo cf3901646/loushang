@@ -5,7 +5,7 @@
 - Authority: normative — supporting method for proportional architecture work
 - Design status: accepted
 - Implementation status: not-applicable
-- Owner: Loushang architecture method
+- Owner: archmethod maintainers
 
 Apply the [canonical method](README.md) in proportion to the change's effects
 and uncertainty. This guide selects work; it does not assign project owners,

@@ -7,7 +7,7 @@ This directory keeps historical and contributor-facing material that used to liv
 ## Contents
 
 - [Architecture](./architecture/) - accepted architecture, subsystem boundaries, component notes, and design decisions.
-- [Architecture Method](./architecture-method/) - reusable architecture process, artifact model, component methods, templates, and method history.
+- [Architecture Method](./architecture-method/) - snapshot of the latest adopted archmethod release (`method-v0.1.0`, commit `5b31521605ce12e20134de74fa3877b5717127e4`); local Loushang history remains under `architecture-method/history/`. The [governance profile](./architecture/governance-profile.md) records adoption; upgrades require explicit synchronization.
 - [Strategy](./strategy/) - product strategy, roadmap thinking, and product surface notes.
 - [Glossary](./glossary/) - terminology drafts and internal vocabulary.
 - [Specs](./specs/) - iteration design specs.

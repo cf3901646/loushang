@@ -5,7 +5,7 @@
 - Authority: normative — supporting method for architecture decisions
 - Design status: accepted
 - Implementation status: not-applicable
-- Owner: Loushang architecture method
+- Owner: archmethod maintainers
 
 The [Architecture Design And Governance Method](README.md) is authoritative for
 scope ownership, truth planes and Target acceptance. This supporting method

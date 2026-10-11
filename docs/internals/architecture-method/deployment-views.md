@@ -5,7 +5,7 @@
 - Authority: normative — supporting method for deployment views
 - Design status: accepted
 - Implementation status: not-applicable
-- Owner: Loushang architecture method
+- Owner: archmethod maintainers
 
 Use this method to connect logical responsibilities to execution carriers and
 to test that placement supports the accepted contracts. Follow the

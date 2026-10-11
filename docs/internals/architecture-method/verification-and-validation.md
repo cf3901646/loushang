@@ -5,7 +5,7 @@
 - Authority: normative — supporting method for verification and validation
 - Design status: accepted
 - Implementation status: not-applicable
-- Owner: Loushang architecture method
+- Owner: archmethod maintainers
 
 Verification checks conformance to specified contracts; validation checks whether
 the system serves intended actor goals in its operating context. Establish an

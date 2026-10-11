@@ -1,11 +1,11 @@
-# Loushang Design Method: Identify Component
+# Component Identification Method
 
 ## Status
 
 - Authority: normative supporting method for candidate component discovery
 - Design status: accepted
 - Implementation status: not-applicable
-- Owner: Loushang architecture method
+- Owner: archmethod maintainers
 
 The canonical end-to-end method and Architecture Scope promotion rules are
 defined by
@@ -13,7 +13,7 @@ defined by
 
 ## Scope
 
-本文档定义 `loushang` 在进入子系统白盒设计阶段时，如何识别候选组件。
+本文档定义进入子系统白盒设计阶段时如何识别候选组件。
 
 本文档只讨论：
 
@@ -783,9 +783,9 @@ defined by
 
 ---
 
-## Current Recommendation
+## Historical Loushang-AI Example (Non-normative)
 
-在 `loushang-ai` 当前阶段，建议按本方法继续推进如下顺序：
+以下是 `loushang-ai` 当时的阶段性工作安排，不是对其他项目的要求：
 
 1. 列 `reference AI SDK` 白盒候选组件清单
 2. 列 `loushang-ai` 白盒候选功能清单

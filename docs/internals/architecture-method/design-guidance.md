@@ -5,7 +5,7 @@
 - Authority: normative — supporting method for design reasoning
 - Design status: accepted
 - Implementation status: not-applicable
-- Owner: Loushang architecture method
+- Owner: archmethod maintainers
 
 Use with the [canonical method](README.md) to connect system outcomes,
 decomposition, implementation evidence and design judgment. These guidelines

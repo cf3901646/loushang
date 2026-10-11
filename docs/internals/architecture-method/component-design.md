@@ -1,11 +1,11 @@
-# Loushang Design Method: Component
+# Component Design Method
 
 ## Status
 
 - Authority: normative supporting method for component discovery/refinement
 - Design status: accepted
 - Implementation status: not-applicable
-- Owner: Loushang architecture method
+- Owner: archmethod maintainers
 
 The canonical end-to-end method, recursive Architecture Scope rules, truth
 planes, status model and governance process are defined by
@@ -15,7 +15,7 @@ that do not conflict with that method.
 
 ## Scope
 
-本文档沉淀 `loushang` 在子系统白盒阶段进行组件设计的方法。  
+本文档沉淀子系统白盒阶段进行组件设计的方法。  
 它不只讨论“如何识别候选组件”，还覆盖：
 
 - 如何识别候选功能
@@ -365,14 +365,14 @@ that do not conflict with that method.
 - `validation/`
 - `history/`
 
-例如 `loushang-ai` 当前采用：
+例如，Loushang 曾在 `loushang-ai` 子系统采用以下布局（仅为历史案例，不是本方法要求的路径）：
 
 - `docs/architecture/ai/`
 - `docs/architecture/ai/reference/`
 - `docs/architecture/ai/validation/`
 - `docs/architecture/ai/history/`
 
-但通用方法文档仍应留在 `docs/architecture/` 根目录。
+通用方法文档应由方法仓维护；项目采用画像规定项目内的文档路径。
 
 ---
 
@@ -422,8 +422,8 @@ that do not conflict with that method.
 
 - [Component Identification Method](component-identification.md)
   - 偏“如何识别候选组件”
-- [Initial AI Architecture Method Notes](history/initial-ai-architecture-method-notes.md)
-  - 偏“本轮工作过程中的经验记录”
+- Loushang 的 `initial-ai-architecture-method-notes.md`（保留在原项目）
+  - 是本方法形成过程的历史记录，不属于通用方法仓
 - 本文
   - 偏“端到端的组件设计方法”
 
