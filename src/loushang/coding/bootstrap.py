@@ -593,10 +593,15 @@ def _create_agent_session(
     session_no_tools_mode = normalize_no_tools(no_tools)
     requested_composition_set = _canonical_coding_composition_set(composition_set)
     services = services or create_services()
-    if composition_choice_from_cli and not composition_set_explicit and (
-        infer_coding_composition_set(
-            services.settings_manager.get_settings().capabilities
-        ) != requested_composition_set.set_id
+    if (
+        composition_choice_from_cli
+        and not composition_set_explicit
+        and (
+            infer_coding_composition_set(
+                services.settings_manager.get_settings().capabilities
+            )
+            != requested_composition_set.set_id
+        )
     ):
         raise ValueError(
             "Coding composition settings changed before Session startup; "
@@ -688,7 +693,7 @@ def _create_agent_session(
         )
     if worker_query_turn_tool and (
         worker_candidate_plugin_id is None
-        or sys.platform != "linux"
+        or sys.platform not in {"linux", "win32"}
         or session_host_environment.architecture.lower() not in {"x86_64", "amd64"}
         or resolved_composition_set.set_id != "coding-standard"
         or session_no_tools_mode is not None
@@ -722,7 +727,11 @@ def _create_agent_session(
         and session_no_tools_mode is None
     )
     if delegated_execution_profile is not None:
-        if (allowed_tool_names is ToolSelection.ALL or tuple(allowed_tool_names or ()) != delegated_execution_profile.allowed_tools):
+        if (
+            allowed_tool_names is ToolSelection.ALL
+            or tuple(allowed_tool_names or ())
+            != delegated_execution_profile.allowed_tools
+        ):
             raise ValueError(
                 "child allowed tools must match its delegated execution profile"
             )
@@ -2128,12 +2137,15 @@ def _create_agent_session(
                 CODING_WORKER_QUERY_TOOL_NAME,
                 CodingWorkerTurnToolBinding,
             )
+
             assert worker_candidate_plugin_id is not None
             assert worker_ordinary_binding.activation_receipt is not None
             worker_turn_tool = CodingWorkerTurnToolBinding(worker_candidate_plugin_id)
             if any(
                 definition.name == CODING_WORKER_QUERY_TOOL_NAME
-                for definition in (registry.list_definitions() if registry is not None else ())
+                for definition in (
+                    registry.list_definitions() if registry is not None else ()
+                )
             ):
                 raise CodingWorkerOrdinaryBootstrapError(
                     "coding_worker_query_tool_name_conflict"
@@ -2224,9 +2236,7 @@ def _create_agent_session(
                     and product_base_runtime is not None
                     else ()
                 ),
-                coding_base_product_runtime_binding=(
-                    product_base_runtime
-                ),
+                coding_base_product_runtime_binding=(product_base_runtime),
                 coding_product_desired_selections=(
                     *(
                         (product_base_disabled_selection,)
@@ -2927,7 +2937,9 @@ def _create_agent_session_runtime(
             ),
             product_owner_selection=product_owner_selection,
             materialize_new_transcript=worker_candidate_plugin_id is not None,
-            new_session_header_metadata=composition_header_metadata(resolved_composition_set),
+            new_session_header_metadata=composition_header_metadata(
+                resolved_composition_set
+            ),
         ),
         fixed_services=fixed_services,
         build_session=lambda session_manager, session_services, start_event: (
