@@ -151,6 +151,7 @@ def test_G14_PRODUCT_real_agent_session_streams_and_persists_messages(
 ) -> None:
     import loushang.coding.bootstrap as bootstrap_module
     import loushang.coding.hosted_session as hosted_module
+    import loushang.coding.package_product_runtime as product_runtime_module
     from loushang.harness.capabilities.component_runtime import (
         CapabilityOwnerComponentBinder,
     )
@@ -160,6 +161,7 @@ def test_G14_PRODUCT_real_agent_session_streams_and_persists_messages(
 
     began = time.perf_counter()
     durations: list[tuple[str, float, float]] = []
+    cpu_durations: list[tuple[str, float]] = []
 
     def observe(name: str, started: float) -> None:
         durations.append(
@@ -169,20 +171,24 @@ def test_G14_PRODUCT_real_agent_session_streams_and_persists_messages(
     def timed_sync(name, original):
         def wrapper(*args, **kwargs):
             started = time.perf_counter()
+            cpu_started = time.process_time()
             try:
                 return original(*args, **kwargs)
             finally:
                 observe(name, started)
+                cpu_durations.append((name, round(time.process_time() - cpu_started, 3)))
 
         return wrapper
 
     def timed_async(name, original):
         async def wrapper(*args, **kwargs):
             started = time.perf_counter()
+            cpu_started = time.process_time()
             try:
                 return await original(*args, **kwargs)
             finally:
                 observe(name, started)
+                cpu_durations.append((name, round(time.process_time() - cpu_started, 3)))
 
         return wrapper
 
@@ -192,6 +198,22 @@ def test_G14_PRODUCT_real_agent_session_streams_and_persists_messages(
         timed_sync(
             "product-owner-selection",
             CodingRealHostedSessionFactoryV1._default_product_factory_for_session,
+        ),
+    )
+    monkeypatch.setattr(
+        product_runtime_module,
+        "_initialize_fresh_coding_product_for_session",
+        timed_sync(
+            "fresh-product-cutover",
+            product_runtime_module._initialize_fresh_coding_product_for_session,
+        ),
+    )
+    monkeypatch.setattr(
+        product_runtime_module,
+        "_bootstrap_coding_builtin_plugin",
+        timed_sync(
+            "builtin-plugin-bootstrap",
+            product_runtime_module._bootstrap_coding_builtin_plugin,
         ),
     )
     monkeypatch.setattr(
@@ -235,19 +257,27 @@ def test_G14_PRODUCT_real_agent_session_streams_and_persists_messages(
 
     async def scenario() -> None:
         started = time.perf_counter()
+        cpu_started = time.process_time()
         try:
             binding = await _binding(tmp_path)
         finally:
             observe("hosted-binding", started)
+            cpu_durations.append(
+                ("hosted-binding", round(time.process_time() - cpu_started, 3))
+            )
         hosted = CodingHostedSessionV1(binding)
         events = []
         hosted.subscribe(events.append)
         try:
             started = time.perf_counter()
+            cpu_started = time.process_time()
             try:
                 await hosted.start_turn("hello actual Session")
             finally:
                 observe("first-start-turn", started)
+                cpu_durations.append(
+                    ("first-start-turn", round(time.process_time() - cpu_started, 3))
+                )
             snapshot = await hosted.snapshot()
             assert [record.text for record in snapshot.records] == [
                 "hello actual Session",
@@ -263,10 +293,14 @@ def test_G14_PRODUCT_real_agent_session_streams_and_persists_messages(
             assert not snapshot.running
         finally:
             started = time.perf_counter()
+            cpu_started = time.process_time()
             try:
                 await hosted.close()
             finally:
                 observe("hosted-close", started)
+                cpu_durations.append(
+                    ("hosted-close", round(time.process_time() - cpu_started, 3))
+                )
         assert len(tuple((tmp_path / "sessions").glob("*.jsonl"))) == 1
 
     try:
@@ -276,6 +310,7 @@ def test_G14_PRODUCT_real_agent_session_streams_and_persists_messages(
         raise
     finally:
         record_property("g14_phase_durations", json.dumps(durations))
+        record_property("g14_phase_cpu_durations", json.dumps(cpu_durations))
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows native Product route")
@@ -577,12 +612,20 @@ def test_G14_OWNERSHIP_failed_session_construction_retains_cleanup_for_retry(
 ) -> None:
     import loushang.coding.bootstrap as bootstrap_module
     import loushang.coding.hosted_session as module
+    import loushang.coding.package_product_runtime as product_runtime_module
 
     began = time.perf_counter()
+    cpu_began = time.process_time()
     phases = []
 
     def phase(name):
-        phases.append((name, round(time.perf_counter() - began, 3)))
+        phases.append(
+            (
+                name,
+                round(time.perf_counter() - began, 3),
+                round(time.process_time() - cpu_began, 3),
+            )
+        )
 
     def timed_sync(name, original):
         def wrapper(*args, **kwargs):
@@ -600,6 +643,22 @@ def test_G14_OWNERSHIP_failed_session_construction_retains_cleanup_for_retry(
         timed_sync(
             "product-owner-selection",
             CodingRealHostedSessionFactoryV1._default_product_factory_for_session,
+        ),
+    )
+    monkeypatch.setattr(
+        product_runtime_module,
+        "_initialize_fresh_coding_product_for_session",
+        timed_sync(
+            "fresh-product-cutover",
+            product_runtime_module._initialize_fresh_coding_product_for_session,
+        ),
+    )
+    monkeypatch.setattr(
+        product_runtime_module,
+        "_bootstrap_coding_builtin_plugin",
+        timed_sync(
+            "builtin-plugin-bootstrap",
+            product_runtime_module._bootstrap_coding_builtin_plugin,
         ),
     )
     monkeypatch.setattr(
