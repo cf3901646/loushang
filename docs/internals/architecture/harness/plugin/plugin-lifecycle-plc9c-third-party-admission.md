@@ -2258,8 +2258,9 @@ the old journal bytes to validate those bases. This is a prerequisite for the
 future owner commit; the actual writer switch and deletion ledger remain open.
 The first pre-cutover write fence makes current Windows opt-in, receipt,
 native-approval, Supervisor, C5, provisioning, launch-intent, and payload
-creation paths refuse a visible cutover marker or its stage before writing old
-history. Their Product callers hold the GC write gate, which the future cutover
+creation paths and all four stage-retirement paths refuse a visible cutover
+marker or its stage before writing old history or deleting a stage. Their
+Product callers hold the GC write gate, which the future cutover
 owner must also hold while publishing its marker. The marker is not published
 yet; this fence does not implement the new writer path, reader switch, or
 retirement ledger. GC still refuses an unrecognized marker until its post-cutover

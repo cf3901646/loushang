@@ -138,6 +138,12 @@ def test_windows_worker_cutover_marker_refuses_old_journal_writes_without_lock_c
     from loushang.coding.package_product_runtime import (
         open_coding_fenced_product_application_owner,
     )
+    from loushang.coding.package_product_worker_windows_crash_stage_retirement import (
+        retire_coding_windows_product_worker_crash_stage,
+    )
+    from loushang.coding.package_product_worker_windows_crash_stage_review import (
+        CodingWindowsWorkerCrashStageReviewV1,
+    )
     from loushang.coding.package_product_worker_windows_history_write_fence import (
         WINDOWS_WORKER_HISTORY_CUTOVER_NAME,
     )
@@ -147,8 +153,26 @@ def test_windows_worker_cutover_marker_refuses_old_journal_writes_without_lock_c
     from loushang.coding.package_product_worker_windows_opt_in_journal import (
         CodingWindowsWorkerOptInJournal,
     )
+    from loushang.coding.package_product_worker_windows_partial_stage_retirement import (
+        retire_coding_windows_product_worker_partial_stage,
+    )
+    from loushang.coding.package_product_worker_windows_partial_stage_review import (
+        CodingWindowsWorkerPartialStageReviewV1,
+    )
+    from loushang.coding.package_product_worker_windows_reserved_review import (
+        CodingWindowsWorkerReservedNoEffectReviewV1,
+    )
+    from loushang.coding.package_product_worker_windows_stage_retirement import (
+        retire_coding_windows_product_worker_complete_stage,
+    )
+    from loushang.coding.package_product_worker_windows_stage_review import (
+        CodingWindowsWorkerStageReviewV1,
+    )
     from loushang.coding.package_product_worker_windows_supervisor_journal import (
         open_coding_windows_product_worker_supervisor_journal,
+    )
+    from loushang.coding.package_product_worker_windows_unlaunched_stage_retirement import (
+        retire_coding_windows_product_worker_settled_unlaunched_stage,
     )
     from loushang.harness.config.agent import SettingsManager
 
@@ -221,6 +245,60 @@ def test_windows_worker_cutover_marker_refuses_old_journal_writes_without_lock_c
             product.state_root / "worker-native-release-approvals.jsonl.lock"
         ).exists()
         assert not (product.state_root / "worker-supervisor.jsonl.lock").exists()
+        identity = (1, 10, 1, 0, 100)
+        executable = (1, 12, 1, 1024, 102)
+        common = dict(
+            attempt_id="7" * 32,
+            intent_fingerprint="b" * 64,
+            lease_owner_revision=3,
+            entrypoint="worker.exe",
+            stage_identity=identity,
+            directory_identities=(),
+            marker_identity=(1, 11, 1, 200, 101),
+            executable_identity=executable,
+            executable_digest="f" * 64,
+        )
+        reviews = (
+            (
+                retire_coding_windows_product_worker_complete_stage,
+                CodingWindowsWorkerStageReviewV1(
+                    **common, native_revision=4, supervisor_revision=5
+                ),
+            ),
+            (
+                retire_coding_windows_product_worker_partial_stage,
+                CodingWindowsWorkerPartialStageReviewV1(
+                    attempt_id="7" * 32,
+                    lease_owner_revision=3,
+                    stage_identity=identity,
+                    directory_identities=(),
+                    entrypoint=None,
+                    executable_identity=None,
+                    executable_digest=None,
+                ),
+            ),
+            (
+                retire_coding_windows_product_worker_crash_stage,
+                CodingWindowsWorkerCrashStageReviewV1(
+                    **common,
+                    repaired_lease_id="3" * 64,
+                    lease_repair_revision=2,
+                    native_revision=4,
+                    supervisor_revision=None,
+                    native_spec_fingerprint="c" * 64,
+                ),
+            ),
+            (
+                retire_coding_windows_product_worker_settled_unlaunched_stage,
+                CodingWindowsWorkerReservedNoEffectReviewV1(
+                    **common, native_revision=2
+                ),
+            ),
+        )
+        for retire, review in reviews:
+            with pytest.raises(ValueError, match="legacy history cutover is present"):
+                retire(product, expected_review=review)
+        assert not any(product.state_root.glob("worker-*-stage-retire-*.json"))
     finally:
         owner.close()
 
