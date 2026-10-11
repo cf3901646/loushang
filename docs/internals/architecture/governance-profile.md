@@ -9,28 +9,20 @@
 
 ## Purpose
 
-This document binds the project-neutral
-[Architecture Design And Governance Method](../architecture-method/README.md)
-to the Loushang repository. This repository adopts the latest archmethod version
-at the time of synchronization: `method-v0.1.0` from
-`git@gitee.com:zhnt/archmethod.git`, commit
-`5b31521605ce12e20134de74fa3877b5717127e4`. The method directory
-contains a read-only snapshot of the shared method; the two Loushang-specific
-files under `architecture-method/history/` are local historical records, not
-part of that snapshot. Later upstream revisions require an explicit sync,
-review, and update of this recorded tag and commit; "latest" does not mean
-automatic tracking. The method defines how architecture work is done;
-this profile defines which Loushang artifacts, scopes, owners, evidence, and
-local practices realize that method.
+This profile defines Loushang's architecture governance: artifact authority,
+scopes, owners, acceptance evidence, and local review practices. It is the
+product-specific application of architecture method governance, not a copy of
+reusable process or templates. Changes to the governing method require an
+explicit review of affected Loushang scopes and this profile; they do not
+silently change accepted architecture.
 
-The profile is deliberately separate from both the method and the
+The profile is deliberately separate from the
 [Architecture Overview](architecture-overview.md):
 
-- `architecture-method/` owns reusable process, artifact semantics and
-  templates;
-- this profile owns Loushang-specific adoption and governance policy;
+- this profile owns Loushang-specific governance policy;
 - `architecture/` owns Loushang Current, Target, Delta and History;
-- source, generated facts and executable tests establish repository Facts.
+- source, generated facts and executable tests establish repository Facts;
+- [local historical records](history/loushang-documentation-model-v1.md) preserve superseded Loushang rationale.
 
 ## Adopted Local Practices
 
@@ -103,7 +95,7 @@ over them rather than copy their definitions into one large file.
 
 ## Target Acceptance In Loushang
 
-Apply the method's [Target acceptance rule](../architecture-method/README.md#target-acceptance)
+Apply the Target acceptance rule
 to the AOD, scope summaries, traceability and gap ledgers. Accepted scope
 placement or an implemented prerequisite does not accept an entire proposal,
 a later extension, or default activation.
@@ -135,8 +127,7 @@ relevant boundaries or summaries change; this does not promote their proposals.
 
 ## Architecture Decision Adoption
 
-Loushang adopts the [Architecture Decision Method](../architecture-method/architecture-decisions.md)
-and [ARD template](../architecture-method/templates/architecture-decision.md).
+Loushang records architecture decisions as ARDs.
 Background/drivers, options/comparison and decision/rationale are parts of one
 ARD, linked to existing requirements and validation. A decision selecting
 Current is accepted like any other selected option; losing options do not
@@ -145,8 +136,7 @@ receive separate rejected records.
 New identified ARDs belong in the owning scope's `decisions/<design-status>/`.
 The default state directories are `draft/`, `proposed/`, `accepted/` and
 `superseded/`; create them on demand. `rejected/` is optional only for retained
-whole-record rejections. The scope index groups records by state using the
-[decision index template](../architecture-method/templates/decision-index-README.md).
+whole-record rejections. The scope index groups records by state.
 Cross-scope records belong to the nearest common parent; the
 [cross-scope catalog](decisions/README.md) owns top-level decisions.
 
@@ -168,23 +158,18 @@ exploration and delivery plans continue to use their own draft/plan locations.
 
 Each scope migration includes checks for directory/status/index agreement,
 ID uniqueness across states, link validity and replacement references. Current
-documentation checks validate the method, templates and catalog links; full
+documentation checks validate governed documents and catalog links; full
 state-directory adoption and its consistency gates remain an explicit part of
-the architecture-documentation delta. The reusable method change does not
+the architecture-documentation delta. A governance change does not
 silently relocate existing records or accept their candidate content.
 
 ## Governance Evidence
 
-- [Architecture Artifact Model](../architecture-method/artifact-model.md)
-- [Architecture Scope README Template](../architecture-method/templates/architecture-scope-README.md)
-- [Architecture Decision Method](../architecture-method/architecture-decisions.md)
-- [Architecture Decision Template](../architecture-method/templates/architecture-decision.md)
-- [Decision Index Template](../architecture-method/templates/decision-index-README.md)
 - [Current Package Dependency Facts](generated/current-package-dependencies.md)
 - [Current-To-Target Gap Ledger](current-target-gap-ledger.md)
 - `tests/architecture/`
 - `make check-architecture-docs`
 
-Changes to the reusable method do not automatically change Loushang
+Changes to method governance do not automatically change Loushang
 architecture. Changes to this profile must identify the affected Loushang
 scopes, gates and remaining Current-to-Target Delta.

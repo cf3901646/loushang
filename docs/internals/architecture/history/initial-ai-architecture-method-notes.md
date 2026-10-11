@@ -9,7 +9,7 @@
 
 This document preserves lessons from the original AI architecture exercise.
 The canonical reusable process is now
-[Architecture Design And Governance Method](../README.md).
+[Architecture Governance Profile](../governance-profile.md).
 
 ## Scope
 

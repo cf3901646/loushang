@@ -20,7 +20,7 @@
 接口字段、状态机和测试驱动由后续设计确定。以下需求尚未成为已接受 Target，
 也不代表已有 GUI 实现；评审通过与运行验收分别记录。
 
-继承 [架构方法](../../architecture-method/README.md)、
+继承 [Loushang Architecture Governance Profile](../governance-profile.md)、
 [项目治理规范](../governance-profile.md) 和
 [系统原则](../loushang-architecture-principles.md)。
 [工程启动方案](gui-engineering-bootstrap-plan.md) 负责交付编排与技术准备，

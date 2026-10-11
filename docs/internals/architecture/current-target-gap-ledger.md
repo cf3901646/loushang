@@ -12,7 +12,7 @@
 This ledger records cross-system architecture differences and candidate
 directions that need top-level visibility. Detailed feature gaps remain in the
 owning scope. Apply the method's
-[Target acceptance rule](../architecture-method/README.md#target-acceptance):
+[Target acceptance rule](governance-profile.md#target-acceptance-in-loushang):
 only the first table records implementation differences from accepted Target.
 The ledger's own status does not accept a row, and design acceptance does not
 set a delivery date or authorize activation.
@@ -30,7 +30,7 @@ claiming acceptance from implementation alone.
 | Durable Work | accepted | partial | HarnessWork owns the Work lifecycle/event/query/replay kernel; compatibility remains under `loushang.work` | complete the accepted observable WorkHandle and persisted typed-result boundaries; crash recovery still requires a separate decision | [HarnessWork accepted boundary](harnesswork/README.md) / HarnessWork |
 | Ontology source write-back | accepted | partial | ontology-owned Action planning, guarded Fact commit and authority routing are implemented | Product-hosted source mutation, acknowledgement and reconciliation without moving connector authority into Ontology | [Ontology ARD-012](ontology/ARD-012-authority-aware-action-planning-and-product-hosted-write-back.md) / Ontology and Product adapter owners |
 | AppHost | accepted | partial | A0.1--A0.4 and G8--G10 are implemented; G9.3 retains Current because all eight deletion conditions were unmet; G10 supplies the exact default-dark canary; the [AppHost scope](apphost/README.md) records later G14/G16 routes, while A0.5 remains not-started | implement the accepted A0.5/G15 foreground launcher boundary; neither G16 shell reuse nor this row authorizes a default-route change | [G15 accepted foreground boundary](apphost/foreground-hosted-tui-g15.md) and [AppHost ARD-003](decisions/ARD-003-apphost-top-level-placement.md) / AppHost and Product composition owners |
-| Architecture documentation | accepted | partial | recursive Scope governance, generated facts, selected canonical entrypoints and initial drift guards are implemented; decision records still use legacy paths, with the new method and templates available | consistent status/authority, Target acceptance and Current/Target/History separation across every governed canonical scope; adopt decision state directories per scope with matching indexes, links and consistency gates | [Architecture method](../architecture-method/README.md) and [governance profile](governance-profile.md) / architecture method owner |
+| Architecture documentation | accepted | partial | recursive Scope governance, generated facts, selected canonical entrypoints and initial drift guards are implemented; decision records still use legacy paths, with local governance rules in place | consistent status/authority, Target acceptance and Current/Target/History separation across every governed canonical scope; adopt decision state directories per scope with matching indexes, links and consistency gates | [governance profile](governance-profile.md) / architecture method owner |
 
 ## Candidate Directions
 
