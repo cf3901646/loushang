@@ -2174,8 +2174,12 @@ Windows cutover acceptance has been claimed.
 The guarded recovery input now also carries the complete, validated record
 sequence for each retained LPAC provisioning attempt. Its preparation digest
 binds those records beside the existing native phase and witness summary. A
-native per-attempt semantic base and the cross-owner settlement join are still
-required before any provisioning history can be retired.
+typed native provisioning projection now reconstructs each exact journal and
+lock-file byte identity from that capture, checks the same attempt's recovery
+summary, and preserves its final record, phase and witness history, and old
+attempt ID. It is a read-only source-bound base. The cross-owner settlement
+join, committed cutover, reader and writer switch, and durable deletion owner
+are still required before any provisioning history can be retired.
 
 1. **Author artifact.** A versioned author recipe packages one Worker
    declaration document, a platform-specific executable, and a manifest whose
