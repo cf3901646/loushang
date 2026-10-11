@@ -573,7 +573,9 @@ def test_hosted_product_runtime_missing_selection_cannot_fall_back(
 def test_G14_OWNERSHIP_failed_session_construction_retains_cleanup_for_retry(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    record_property,
 ) -> None:
+    import loushang.coding.bootstrap as bootstrap_module
     import loushang.coding.hosted_session as module
 
     began = time.perf_counter()
@@ -581,6 +583,38 @@ def test_G14_OWNERSHIP_failed_session_construction_retains_cleanup_for_retry(
 
     def phase(name):
         phases.append((name, round(time.perf_counter() - began, 3)))
+
+    def timed_sync(name, original):
+        def wrapper(*args, **kwargs):
+            phase(name + "-enter")
+            try:
+                return original(*args, **kwargs)
+            finally:
+                phase(name + "-exit")
+
+        return wrapper
+
+    monkeypatch.setattr(
+        CodingRealHostedSessionFactoryV1,
+        "_default_product_factory_for_session",
+        timed_sync(
+            "product-owner-selection",
+            CodingRealHostedSessionFactoryV1._default_product_factory_for_session,
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "create_agent_session",
+        timed_sync("agent-session-construction", module.create_agent_session),
+    )
+    monkeypatch.setattr(
+        bootstrap_module,
+        "prepare_coding_builtin_product_composition",
+        timed_sync(
+            "product-catalog-composition",
+            bootstrap_module.prepare_coding_builtin_product_composition,
+        ),
+    )
 
     async def scenario() -> None:
         candidate, claimed, identity, factory = await _construction(tmp_path)
@@ -624,6 +658,8 @@ def test_G14_OWNERSHIP_failed_session_construction_retains_cleanup_for_retry(
         # representations. Keep the original watchdog and failure unchanged.
         error.add_note(f"Hosted construction/cleanup phase durations: {phases!r}")
         raise
+    finally:
+        record_property("g14_ownership_phases", json.dumps(phases))
 
 
 def test_G14_PRODUCT_real_approval_broker_round_trip_and_close(tmp_path: Path) -> None:
