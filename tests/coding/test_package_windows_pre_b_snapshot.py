@@ -3918,6 +3918,7 @@ def _assert_windows_worker_retired_history_allows_gc(
         review_coding_windows_worker_package_references,
     )
     from loushang.coding.package_product_worker_windows_persisted_bases import (
+        _read_coding_windows_worker_persisted_bases_under_gc_guard,
         read_coding_windows_worker_persisted_bases,
         read_coding_windows_worker_persisted_cutover,
     )
@@ -4209,6 +4210,13 @@ def _assert_windows_worker_retired_history_allows_gc(
                 marker,
                 persisted,
             )
+            with product.gc_gate.guard(require_write=True):
+                with (
+                    product.epoch_runtime.borrow_product_state_root_descriptor() as root
+                ):
+                    assert _read_coding_windows_worker_persisted_bases_under_gc_guard(
+                        product, root, require_cutover=True
+                    ) == (persisted, marker)
             marker_path.write_bytes(b"changed-marker")
             with pytest.raises(ValueError, match="cutover record is invalid"):
                 read_coding_windows_worker_persisted_cutover(product)

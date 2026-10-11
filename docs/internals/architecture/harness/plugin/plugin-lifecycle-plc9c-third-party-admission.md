@@ -2278,6 +2278,11 @@ compares the marker against the exact persisted bases before returning. The
 ordinary pre-cutover base reader still refuses the marker. This structural
 read does not reprove current Desired State, Package reservations, or native
 settlement and cannot authorize publication, GC, or source deletion.
+The same exact-byte validation is available to an internal caller that already
+holds the Product GC gate and a pinned root descriptor. This avoids acquiring
+exclusive runtime quiescence while a future post-cutover Session is active;
+the caller remains responsible for its runtime and GC authority. No current
+Session or recovery reader switches to that path yet.
 
 1. **Author artifact.** A versioned author recipe packages one Worker
    declaration document, a platform-specific executable, and a manifest whose
