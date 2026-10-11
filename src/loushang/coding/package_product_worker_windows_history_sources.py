@@ -62,6 +62,16 @@ class CodingWindowsWorkerHistorySourceFileV1:
     def to_dict(self) -> dict[str, object]:
         return {"name": self.name, "size": self.size, "sha256": self.sha256_digest}
 
+    @classmethod
+    def from_dict(cls, value: object) -> CodingWindowsWorkerHistorySourceFileV1:
+        if type(value) is not dict or set(value) != {"name", "size", "sha256"}:
+            raise ValueError("Windows Worker history source file is invalid")
+        return cls(
+            name=value["name"],
+            size=value["size"],
+            sha256_digest=value["sha256"],
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class CodingWindowsWorkerHistorySourceSnapshotV1:
@@ -103,6 +113,35 @@ class CodingWindowsWorkerHistorySourceSnapshotV1:
             "leaseOwnerRevision": self.lease_owner_revision,
             "files": [item.to_dict() for item in self.files],
         }
+
+    def to_dict(self) -> dict[str, object]:
+        return {**self._unsigned_dict(), "snapshotDigest": self.snapshot_digest}
+
+    @classmethod
+    def from_dict(cls, value: object) -> CodingWindowsWorkerHistorySourceSnapshotV1:
+        if (
+            type(value) is not dict
+            or set(value)
+            != {
+                "scopeId",
+                "storeId",
+                "leaseOwnerRevision",
+                "files",
+                "snapshotDigest",
+            }
+            or type(value["files"]) is not list
+        ):
+            raise ValueError("Windows Worker history source snapshot is invalid")
+        return cls(
+            scope_id=value["scopeId"],
+            store_id=value["storeId"],
+            lease_owner_revision=value["leaseOwnerRevision"],
+            files=tuple(
+                CodingWindowsWorkerHistorySourceFileV1.from_dict(item)
+                for item in value["files"]
+            ),
+            snapshot_digest=value["snapshotDigest"],
+        )
 
     @classmethod
     def create(
