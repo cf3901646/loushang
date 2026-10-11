@@ -3740,6 +3740,7 @@ def _assert_windows_worker_retired_history_allows_gc(
     tmp_path: Path, *, partial_attempt_id: str | None
 ) -> None:
     from loushang.coding.package_product_worker_windows_history_sources import (
+        read_coding_windows_worker_history_semantics,
         review_coding_windows_worker_settled_history_sources,
     )
 
@@ -3951,6 +3952,18 @@ def _assert_windows_worker_retired_history_allows_gc(
             item.name == "worker-activation-receipts.jsonl"
             for item in history_review.source_snapshot.files
         )
+        semantic = read_coding_windows_worker_history_semantics(product)
+        assert semantic.source_snapshot == history_review.source_snapshot
+        assert "operator:windows-worker-gc-revoke" in (
+            semantic.offline_recovery.retained_opt_in_operation_ids
+        )
+        assert semantic.offline_recovery.retained_receipt_fingerprints
+        assert "9" * 32 in {
+            item.attempt_id
+            for item in semantic.offline_recovery.retained_activation_attempts
+        }
+        assert dict(semantic.offline_recovery.native_job_absence)["9" * 32] is True
+        assert not semantic.offline_recovery.gc_revision_refs
         candidate = next(
             item for item in gc.candidates() if item.package_revision == revision
         )
