@@ -177,6 +177,7 @@ jobs:
           tests/coding/test_package_windows_pre_b_snapshot.py::test_windows_worker_clean_retirement_allows_fresh_product_launch
           tests/coding/test_package_windows_pre_b_snapshot.py::test_windows_worker_update_gc_keeps_selected_revision
           tests/coding/test_package_product_worker_windows_gc_names.py::test_windows_worker_history_source_capture_is_private_and_fail_closed
+          tests/coding/test_package_product_worker_windows_gc_names.py::test_windows_worker_cutover_marker_refuses_old_journal_writes_without_lock_creation
           --maxfail=1
           -vv
 
@@ -184,7 +185,7 @@ jobs:
         run: >-
           uv run python scripts/dev/verify_pytest_xml.py
           .artifacts/windows-worker-gc-normal-native.xml
-          --require-tests-count 3
+          --require-tests-count 4
 
       - name: Upload normal Worker GC pytest report
         if: always()
