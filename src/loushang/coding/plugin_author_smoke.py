@@ -127,9 +127,12 @@ def smoke_coding_worker_candidate_wheel(
     report["artifactSha256"] = sha256(wheel_bytes).hexdigest()
 
     with TemporaryDirectory(prefix="loushang-worker-author-smoke-") as scratch:
-        root = Path(scratch)
+        # Windows may expose its temporary directory through a lexical alias.
+        # Product workspace identity requires the resolved on-disk path.
+        root = Path(scratch).resolve(strict=True)
         workspace = root / "workspace"
         workspace.mkdir(mode=0o700)
+        workspace = workspace.resolve(strict=True)
         captured = root / Path(wheel_path).name
         captured.write_bytes(wheel_bytes)
         with _temporary_home(root / "home"):
