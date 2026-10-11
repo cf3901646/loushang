@@ -15,6 +15,7 @@ from loushang.coding.package_product_worker_windows_history_sources import (
     CodingWindowsWorkerHistorySemanticReadV1,
     CodingWindowsWorkerHistorySourceFileV1,
     CodingWindowsWorkerHistorySourceSnapshotV1,
+    _coding_windows_worker_desired_history_digest,
 )
 from loushang.coding.package_product_worker_windows_provisioning_journal import (
     WindowsWorkerProvisioningAttemptV1,
@@ -23,6 +24,7 @@ from loushang.coding.package_product_worker_windows_provisioning_journal import 
 from loushang.coding.package_product_worker_windows_recovery_inventory import (
     CodingWindowsWorkerOfflineRecoverySnapshotV1,
 )
+from loushang.harness.plugin_management.ledger import PluginDesiredStateSnapshotV1
 from loushang.harness.worker.activation_state_journal import _StateRecord
 from loushang.harness.worker.product_activation import _initial_state
 
@@ -80,10 +82,17 @@ def test_windows_worker_history_preparation_replays_only_exact_semantics() -> No
 
 
 def test_windows_worker_history_preparation_binds_desired_provenance() -> None:
+    desired_snapshot = PluginDesiredStateSnapshotV1(
+        inventory_revision=0, installations=()
+    )
     semantic = replace(
         _semantic_read(),
-        desired_inventory_revision=2,
-        desired_history_digest=sha256(b"selected desired history").hexdigest(),
+        desired_inventory_revision=0,
+        desired_history_digest=_coding_windows_worker_desired_history_digest(
+            desired_snapshot, ()
+        ),
+        desired_snapshot=desired_snapshot,
+        desired_transitions=(),
     )
     prepared = CodingWindowsWorkerHistoryPreparationV1.create(semantic)
     prepared.require_semantic_read(semantic)
@@ -91,7 +100,10 @@ def test_windows_worker_history_preparation_binds_desired_provenance() -> None:
         prepared.require_semantic_read(
             replace(
                 semantic,
-                desired_history_digest=sha256(b"changed desired history").hexdigest(),
+                desired_inventory_revision=None,
+                desired_history_digest=None,
+                desired_snapshot=None,
+                desired_transitions=None,
             )
         )
     with pytest.raises(ValueError, match="semantic read is invalid"):
