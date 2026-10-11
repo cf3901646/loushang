@@ -38,6 +38,12 @@ _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_FILES = 8192
 _MAX_FILE_BYTES = 64 * 1024 * 1024
 _MAX_TOTAL_BYTES = 256 * 1024 * 1024
+_PREPARATION_NAMES = frozenset(
+    {
+        "worker-history-preparation-v1.json",
+        "worker-history-preparation-v1.json.stage",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -353,11 +359,14 @@ def _capture_coding_windows_worker_history_sources_under_gc_guard(
                 raise ValueError("Windows Worker history root changed")
             before = tuple(windows_listdir_at(root))
             _require_known_windows_worker_state_names(before)
+            if "worker-history-preparation-v1.json.stage" in before:
+                raise ValueError("Windows Worker history stage remains")
             names = tuple(
                 sorted(
                     name
                     for name in before
                     if name.casefold().startswith(("worker-", ".worker-"))
+                    and name not in _PREPARATION_NAMES
                 )
             )
             if any(name.casefold().endswith(".stage") for name in names):

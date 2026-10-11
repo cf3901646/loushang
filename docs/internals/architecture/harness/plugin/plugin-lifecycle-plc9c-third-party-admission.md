@@ -2142,6 +2142,15 @@ only matching Store and lease-owner revisions. The guarded helper extraction
 preserves the ordinary recovery reader. This input has no durable checkpoint
 record, high-water publication, cutover, or deletion authority; its native
 Windows case remains pending.
+A subsequent preparation step serializes the exact source inventory and a
+digest of the guarded semantic read into a private, canonical Product record
+under runtime quiescence and the GC write gate. An interrupted unpublished
+stage is refused by ordinary history and GC readers; the preparation owner
+can finish only the exact staged bytes and then reprove current facts. This
+record is a precommit witness, not a typed compacted base or a cutover. Old
+journals remain authoritative, and the record cannot authorize history
+deletion or a new Worker attempt. Native Windows publication and
+interrupted-stage evidence remains pending.
 
 1. **Author artifact.** A versioned author recipe packages one Worker
    declaration document, a platform-specific executable, and a manifest whose
