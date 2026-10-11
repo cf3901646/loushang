@@ -163,7 +163,17 @@ jobs:
         run: uv sync --locked --extra dev
 
       - name: Check hosted application and G16 native record security
+        env:
+          PYTEST_ADDOPTS: ${{ runner.os == 'Windows' && '--durations=20 --junitxml=.artifacts/appservice-windows-timings.xml -o junit_family=xunit1' || '' }}
         run: make check-appservice
+
+      - name: Upload Windows full-suite timing report
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: appservice-windows-full-suite-timings
+          path: .artifacts/appservice-windows-timings.xml
+          if-no-files-found: warn
 
   g16-native-evidence:
     if: ${{ fromJSON(inputs.plan).checks.appservice }}

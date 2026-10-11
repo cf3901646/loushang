@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 import time
@@ -146,15 +147,90 @@ async def _binding(tmp_path: Path):
 
 
 def test_G14_PRODUCT_real_agent_session_streams_and_persists_messages(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, record_property,
 ) -> None:
+    import loushang.coding.hosted_session as hosted_module
+    from loushang.harness.capabilities.component_runtime import (
+        CapabilityOwnerComponentBinder,
+    )
+    from loushang.harness.resource_catalog.session_bootstrap import (
+        InitialSessionResourceCatalogBootstrap,
+    )
+
+    began = time.perf_counter()
+    durations: list[tuple[str, float, float]] = []
+
+    def observe(name: str, started: float) -> None:
+        durations.append(
+            (name, round(started - began, 3), round(time.perf_counter() - started, 3))
+        )
+
+    original_product = CodingRealHostedSessionFactoryV1._default_product_factory_for_session
+    original_session = hosted_module.create_agent_session
+    original_prepare = AgentSession.prepare_model_call_runtime
+    original_catalog = InitialSessionResourceCatalogBootstrap.prepare
+    original_bind = CapabilityOwnerComponentBinder.bind
+
+    def timed_product(self, *args, **kwargs):
+        started = time.perf_counter()
+        try:
+            return original_product(self, *args, **kwargs)
+        finally:
+            observe("product-owner-selection", started)
+
+    def timed_session(*args, **kwargs):
+        started = time.perf_counter()
+        try:
+            return original_session(*args, **kwargs)
+        finally:
+            observe("agent-session-construction", started)
+
+    async def timed_prepare(self, *args, **kwargs):
+        started = time.perf_counter()
+        try:
+            return await original_prepare(self, *args, **kwargs)
+        finally:
+            observe("model-call-preparation", started)
+
+    async def timed_catalog(self, *args, **kwargs):
+        started = time.perf_counter()
+        try:
+            return await original_catalog(self, *args, **kwargs)
+        finally:
+            observe("catalog-preparation", started)
+
+    async def timed_bind(self, *args, **kwargs):
+        started = time.perf_counter()
+        try:
+            return await original_bind(self, *args, **kwargs)
+        finally:
+            observe("component-binding", started)
+
+    monkeypatch.setattr(
+        CodingRealHostedSessionFactoryV1,
+        "_default_product_factory_for_session",
+        timed_product,
+    )
+    monkeypatch.setattr(hosted_module, "create_agent_session", timed_session)
+    monkeypatch.setattr(AgentSession, "prepare_model_call_runtime", timed_prepare)
+    monkeypatch.setattr(InitialSessionResourceCatalogBootstrap, "prepare", timed_catalog)
+    monkeypatch.setattr(CapabilityOwnerComponentBinder, "bind", timed_bind)
+
     async def scenario() -> None:
-        binding = await _binding(tmp_path)
+        started = time.perf_counter()
+        try:
+            binding = await _binding(tmp_path)
+        finally:
+            observe("hosted-binding", started)
         hosted = CodingHostedSessionV1(binding)
         events = []
         hosted.subscribe(events.append)
         try:
-            await hosted.start_turn("hello actual Session")
+            started = time.perf_counter()
+            try:
+                await hosted.start_turn("hello actual Session")
+            finally:
+                observe("first-start-turn", started)
             snapshot = await hosted.snapshot()
             assert [record.text for record in snapshot.records] == [
                 "hello actual Session",
@@ -169,10 +245,20 @@ def test_G14_PRODUCT_real_agent_session_streams_and_persists_messages(
             } <= kinds
             assert not snapshot.running
         finally:
-            await hosted.close()
+            started = time.perf_counter()
+            try:
+                await hosted.close()
+            finally:
+                observe("hosted-close", started)
         assert len(tuple((tmp_path / "sessions").glob("*.jsonl"))) == 1
 
-    asyncio.run(asyncio.wait_for(scenario(), 20))
+    try:
+        asyncio.run(asyncio.wait_for(scenario(), 20))
+    except TimeoutError as error:
+        error.add_note(f"G14 safe phase durations: {durations!r}")
+        raise
+    finally:
+        record_property("g14_phase_durations", json.dumps(durations))
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows native Product route")
