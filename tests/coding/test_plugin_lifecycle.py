@@ -30,6 +30,9 @@ from loushang.coding._plugin_lifecycle import (
     resolve_coding_plugin_lifecycle_state_layout,
     resolve_ephemeral_coding_plugin_lifecycle_state_layout,
 )
+from loushang.coding._plugin_owner_generations import (
+    CodingOwnerGenerationEvidenceError,
+)
 from loushang.coding.composition_sets import resolve_coding_composition_set
 from loushang.coding.package_epoch_layout import (
     resolve_coding_lifecycle_pre_b_members,
@@ -1180,6 +1183,7 @@ def test_concurrent_last_session_close_linearizes_exact_retirement(
             retirement_handle=f"retirement:session-{sequence}",
             contribution_ids=("coding.standard",),
         )
+        lease.prepare_owner_generations((receipt,))
         lease.publish_owner_generations((receipt,))
         lease.retire_owner_generations((receipt,))
 
@@ -1209,7 +1213,7 @@ def test_concurrent_last_session_close_linearizes_exact_retirement(
     assert len(completed.latest_outcomes) == 2
 
 
-def test_public_lease_publish_writes_prepared_evidence_first(tmp_path: Path) -> None:
+def test_public_lease_publish_requires_explicit_preparation(tmp_path: Path) -> None:
     lifecycle = _lifecycle(tmp_path)
     key = lifecycle.installation_key("coding.base")
     lifecycle.bootstrap_first_party_default(key, _package_ref())
@@ -1226,6 +1230,12 @@ def test_public_lease_publish_writes_prepared_evidence_first(tmp_path: Path) -> 
         contribution_ids=("coding.standard",),
     )
 
+    with pytest.raises(
+        CodingOwnerGenerationEvidenceError, match="requires prepared generation"
+    ):
+        lease.publish_owner_generations((receipt,))
+    assert not lifecycle.layout.owner_generation_evidence.exists()
+    lease.prepare_owner_generations((receipt,))
     lease.publish_owner_generations((receipt,))
 
     evidence = lifecycle.owner_evidence.family(lease.family.family_id)
@@ -1271,6 +1281,7 @@ def test_startup_lock_fault_injection_requires_positive_orphan_evidence(
         contribution_ids=("coding.standard",),
     )
     if publish_owner_evidence:
+        lease.prepare_owner_generations((receipt,))
         lease.publish_owner_generations((receipt,))
 
     recovered = build_coding_plugin_lifecycle(
