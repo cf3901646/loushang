@@ -2180,6 +2180,14 @@ summary, and preserves its final record, phase and witness history, and old
 attempt ID. It is a read-only source-bound base. The cross-owner settlement
 join, committed cutover, reader and writer switch, and durable deletion owner
 are still required before any provisioning history can be retired.
+A following read-only semantic review derives all six typed bases from one
+preparation, binds them to the same scope, Store, and source digest, and joins
+each launched attempt's old receipt, C5 and Supervisor identity, launch intent,
+LPAC provisioning record, and observed named-Job absence. It also retains IDs
+seen only in the recovery inventory for a later retirement decision. Native
+Product acceptance of this review is pending. The review has no Desired,
+Package, or backup reference closure and cannot commit a cutover or delete
+history.
 
 1. **Author artifact.** A versioned author recipe packages one Worker
    declaration document, a platform-specific executable, and a manifest whose
