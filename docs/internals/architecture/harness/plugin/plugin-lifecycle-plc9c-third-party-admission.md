@@ -2271,6 +2271,13 @@ bytes. It grants no publication or deletion authority. A future Product owner
 must compare it with freshly read persisted bases under the same quiescence and
 GC gate before publishing or accepting it, then route every reader and writer
 to the new history representation.
+A read-only cutover inspection now reads the marker, checkpoint, and six bases
+through one pinned Product root while runtime quiescence and the GC write gate
+are held. It refuses an absent, staged, changed, or noncanonical marker and
+compares the marker against the exact persisted bases before returning. The
+ordinary pre-cutover base reader still refuses the marker. This structural
+read does not reprove current Desired State, Package reservations, or native
+settlement and cannot authorize publication, GC, or source deletion.
 
 1. **Author artifact.** A versioned author recipe packages one Worker
    declaration document, a platform-specific executable, and a manifest whose

@@ -3899,6 +3899,10 @@ def _assert_windows_worker_retired_history_allows_gc(
         publish_coding_windows_worker_history_bases,
         read_coding_windows_worker_history_bases,
     )
+    from loushang.coding.package_product_worker_windows_history_cutover_record import (
+        WINDOWS_WORKER_HISTORY_CUTOVER_NAME,
+        CodingWindowsWorkerHistoryCutoverRecordV1,
+    )
     from loushang.coding.package_product_worker_windows_history_join import (
         CodingWindowsWorkerHistorySemanticJoinV1,
     )
@@ -3915,6 +3919,7 @@ def _assert_windows_worker_retired_history_allows_gc(
     )
     from loushang.coding.package_product_worker_windows_persisted_bases import (
         read_coding_windows_worker_persisted_bases,
+        read_coding_windows_worker_persisted_cutover,
     )
     from loushang.coding.package_product_worker_windows_provisioning_base import (
         CodingWindowsWorkerNativeProvisioningSemanticBaseV1,
@@ -4190,6 +4195,25 @@ def _assert_windows_worker_retired_history_allows_gc(
         persisted = read_coding_windows_worker_persisted_bases(product)
         assert persisted.checkpoint == checkpoint
         assert persisted.native_provisioning == joined.native_provisioning
+        with pytest.raises(ValueError, match="cutover marker is absent"):
+            read_coding_windows_worker_persisted_cutover(product)
+        marker = CodingWindowsWorkerHistoryCutoverRecordV1.from_persisted_bases(
+            persisted
+        )
+        marker_path = product.state_root / WINDOWS_WORKER_HISTORY_CUTOVER_NAME
+        write_windows_private_receipt(marker_path, marker.to_bytes())
+        try:
+            with pytest.raises(ValueError, match="state owner is unrecognized"):
+                read_coding_windows_worker_persisted_bases(product)
+            assert read_coding_windows_worker_persisted_cutover(product) == (
+                marker,
+                persisted,
+            )
+            marker_path.write_bytes(b"changed-marker")
+            with pytest.raises(ValueError, match="cutover record is invalid"):
+                read_coding_windows_worker_persisted_cutover(product)
+        finally:
+            marker_path.unlink()
         checkpoint_stage = (
             product.state_root / "worker-history-checkpoint-v1.json.stage"
         )
