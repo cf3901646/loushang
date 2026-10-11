@@ -146,6 +146,7 @@ def smoke_coding_worker_candidate_wheel(
                     namespace_id=token_hex(32),
                     runtime_version=version("loushang"),
                     runtime_protocol_epoch=2,
+                    windows_candidate=native_platform == "windows-amd64",
                 )
             except Exception as exc:
                 return _failure(
