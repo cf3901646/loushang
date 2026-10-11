@@ -14,6 +14,9 @@ from hashlib import sha256
 from loushang.harness.package_product.product_local_wheel_runtime import (
     WindowsLocalWheelProductSessionOwner,
 )
+from loushang.harness.plugin_management.package_gc_reservation import (
+    PluginPackageGcReservationSnapshotV1,
+)
 from loushang.harness.resources.packages.plugin_lifecycle.records import (
     canonical_json_bytes,
 )
@@ -250,52 +253,72 @@ def review_coding_windows_worker_package_references(
             raise ValueError("Windows Worker Package runtime remains active")
         product.assert_root_gc_authority_current()
         with product.gc_gate.read_snapshot_guard() as gc_snapshot:
-            if gc_snapshot.active:
-                raise ValueError("Windows Worker GC reservation remains active")
-            source = _capture_coding_windows_worker_history_sources_under_gc_guard(
+            review, _, _ = _review_coding_windows_worker_package_references_under_guard(
                 product,
-                store_id=registry.store_id,
-                lease_owner_revision=quiescence.owner_revision,
-                require_settled_history=True,
-            )
-            recovery = (
-                _inspect_coding_windows_product_worker_offline_recovery_under_gc_guard(
-                    product,
-                    store_id=registry.store_id,
-                    lease_owner_revision=quiescence.owner_revision,
-                    gc_snapshot=gc_snapshot,
-                )
-            )
-            desired_snapshot, desired_transitions, desired_digest = (
-                _capture_coding_windows_worker_desired_history_under_gc_guard(product)
-            )
-            if source != _capture_coding_windows_worker_history_sources_under_gc_guard(
-                product,
-                store_id=registry.store_id,
-                lease_owner_revision=quiescence.owner_revision,
-                require_settled_history=False,
-            ):
-                raise ValueError("Windows Worker history sources changed")
-            semantic = CodingWindowsWorkerHistorySemanticReadV1(
-                source_snapshot=source,
-                offline_recovery=recovery,
-                desired_inventory_revision=desired_snapshot.inventory_revision,
-                desired_history_digest=desired_digest,
-                desired_snapshot=desired_snapshot,
-                desired_transitions=desired_transitions,
-            )
-            prepared = CodingWindowsWorkerHistoryPreparationV1.create(semantic)
-            backup_topology = observe_coding_worker_backup_references_under_gc_guard(
-                product, attempt_id="0" * 32
-            )
-            review = CodingWindowsWorkerPackageReferenceReviewV1.from_guarded_read(
-                prepared,
-                semantic,
                 quiescence=quiescence,
-                backup_topology=backup_topology,
+                gc_snapshot=gc_snapshot,
             )
         product.assert_root_gc_authority_current()
     return review
+
+
+def _review_coding_windows_worker_package_references_under_guard(
+    product: WindowsLocalWheelProductSessionOwner,
+    *,
+    quiescence: PackageWindowsRuntimeQuiescenceV1,
+    gc_snapshot: PluginPackageGcReservationSnapshotV1,
+) -> tuple[
+    CodingWindowsWorkerPackageReferenceReviewV1,
+    CodingWindowsWorkerHistoryPreparationV1,
+    CodingWindowsWorkerHistorySemanticReadV1,
+]:
+    """Return the review and exact inputs while both outer locks remain held."""
+
+    if gc_snapshot.active:
+        raise ValueError("Windows Worker GC reservation remains active")
+    product.assert_root_gc_authority_current()
+    source = _capture_coding_windows_worker_history_sources_under_gc_guard(
+        product,
+        store_id=quiescence.store_id,
+        lease_owner_revision=quiescence.owner_revision,
+        require_settled_history=True,
+    )
+    recovery = _inspect_coding_windows_product_worker_offline_recovery_under_gc_guard(
+        product,
+        store_id=quiescence.store_id,
+        lease_owner_revision=quiescence.owner_revision,
+        gc_snapshot=gc_snapshot,
+    )
+    desired_snapshot, desired_transitions, desired_digest = (
+        _capture_coding_windows_worker_desired_history_under_gc_guard(product)
+    )
+    if source != _capture_coding_windows_worker_history_sources_under_gc_guard(
+        product,
+        store_id=quiescence.store_id,
+        lease_owner_revision=quiescence.owner_revision,
+        require_settled_history=False,
+    ):
+        raise ValueError("Windows Worker history sources changed")
+    semantic = CodingWindowsWorkerHistorySemanticReadV1(
+        source_snapshot=source,
+        offline_recovery=recovery,
+        desired_inventory_revision=desired_snapshot.inventory_revision,
+        desired_history_digest=desired_digest,
+        desired_snapshot=desired_snapshot,
+        desired_transitions=desired_transitions,
+    )
+    prepared = CodingWindowsWorkerHistoryPreparationV1.create(semantic)
+    backup_topology = observe_coding_worker_backup_references_under_gc_guard(
+        product, attempt_id="0" * 32
+    )
+    review = CodingWindowsWorkerPackageReferenceReviewV1.from_guarded_read(
+        prepared,
+        semantic,
+        quiescence=quiescence,
+        backup_topology=backup_topology,
+    )
+    product.assert_root_gc_authority_current()
+    return review, prepared, semantic
 
 
 __all__ = [
