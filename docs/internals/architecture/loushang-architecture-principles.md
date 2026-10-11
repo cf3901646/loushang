@@ -35,8 +35,8 @@
 
 - [Architecture Overview](./architecture-overview.md)
   - 定义整体分层与子系统地图
-- [Architecture Design And Governance Method](../architecture-method/README.md)
-  - 定义 truth plane、递归 Architecture Scope、设计流程与治理规则
+- [Loushang Architecture Governance Profile](governance-profile.md)
+  - 定义 Loushang 的 truth plane、递归 Architecture Scope 与治理规则
 - [Product And OEM Glossary](../glossary/loushang-product.md)
   - 定义 Product、OEM、Capability、Package、Plugin 与 Extension 等跨层术语
 - [Capability Variation And Replacement Boundary](./harness/capability-variation-and-replacement-boundary.md)
