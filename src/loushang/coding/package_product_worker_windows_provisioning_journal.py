@@ -111,6 +111,12 @@ def _canonical(value: object) -> bytes:
     ).encode("utf-8")
 
 
+def windows_worker_provisioning_settlement_fingerprint(
+    document: dict[str, object],
+) -> str:
+    return _document_fingerprint("loushang.worker.windows-lpac-settlement/v1", document)
+
+
 def _inventory_identity(name: str, raw: bytes) -> dict[str, object]:
     """Seed strict replay from the first record without trusting its identity."""
 
@@ -281,9 +287,8 @@ def inspect_windows_worker_provisioning_attempts(
                             )
                         ),
                         settlement_fingerprint=(
-                            _document_fingerprint(
-                                "loushang.worker.windows-lpac-settlement/v1",
-                                current.document,
+                            windows_worker_provisioning_settlement_fingerprint(
+                                current.document
                             )
                             if current.document["phase"] == "settled"
                             else None
@@ -750,4 +755,5 @@ __all__ = [
     "WindowsWorkerProvisioningStateJournal",
     "WindowsWorkerProvisioningStateJournalError",
     "inspect_windows_worker_provisioning_attempts",
+    "windows_worker_provisioning_settlement_fingerprint",
 ]

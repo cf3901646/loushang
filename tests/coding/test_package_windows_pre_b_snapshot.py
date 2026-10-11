@@ -3881,9 +3881,15 @@ def _retain_windows_c5_test_attempt(
 def _assert_windows_worker_retired_history_allows_gc(
     tmp_path: Path, *, partial_attempt_id: str | None
 ) -> None:
+    from loushang.coding.package_product_worker_windows_history_preparation import (
+        CodingWindowsWorkerHistoryPreparationV1,
+    )
     from loushang.coding.package_product_worker_windows_history_sources import (
         read_coding_windows_worker_history_semantics,
         review_coding_windows_worker_settled_history_sources,
+    )
+    from loushang.coding.package_product_worker_windows_provisioning_base import (
+        CodingWindowsWorkerNativeProvisioningSemanticBaseV1,
     )
 
     workspace = tmp_path / "workspace"
@@ -4096,6 +4102,16 @@ def _assert_windows_worker_retired_history_allows_gc(
         )
         semantic = read_coding_windows_worker_history_semantics(product)
         assert semantic.source_snapshot == history_review.source_snapshot
+        native_base = (
+            CodingWindowsWorkerNativeProvisioningSemanticBaseV1.from_semantic_read(
+                CodingWindowsWorkerHistoryPreparationV1.create(semantic), semantic
+            )
+        )
+        assert native_base.attempt_ids == tuple(
+            item.attempt_id
+            for item in semantic.offline_recovery.native_provisioning_attempts
+        )
+        assert native_base.attempt_ids
         assert "operator:windows-worker-gc-revoke" in (
             semantic.offline_recovery.retained_opt_in_operation_ids
         )
