@@ -2123,6 +2123,13 @@ records the Product scope, Store, and lease-owner revision. This is byte
 identity evidence for a later semantic checkpoint; it neither publishes a
 cutover nor prunes a source. The native Windows GC job includes an isolated
 source-file and unknown-name refusal case; its result remains pending.
+A separate read-only settlement review now joins that exact source snapshot to
+the existing Windows GC history reader under the same runtime quiescence and
+GC write gate. It refuses an active runtime or an unsettled cross-owner
+attempt, and binds the successful momentary review to the source digest. This
+is a prerequisite candidate for semantic checkpoint preparation; it contains
+no Package lease, backup, or Desired State closure and authorizes no cutover
+or deletion. Native settled-attempt evidence remains pending.
 
 1. **Author artifact.** A versioned author recipe packages one Worker
    declaration document, a platform-specific executable, and a manifest whose

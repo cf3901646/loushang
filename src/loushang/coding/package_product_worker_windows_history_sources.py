@@ -26,6 +26,7 @@ from loushang.harness.resources.packages.plugin_lifecycle.windows_quarantine imp
 )
 
 from .package_product_worker_windows_gc_history import (
+    CodingWindowsWorkerGcHistoryAuthority,
     _require_known_windows_worker_state_names,
 )
 
@@ -123,10 +124,74 @@ class CodingWindowsWorkerHistorySourceSnapshotV1:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class CodingWindowsWorkerHistorySettlementReviewV1:
+    """Momentary source and settled-attempt proof; grants no cutover."""
+
+    source_snapshot: CodingWindowsWorkerHistorySourceSnapshotV1
+    review_digest: str
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.source_snapshot) is not CodingWindowsWorkerHistorySourceSnapshotV1
+            or type(self.review_digest) is not str
+            or self.review_digest
+            != sha256(
+                canonical_json_bytes(
+                    {
+                        "reviewKind": "coding-windows-worker-settled-history/v1",
+                        "sourceSnapshotDigest": self.source_snapshot.snapshot_digest,
+                    }
+                )
+            ).hexdigest()
+        ):
+            raise ValueError("Windows Worker history settlement review is invalid")
+
+    @classmethod
+    def create(
+        cls, source_snapshot: CodingWindowsWorkerHistorySourceSnapshotV1
+    ) -> CodingWindowsWorkerHistorySettlementReviewV1:
+        return cls(
+            source_snapshot=source_snapshot,
+            review_digest=sha256(
+                canonical_json_bytes(
+                    {
+                        "reviewKind": "coding-windows-worker-settled-history/v1",
+                        "sourceSnapshotDigest": source_snapshot.snapshot_digest,
+                    }
+                )
+            ).hexdigest(),
+        )
+
+
 def capture_coding_windows_worker_history_sources(
     product: WindowsLocalWheelProductSessionOwner,
 ) -> CodingWindowsWorkerHistorySourceSnapshotV1:
     """Hash all recognized Worker-owned files without changing Product state."""
+
+    return _capture_coding_windows_worker_history_sources(
+        product, require_settled_history=False
+    )
+
+
+def review_coding_windows_worker_settled_history_sources(
+    product: WindowsLocalWheelProductSessionOwner,
+) -> CodingWindowsWorkerHistorySettlementReviewV1:
+    """Join source bytes to GC's complete-attempt retirement proof."""
+
+    return CodingWindowsWorkerHistorySettlementReviewV1.create(
+        _capture_coding_windows_worker_history_sources(
+            product, require_settled_history=True
+        )
+    )
+
+
+def _capture_coding_windows_worker_history_sources(
+    product: WindowsLocalWheelProductSessionOwner,
+    *,
+    require_settled_history: bool,
+) -> CodingWindowsWorkerHistorySourceSnapshotV1:
+    """Capture source bytes and optionally verify GC's settlement proof."""
 
     if (
         os.name != "nt"
@@ -221,6 +286,10 @@ def capture_coding_windows_worker_history_sources(
                                     sha256_digest=digest.hexdigest(),
                                 )
                             )
+                    if require_settled_history:
+                        CodingWindowsWorkerGcHistoryAuthority(product).require_settled(
+                            observed_names=before
+                        )
                     if set(windows_listdir_at(root)) != set(before):
                         raise ValueError("Windows Worker history inventory changed")
                     if not os.path.samestat(os.fstat(root), product.state_root.lstat()):
@@ -237,5 +306,7 @@ def capture_coding_windows_worker_history_sources(
 __all__ = [
     "CodingWindowsWorkerHistorySourceFileV1",
     "CodingWindowsWorkerHistorySourceSnapshotV1",
+    "CodingWindowsWorkerHistorySettlementReviewV1",
     "capture_coding_windows_worker_history_sources",
+    "review_coding_windows_worker_settled_history_sources",
 ]
