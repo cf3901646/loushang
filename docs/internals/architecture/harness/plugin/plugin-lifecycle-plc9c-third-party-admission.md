@@ -2164,10 +2164,13 @@ old attempt IDs, stale epochs, nonconsecutive revisions, and invalid phase
 transitions. The C5 base preserves the last complete state and compacted
 attempt tombstones, matches the canonical source journal and every revision
 head, and rejects retired ID reuse on replay. These projections are not yet
-a committed checkpoint: C5, receipt, Supervisor, launch-intent, and native
-provisioning identities have not been joined to Desired, Package, backup, or
-live Session references. No Product reader or writer uses them to retire old
-bytes, and no Windows cutover acceptance has been claimed.
+a committed checkpoint. The guarded Product read now also captures every
+immutable launch intent; its own typed base checks each captured file's exact
+bytes, joins the attempt recovery projection, and rejects old attempt IDs on
+replay. C5, receipt, Supervisor, launch-intent, and native provisioning
+identities have not been joined to Desired, Package, backup, or live Session
+references. No Product reader or writer uses them to retire old bytes, and no
+Windows cutover acceptance has been claimed.
 
 1. **Author artifact.** A versioned author recipe packages one Worker
    declaration document, a platform-specific executable, and a manifest whose

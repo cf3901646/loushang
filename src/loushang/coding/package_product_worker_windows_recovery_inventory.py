@@ -40,6 +40,7 @@ from .package_product_worker_windows_activation_state_journal import (
     CodingWindowsWorkerActivationStateJournal,
 )
 from .package_product_worker_windows_launch_intent import (
+    CodingWindowsWorkerLaunchIntentV1,
     _inspect_intents_under_gc_guard,
 )
 from .package_product_worker_windows_opt_in_journal import (
@@ -208,6 +209,7 @@ class CodingWindowsWorkerOfflineRecoverySnapshotV1:
     gc_revision_refs: frozenset[PluginPackageRevisionRefV1]
     worker_backup_observations: tuple[CodingWorkerBackupReferenceObservationV1, ...]
     activation_state_records: tuple[_StateRecord, ...] = ()
+    launch_intents: tuple[CodingWindowsWorkerLaunchIntentV1, ...] = ()
 
     @property
     def opt_in_history_revision(self) -> int:
@@ -756,6 +758,7 @@ def _inspect_coding_windows_product_worker_offline_recovery_under_gc_guard(
 
     product.assert_root_gc_authority_current()
     attempts = _inspect_windows_worker_recovery_inventory_under_gc_guard(product)
+    launch_intents = _inspect_intents_under_gc_guard(product)
     with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
         opt_in_decisions = CodingWindowsWorkerOptInJournal(
             product.state_root / "worker-opt-in.jsonl",
@@ -811,6 +814,7 @@ def _inspect_coding_windows_product_worker_offline_recovery_under_gc_guard(
         gc_revision_refs=coding_worker_gc_revision_refs(gc_snapshot),
         worker_backup_observations=worker_backup_observations,
         activation_state_records=activation_state_records,
+        launch_intents=launch_intents,
     )
 
 
