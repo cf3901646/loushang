@@ -2155,14 +2155,17 @@ journals remain authoritative, and the record cannot authorize history
 deletion or a new Worker attempt. Native Windows publication and
 interrupted-stage evidence remains pending.
 The next source-bound projections decode that prepared semantic read into
-strict canonical opt-in, receipt, and Supervisor bases. They retain the
+strict canonical opt-in, receipt, Supervisor, and C5 bases. They retain the
 latest opt-in decision per plugin, all retired operation IDs, the receipt
 issue-sequence and fingerprint watermarks, and the latest Supervisor state
 plus every claimed attempt ID. The receipt projection joins each old receipt
 to its original `allow` even after a later revoke; Supervisor replay rejects
 old attempt IDs, stale epochs, nonconsecutive revisions, and invalid phase
-transitions. These projections are not yet a committed checkpoint: they do
-not join C5, launch-intent, native provisioning, Desired, Package, backup, or
+transitions. The C5 base preserves the last complete state and compacted
+attempt tombstones, matches the canonical source journal and every revision
+head, and rejects retired ID reuse on replay. These projections are not yet
+a committed checkpoint: C5, receipt, Supervisor, launch-intent, and native
+provisioning identities have not been joined to Desired, Package, backup, or
 live Session references. No Product reader or writer uses them to retire old
 bytes, and no Windows cutover acceptance has been claimed.
 
