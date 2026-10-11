@@ -26,6 +26,7 @@ from .package_legacy_windows_receipt import (
 from .package_product_worker_windows_history_sources import (
     CodingWindowsWorkerHistorySemanticReadV1,
     CodingWindowsWorkerHistorySourceSnapshotV1,
+    _capture_coding_windows_worker_desired_history_under_gc_guard,
     _capture_coding_windows_worker_history_sources_under_gc_guard,
 )
 from .package_product_worker_windows_recovery_inventory import (
@@ -48,6 +49,8 @@ def _semantic_digest(semantic: CodingWindowsWorkerHistorySemanticReadV1) -> str:
             item.to_dict() for item in recovery.activation_state_records
         ],
         "attempts": [asdict(item) for item in recovery.attempts],
+        "desiredHistoryDigest": semantic.desired_history_digest,
+        "desiredInventoryRevision": semantic.desired_inventory_revision,
         "backupObservations": [
             asdict(item) for item in recovery.worker_backup_observations
         ],
@@ -219,6 +222,9 @@ def prepare_coding_windows_worker_history(
                     gc_snapshot=gc_snapshot,
                 )
             )
+            desired_revision, desired_digest = (
+                _capture_coding_windows_worker_desired_history_under_gc_guard(product)
+            )
             if source_snapshot != (
                 _capture_coding_windows_worker_history_sources_under_gc_guard(
                     product,
@@ -229,7 +235,10 @@ def prepare_coding_windows_worker_history(
             ):
                 raise ValueError("Windows Worker history sources changed")
             semantic = CodingWindowsWorkerHistorySemanticReadV1(
-                source_snapshot=source_snapshot, offline_recovery=offline_recovery
+                source_snapshot=source_snapshot,
+                offline_recovery=offline_recovery,
+                desired_inventory_revision=desired_revision,
+                desired_history_digest=desired_digest,
             )
             prepared = CodingWindowsWorkerHistoryPreparationV1.create(semantic)
             for existing in (published, staged):

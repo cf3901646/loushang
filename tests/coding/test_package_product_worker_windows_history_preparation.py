@@ -79,6 +79,25 @@ def test_windows_worker_history_preparation_replays_only_exact_semantics() -> No
         )
 
 
+def test_windows_worker_history_preparation_binds_desired_provenance() -> None:
+    semantic = replace(
+        _semantic_read(),
+        desired_inventory_revision=2,
+        desired_history_digest=sha256(b"selected desired history").hexdigest(),
+    )
+    prepared = CodingWindowsWorkerHistoryPreparationV1.create(semantic)
+    prepared.require_semantic_read(semantic)
+    with pytest.raises(ValueError, match="semantic read changed"):
+        prepared.require_semantic_read(
+            replace(
+                semantic,
+                desired_history_digest=sha256(b"changed desired history").hexdigest(),
+            )
+        )
+    with pytest.raises(ValueError, match="semantic read is invalid"):
+        replace(semantic, desired_history_digest=None)
+
+
 def test_windows_worker_history_preparation_rejects_changed_bytes() -> None:
     prepared = CodingWindowsWorkerHistoryPreparationV1.create(_semantic_read())
     document = json.loads(prepared.to_bytes())

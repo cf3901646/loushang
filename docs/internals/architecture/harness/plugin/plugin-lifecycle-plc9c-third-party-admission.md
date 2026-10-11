@@ -2189,6 +2189,14 @@ Product acceptance of this review is pending. The review has no Desired,
 Package, or backup reference closure and cannot commit a cutover or delete
 history.
 
+The same guarded semantic read now hashes the complete Desired State snapshot
+and transition provenance at one inventory revision and binds that digest into
+the durable preparation record. Desired writes use the Product GC reference
+gate, so this read shares the source and recovery guard. The native Product
+assertion for this new input awaits CI. The digest is a checkpoint input;
+Package lease, backup, and selection closure still need a Product preflight
+before any cutover can be committed.
+
 1. **Author artifact.** A versioned author recipe packages one Worker
    declaration document, a platform-specific executable, and a manifest whose
    v3 reservation exactly matches the v3 declaration. The recipe validates
