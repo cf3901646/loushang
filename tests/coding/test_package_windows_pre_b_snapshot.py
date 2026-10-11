@@ -3802,7 +3802,7 @@ def _assert_windows_worker_retired_history_allows_gc(
         )
         staged_history.write_bytes(b"unpublished")
         try:
-            with pytest.raises(ValueError, match="history stage remains"):
+            with pytest.raises(ValueError, match="state owner is unrecognized"):
                 review_coding_windows_worker_settled_history_sources(product)
             with pytest.raises(PackageProductGcExecutionError) as staged:
                 gc.prepare()
