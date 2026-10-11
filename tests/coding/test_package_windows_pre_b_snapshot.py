@@ -3753,6 +3753,10 @@ def _assert_windows_worker_retired_history_allows_gc(
     from loushang.coding.package_product_worker_windows_desired_references import (
         CodingWindowsWorkerDesiredReferenceReviewV1,
     )
+    from loushang.coding.package_product_worker_windows_history_bases import (
+        publish_coding_windows_worker_history_bases,
+        read_coding_windows_worker_history_bases,
+    )
     from loushang.coding.package_product_worker_windows_history_join import (
         CodingWindowsWorkerHistorySemanticJoinV1,
     )
@@ -4016,6 +4020,28 @@ def _assert_windows_worker_retired_history_allows_gc(
             read_coding_windows_worker_history_checkpoint(product)
         checkpoint = publish_coding_windows_worker_history_checkpoint(product)
         assert read_coding_windows_worker_history_checkpoint(product) == checkpoint
+        with pytest.raises(ValueError, match="base is absent"):
+            read_coding_windows_worker_history_bases(product)
+        base_stage = product.state_root / "worker-history-base-opt-in-v1.json.stage"
+        with (
+            patch(
+                "loushang.coding.package_legacy_windows_receipt.windows_rename_at",
+                side_effect=OSError("injected base publication interruption"),
+            ),
+            pytest.raises(OSError, match="injected base publication interruption"),
+        ):
+            publish_coding_windows_worker_history_bases(product)
+        assert base_stage.read_bytes() == joined.opt_in.to_bytes()
+        with pytest.raises(ValueError, match="history stage remains"):
+            read_coding_windows_worker_history_bases(product)
+        base_stage.write_bytes(b"changed")
+        with pytest.raises(ValueError, match="base source changed"):
+            publish_coding_windows_worker_history_bases(product)
+        assert not (product.state_root / "worker-history-base-receipt-v1.json").exists()
+        base_stage.write_bytes(joined.opt_in.to_bytes())
+        assert publish_coding_windows_worker_history_bases(product) == checkpoint
+        assert read_coding_windows_worker_history_bases(product) == checkpoint
+        assert not base_stage.exists()
         checkpoint_stage = (
             product.state_root / "worker-history-checkpoint-v1.json.stage"
         )

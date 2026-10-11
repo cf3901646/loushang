@@ -29,6 +29,10 @@ from loushang.harness.resources.packages.plugin_lifecycle.windows_quarantine imp
     windows_stat_at,
 )
 
+from .package_product_worker_windows_base_files import (
+    WINDOWS_WORKER_BASE_NAMES,
+    WINDOWS_WORKER_BASE_STAGE_NAMES,
+)
 from .package_product_worker_windows_gc_history import (
     CodingWindowsWorkerGcHistoryAuthority,
     _require_known_windows_worker_state_names,
@@ -42,13 +46,17 @@ _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_FILES = 8192
 _MAX_FILE_BYTES = 64 * 1024 * 1024
 _MAX_TOTAL_BYTES = 256 * 1024 * 1024
-_PREPARATION_NAMES = frozenset(
-    {
-        "worker-history-preparation-v1.json",
-        "worker-history-preparation-v1.json.stage",
-        "worker-history-checkpoint-v1.json",
-        "worker-history-checkpoint-v1.json.stage",
-    }
+_NON_SOURCE_NAMES = (
+    frozenset(
+        {
+            "worker-history-preparation-v1.json",
+            "worker-history-preparation-v1.json.stage",
+            "worker-history-checkpoint-v1.json",
+            "worker-history-checkpoint-v1.json.stage",
+        }
+    )
+    | WINDOWS_WORKER_BASE_NAMES
+    | WINDOWS_WORKER_BASE_STAGE_NAMES
 )
 
 
@@ -63,6 +71,7 @@ class CodingWindowsWorkerHistorySourceFileV1:
             type(self.name) is not str
             or not self.name.casefold().startswith(("worker-", ".worker-"))
             or self.name.casefold().endswith(".stage")
+            or self.name in _NON_SOURCE_NAMES
             or type(self.size) is not int
             or not 0 <= self.size <= _MAX_FILE_BYTES
             or type(self.sha256_digest) is not str
@@ -432,6 +441,7 @@ def _capture_coding_windows_worker_history_sources_under_gc_guard(
     lease_owner_revision: int,
     require_settled_history: bool,
     allow_checkpoint_stage: bool = False,
+    allow_base_stage: bool = False,
 ) -> CodingWindowsWorkerHistorySourceSnapshotV1:
     """Pin all source bytes while the caller owns quiescence and the GC gate."""
 
@@ -443,9 +453,16 @@ def _capture_coding_windows_worker_history_sources_under_gc_guard(
                 raise ValueError("Windows Worker history root changed")
             before = tuple(windows_listdir_at(root))
             _require_known_windows_worker_state_names(before)
-            if "worker-history-preparation-v1.json.stage" in before or (
-                "worker-history-checkpoint-v1.json.stage" in before
-                and not allow_checkpoint_stage
+            if (
+                "worker-history-preparation-v1.json.stage" in before
+                or (
+                    "worker-history-checkpoint-v1.json.stage" in before
+                    and not allow_checkpoint_stage
+                )
+                or (
+                    not allow_base_stage
+                    and WINDOWS_WORKER_BASE_STAGE_NAMES.intersection(before)
+                )
             ):
                 raise ValueError("Windows Worker history stage remains")
             names = tuple(
@@ -453,7 +470,7 @@ def _capture_coding_windows_worker_history_sources_under_gc_guard(
                     name
                     for name in before
                     if name.casefold().startswith(("worker-", ".worker-"))
-                    and name not in _PREPARATION_NAMES
+                    and name not in _NON_SOURCE_NAMES
                 )
             )
             if any(name.casefold().endswith(".stage") for name in names):
@@ -517,6 +534,7 @@ def _capture_coding_windows_worker_history_sources_under_gc_guard(
                 CodingWindowsWorkerGcHistoryAuthority(product).require_settled(
                     observed_names=before,
                     allow_checkpoint_stage=allow_checkpoint_stage,
+                    allow_base_stage=allow_base_stage,
                 )
             if set(windows_listdir_at(root)) != set(before):
                 raise ValueError("Windows Worker history inventory changed")
