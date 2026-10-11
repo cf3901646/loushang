@@ -15,6 +15,7 @@ from loushang.harness.resources.packages.plugin_lifecycle.records import (
     canonical_json_bytes,
 )
 
+from ._product_worker_canary import CODING_PRODUCT_WORKER_WINDOWS_NATIVE_PROFILE_ID
 from .package_product_worker_opt_in import CodingWorkerOptInDecisionV1
 from .package_product_worker_policy import coding_worker_session_scope_id
 from .package_product_worker_receipt import CodingWorkerReceiptRecordV1
@@ -159,7 +160,8 @@ class CodingWindowsWorkerReceiptSemanticBaseV1:
                 or policy.product_id != "coding"
                 or policy.product_scope_id
                 != coding_worker_session_scope_id(policy.session_id)
-                or policy.native_profile_id != "windows-lpac-contained-pe-v1"
+                or policy.native_profile_id
+                != CODING_PRODUCT_WORKER_WINDOWS_NATIVE_PROFILE_ID
                 or decision is None
                 or decision.action != "allow"
                 or decision.opt_in is None

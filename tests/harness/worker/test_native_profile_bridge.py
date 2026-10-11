@@ -792,9 +792,7 @@ def test_windows_lpac_profile_joins_plan_provision_capture_and_cleanup(
     )
     assert len(profile.execution_closure_fingerprint) == 64
     assert len(captured) == 1
-    assert captured[0].job_name == (
-        "Global\\LoushangWorker-" + plan.operation_nonce
-    )
+    assert captured[0].job_name == ("Global\\LoushangWorker-" + plan.operation_nonce)
     assert provisioner.events == [
         "profile-create",
         "grant-apply",
@@ -1048,9 +1046,12 @@ def test_windows_lpac_durable_attempt_reopens_without_creating_on_read(
     assert identity["jobObjectName"] == (
         "Global\\LoushangWorker-" + plan.operation_nonce
     )
-    assert identity["executableRelativePath"] == request.runtime.executable.relative_to(
-        request.runtime.package_root
-    ).as_posix()
+    assert (
+        identity["executableRelativePath"]
+        == request.runtime.executable.relative_to(
+            request.runtime.package_root
+        ).as_posix()
+    )
     store = WindowsWorkerProvisioningStateJournal(path, identity=identity)
     assert store.load() is None
     assert not path.exists()
@@ -1078,8 +1079,8 @@ def test_windows_lpac_durable_attempt_reopens_without_creating_on_read(
 def test_windows_lpac_cleanup_spec_rebuilds_only_matching_durable_identity(
     tmp_path: Path,
 ) -> None:
-    _, receipt, request, plan, _, provisioner, bindings, probe = _windows_profile_context(
-        tmp_path
+    _, receipt, request, plan, _, provisioner, bindings, probe = (
+        _windows_profile_context(tmp_path)
     )
     identity = _windows_lpac_provisioning_identity(
         receipt=receipt, worker_request=request, plan=plan
@@ -1115,8 +1116,8 @@ def test_windows_lpac_cleanup_spec_rebuilds_only_matching_durable_identity(
 def test_windows_lpac_recovery_reopens_effect_history_without_new_reservation(
     tmp_path: Path,
 ) -> None:
-    _, receipt, request, plan, _, provisioner, bindings, probe = _windows_profile_context(
-        tmp_path
+    _, receipt, request, plan, _, provisioner, bindings, probe = (
+        _windows_profile_context(tmp_path)
     )
     identity = _windows_lpac_provisioning_identity(
         receipt=receipt, worker_request=request, plan=plan
@@ -1170,8 +1171,8 @@ def test_windows_lpac_recovery_reopens_effect_history_without_new_reservation(
 def test_windows_lpac_recovery_retries_uncertain_profile_delete(
     tmp_path: Path,
 ) -> None:
-    _, receipt, request, plan, _, provisioner, bindings, probe = _windows_profile_context(
-        tmp_path
+    _, receipt, request, plan, _, provisioner, bindings, probe = (
+        _windows_profile_context(tmp_path)
     )
     identity = _windows_lpac_provisioning_identity(
         receipt=receipt, worker_request=request, plan=plan
@@ -1379,6 +1380,8 @@ def test_windows_lpac_durable_attempt_native_rooted_io(tmp_path: Path) -> None:
         assert inventory[0].attempt_id == request.identity.attempt_id
         assert inventory[0].phase == "settled"
         assert not inventory[0].unsettled
+        assert len(inventory[0].records) == inventory[0].state_revision
+        assert inventory[0].records[-1].document == current
         settlement = profile.native_containment_settlement_witness()
         assert isinstance(settlement, _WindowsNativeContainmentSettlementWitness)
         assert inventory[0].settlement_fingerprint == settlement.journal_fingerprint
@@ -1535,15 +1538,17 @@ def test_windows_provisioning_inventory_identity_refuses_foreign_attempt(
     assert changed.value.code == "worker_native_provisioning_inventory_invalid"
     for invalid in (
         {key: value for key, value in identity.items() if key != "jobObjectName"},
-        {key: value for key, value in identity.items() if key != "executableRelativePath"},
+        {
+            key: value
+            for key, value in identity.items()
+            if key != "executableRelativePath"
+        },
         {**identity, "journalVersion": 1},
         {**identity, "journalVersion": 2},
         {**identity, "jobObjectName": "Global\\LoushangWorker-" + "f" * 64},
         {**identity, "executableRelativePath": "../foreign.exe"},
     ):
-        invalid_raw = (
-            json.dumps({"document": invalid}, sort_keys=True).encode() + b"\n"
-        )
+        invalid_raw = json.dumps({"document": invalid}, sort_keys=True).encode() + b"\n"
         with pytest.raises(WindowsWorkerProvisioningStateJournalError) as changed:
             _inventory_identity(name, invalid_raw)
         assert changed.value.code == "worker_native_provisioning_inventory_invalid"

@@ -16,6 +16,10 @@ from loushang.coding.package_product_worker_windows_history_sources import (
     CodingWindowsWorkerHistorySourceFileV1,
     CodingWindowsWorkerHistorySourceSnapshotV1,
 )
+from loushang.coding.package_product_worker_windows_provisioning_journal import (
+    WindowsWorkerProvisioningAttemptV1,
+    _Record,
+)
 from loushang.coding.package_product_worker_windows_recovery_inventory import (
     CodingWindowsWorkerOfflineRecoverySnapshotV1,
 )
@@ -96,6 +100,37 @@ def test_windows_worker_history_preparation_binds_complete_c5_state() -> None:
             semantic.offline_recovery,
             activation_state_records=(
                 _StateRecord.create(_initial_state(restart_budget=3)),
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="semantic read changed"):
+        prepared.require_semantic_read(changed)
+
+
+def test_windows_worker_history_preparation_binds_native_records() -> None:
+    semantic = _semantic_read()
+    prepared = CodingWindowsWorkerHistoryPreparationV1.create(semantic)
+    record = _Record(
+        revision=1,
+        document={"stateRevision": 1},
+        digest=sha256(b"native record").hexdigest(),
+    )
+    changed = replace(
+        semantic,
+        offline_recovery=replace(
+            semantic.offline_recovery,
+            native_provisioning_attempts=(
+                WindowsWorkerProvisioningAttemptV1(
+                    attempt_id="a" * 32,
+                    phase="reserved",
+                    state_revision=1,
+                    identity={},
+                    phase_history=("reserved",),
+                    witness_present_history=(False,),
+                    last_witness_state=None,
+                    settlement_fingerprint=None,
+                    records=(record,),
+                ),
             ),
         ),
     )

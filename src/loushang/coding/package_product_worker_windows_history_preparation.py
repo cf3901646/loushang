@@ -55,6 +55,13 @@ def _semantic_digest(semantic: CodingWindowsWorkerHistorySemanticReadV1) -> str:
         "leaseOwnerRevision": recovery.lease_owner_revision,
         "launchIntents": [item.to_dict() for item in recovery.launch_intents],
         "nativeJobAbsence": [list(item) for item in recovery.native_job_absence],
+        "nativeProvisioningAttempts": [
+            {
+                "attemptId": item.attempt_id,
+                "records": [record.to_dict() for record in item.records],
+            }
+            for item in recovery.native_provisioning_attempts
+        ],
         "optInDecisions": [item.to_dict() for item in recovery.opt_in_decisions],
         "receiptRecords": [item.to_dict() for item in recovery.receipt_records],
         "retainedActivationAttempts": [
