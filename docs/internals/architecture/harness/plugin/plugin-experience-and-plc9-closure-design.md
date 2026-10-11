@@ -3466,3 +3466,12 @@ architecture, integrity, and author-experience review remain delivery gates.
 General third-party Worker self-service, default Worker routing, the Windows
 update/GC combination, and remaining Windows V2/restore/crash-boundary
 expansion stay behind their separate Product acceptance gates.
+
+The Windows Arch private-data Product client already owns backup, verification,
+separately confirmed deletion, restore, restore confirmation, and independently
+confirmed backup expiry. A local CLI candidate now routes the existing
+`loushang-plugin-private-data` actions through that client on a B-fenced
+Windows workspace. Restore confirmation on Windows reopens the saved original
+plan file. This adapter does not widen the only supported data type beyond
+`coding.arch.default`; its native CLI journey and exact-head cross-platform
+report remain acceptance gates before Windows production use is claimed.
