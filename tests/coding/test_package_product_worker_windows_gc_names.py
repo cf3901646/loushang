@@ -328,6 +328,9 @@ def test_windows_worker_history_source_capture_is_private_and_fail_closed(
         read_coding_windows_worker_history_semantics,
         review_coding_windows_worker_settled_history_sources,
     )
+    from loushang.coding.package_product_worker_windows_history_write_fence import (
+        WINDOWS_WORKER_HISTORY_CUTOVER_NAME,
+    )
     from loushang.foundation.windows_private_acl import WindowsPrivateDirectoryAcl
     from loushang.harness.config.agent import SettingsManager
     from loushang.harness.package_product.product_runtime import (
@@ -382,6 +385,24 @@ def test_windows_worker_history_source_capture_is_private_and_fail_closed(
                 prepare_coding_windows_worker_history(product)
         with pytest.raises(ValueError, match="stage remains"):
             capture_coding_windows_worker_history_sources(product)
+        marker_name = WINDOWS_WORKER_HISTORY_CUTOVER_NAME
+        with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
+            with WindowsPrivateDirectoryAcl() as acl:
+                marker = open_windows_regular_file_at(
+                    root,
+                    marker_name,
+                    create_new=True,
+                    write=True,
+                    security_descriptor=acl.security_descriptor,
+                )
+                os.close(marker)
+            windows_flush_directory(root)
+        with pytest.raises(ValueError, match="legacy history cutover is present"):
+            prepare_coding_windows_worker_history(product)
+        assert not (product.state_root / "worker-history-preparation-v1.json").exists()
+        with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
+            windows_unlink_at(root, marker_name)
+            windows_flush_directory(root)
         prepared = prepare_coding_windows_worker_history(product)
         assert prepared.source_snapshot == before
         assert prepare_coding_windows_worker_history(product) == prepared
