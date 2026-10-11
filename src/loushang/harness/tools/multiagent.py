@@ -99,6 +99,7 @@ class MultiAgentToolPack:
         *,
         runtime: LiveMultiAgentRuntime,
         caller: AgentCaller,
+        agent_type_options: Mapping[str, str] | None = None,
         default_wait_seconds: float = 30.0,
         maximum_wait_seconds: float = 3600.0,
     ) -> None:
@@ -110,6 +111,11 @@ class MultiAgentToolPack:
             )
         self._runtime = runtime
         self._caller = caller
+        self._agent_type_options = (
+            tuple(agent_type_options.items())
+            if agent_type_options is not None
+            else None
+        )
         self._default_wait_seconds = default_wait_seconds
         self._maximum_wait_seconds = maximum_wait_seconds
         self._wait_sequence = 0
@@ -143,6 +149,21 @@ class MultiAgentToolPack:
         return registry
 
     def _spawn(self) -> ToolDefinition:
+        agent_type_schema = _string()
+        if self._agent_type_options:
+            agent_type_schema["enum"] = [
+                name for name, _description in self._agent_type_options
+            ]
+            choices = ", ".join(
+                f"{name} ({description})" if description else name
+                for name, description in self._agent_type_options
+            )
+            agent_type_schema["description"] = f"Choose an admitted type: {choices}."
+        else:
+            agent_type_schema["description"] = (
+                "Choose an admitted type from the collaboration instructions."
+            )
+
         async def execute(
             _call_id: str,
             params: dict[str, Any],
@@ -166,9 +187,18 @@ class MultiAgentToolPack:
                 "call returns its canonical path; a failed call creates no child."
             ),
             properties={
-                "name": _string(),
-                "agent_type": _string(),
-                "prompt": _string(),
+                "name": {
+                    **_string(),
+                    "description": (
+                        "Unique new child task name; use lowercase letters, digits, "
+                        "underscores, or hyphens."
+                    ),
+                },
+                "agent_type": agent_type_schema,
+                "prompt": {
+                    **_string(),
+                    "description": "Complete standalone task instructions for the child agent.",
+                },
             },
             required=("name", "agent_type", "prompt"),
             execute=execute,

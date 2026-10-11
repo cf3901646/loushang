@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Generic, Literal, Protocol, TypeVar, cast
 
@@ -660,6 +660,7 @@ def bind_agent_session_multiagent(
     *,
     child_factory: SessionSubagentFactory,
     agent_types: AgentTypeRegistry,
+    agent_type_hints: Mapping[str, str] | None = None,
     register_tools: bool = False,
 ) -> SessionMultiAgentRuntime:
     """Bind the shared control plane to one standard live Agent session."""
@@ -681,6 +682,14 @@ def bind_agent_session_multiagent(
         pack = MultiAgentToolPack(
             runtime=runtime,
             caller=AgentCaller(runtime.control.root_ref),
+            agent_type_options={
+                spec.name: (
+                    agent_type_hints.get(spec.name, "")
+                    if agent_type_hints is not None
+                    else ""
+                )
+                for spec in agent_types.values()
+            },
         )
         bound.register_runtime_tools(
             pack.definitions(),
