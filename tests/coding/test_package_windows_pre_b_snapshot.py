@@ -1852,26 +1852,86 @@ def test_windows_arch_backup_expiry_recovers_across_native_effects(
         runtime_version="2.0.0",
         runtime_protocol_epoch=2,
     )
-    with (
-        patch(
-            "loushang.coding.cli.plugin_private_data.resolve_coding_plugin_lifecycle_state_layout",
-            return_value=lifecycle,
-        ),
-        patch("loushang.coding.cli.plugin_private_data.version", return_value="2.0.0"),
-    ):
-        common = ("--workspace", str(workspace), "--plugin-id", "coding.arch.default")
-        assert private_data_cli_main((*common, "backup-status")) == 0
-        assert json.loads(capsys.readouterr().out)["backupRetention"]["status"] == "retained"
-        assert private_data_cli_main(
-            (*common, "backup-verify", "--backup-id", backup.backup_id)
-        ) == 0
-        assert json.loads(capsys.readouterr().out)["backupReceipt"] == backup.to_dict()
+    common = ("--workspace", str(workspace), "--plugin-id", "coding.arch.default")
+
+    def run_private_data_cli(*arguments: str) -> dict[str, object]:
+        with (
+            patch(
+                "loushang.coding.cli.plugin_private_data.resolve_coding_plugin_lifecycle_state_layout",
+                return_value=lifecycle,
+            ),
+            patch(
+                "loushang.coding.cli.plugin_private_data.version", return_value="2.0.0"
+            ),
+        ):
+            assert private_data_cli_main((*common, *arguments)) == 0
+        return json.loads(capsys.readouterr().out)
+
+    assert (
+        run_private_data_cli("backup-status")["backupRetention"]["status"] == "retained"
+    )
+    assert (
+        run_private_data_cli("backup-verify", "--backup-id", backup.backup_id)[
+            "backupReceipt"
+        ]
+        == backup.to_dict()
+    )
     restore_plan = client.restore_preview(backup.backup_id)
-    assert client.restore(restore_plan).disposition == "restored"
+    restore_document = run_private_data_cli(
+        "restore-preview", "--backup-id", backup.backup_id
+    )
+    assert restore_document == {
+        "fingerprint": restore_plan.fingerprint,
+        "restorePlan": restore_plan.to_dict(),
+    }
+    restore_plan_file = tmp_path / "windows-restore-plan.json"
+    restore_plan_file.write_text(json.dumps(restore_document), encoding="utf-8")
+    assert (
+        run_private_data_cli(
+            "restore",
+            "--plan-file",
+            str(restore_plan_file),
+            "--accept-fingerprint",
+            restore_plan.fingerprint,
+        )["restore"]["disposition"]
+        == "restored"
+    )
     restore_confirmation = client.restore_confirm(restore_plan)
+    assert (
+        run_private_data_cli(
+            "restore-confirm",
+            "--backup-id",
+            backup.backup_id,
+            "--plan-file",
+            str(restore_plan_file),
+        )["restoreConfirmation"]
+        == restore_confirmation.to_dict()
+    )
+    assert (
+        run_private_data_cli(
+            "restore-confirm-verify",
+            "--backup-id",
+            backup.backup_id,
+            "--confirmation-id",
+            restore_confirmation.confirmation_id,
+            "--plan-file",
+            str(restore_plan_file),
+        )["restoreConfirmation"]
+        == restore_confirmation.to_dict()
+    )
     expiry_plan = client.backup_expiry_preview(
         backup.backup_id, restore_confirmation.confirmation_id
     )
+    assert run_private_data_cli(
+        "backup-expiry-preview",
+        "--backup-id",
+        backup.backup_id,
+        "--confirmation-id",
+        restore_confirmation.confirmation_id,
+    ) == {
+        "backupExpiryPlan": expiry_plan.to_dict(),
+        "fingerprint": expiry_plan.fingerprint,
+    }
     expiry_plan_file = tmp_path / "windows-expiry-plan.json"
     expiry_plan_file.write_text(
         json.dumps(
@@ -1882,28 +1942,14 @@ def test_windows_arch_backup_expiry_recovers_across_native_effects(
         ),
         encoding="utf-8",
     )
-    with (
-        patch(
-            "loushang.coding.cli.plugin_private_data.resolve_coding_plugin_lifecycle_state_layout",
-            return_value=lifecycle,
-        ),
-        patch("loushang.coding.cli.plugin_private_data.version", return_value="2.0.0"),
-    ):
-        assert private_data_cli_main(
-            (
-                "--workspace",
-                str(workspace),
-                "--plugin-id",
-                "coding.arch.default",
-                "backup-expiry-confirm",
-                "--plan-file",
-                str(expiry_plan_file),
-                "--accept-fingerprint",
-                expiry_plan.fingerprint,
-            )
-        ) == 0
     expiry_confirmation = CodingArchPrivateDataBackupExpiryConfirmationV1.from_dict(
-        json.loads(capsys.readouterr().out)["expiryConfirmation"]
+        run_private_data_cli(
+            "backup-expiry-confirm",
+            "--plan-file",
+            str(expiry_plan_file),
+            "--accept-fingerprint",
+            expiry_plan.fingerprint,
+        )["expiryConfirmation"]
     )
     assert (
         client.backup_expiry_confirm(
@@ -1947,7 +1993,20 @@ def test_windows_arch_backup_expiry_recovers_across_native_effects(
             client.backup_expire(expiry_plan, expiry_confirmation)
     assert not archive_path.exists()
     assert not list(archive_path.parent.glob(".expiring-*"))
+    expiry_confirmation_file = tmp_path / "windows-expiry-confirmation.json"
+    expiry_confirmation_file.write_text(
+        json.dumps({"expiryConfirmation": expiry_confirmation.to_dict()}),
+        encoding="utf-8",
+    )
+    expiry_receipt_document = run_private_data_cli(
+        "backup-expire",
+        "--plan-file",
+        str(expiry_plan_file),
+        "--confirmation-file",
+        str(expiry_confirmation_file),
+    )["expiryReceipt"]
     expiry_receipt = client.backup_expire(expiry_plan, expiry_confirmation)
+    assert expiry_receipt_document == expiry_receipt.to_dict()
     assert expiry_receipt.backup_id == backup.backup_id
     assert client.backup_expire(expiry_plan, expiry_confirmation) == expiry_receipt
     assert not archive_path.exists()
