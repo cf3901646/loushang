@@ -52,7 +52,10 @@ def create_write_tool_definition(
     @tool(
         name="write",
         label="Write",
-        description="Write a workspace text file: write(path, content).",
+        description=(
+            'Write a workspace text file. JSON arguments: '
+            '{"path":"file","content":"text"}.'
+        ),
         prompt_snippet="- write: Write a text file in the workspace.",
     )
     async def write(
