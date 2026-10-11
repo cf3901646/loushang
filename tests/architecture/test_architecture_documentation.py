@@ -7,7 +7,6 @@ from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 ARCHITECTURE_ROOT = REPOSITORY_ROOT / "docs/internals/architecture"
-ARCHITECTURE_METHOD_ROOT = REPOSITORY_ROOT / "docs/internals/architecture-method"
 GAP_LEDGER = ARCHITECTURE_ROOT / "current-target-gap-ledger.md"
 PLUGIN_ROOT = ARCHITECTURE_ROOT / "harness/plugin"
 PLUGIN_STATUS_ENTRYPOINTS = (
@@ -37,19 +36,7 @@ COMPLETED_PLUGIN_MILESTONES = {
     ),
 }
 INITIAL_GOVERNED_DOCUMENTS = (
-    ARCHITECTURE_METHOD_ROOT / "README.md",
-    ARCHITECTURE_METHOD_ROOT / "artifact-model.md",
-    ARCHITECTURE_METHOD_ROOT / "architecture-decisions.md",
-    ARCHITECTURE_METHOD_ROOT / "architecture-review.md",
-    ARCHITECTURE_METHOD_ROOT / "verification-and-validation.md",
-    ARCHITECTURE_METHOD_ROOT / "change-tailoring.md",
-    ARCHITECTURE_METHOD_ROOT / "design-guidance.md",
-    ARCHITECTURE_METHOD_ROOT / "key-designs.md",
-    ARCHITECTURE_METHOD_ROOT / "domain-data-modeling.md",
-    ARCHITECTURE_METHOD_ROOT / "deployment-views.md",
-    ARCHITECTURE_METHOD_ROOT / "component-design.md",
-    ARCHITECTURE_METHOD_ROOT / "component-identification.md",
-    ARCHITECTURE_METHOD_ROOT / "history/loushang-documentation-model-v1.md",
+    ARCHITECTURE_ROOT / "history/loushang-documentation-model-v1.md",
     ARCHITECTURE_ROOT / "README.md",
     ARCHITECTURE_ROOT / "architecture-overview.md",
     ARCHITECTURE_ROOT / "governance-profile.md",
@@ -152,10 +139,7 @@ def test_initial_governed_documents_declare_authority_and_status() -> None:
 
 def test_initial_governed_document_links_are_repository_relative_and_valid() -> None:
     errors: list[str] = []
-    link_documents = (
-        *INITIAL_GOVERNED_DOCUMENTS,
-        *sorted((ARCHITECTURE_METHOD_ROOT / "templates").glob("*.md")),
-    )
+    link_documents = INITIAL_GOVERNED_DOCUMENTS
     for path in link_documents:
         text = path.read_text(encoding="utf-8")
         for raw_target in MARKDOWN_LINK.findall(text):

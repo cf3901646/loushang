@@ -58,9 +58,7 @@ created only when occupied. Migrate existing records with `git mv` as part of
 the scope's documented adoption: update document status, this index, incoming
 references and relative links inside the moved record together. Directory,
 document and index disagreement is a defect to repair, not a source of inferred
-acceptance. Follow the
-[Architecture Decision Method](../../architecture-method/architecture-decisions.md)
-and [local adoption policy](../governance-profile.md#architecture-decision-adoption).
+acceptance. Follow the [local decision adoption policy](../governance-profile.md#architecture-decision-adoption).
 
 ## Decisions
 
@@ -88,5 +86,4 @@ For a cross-scope change:
    ownership rules.
 
 This catalog is not a substitute for the
-[Architecture Design And Governance Method](../../architecture-method/README.md)
-or the [Loushang Architecture Governance Profile](../governance-profile.md).
+[Loushang Architecture Governance Profile](../governance-profile.md).
