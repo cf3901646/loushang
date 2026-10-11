@@ -19,6 +19,8 @@ from loushang.coding.package_product_worker_windows_history_sources import (
 from loushang.coding.package_product_worker_windows_recovery_inventory import (
     CodingWindowsWorkerOfflineRecoverySnapshotV1,
 )
+from loushang.harness.worker.activation_state_journal import _StateRecord
+from loushang.harness.worker.product_activation import _initial_state
 
 
 def _semantic_read() -> CodingWindowsWorkerHistorySemanticReadV1:
@@ -83,3 +85,19 @@ def test_windows_worker_history_preparation_rejects_changed_bytes() -> None:
         )
     with pytest.raises(ValueError, match="preparation is invalid"):
         CodingWindowsWorkerHistoryPreparationV1.from_bytes(prepared.to_bytes() + b" ")
+
+
+def test_windows_worker_history_preparation_binds_complete_c5_state() -> None:
+    semantic = _semantic_read()
+    prepared = CodingWindowsWorkerHistoryPreparationV1.create(semantic)
+    changed = replace(
+        semantic,
+        offline_recovery=replace(
+            semantic.offline_recovery,
+            activation_state_records=(
+                _StateRecord.create(_initial_state(restart_budget=3)),
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="semantic read changed"):
+        prepared.require_semantic_read(changed)

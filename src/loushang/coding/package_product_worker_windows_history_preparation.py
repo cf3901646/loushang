@@ -44,6 +44,9 @@ def _semantic_digest(semantic: CodingWindowsWorkerHistorySemanticReadV1) -> str:
     facts = {
         "activationStateOwnerPresent": recovery.activation_state_owner_present,
         "activationStateRevision": recovery.activation_state_revision,
+        "activationStateRecords": [
+            item.to_dict() for item in recovery.activation_state_records
+        ],
         "attempts": [asdict(item) for item in recovery.attempts],
         "backupObservations": [
             asdict(item) for item in recovery.worker_backup_observations

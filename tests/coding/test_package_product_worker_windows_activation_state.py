@@ -150,6 +150,12 @@ def test_windows_product_c5_state_reopens_and_refuses_complete_record_loss(
         recovery = inspect_coding_windows_product_worker_offline_recovery(product)
         assert recovery.activation_state_owner_present
         assert recovery.activation_state_revision == 2
+        assert tuple(
+            record.journal_revision for record in recovery.activation_state_records
+        ) == (1, 2)
+        assert tuple(
+            record.document for record in recovery.activation_state_records
+        ) == (initial, second)
         assert recovery.retained_activation_attempts == ()
         assert recovery.native_job_absence == ()
         gc = open_windows_local_wheel_product_root_gc(

@@ -18,6 +18,7 @@ from loushang.harness.plugin_management.package_gc_reservation import (
     PluginPackageGcReservationSnapshotV1,
 )
 from loushang.harness.plugin_management.records import PluginPackageRevisionRefV1
+from loushang.harness.worker.activation_state_journal import _StateRecord
 from loushang.harness.worker.journal import WorkerAttemptPhase, WorkerAttemptRecordV1
 from loushang.hosting import observe_windows_worker_job_absent
 
@@ -27,6 +28,7 @@ from .package_product_backup_types import (
 )
 from .package_product_worker_activation_history import (
     CodingProductWorkerRetainedAttemptV1,
+    project_coding_worker_retained_attempts,
 )
 from .package_product_worker_gc_references import (
     coding_worker_gc_revision_refs,
@@ -97,9 +99,7 @@ class CodingWindowsWorkerRecoveryAttemptV1:
     def clean_exit_settled(self) -> bool:
         """Require a launched Worker with complete native and process cleanup."""
 
-        return (
-            self.supervisor_phase == "stopped" and self._retained_native_exit_settled
-        )
+        return self.supervisor_phase == "stopped" and self._retained_native_exit_settled
 
     @property
     def fenced_exit_settled(self) -> bool:
@@ -207,6 +207,7 @@ class CodingWindowsWorkerOfflineRecoverySnapshotV1:
     gc_reservation_revision: int
     gc_revision_refs: frozenset[PluginPackageRevisionRefV1]
     worker_backup_observations: tuple[CodingWorkerBackupReferenceObservationV1, ...]
+    activation_state_records: tuple[_StateRecord, ...] = ()
 
     @property
     def opt_in_history_revision(self) -> int:
@@ -768,10 +769,15 @@ def _inspect_coding_windows_product_worker_offline_recovery_under_gc_guard(
         product
     ).inspect_records()
     activation_journal = CodingWindowsWorkerActivationStateJournal(product)
-    activation_owner_present, activation_state = (
-        activation_journal.load_with_presence_read_only()
+    activation_owner_present, activation_state_records = (
+        activation_journal.records_with_presence_read_only()
     )
-    retained_activation_attempts = activation_journal.retained_attempts_read_only()
+    activation_state = (
+        None if not activation_state_records else activation_state_records[-1].document
+    )
+    retained_activation_attempts = project_coding_worker_retained_attempts(
+        activation_state_records
+    )
     native_job_absence = tuple(
         (
             attempt.attempt_id,
@@ -804,6 +810,7 @@ def _inspect_coding_windows_product_worker_offline_recovery_under_gc_guard(
         gc_reservation_revision=gc_snapshot.journal_revision,
         gc_revision_refs=coding_worker_gc_revision_refs(gc_snapshot),
         worker_backup_observations=worker_backup_observations,
+        activation_state_records=activation_state_records,
     )
 
 
