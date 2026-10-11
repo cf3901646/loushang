@@ -291,7 +291,7 @@ On Windows, the fresh-workspace cutover is an explicit candidate command. Stop L
 loushang-package-cutover --workspace C:\path\to\workspace --windows-candidate
 ```
 
-The command refuses old Plugin state and legacy Plugin/Package settings before creating a B fence. New ordinary Windows Coding Sessions enter the fenced Product store automatically in a fresh workspace; an existing B-fenced workspace reopens. A workspace with pre-B Plugin state refuses before writes. The `--windows-candidate` flag remains necessary for the separate offline cutover and GC commands. Windows Worker queries through `--worker-query-plugin` remain unavailable.
+The command refuses old Plugin state and legacy Plugin/Package settings before creating a B fence. New ordinary Windows Coding Sessions enter the fenced Product store automatically in a fresh workspace; an existing B-fenced workspace reopens. A workspace with pre-B Plugin state refuses before writes. The `--windows-candidate` flag remains necessary for the separate offline cutover and GC commands. On Windows AMD64, `--worker-query-plugin` is an explicit, read-only query route for a persisted `coding-standard` print-mode Session after the exact Worker release and per-install opt-in are approved. Ordinary Sessions do not select a Worker by default.
 
 For a POSIX Package operation interrupted during staging, use the exact operation ID to inspect its checkpoint and request the narrow Product recovery:
 

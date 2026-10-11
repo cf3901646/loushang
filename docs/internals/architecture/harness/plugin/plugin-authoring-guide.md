@@ -493,11 +493,14 @@ CLI route below is not encoded in its value. RPC and Screen do not offer a
 Worker selection switch.
 
 The P4 ordinary-turn route adds `--worker-query-plugin PLUGIN_ID` for a new,
-persisted `coding-standard` Session on Linux x86-64. Its exact opt-in scope was
+persisted `coding-standard` Session on Linux or Windows x86-64. Its Linux opt-in scope was
 approved after [PR #653](https://github.com/zhnt/loushang/pull/653) passed native,
 ordinary-turn, lifecycle, and cross-platform checks and independent security,
 platform, and lifecycle reviews. This approval is not general Worker admission;
 each workspace still requires its exact native release and per-install opt-in.
+The Windows route requires the `windows-lpac-contained-pe-v1` native profile;
+its Product approval, release, and opt-in remain explicit. It does not expose
+general Worker self-service or select a Worker by default.
 It registers one Session-owned `worker_query_symbol` Tool backed by the same
 read-only Product facet as the explicit SDK query. A model-visible Tool call
 and its persisted result are required before claiming Product turn use:
@@ -514,7 +517,7 @@ native `review`/`approve`/`install` proves the exact H6 release; Product
 alignment; the new Coding Session's startup receipt and Tool result prove its
 actual selected revision and query. A passing earlier check never fills in a
 later check. The candidate route refuses minimal/architecture sets, disabled
-Base, nonpersistent Sessions, and other platforms. Revocation, changed
+Base, nonpersistent Sessions, and unsupported platforms. Revocation, changed
 selection, or an expired admission must refuse the next query through the
 Product owner.
 
