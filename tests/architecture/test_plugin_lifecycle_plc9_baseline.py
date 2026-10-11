@@ -1571,9 +1571,6 @@ def test_plc9_classifies_compatibility_candidates_before_plc9e() -> None:
             "src/loushang/harness/resources/plugins/resolver.py"
         ): "PluginResolver.resolve_resources",
         Path(
-            "src/loushang/harness/resources/plugins/safe_files.py"
-        ): "compatibility import",
-        Path(
             "src/loushang/harness/resources/plugins/import_realm.py"
         ): "PluginImportRealm",
         Path(
@@ -1592,6 +1589,7 @@ def test_plc9_classifies_compatibility_candidates_before_plc9e() -> None:
         assert path.is_file()
         assert str(path) in inventory
         assert symbol in inventory
+    assert not Path("src/loushang/harness/resources/plugins/safe_files.py").exists()
     assert "def resolve_resources(" not in _source(
         Path("src/loushang/harness/resources/plugins/resolver.py")
     )
