@@ -3755,8 +3755,6 @@ def _assert_windows_worker_retired_history_allows_gc(
         with pytest.raises(PackageProductGcExecutionError) as live_stage:
             gc.prepare()
         assert live_stage.value.code == "plugin_package_gc_worker_payload_unsettled"
-        with pytest.raises(ValueError):
-            review_coding_windows_worker_settled_history_sources(product)
 
         if partial_attempt_id is None:
             review = review_coding_windows_product_worker_complete_stage(
@@ -3804,6 +3802,8 @@ def _assert_windows_worker_retired_history_allows_gc(
         )
         staged_history.write_bytes(b"unpublished")
         try:
+            with pytest.raises(ValueError, match="history stage remains"):
+                review_coding_windows_worker_settled_history_sources(product)
             with pytest.raises(PackageProductGcExecutionError) as staged:
                 gc.prepare()
             assert staged.value.code == "plugin_package_gc_worker_history_unsettled"
