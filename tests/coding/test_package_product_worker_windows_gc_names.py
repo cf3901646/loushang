@@ -21,6 +21,9 @@ from loushang.coding.package_product_worker_windows_history_sources import (
     CodingWindowsWorkerHistorySourceFileV1,
     CodingWindowsWorkerHistorySourceSnapshotV1,
 )
+from loushang.coding.package_product_worker_windows_history_write_fence import (
+    require_windows_worker_legacy_history_writable,
+)
 from loushang.coding.package_product_worker_windows_recovery_inventory import (
     CodingWindowsWorkerRecoveryAttemptV1,
 )
@@ -87,6 +90,139 @@ def test_windows_worker_gc_accepts_current_owned_state_names() -> None:
             "committed-sets.jsonl",
         )
     )
+
+
+@pytest.mark.parametrize(
+    "name",
+    (
+        "worker-history-cutover-v1.json",
+        "worker-history-cutover-v1.json.stage",
+        "WORKER-HISTORY-CUTOVER-V1.JSON",
+        ".worker-history-cutover-v1.json",
+    ),
+)
+def test_windows_worker_cutover_marker_blocks_legacy_writes_before_publication(
+    name: str,
+) -> None:
+    with patch(
+        "loushang.coding.package_product_worker_windows_history_write_fence.windows_listdir_at",
+        return_value=(name,),
+    ):
+        with pytest.raises(ValueError, match="legacy history cutover is present"):
+            require_windows_worker_legacy_history_writable(5)
+    with pytest.raises(ValueError, match="state owner is unrecognized"):
+        _require_known_windows_worker_state_names((name,))
+
+
+def test_windows_worker_legacy_write_fence_accepts_pre_cutover_inventory() -> None:
+    with patch(
+        "loushang.coding.package_product_worker_windows_history_write_fence.windows_listdir_at",
+        return_value=("worker-opt-in.jsonl", "worker-supervisor.jsonl"),
+    ):
+        require_windows_worker_legacy_history_writable(5)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native Windows Product root required")
+def test_windows_worker_cutover_marker_refuses_old_journal_writes_without_lock_creation(
+    tmp_path: Path,
+) -> None:
+    from loushang.coding._plugin_lifecycle import (
+        resolve_ephemeral_coding_plugin_lifecycle_state_layout,
+    )
+    from loushang.coding.package_legacy_windows_receipt import (
+        write_windows_private_receipt,
+    )
+    from loushang.coding.package_pre_b_snapshot import (
+        cutover_and_bootstrap_coding_package_product,
+    )
+    from loushang.coding.package_product_runtime import (
+        open_coding_fenced_product_application_owner,
+    )
+    from loushang.coding.package_product_worker_windows_history_write_fence import (
+        WINDOWS_WORKER_HISTORY_CUTOVER_NAME,
+    )
+    from loushang.coding.package_product_worker_windows_native_approval_journal import (
+        CodingWindowsWorkerNativeApprovalJournal,
+    )
+    from loushang.coding.package_product_worker_windows_opt_in_journal import (
+        CodingWindowsWorkerOptInJournal,
+    )
+    from loushang.coding.package_product_worker_windows_supervisor_journal import (
+        open_coding_windows_product_worker_supervisor_journal,
+    )
+    from loushang.harness.config.agent import SettingsManager
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    lifecycle = resolve_ephemeral_coding_plugin_lifecycle_state_layout(
+        tmp_path / "session-state", cwd=workspace
+    )
+    settings = SettingsManager(
+        global_settings_path=tmp_path / "global" / "settings.json",
+        project_settings_path=workspace / ".loushang" / "settings.json",
+    )
+    cutover_and_bootstrap_coding_package_product(
+        lifecycle,
+        settings,
+        workspace=workspace,
+        namespace_id="e" * 64,
+        runtime_version="2.0.0",
+        runtime_protocol_epoch=2,
+        windows_candidate=True,
+    )
+    owner = open_coding_fenced_product_application_owner(
+        lifecycle,
+        workspace=workspace,
+        runtime_version="2.0.0",
+        runtime_protocol_epoch=2,
+        windows_candidate=True,
+    )
+    try:
+        product = owner.runtime_owner.product_owner
+        write_windows_private_receipt(
+            product.state_root / WINDOWS_WORKER_HISTORY_CUTOVER_NAME,
+            b"pending-cutover",
+        )
+        scope_id = product.policy.project_scope_id
+        with product.gc_gate.guard(require_write=True):
+            with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
+                with pytest.raises(
+                    ValueError, match="legacy history cutover is present"
+                ):
+                    CodingWindowsWorkerOptInJournal(
+                        product.state_root / "worker-opt-in.jsonl", scope_id=scope_id
+                    ).change(
+                        directory_fd=root,
+                        plugin_id="example",
+                        operation_id="operation-1",
+                        expected_generation=0,
+                        action="revoke",
+                        opt_in=None,
+                    )
+                with pytest.raises(
+                    ValueError, match="legacy history cutover is present"
+                ):
+                    CodingWindowsWorkerNativeApprovalJournal(
+                        product.state_root / "worker-native-release-approvals.jsonl",
+                        scope_id=scope_id,
+                    ).change(
+                        directory_fd=root,
+                        operation_id="operation-2",
+                        expected_generation=0,
+                        action="revoke",
+                        approval=None,
+                    )
+        journal = open_coding_windows_product_worker_supervisor_journal(product)
+        with pytest.raises(ValueError, match="legacy history cutover is present"):
+            with journal._exclusive():
+                pass
+        assert not (product.state_root / "worker-opt-in.jsonl.lock").exists()
+        assert not (
+            product.state_root / "worker-native-release-approvals.jsonl.lock"
+        ).exists()
+        assert not (product.state_root / "worker-supervisor.jsonl.lock").exists()
+    finally:
+        owner.close()
 
 
 @pytest.mark.skipif(os.name != "nt", reason="native Windows Product root required")

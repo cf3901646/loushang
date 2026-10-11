@@ -36,6 +36,10 @@ from loushang.harness.worker.journal import (
     _validate_history,
 )
 
+from .package_product_worker_windows_history_write_fence import (
+    require_windows_worker_legacy_history_writable,
+)
+
 _NAME = "worker-supervisor.jsonl"
 _LOCK = _NAME + ".lock"
 _MAX_RECORDS = 4096
@@ -71,15 +75,14 @@ class CodingWindowsProductWorkerSupervisorJournal(WorkerSupervisorJournal):
                 self._product.epoch_runtime.borrow_product_state_root_descriptor() as root,
             ):
                 self._require_root(root, acl)
+                require_windows_worker_legacy_history_writable(root)
                 self._prepare_lock(root, acl)
                 with journal_file_lock_at(root, _LOCK, "exclusive") as lock:
                     self._active_root = root
                     self._active_acl = acl
                     self._active_lock = lock
                     try:
-                        initialized = self._validate_lock(
-                            root, acl, locked_handle=lock
-                        )
+                        initialized = self._validate_lock(root, acl, locked_handle=lock)
                         raw = self._read_raw(root, acl)
                         self._require_lock_history(initialized, raw)
                         self._active_raw = raw
@@ -105,9 +108,7 @@ class CodingWindowsProductWorkerSupervisorJournal(WorkerSupervisorJournal):
             raise TypeError("Windows Worker Supervisor requires an exact record")
         root, acl, lock = self._active()
         expected = self._active_raw
-        if expected is None and self._validate_lock(
-            root, acl, locked_handle=lock
-        ):
+        if expected is None and self._validate_lock(root, acl, locked_handle=lock):
             raise self._error(
                 "Windows Worker Supervisor lock is orphaned",
                 code="worker_supervisor_journal_corrupt",
@@ -149,9 +150,7 @@ class CodingWindowsProductWorkerSupervisorJournal(WorkerSupervisorJournal):
                         code="worker_supervisor_journal_corrupt",
                     ) from None
                 with journal_file_lock_at(root, _LOCK, "shared") as lock:
-                    initialized = self._validate_lock(
-                        root, acl, locked_handle=lock
-                    )
+                    initialized = self._validate_lock(root, acl, locked_handle=lock)
                     raw = self._read_raw(root, acl)
                     self._require_lock_history(initialized, raw)
                     records = self._decode(raw)
@@ -224,10 +223,9 @@ class CodingWindowsProductWorkerSupervisorJournal(WorkerSupervisorJournal):
             self._require_plain_stream(descriptor)
             metadata = os.fstat(descriptor)
             visible = windows_stat_at(root, _LOCK)
-            if (
-                metadata.st_size != 1
-                or (metadata.st_dev, metadata.st_ino)
-                != (visible.st_dev, visible.st_ino)
+            if metadata.st_size != 1 or (metadata.st_dev, metadata.st_ino) != (
+                visible.st_dev,
+                visible.st_ino,
             ):
                 raise self._error(
                     "Windows Worker Supervisor lock is invalid",

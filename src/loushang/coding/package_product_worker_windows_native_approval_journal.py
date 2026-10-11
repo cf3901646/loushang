@@ -31,6 +31,9 @@ from .package_product_worker_native_approval import (
     CodingWorkerNativeReleaseApprovalV1,
     _decode_coding_worker_native_approval_history,
 )
+from .package_product_worker_windows_history_write_fence import (
+    require_windows_worker_legacy_history_writable,
+)
 
 _NAME = "worker-native-release-approvals.jsonl"
 _OPAQUE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._:@+-]*[A-Za-z0-9])?\Z")
@@ -129,6 +132,7 @@ class CodingWindowsWorkerNativeApprovalJournal:
         with WindowsPrivateDirectoryAcl() as acl:
             acl.validate(directory_fd)
             self._assert_visible_root(directory_fd)
+            require_windows_worker_legacy_history_writable(directory_fd)
             self._prepare_lock(directory_fd, acl)
             with journal_file_lock_at(
                 directory_fd, _NAME + ".lock", "exclusive"
@@ -266,10 +270,9 @@ class CodingWindowsWorkerNativeApprovalJournal:
             self._require_plain_stream(descriptor)
             metadata = os.fstat(descriptor)
             visible = windows_stat_at(directory_fd, _NAME + ".lock")
-            if (
-                metadata.st_size != 1
-                or (metadata.st_dev, metadata.st_ino)
-                != (visible.st_dev, visible.st_ino)
+            if metadata.st_size != 1 or (metadata.st_dev, metadata.st_ino) != (
+                visible.st_dev,
+                visible.st_ino,
             ):
                 raise CodingWorkerNativeApprovalError(
                     "coding_worker_native_approval_lock_corrupt"

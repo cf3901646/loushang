@@ -33,6 +33,9 @@ from .package_legacy_windows_receipt import (
     read_windows_private_receipt,
     write_windows_private_receipt,
 )
+from .package_product_worker_windows_history_write_fence import (
+    require_windows_worker_legacy_history_writable,
+)
 from .package_product_worker_windows_receipt import (
     CodingWindowsWorkerProductReceiptOwner,
 )
@@ -260,7 +263,8 @@ def commit_coding_windows_product_worker_launch_intent(
             raise CodingWindowsWorkerLaunchIntentError(
                 "coding_worker_launch_intent_attempt_reused"
             )
-        with product.epoch_runtime.borrow_product_state_root_descriptor():
+        with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
+            require_windows_worker_legacy_history_writable(root)
             write_windows_private_receipt(
                 _path(product, intent.attempt_id), intent.to_bytes()
             )
