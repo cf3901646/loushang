@@ -453,6 +453,10 @@ _H6_WHEEL_BUILDER = (
 _QUERY_WORKER_SOURCE = (
     Path(__file__).resolve().parents[1] / "fixtures/worker/contained_query_worker.c"
 )
+_AUTHOR_WORKER_SOURCE = (
+    Path(__file__).resolve().parents[2]
+    / "examples/plugins/coding_worker_query/query_worker.c"
+)
 
 
 def _run_independent_product_worker_crash(
@@ -1063,10 +1067,12 @@ def test_worker_source_catalog_pins_explicit_product_candidate(
     hosted_entry_only: bool = False,
     disable_while_direct_session_open: bool = False,
     update_while_direct_session_open: bool = False,
+    author_with_public_cli: bool = False,
 ) -> None:
     assert not disable_while_direct_session_open or direct_entry_only
     assert not update_while_direct_session_open or direct_entry_only
     assert not (disable_while_direct_session_open and update_while_direct_session_open)
+    assert not author_with_public_cli or native_mode == "installed-protocol"
     installed_native = native_mode in {
         "installed-release",
         "repaired-release",
@@ -1124,7 +1130,11 @@ def test_worker_source_catalog_pins_explicit_product_candidate(
                 "-Werror",
                 "-o",
                 str(executable),
-                str(_QUERY_WORKER_SOURCE),
+                str(
+                    _AUTHOR_WORKER_SOURCE
+                    if author_with_public_cli
+                    else _QUERY_WORKER_SOURCE
+                ),
             ),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -1133,18 +1143,53 @@ def test_worker_source_catalog_pins_explicit_product_candidate(
             check=False,
         )
         assert built_worker.returncode == 0, built_worker.stderr
-        payload = build_coding_local_worker_candidate_wheel(
-            plugin_id=_PLUGIN,
-            version=_VERSION,
-            contribution_id=_CONTRIBUTION,
-            owner_id=_OWNER,
-            native_platform="linux-x86_64",
-            wheel_tag=_TAG,
-            executable=executable.read_bytes(),
-        )
+        if author_with_public_cli:
+            authored = subprocess.run(
+                (
+                    sys.executable,
+                    "-m",
+                    "loushang.plugin",
+                    "build-coding-worker-candidate",
+                    str(executable),
+                    "--plugin-id",
+                    _PLUGIN,
+                    "--version",
+                    _VERSION,
+                    "--contribution-id",
+                    _CONTRIBUTION,
+                    "--owner-id",
+                    _OWNER,
+                    "--native-platform",
+                    "linux-x86_64",
+                    "--output-dir",
+                    str(tmp_path),
+                ),
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                timeout=30,
+                check=False,
+            )
+            assert authored.returncode == 0, authored.stderr
+            author_result = json.loads(authored.stdout)
+            assert author_result["artifactPath"] == str(source)
+            assert author_result["productAdmission"] == "not_checked"
+            assert author_result["productUse"] == "not_checked"
+            payload = source.read_bytes()
+            assert author_result["sha256"] == sha256(payload).hexdigest()
+        else:
+            payload = build_coding_local_worker_candidate_wheel(
+                plugin_id=_PLUGIN,
+                version=_VERSION,
+                contribution_id=_CONTRIBUTION,
+                owner_id=_OWNER,
+                native_platform="linux-x86_64",
+                wheel_tag=_TAG,
+                executable=executable.read_bytes(),
+            )
     else:
         payload = _worker_wheel(linger=has_native_release)
-    source.write_bytes(payload)
+    if not author_with_public_cli:
+        source.write_bytes(payload)
     admission = PackageProductLocalWorkerAdmissionV1(
         contribution_id=_CONTRIBUTION,
         owner_id=_OWNER,
@@ -6067,6 +6112,7 @@ def test_explicit_worker_public_coding_session_reaches_installed_product(
         "installed-protocol",
         monkeypatch,
         direct_entry_only=True,
+        author_with_public_cli=True,
     )
     workspace = tmp_path / "workspace"
     lifecycle = resolve_coding_plugin_lifecycle_state_layout(workspace)
