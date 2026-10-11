@@ -413,20 +413,17 @@ def default_runtime_builder(
     if worker_query_plugin is not None:
         if (
             invocation_product_profile is not None
-            or sys.platform != "linux"
+            or sys.platform not in {"linux", "win32"}
             or platform.machine().lower() not in {"x86_64", "amd64"}
             or args.mode != "print"
             or args.no_session
             or getattr(args, "no_tools", False)
             or getattr(args, "no_builtin_tools", False)
             or runtime_options.get("composition_set") != "coding-standard"
-            or (
-                bool(args.tools)
-                and CODING_WORKER_QUERY_TOOL_NAME not in args.tools
-            )
+            or (bool(args.tools) and CODING_WORKER_QUERY_TOOL_NAME not in args.tools)
         ):
             raise ValueError(
-                "Worker query requires a persisted Linux x86-64 Coding "
+                "Worker query requires a persisted Linux or Windows x86-64 Coding "
                 "standard print-mode Session with Tools enabled"
             )
         runtime_options["worker_candidate_plugin_id"] = worker_query_plugin

@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+from argparse import Namespace
 from base64 import urlsafe_b64encode
 from collections.abc import Iterator
 from ctypes import wintypes
@@ -32,7 +33,10 @@ import loushang.coding.package_private_data_windows_deletion_owner as windows_de
 import loushang.coding.package_private_data_windows_restore_owner as windows_restore_module
 import loushang.coding.package_product_backup_types as backup_types_module
 import loushang.coding.package_product_worker_windows_payload as windows_payload_module
+from loushang.agent import synthetic_model_transport
+from loushang.ai.event_stream.stream import AssistantMessageEventStream
 from loushang.ai.model import Capabilities, Model
+from loushang.ai.types import AssistantMessage, TextPart, ToolCall, Usage
 from loushang.coding._plugin_lifecycle import (
     resolve_ephemeral_coding_plugin_lifecycle_state_layout,
 )
@@ -52,6 +56,9 @@ from loushang.coding.bootstrap import (
 )
 from loushang.coding.cli.package_cutover import main as cutover_cli_main
 from loushang.coding.cli.package_gc import main as gc_cli_main
+from loushang.coding.cli.package_worker_windows_candidate import (
+    _execute as execute_windows_worker_candidate_command,
+)
 from loushang.coding.cli.package_worker_windows_candidate import (
     main as windows_worker_candidate_main,
 )
@@ -163,6 +170,9 @@ from loushang.coding.package_product_worker_query_consumer import (
     bind_coding_worker_query_consumer,
 )
 from loushang.coding.package_product_worker_receipt import CodingWorkerReceiptError
+from loushang.coding.package_product_worker_turn_tool import (
+    CODING_WORKER_QUERY_TOOL_NAME,
+)
 from loushang.coding.package_product_worker_windows_activation_state_journal import (
     CodingWindowsWorkerActivationStateJournal,
 )
@@ -4294,6 +4304,32 @@ def _exercise_windows_worker_wheel_transaction(
             lifecycle, source=source, admission=windows_admission
         )
         assert record.artifact_digest == sha256(payload).hexdigest()
+        if (
+            ordinary_entry_kind == "direct"
+            and not disable_while_ordinary_session_open
+            and not crash_after_ordinary_query
+        ):
+            with patch(
+                "loushang.coding.cli.package_worker_windows_candidate.resolve_coding_plugin_lifecycle_state_layout",
+                return_value=lifecycle,
+            ):
+                assert (
+                    windows_worker_candidate_main(
+                        (
+                            "--workspace",
+                            str(workspace),
+                            "--windows-candidate",
+                            "candidate-capture",
+                            "--wheel",
+                            str(source),
+                            "--contribution-id",
+                            "query-provider",
+                            "--owner-id",
+                            owner_id,
+                        )
+                    )
+                    == 0
+                )
         assert (
             admit_coding_external_worker_wheel(
                 lifecycle, source=source, admission=windows_admission
@@ -4684,6 +4720,46 @@ finally:
                     assert allowed.opt_in is not None
                     assert allowed.opt_in.native_platform == "windows-amd64"
                     assert opt_in_owner.current("workerprobe") == allowed
+                    if (
+                        ordinary_entry_kind == "direct"
+                        and not disable_while_ordinary_session_open
+                        and not crash_after_ordinary_query
+                    ):
+                        assert (
+                            execute_windows_worker_candidate_command(
+                                worker_product, Namespace(action="release-status")
+                            )["approvalDecision"]
+                            == approved.to_dict()
+                        )
+                        assert (
+                            execute_windows_worker_candidate_command(
+                                worker_product,
+                                Namespace(
+                                    action="release-review", wheel=str(wheels[0])
+                                ),
+                            )["nativeReleaseReview"]
+                            == review.to_dict()
+                        )
+                        assert (
+                            execute_windows_worker_candidate_command(
+                                worker_product,
+                                Namespace(
+                                    action="release-install",
+                                    wheel=str(wheels[0]),
+                                    review_id=review.review_id,
+                                ),
+                            )["approvalGeneration"]
+                            == approved.generation
+                        )
+                        assert (
+                            execute_windows_worker_candidate_command(
+                                worker_product,
+                                Namespace(
+                                    action="candidate-status", plugin_id="workerprobe"
+                                ),
+                            )["candidateOptInDecision"]
+                            == allowed.to_dict()
+                        )
                     if ordinary_entry_kind is not None:
                         assert owner_id == "coding"
                         assert ordinary_entry_kind in {"direct", "hosted"}
@@ -4713,6 +4789,61 @@ finally:
                             ),
                         ):
                             if ordinary_entry_kind == "direct":
+                                exercise_turn_tool = (
+                                    not disable_while_ordinary_session_open
+                                    and not crash_after_ordinary_query
+                                )
+                                worker_turn_calls = 0
+
+                                @synthetic_model_transport
+                                async def worker_turn_stream(
+                                    model, context, options=None
+                                ):
+                                    del model, context, options
+                                    nonlocal worker_turn_calls
+                                    worker_turn_calls += 1
+                                    tool_turn = worker_turn_calls % 2 == 1
+                                    message = AssistantMessage(
+                                        endpoint="test",
+                                        role="assistant",
+                                        content=[
+                                            ToolCall(
+                                                type="toolCall",
+                                                id=f"windows-worker-turn-{worker_turn_calls}",
+                                                name=CODING_WORKER_QUERY_TOOL_NAME,
+                                                arguments={"symbol": "review"},
+                                            )
+                                            if tool_turn
+                                            else TextPart(
+                                                type="text", text="Query complete"
+                                            )
+                                        ],
+                                        api="test",
+                                        provider="test",
+                                        model="windows-worker-query",
+                                        response_id=None,
+                                        usage=Usage(
+                                            input=0,
+                                            output=0,
+                                            cache_read=0,
+                                            cache_write=0,
+                                            total_tokens=0,
+                                            cost={},
+                                        ),
+                                        stop_reason="toolUse" if tool_turn else "stop",
+                                        error_message=None,
+                                        timestamp=0.0,
+                                    )
+                                    stream = AssistantMessageEventStream()
+                                    stream.push(
+                                        {
+                                            "type": "done",
+                                            "reason": message.stop_reason,
+                                            "message": message,
+                                        }
+                                    )
+                                    return stream
+
                                 ordinary_manager = asyncio.run(
                                     SessionManager.new_with_composition(
                                         session_dir=(
@@ -4727,8 +4858,10 @@ finally:
                                 ordinary_session = create_agent_session(
                                     session_manager=ordinary_manager,
                                     model=query_model,
+                                    stream_fn=worker_turn_stream,
                                     services=create_services(settings_manager=settings),
                                     worker_candidate_plugin_id="workerprobe",
+                                    worker_query_turn_tool=exercise_turn_tool,
                                 )
                                 print(
                                     "windows-public-worker-session-created:"
@@ -4740,12 +4873,33 @@ finally:
                                     prepare_start = monotonic()
                                     try:
                                         await ordinary_session.prepare_model_call_runtime()
+                                        if exercise_turn_tool:
+                                            assert any(
+                                                tool.name
+                                                == CODING_WORKER_QUERY_TOOL_NAME
+                                                for tool in ordinary_session.get_all_tools()
+                                            )
                                         assert (
                                             await ordinary_session.query_worker_symbol(
                                                 "review"
                                             )
                                             == "Review symbol"
                                         )
+                                        if exercise_turn_tool:
+                                            await ordinary_session.prompt(
+                                                "Query the review symbol"
+                                            )
+                                            assert worker_turn_calls == 2
+                                            assert any(
+                                                getattr(message, "role", None)
+                                                == "toolResult"
+                                                and any(
+                                                    isinstance(part, TextPart)
+                                                    and part.text == "Review symbol"
+                                                    for part in message.content
+                                                )
+                                                for message in ordinary_session.get_session_context().messages
+                                            )
                                         worker_consumer = (
                                             bind_coding_worker_query_consumer(
                                                 ordinary_session
@@ -4816,6 +4970,138 @@ finally:
                                         await ordinary_session.dispose()
 
                                 asyncio.run(exercise_direct_worker())
+                                if exercise_turn_tool:
+                                    # A second Worker Session needs the prior
+                                    # settled stage retired under offline
+                                    # Product custody before admission.
+                                    runtime.dispose_runtime()
+                                    normal_attempts = tuple(
+                                        item
+                                        for item in inspect_coding_windows_product_worker_recovery_inventory(
+                                            worker_product
+                                        )
+                                        if item.native_phase == "settled"
+                                        and item.supervisor_phase == "stopped"
+                                        and item.payload_directory_identity is not None
+                                    )
+                                    assert len(normal_attempts) == 1
+                                    assert normal_attempts[0].attempt_id in {
+                                        item["attemptId"]
+                                        for item in execute_windows_worker_candidate_command(
+                                            worker_product,
+                                            Namespace(action="list-attempts"),
+                                        )["attempts"]
+                                    }
+                                    normal_review = (
+                                        execute_windows_worker_candidate_command(
+                                            worker_product,
+                                            Namespace(
+                                                action="review-normal",
+                                                attempt_id=normal_attempts[
+                                                    0
+                                                ].attempt_id,
+                                            ),
+                                        )["normalStageReview"]
+                                    )
+                                    normal_retirement = (
+                                        execute_windows_worker_candidate_command(
+                                            worker_product,
+                                            Namespace(
+                                                action="retire-normal",
+                                                attempt_id=normal_attempts[
+                                                    0
+                                                ].attempt_id,
+                                                review_id=normal_review["reviewId"],
+                                            ),
+                                        )["normalStageRetirement"]
+                                    )
+                                    assert (
+                                        normal_retirement["reviewId"]
+                                        == normal_review["reviewId"]
+                                    )
+                                    assert (
+                                        execute_windows_worker_candidate_command(
+                                            worker_product,
+                                            Namespace(
+                                                action="retire-normal",
+                                                attempt_id=normal_attempts[
+                                                    0
+                                                ].attempt_id,
+                                                review_id=normal_review["reviewId"],
+                                            ),
+                                        )["normalStageRetirement"]
+                                        == normal_retirement
+                                    )
+                                    from loushang.coding.cli import application
+                                    from loushang.coding.cli.args import parse_args
+                                    from loushang.harness.tools.workspace.registry import (
+                                        WorkspaceToolRegistry,
+                                    )
+
+                                    cli_dir = tmp_path / "cli-worker-transcripts"
+                                    cli_dir.mkdir()
+                                    cli_args = parse_args(
+                                        [
+                                            "--mode",
+                                            "print",
+                                            "--cwd",
+                                            str(workspace),
+                                            "--composition-set",
+                                            "coding-standard",
+                                            "--worker-query-plugin",
+                                            "workerprobe",
+                                        ]
+                                    )
+                                    with patch.object(
+                                        application,
+                                        "create_agent_session_runtime",
+                                        side_effect=lambda **kwargs: (
+                                            create_agent_session_runtime(
+                                                model=query_model,
+                                                stream_fn=worker_turn_stream,
+                                                **kwargs,
+                                            )
+                                        ),
+                                    ):
+                                        cli_runtime = (
+                                            application.default_runtime_builder(
+                                                args=cli_args,
+                                                cwd=workspace,
+                                                session_dir=cli_dir,
+                                                services=create_services(
+                                                    settings_manager=settings
+                                                ),
+                                                tool_registry=WorkspaceToolRegistry(),
+                                            )
+                                        )
+                                    worker_turn_calls = 0
+
+                                    async def exercise_cli_worker() -> None:
+                                        try:
+                                            cli_session = (
+                                                await cli_runtime.create_session(
+                                                    cwd=str(workspace)
+                                                )
+                                            )
+                                            await cli_session.prompt(
+                                                "Query the review symbol"
+                                            )
+                                            assert worker_turn_calls == 2
+                                            assert any(
+                                                getattr(message, "role", None)
+                                                == "toolResult"
+                                                and any(
+                                                    isinstance(part, TextPart)
+                                                    and part.text == "Review symbol"
+                                                    for part in message.content
+                                                )
+                                                for message in cli_session.get_session_context().messages
+                                            )
+                                        finally:
+                                            await cli_runtime.dispose_session_runtime()
+
+                                    asyncio.run(exercise_cli_worker())
+                                    return
                             else:
                                 hosted_runtime = create_agent_session_runtime(
                                     session_dir=tmp_path / "hosted-worker-transcripts",
@@ -7563,39 +7849,40 @@ def test_windows_worker_update_gc_keeps_selected_revision(
             for item in snapshot.installations
             if item.installation_key.plugin_id == "workerprobe"
         )
-        enabled = product.management.submit(
-            PluginManagementCommandV1(
-                action="enable",
-                mutation=PluginDesiredStateMutationV1(
-                    operation_id="windows-worker-enable-v1",
-                    idempotency_key="windows-worker-enable-v1",
-                    expected_inventory_revision=snapshot.inventory_revision,
-                    installation_key=installation.installation_key,
-                    desired_state="installed_enabled",
-                    package_revision=None,
-                    actor_id=product.actor_id,
-                    policy_revision=product.desired_policy_revision,
-                ),
-            )
+        enabled = execute_windows_worker_candidate_command(
+            product,
+            Namespace(
+                action="candidate-enable",
+                plugin_id="workerprobe",
+                artifact_digest=records[0].artifact_digest,
+                operation_id="windows-worker-enable-v1",
+                expected_inventory_revision=snapshot.inventory_revision,
+            ),
         )
-        assert enabled.status == "terminal"
+        assert enabled["candidateManagementOperation"]["status"] == "terminal"
         old_selected = runtime.capture_selected_plugin_manifest_for(
             "workerprobe",
             max_files=16,
             max_total_bytes=16 * 1024 * 1024,
         )
         assert old_selected.manifest.version == "1"
-        updated = runtime.lifecycle.route(
-            PackageProductLifecycleIntentV1(
-                operation_id="windows-worker-update-v2",
-                action="update",
-                source=sources[1],
-                scope="project",
-            ),
-            entrypoint="cli",
+        update_args = Namespace(
+            action="candidate-update",
+            plugin_id="workerprobe",
+            from_artifact_digest=records[0].artifact_digest,
+            artifact_digest=records[1].artifact_digest,
+            operation_id="windows-worker-update-v2",
+            expected_inventory_revision=product.desired_state.snapshot().inventory_revision,
         )
-        assert updated.handled and updated.record is not None
-        assert updated.record.lifecycle == "installed"
+        with pytest.raises(ValueError, match="update selection changed"):
+            execute_windows_worker_candidate_command(
+                product,
+                Namespace(**{**vars(update_args), "expected_inventory_revision": 0}),
+            )
+        updated = execute_windows_worker_candidate_command(product, update_args)
+        assert updated["candidateUpdate"]["alreadyUpdated"] is False
+        replayed = execute_windows_worker_candidate_command(product, update_args)
+        assert replayed["candidateUpdate"]["alreadyUpdated"] is True
         current = product.desired_state.snapshot().installation(
             installation.installation_key
         )
@@ -7675,6 +7962,26 @@ def test_windows_worker_update_gc_keeps_selected_revision(
             fresh.assert_selected_plugin_manifest_current(selected)
         finally:
             fresh.dispose_runtime()
+        disable_args = Namespace(
+            action="candidate-disable",
+            plugin_id="workerprobe",
+            artifact_digest=records[1].artifact_digest,
+            operation_id="windows-worker-disable-v2",
+            expected_inventory_revision=product.desired_state.snapshot().inventory_revision,
+        )
+        disabled = execute_windows_worker_candidate_command(product, disable_args)
+        assert disabled["candidateManagementOperation"]["status"] == "terminal"
+        remove_args = Namespace(
+            action="candidate-remove",
+            plugin_id="workerprobe",
+            artifact_digest=records[1].artifact_digest,
+            operation_id="windows-worker-remove-v2",
+            expected_inventory_revision=product.desired_state.snapshot().inventory_revision,
+        )
+        removed = execute_windows_worker_candidate_command(product, remove_args)
+        assert removed["candidateManagementOperation"]["status"] == "terminal"
+        assert removed["packageRetirement"] == "not_checked"
+        assert execute_windows_worker_candidate_command(product, remove_args) == removed
     finally:
         reopened.close()
 
