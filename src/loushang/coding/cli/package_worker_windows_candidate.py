@@ -43,6 +43,9 @@ from loushang.coding.package_product_worker_windows_opt_in_owner import (
 from loushang.coding.package_product_worker_windows_orphan_review import (
     review_coding_windows_product_worker_orphan_runtime,
 )
+from loushang.coding.package_product_worker_windows_recovery_inventory import (
+    inspect_coding_windows_product_worker_recovery_inventory,
+)
 from loushang.coding.package_product_worker_windows_stage_retirement import (
     _read_review as read_coding_windows_worker_stage_retirement_review,
 )
@@ -95,6 +98,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     retire_normal.add_argument("--attempt-id", required=True)
     retire_normal.add_argument("--review-id", required=True)
+    actions.add_parser("list-attempts", help="list retained Worker recovery attempts")
     capture = actions.add_parser(
         "candidate-capture", help="capture one inert Worker Wheel"
     )
@@ -246,6 +250,20 @@ def _run_product_action(
 def _execute(
     product: WindowsLocalWheelProductSessionOwner, args: argparse.Namespace
 ) -> dict[str, object]:
+    if args.action == "list-attempts":
+        return {
+            "attempts": [
+                {
+                    "attemptId": item.attempt_id,
+                    "nativePhase": item.native_phase,
+                    "supervisorPhase": item.supervisor_phase,
+                    "debts": list(item.observed_debts),
+                }
+                for item in inspect_coding_windows_product_worker_recovery_inventory(
+                    product
+                )
+            ]
+        }
     if args.action in {"review-normal", "retire-normal"}:
         try:
             review = review_coding_windows_product_worker_complete_stage(

@@ -4974,6 +4974,13 @@ finally:
                                         and item.payload_directory_identity is not None
                                     )
                                     assert len(normal_attempts) == 1
+                                    assert normal_attempts[0].attempt_id in {
+                                        item["attemptId"]
+                                        for item in execute_windows_worker_candidate_command(
+                                            worker_product,
+                                            Namespace(action="list-attempts"),
+                                        )["attempts"]
+                                    }
                                     normal_review = (
                                         execute_windows_worker_candidate_command(
                                             worker_product,
