@@ -13,9 +13,7 @@ This directory contains normative architecture, descriptive Current
 architecture, generated facts, proposed designs, validation, references, and
 history. Their authority is intentionally different.
 
-The canonical design and governance process is
-[Architecture Design And Governance Method](../architecture-method/README.md).
-Its Loushang-specific binding is the
+Loushang's architecture governance rules are recorded in the
 [Architecture Governance Profile](governance-profile.md).
 
 ## Start Here
@@ -64,8 +62,7 @@ Delta rather than blending the two in one unlabeled diagram.
 
 Drafts, proposals and undecided extensions are candidate directions. Keep them
 separate from accepted Target and do not count their absence as implementation
-debt. The [Target acceptance rule](../architecture-method/README.md#target-acceptance)
-and [governance profile](governance-profile.md#target-acceptance-in-loushang)
+debt. The [Target acceptance rule](governance-profile.md#target-acceptance-in-loushang)
 define acceptance evidence and ledger promotion.
 
 ## Architecture Scope Tree
@@ -186,8 +183,7 @@ traceability, interfaces, key designs, decisions, generated facts, validation,
 reference, and history. Glossary and principles inherit from the parent; local
 files contain only domain-specific additions. Smaller scopes should combine
 these concerns rather than create empty files.
-Use the
-[Architecture Scope README Template](../architecture-method/templates/architecture-scope-README.md)
+Follow the [Loushang Architecture Governance Profile](governance-profile.md)
 when establishing or normalizing a scope entrypoint.
 
 ## Current Facts And Architecture Gates

@@ -6,7 +6,7 @@
 - Design status: superseded
 - Implementation status: not-applicable
 - Owner: Loushang architecture method history
-- Superseded by: [Architecture Artifact Model](../artifact-model.md)
+- Superseded by: [Architecture Governance Profile](../governance-profile.md)
 
 This document preserves the documentation model that preceded the recursive
 Architecture Scope and Current/Target/History governance method. It remains
