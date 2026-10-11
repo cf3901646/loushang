@@ -1796,6 +1796,26 @@ def test_windows_arch_backup_expiry_recovers_across_native_effects(
     finally:
         application.close()
 
+    with (
+        patch(
+            "loushang.coding.cli.plugin_private_data.resolve_coding_plugin_lifecycle_state_layout",
+            return_value=lifecycle,
+        ),
+        patch("loushang.coding.cli.plugin_private_data.version", return_value="2.0.0"),
+    ):
+        assert (
+            private_data_cli_main(
+                (
+                    "--workspace",
+                    str(workspace),
+                    "--plugin-id",
+                    "coding.arch.default",
+                    "backup",
+                )
+            )
+            == 0
+        )
+    backup_document = json.loads(capsys.readouterr().out)["backupReceipt"]
     application = open_coding_fenced_product_application_owner(
         lifecycle,
         workspace=workspace,
@@ -1807,6 +1827,7 @@ def test_windows_arch_backup_expiry_recovers_across_native_effects(
         product = application.runtime_owner.product_owner
         assert isinstance(product, WindowsLocalWheelProductSessionOwner)
         backup = CodingWindowsArchPrivateDataBackupOwner(lifecycle, product).retain(key)
+        assert backup_document == backup.to_dict()
         confirmations = CodingWindowsArchPrivateDataConfirmationOwner(
             lifecycle, product
         )
