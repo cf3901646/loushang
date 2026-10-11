@@ -4293,6 +4293,32 @@ def _exercise_windows_worker_wheel_transaction(
             lifecycle, source=source, admission=windows_admission
         )
         assert record.artifact_digest == sha256(payload).hexdigest()
+        if (
+            ordinary_entry_kind == "direct"
+            and not disable_while_ordinary_session_open
+            and not crash_after_ordinary_query
+        ):
+            with patch(
+                "loushang.coding.cli.package_worker_windows_candidate.resolve_coding_plugin_lifecycle_state_layout",
+                return_value=lifecycle,
+            ):
+                assert (
+                    windows_worker_candidate_main(
+                        (
+                            "--workspace",
+                            str(workspace),
+                            "--windows-candidate",
+                            "candidate-capture",
+                            "--wheel",
+                            str(source),
+                            "--contribution-id",
+                            "query-provider",
+                            "--owner-id",
+                            owner_id,
+                        )
+                    )
+                    == 0
+                )
         assert (
             admit_coding_external_worker_wheel(
                 lifecycle, source=source, admission=windows_admission
