@@ -2171,6 +2171,11 @@ replay. C5, receipt, Supervisor, launch-intent, and native provisioning
 identities have not been joined to Desired, Package, backup, or live Session
 references. No Product reader or writer uses them to retire old bytes, and no
 Windows cutover acceptance has been claimed.
+The guarded recovery input now also carries the complete, validated record
+sequence for each retained LPAC provisioning attempt. Its preparation digest
+binds those records beside the existing native phase and witness summary. A
+native per-attempt semantic base and the cross-owner settlement join are still
+required before any provisioning history can be retired.
 
 1. **Author artifact.** A versioned author recipe packages one Worker
    declaration document, a platform-specific executable, and a manifest whose

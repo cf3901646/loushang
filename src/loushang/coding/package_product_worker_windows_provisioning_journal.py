@@ -94,6 +94,7 @@ class WindowsWorkerProvisioningAttemptV1:
     witness_present_history: tuple[bool, ...]
     last_witness_state: str | None
     settlement_fingerprint: str | None
+    records: tuple[_Record, ...] = ()
 
     @property
     def unsettled(self) -> bool:
@@ -287,6 +288,7 @@ def inspect_windows_worker_provisioning_attempts(
                             if current.document["phase"] == "settled"
                             else None
                         ),
+                        records=records,
                     )
                 )
         if set(windows_listdir_at(directory_fd)) != set(names):
@@ -453,9 +455,7 @@ class WindowsWorkerProvisioningStateJournal:
             )
         with WindowsPrivateDirectoryAcl() as acl:
             windows_stat_at(directory_fd, lock_name)
-            with journal_file_lock_at(
-                directory_fd, lock_name, "shared"
-            ) as lock_handle:
+            with journal_file_lock_at(directory_fd, lock_name, "shared") as lock_handle:
                 initialized = self._validate_windows_lock(
                     directory_fd, acl, locked_handle=lock_handle
                 )

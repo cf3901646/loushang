@@ -52,6 +52,9 @@ from .package_product_worker_windows_payload_inventory import (
 from .package_product_worker_windows_provisioning import (
     inspect_coding_windows_product_worker_provisioning_attempts,
 )
+from .package_product_worker_windows_provisioning_journal import (
+    WindowsWorkerProvisioningAttemptV1,
+)
 from .package_product_worker_windows_receipt_journal import (
     CodingWindowsWorkerReceiptJournal,
 )
@@ -210,6 +213,7 @@ class CodingWindowsWorkerOfflineRecoverySnapshotV1:
     worker_backup_observations: tuple[CodingWorkerBackupReferenceObservationV1, ...]
     activation_state_records: tuple[_StateRecord, ...] = ()
     launch_intents: tuple[CodingWindowsWorkerLaunchIntentV1, ...] = ()
+    native_provisioning_attempts: tuple[WindowsWorkerProvisioningAttemptV1, ...] = ()
 
     @property
     def opt_in_history_revision(self) -> int:
@@ -757,7 +761,12 @@ def _inspect_coding_windows_product_worker_offline_recovery_under_gc_guard(
     """Join semantic histories under an already held Product quiescence/gate."""
 
     product.assert_root_gc_authority_current()
-    attempts = _inspect_windows_worker_recovery_inventory_under_gc_guard(product)
+    native_provisioning_attempts = (
+        inspect_coding_windows_product_worker_provisioning_attempts(product)
+    )
+    attempts = _inspect_windows_worker_recovery_inventory_under_gc_guard(
+        product, native_attempts=native_provisioning_attempts
+    )
     launch_intents = _inspect_intents_under_gc_guard(product)
     with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
         opt_in_decisions = CodingWindowsWorkerOptInJournal(
@@ -815,11 +824,14 @@ def _inspect_coding_windows_product_worker_offline_recovery_under_gc_guard(
         worker_backup_observations=worker_backup_observations,
         activation_state_records=activation_state_records,
         launch_intents=launch_intents,
+        native_provisioning_attempts=native_provisioning_attempts,
     )
 
 
 def _inspect_windows_worker_recovery_inventory_under_gc_guard(
     product: WindowsLocalWheelProductSessionOwner,
+    *,
+    native_attempts: tuple[WindowsWorkerProvisioningAttemptV1, ...] | None = None,
 ) -> tuple[CodingWindowsWorkerRecoveryAttemptV1, ...]:
     """Reuse one already-held Product GC gate for a pre-effect admission check."""
 
@@ -838,10 +850,12 @@ def _inspect_windows_worker_recovery_inventory_under_gc_guard(
     intents = {
         item.attempt_id: item for item in _inspect_intents_under_gc_guard(product)
     }
-    native = {
-        item.attempt_id: item
-        for item in inspect_coding_windows_product_worker_provisioning_attempts(product)
-    }
+    native_source = (
+        inspect_coding_windows_product_worker_provisioning_attempts(product)
+        if native_attempts is None
+        else native_attempts
+    )
+    native = {item.attempt_id: item for item in native_source}
     supervisor_records = open_coding_windows_product_worker_supervisor_journal(
         product
     ).inspect_records()
