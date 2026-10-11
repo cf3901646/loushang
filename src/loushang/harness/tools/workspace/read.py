@@ -106,10 +106,7 @@ def create_read_tool_definition(
     @tool(
         name="read",
         label="Read",
-        description=(
-            "Read text files and images from the workspace. "
-            "For large text files, use offset and limit to continue reading."
-        ),
+        description="Read text files and images: read(path, offset?, limit?).",
         prompt_snippet="- read: Read text files and images from the workspace.",
     )
     async def read(
