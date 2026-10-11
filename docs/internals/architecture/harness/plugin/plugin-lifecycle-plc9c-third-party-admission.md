@@ -2264,6 +2264,13 @@ owner must also hold while publishing its marker. The marker is not published
 yet; this fence does not implement the new writer path, reader switch, or
 retirement ledger. GC still refuses an unrecognized marker until its post-cutover
 reader is implemented.
+The cutover marker now has an inert canonical V1 record format. It binds the
+Product scope and Store, the persisted checkpoint digest, its source snapshot,
+and all six base digests; strict decoding refuses changed or noncanonical
+bytes. It grants no publication or deletion authority. A future Product owner
+must compare it with freshly read persisted bases under the same quiescence and
+GC gate before publishing or accepting it, then route every reader and writer
+to the new history representation.
 
 1. **Author artifact.** A versioned author recipe packages one Worker
    declaration document, a platform-specific executable, and a manifest whose
