@@ -8,7 +8,10 @@ from hashlib import sha256
 import pytest
 
 from loushang.coding.package_product_worker_opt_in import CodingWorkerOptInDecisionV1
-from loushang.coding.package_product_worker_policy import CodingWorkerOptInV1
+from loushang.coding.package_product_worker_policy import (
+    CodingWorkerOptInV1,
+    coding_worker_session_scope_id,
+)
 from loushang.coding.package_product_worker_receipt import CodingWorkerReceiptRecordV1
 from loushang.coding.package_product_worker_windows_history_preparation import (
     CodingWindowsWorkerHistoryPreparationV1,
@@ -65,13 +68,13 @@ def _semantic_read() -> CodingWindowsWorkerHistorySemanticReadV1:
     policy = ProductWorkerActivationPolicyV1(
         product_id="coding",
         product_runtime_id="runtime-a",
-        product_scope_id=scope,
+        product_scope_id=coding_worker_session_scope_id("session-a"),
         session_id="session-a",
         session_route="new",
         selected_locator_fingerprint=None,
         selected_locator_revision="new-session",
         plugin_id="reviewworker",
-        plugin_revision_digest=digest,
+        plugin_revision_digest=allow.opt_in.artifact_digest,
         contribution_id="query-provider",
         reservation_fingerprint=digest,
         declaration_fingerprint=digest,
@@ -176,6 +179,33 @@ def test_windows_receipt_base_refuses_revoke_as_original_allow() -> None:
                     scope_id="scope-a",
                     opt_in_decision_digest=revoked.decision_digest,
                     receipt=record.receipt,
+                ),
+            ),
+        ),
+    )
+    prepared = CodingWindowsWorkerHistoryPreparationV1.create(changed)
+    with pytest.raises(ValueError, match="receipt history is invalid"):
+        CodingWindowsWorkerReceiptSemanticBaseV1.from_semantic_read(prepared, changed)
+
+
+def test_windows_receipt_base_refuses_policy_artifact_mismatch() -> None:
+    semantic = _semantic_read()
+    record = semantic.offline_recovery.receipt_records[0]
+    wrong_policy = replace(
+        record.receipt.policy,
+        plugin_revision_digest=sha256(b"wrong-wheel").hexdigest(),
+    )
+    wrong_receipt = replace(record.receipt, policy=wrong_policy)
+    changed = replace(
+        semantic,
+        offline_recovery=replace(
+            semantic.offline_recovery,
+            receipt_records=(
+                CodingWorkerReceiptRecordV1.create(
+                    journal_revision=1,
+                    scope_id="scope-a",
+                    opt_in_decision_digest=record.opt_in_decision_digest,
+                    receipt=wrong_receipt,
                 ),
             ),
         ),
