@@ -114,7 +114,9 @@ enables an exact candidate, reviews and approves the current Loushang backend
 release, installs that approved release, and records a per-install allow or
 revoke decision. `release-status` and `candidate-status` expose the durable
 generations needed by those commands. `inspect` and `recover-crash` remain
-offline recovery operations. The hosted
+offline recovery operations. `review-normal` and `retire-normal` provide the
+exact offline stage retirement needed between settled Windows Worker Sessions;
+they refuse active Product runtimes. The hosted
 crash/reopen Product case calls `inspect` and `recover-crash`, verifies refusal
 at injected partial-settlement boundaries, then completes recovery through the
 command. The earlier exact code head `cd25e160` passed the seven-case native

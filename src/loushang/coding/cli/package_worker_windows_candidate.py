@@ -43,6 +43,16 @@ from loushang.coding.package_product_worker_windows_opt_in_owner import (
 from loushang.coding.package_product_worker_windows_orphan_review import (
     review_coding_windows_product_worker_orphan_runtime,
 )
+from loushang.coding.package_product_worker_windows_stage_retirement import (
+    _read_review as read_coding_windows_worker_stage_retirement_review,
+)
+from loushang.coding.package_product_worker_windows_stage_retirement import (
+    retire_coding_windows_product_worker_complete_stage,
+)
+from loushang.coding.package_product_worker_windows_stage_review import (
+    CodingWindowsWorkerStageReviewError,
+    review_coding_windows_product_worker_complete_stage,
+)
 from loushang.harness.package_product.product_local_wheel_runtime import (
     WindowsLocalWheelProductSessionOwner,
 )
@@ -76,9 +86,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     for action, help_text in (
         ("inspect", "inspect one retained Worker attempt"),
         ("recover-crash", "resume exact Product crash cleanup and C5 settlement"),
+        ("review-normal", "review one settled normal Worker stage offline"),
     ):
         command = actions.add_parser(action, help=help_text)
         command.add_argument("--attempt-id", required=True)
+    retire_normal = actions.add_parser(
+        "retire-normal", help="retire one exactly reviewed normal Worker stage"
+    )
+    retire_normal.add_argument("--attempt-id", required=True)
+    retire_normal.add_argument("--review-id", required=True)
     capture = actions.add_parser(
         "candidate-capture", help="capture one inert Worker Wheel"
     )
@@ -230,6 +246,44 @@ def _run_product_action(
 def _execute(
     product: WindowsLocalWheelProductSessionOwner, args: argparse.Namespace
 ) -> dict[str, object]:
+    if args.action in {"review-normal", "retire-normal"}:
+        try:
+            review = review_coding_windows_product_worker_complete_stage(
+                product, attempt_id=args.attempt_id
+            )
+        except CodingWindowsWorkerStageReviewError as error:
+            if (
+                args.action != "retire-normal"
+                or error.code != "coding_worker_stage_review_settlement_unverified"
+            ):
+                raise
+            with product.gc_gate.guard():
+                product.assert_root_gc_authority_current()
+                review = read_coding_windows_worker_stage_retirement_review(
+                    product, args.attempt_id
+                )
+                product.assert_root_gc_authority_current()
+            if review is None:
+                raise
+        if args.action == "review-normal":
+            return {
+                "normalStageReview": {
+                    "attemptId": review.attempt_id,
+                    "reviewId": review.fingerprint,
+                }
+            }
+        if args.review_id != review.fingerprint:
+            raise ValueError("Windows Worker normal stage review changed")
+        receipt = retire_coding_windows_product_worker_complete_stage(
+            product, expected_review=review
+        )
+        return {
+            "normalStageRetirement": {
+                "attemptId": receipt.attempt_id,
+                "reviewId": receipt.review_fingerprint,
+                "stageIdentity": list(receipt.stage_identity),
+            }
+        }
     if args.action == "release-status":
         decision = CodingWindowsWorkerNativeApprovalOwner(product).current()
         return {"approvalDecision": None if decision is None else decision.to_dict()}

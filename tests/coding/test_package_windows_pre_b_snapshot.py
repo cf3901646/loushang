@@ -4960,6 +4960,60 @@ finally:
 
                                 asyncio.run(exercise_direct_worker())
                                 if exercise_turn_tool:
+                                    # A second Worker Session needs the prior
+                                    # settled stage retired under offline
+                                    # Product custody before admission.
+                                    runtime.dispose_runtime()
+                                    normal_attempts = tuple(
+                                        item
+                                        for item in inspect_coding_windows_product_worker_recovery_inventory(
+                                            worker_product
+                                        )
+                                        if item.native_phase == "settled"
+                                        and item.supervisor_phase == "stopped"
+                                        and item.payload_directory_identity is not None
+                                    )
+                                    assert len(normal_attempts) == 1
+                                    normal_review = (
+                                        execute_windows_worker_candidate_command(
+                                            worker_product,
+                                            Namespace(
+                                                action="review-normal",
+                                                attempt_id=normal_attempts[
+                                                    0
+                                                ].attempt_id,
+                                            ),
+                                        )["normalStageReview"]
+                                    )
+                                    normal_retirement = (
+                                        execute_windows_worker_candidate_command(
+                                            worker_product,
+                                            Namespace(
+                                                action="retire-normal",
+                                                attempt_id=normal_attempts[
+                                                    0
+                                                ].attempt_id,
+                                                review_id=normal_review["reviewId"],
+                                            ),
+                                        )["normalStageRetirement"]
+                                    )
+                                    assert (
+                                        normal_retirement["reviewId"]
+                                        == normal_review["reviewId"]
+                                    )
+                                    assert (
+                                        execute_windows_worker_candidate_command(
+                                            worker_product,
+                                            Namespace(
+                                                action="retire-normal",
+                                                attempt_id=normal_attempts[
+                                                    0
+                                                ].attempt_id,
+                                                review_id=normal_review["reviewId"],
+                                            ),
+                                        )["normalStageRetirement"]
+                                        == normal_retirement
+                                    )
                                     from loushang.coding.cli import application
                                     from loushang.coding.cli.args import parse_args
                                     from loushang.harness.tools.workspace.registry import (
@@ -5029,6 +5083,7 @@ finally:
                                             await cli_runtime.dispose_session_runtime()
 
                                     asyncio.run(exercise_cli_worker())
+                                    return
                             else:
                                 hosted_runtime = create_agent_session_runtime(
                                     session_dir=tmp_path / "hosted-worker-transcripts",
