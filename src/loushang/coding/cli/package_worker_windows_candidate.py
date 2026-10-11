@@ -63,6 +63,9 @@ from loushang.harness.package_product.product_local_wheel_runtime import (
 from loushang.harness.package_product.product_runtime import (
     PackageProductRuntimeRequestV1,
 )
+from loushang.harness.package_product.product_worker_candidate import (
+    verify_product_selected_worker_candidate,
+)
 from loushang.harness.plugin_management.operations import (
     PluginManagementCommandV1,
     PluginManagementOperationEventV1,
@@ -113,6 +116,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     retire_normal.add_argument("--attempt-id", required=True)
     retire_normal.add_argument("--review-id", required=True)
     actions.add_parser("list-attempts", help="list retained Worker recovery attempts")
+    selection = actions.add_parser(
+        "candidate-selection", help="read one exact selected Worker candidate"
+    )
+    selection.add_argument("--plugin-id", required=True)
     capture = actions.add_parser(
         "candidate-capture", help="capture one inert Worker Wheel"
     )
@@ -284,6 +291,8 @@ def _run_product_action(
 def _execute(
     product: WindowsLocalWheelProductSessionOwner, args: argparse.Namespace
 ) -> dict[str, object]:
+    if args.action == "candidate-selection":
+        return _read_candidate_selection(product, args.plugin_id)
     if args.action in {"candidate-update", "candidate-disable", "candidate-remove"}:
         return _change_candidate(product, args)
     if args.action == "list-attempts":
@@ -525,6 +534,84 @@ def _execute(
         finally:
             runtime.dispose_runtime()
     raise ValueError("Windows Worker candidate action is unsupported")
+
+
+def _read_candidate_selection(
+    product: WindowsLocalWheelProductSessionOwner, plugin_id: str
+) -> dict[str, object]:
+    """Verify selected Product bytes without issuing a Worker-use receipt."""
+
+    installed = tuple(
+        item
+        for item in product.desired_state.snapshot().installations
+        if item.installation_key.product_id == "coding"
+        and item.installation_key.installation_scope == "workspace"
+        and item.installation_key.plugin_id == plugin_id
+        and item.selection.desired_state == "installed_enabled"
+        and item.selection.package_revision is not None
+    )
+    if len(installed) != 1:
+        raise ValueError("Windows Worker candidate selection is unavailable")
+    revision = installed[0].selection.package_revision
+    assert revision is not None
+    bindings = tuple(
+        binding
+        for binding in product.policy.bindings
+        if binding.plugin_id == plugin_id
+        and binding.source_trust_class == "local-worker-candidate"
+        and binding.worker_admission is not None
+        and binding.source_identity == revision.package_source_identity
+        and binding.artifact_digest == revision.package_content_digest
+    )
+    if len(bindings) != 1:
+        raise ValueError("Windows Worker candidate selection is unavailable")
+    binding = bindings[0]
+    admission = binding.worker_admission
+    assert admission is not None
+    session_id = f"worker-candidate-selection-{secrets.token_hex(16)}"
+    factory = product.factory_for_session(
+        session_id=session_id, cwd=product.workspace, runtime_id=session_id
+    )
+    try:
+        runtime = factory.create(
+            PackageProductRuntimeRequestV1(
+                product_id="coding", session_id=session_id, cwd=str(product.workspace)
+            )
+        )
+    except BaseException:
+        factory.dispose_unbound_runtime()
+        raise
+    try:
+        runtime.activate()
+        selected = runtime.capture_selected_plugin_manifest_for(
+            plugin_id, max_files=16, max_total_bytes=16 * 1024 * 1024
+        )
+        revision = selected.snapshot.package_revision
+        if (
+            revision.package_source_identity != binding.source_identity
+            or revision.package_content_digest != binding.artifact_digest
+            or selected.snapshot.root_ref.artifact_digest != binding.artifact_digest
+        ):
+            raise ValueError("Windows Worker candidate selection changed")
+        candidate = verify_product_selected_worker_candidate(
+            selected,
+            contribution_id=admission.contribution_id,
+            native_platform="windows-amd64",
+        )
+        if candidate.owner_id != admission.owner_id:
+            raise ValueError("Windows Worker candidate owner changed")
+        return {
+            "candidateSelection": {
+                "stage": "observed_in_read",
+                "pluginId": candidate.plugin_id,
+                "pluginVersion": candidate.plugin_version,
+                "artifactDigest": binding.artifact_digest,
+                "executableDigest": candidate.executable_digest,
+            },
+            "productUse": "not_checked",
+        }
+    finally:
+        runtime.dispose_runtime()
 
 
 def _change_candidate(
