@@ -15,6 +15,10 @@ from loushang.foundation.windows_private_acl import WindowsPrivateDirectoryAcl
 from loushang.harness.package_product.product_local_wheel_runtime import (
     WindowsLocalWheelProductSessionOwner,
 )
+from loushang.harness.plugin_management.journal_codecs import (
+    PluginDesiredStateJournalTransition,
+)
+from loushang.harness.plugin_management.ledger import PluginDesiredStateSnapshotV1
 from loushang.harness.resources.packages.plugin_lifecycle.records import (
     canonical_json_bytes,
 )
@@ -221,6 +225,8 @@ class CodingWindowsWorkerHistorySemanticReadV1:
     offline_recovery: CodingWindowsWorkerOfflineRecoverySnapshotV1
     desired_inventory_revision: int | None = None
     desired_history_digest: str | None = None
+    desired_snapshot: PluginDesiredStateSnapshotV1 | None = None
+    desired_transitions: tuple[PluginDesiredStateJournalTransition, ...] | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -235,12 +241,33 @@ class CodingWindowsWorkerHistorySemanticReadV1:
                 != (self.desired_history_digest is None)
             )
             or (
+                (self.desired_snapshot is None)
+                != (self.desired_transitions is None)
+            )
+            or (
+                (self.desired_snapshot is None)
+                != (self.desired_history_digest is None)
+            )
+            or (
                 self.desired_inventory_revision is not None
                 and (
                     type(self.desired_inventory_revision) is not int
                     or self.desired_inventory_revision < 0
                     or type(self.desired_history_digest) is not str
                     or _DIGEST.fullmatch(self.desired_history_digest) is None
+                )
+            )
+            or (
+                self.desired_snapshot is not None
+                and (
+                    type(self.desired_snapshot) is not PluginDesiredStateSnapshotV1
+                    or type(self.desired_transitions) is not tuple
+                    or self.desired_snapshot.inventory_revision
+                    != self.desired_inventory_revision
+                    or _coding_windows_worker_desired_history_digest(
+                        self.desired_snapshot, self.desired_transitions
+                    )
+                    != self.desired_history_digest
                 )
             )
             or self.offline_recovery.gc_revision_refs
@@ -311,7 +338,7 @@ def read_coding_windows_worker_history_semantics(
                     gc_snapshot=gc_snapshot,
                 )
             )
-            desired_revision, desired_digest = (
+            desired_snapshot, desired_transitions, desired_digest = (
                 _capture_coding_windows_worker_desired_history_under_gc_guard(product)
             )
             if source_snapshot != (
@@ -327,21 +354,22 @@ def read_coding_windows_worker_history_semantics(
     return CodingWindowsWorkerHistorySemanticReadV1(
         source_snapshot=source_snapshot,
         offline_recovery=offline_recovery,
-        desired_inventory_revision=desired_revision,
+        desired_inventory_revision=desired_snapshot.inventory_revision,
         desired_history_digest=desired_digest,
+        desired_snapshot=desired_snapshot,
+        desired_transitions=desired_transitions,
     )
 
 
-def _capture_coding_windows_worker_desired_history_under_gc_guard(
-    product: WindowsLocalWheelProductSessionOwner,
-) -> tuple[int, str]:
-    """Bind current Desired selection and its complete transition provenance."""
+def _coding_windows_worker_desired_history_digest(
+    snapshot: PluginDesiredStateSnapshotV1,
+    transitions: tuple[PluginDesiredStateJournalTransition, ...],
+) -> str:
+    """Hash one complete Desired selection and transition capture."""
 
-    product.assert_root_gc_authority_current()
-    snapshot, transitions = product.desired_state.capture_read_only()
     if snapshot.inventory_revision != len(transitions):
         raise ValueError("Windows Worker Desired history revision changed")
-    digest = sha256(
+    return sha256(
         canonical_json_bytes(
             {
                 "inventoryRevision": snapshot.inventory_revision,
@@ -350,8 +378,22 @@ def _capture_coding_windows_worker_desired_history_under_gc_guard(
             }
         )
     ).hexdigest()
+
+
+def _capture_coding_windows_worker_desired_history_under_gc_guard(
+    product: WindowsLocalWheelProductSessionOwner,
+) -> tuple[
+    PluginDesiredStateSnapshotV1,
+    tuple[PluginDesiredStateJournalTransition, ...],
+    str,
+]:
+    """Bind current Desired selection and its complete transition provenance."""
+
     product.assert_root_gc_authority_current()
-    return snapshot.inventory_revision, digest
+    snapshot, transitions = product.desired_state.capture_read_only()
+    digest = _coding_windows_worker_desired_history_digest(snapshot, transitions)
+    product.assert_root_gc_authority_current()
+    return snapshot, transitions, digest
 
 
 def _capture_coding_windows_worker_history_sources(

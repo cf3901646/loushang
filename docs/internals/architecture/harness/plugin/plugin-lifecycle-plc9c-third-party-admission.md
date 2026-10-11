@@ -2196,6 +2196,14 @@ gate, so this read shares the source and recovery guard. The native Product
 assertion for this new input awaits CI. The digest is a checkpoint input;
 Package lease, backup, and selection closure still need a Product preflight
 before any cutover can be committed.
+The guarded read also retains the exact Desired snapshot and transition capture
+behind that digest. A read-only reference review replays its inventory order,
+checks the current selection against the last committed transitions, and
+requires each retained Worker receipt's Plugin and artifact digest to appear
+in a historical Coding workspace selection. A later revoke or update cannot
+erase that historical reference. This review has portable positive and changed
+artifact coverage; its native Product assertion awaits CI. Package lease and
+backup closure, a durable checkpoint, owner switch, and deletion remain open.
 
 1. **Author artifact.** A versioned author recipe packages one Worker
    declaration document, a platform-specific executable, and a manifest whose

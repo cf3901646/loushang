@@ -222,7 +222,7 @@ def prepare_coding_windows_worker_history(
                     gc_snapshot=gc_snapshot,
                 )
             )
-            desired_revision, desired_digest = (
+            desired_snapshot, desired_transitions, desired_digest = (
                 _capture_coding_windows_worker_desired_history_under_gc_guard(product)
             )
             if source_snapshot != (
@@ -237,8 +237,10 @@ def prepare_coding_windows_worker_history(
             semantic = CodingWindowsWorkerHistorySemanticReadV1(
                 source_snapshot=source_snapshot,
                 offline_recovery=offline_recovery,
-                desired_inventory_revision=desired_revision,
+                desired_inventory_revision=desired_snapshot.inventory_revision,
                 desired_history_digest=desired_digest,
+                desired_snapshot=desired_snapshot,
+                desired_transitions=desired_transitions,
             )
             prepared = CodingWindowsWorkerHistoryPreparationV1.create(semantic)
             for existing in (published, staged):
