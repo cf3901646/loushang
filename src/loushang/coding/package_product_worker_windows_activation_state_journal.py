@@ -105,6 +105,13 @@ class CodingWindowsWorkerActivationStateJournal:
         _present, records = self._read_records_with_presence()
         return project_coding_worker_retained_attempts(records)
 
+    def records_with_presence_read_only(
+        self,
+    ) -> tuple[bool, tuple[_StateRecord, ...]]:
+        """Expose the same validated read to guarded Product history capture."""
+
+        return self._read_records_with_presence()
+
     def _read_records_with_presence(self) -> tuple[bool, tuple[_StateRecord, ...]]:
         with self._product.gc_gate.guard(), self._thread_lock:
             self._product.assert_root_gc_authority_current()

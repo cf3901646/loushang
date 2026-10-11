@@ -2139,7 +2139,10 @@ existing offline Windows recovery projection under one runtime quiescence and
 GC snapshot guard. It refuses active GC reservations and Worker backup
 references, rereads every source byte after the semantic read, and returns
 only matching Store and lease-owner revisions. The guarded helper extraction
-preserves the ordinary recovery reader. This input has no durable checkpoint
+preserves the ordinary recovery reader. Its C5 input now carries the complete
+validated records from one read, with those records included in the durable
+preparation digest; a native Product capture assertion remains under CI.
+This input has no durable checkpoint
 record, high-water publication, cutover, or deletion authority; its native
 Windows case remains pending.
 A subsequent preparation step serializes the exact source inventory and a
