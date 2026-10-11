@@ -505,6 +505,11 @@ def install_coding_multiagent_session(
         session,
         child_factory=child_factory,
         agent_types=agent_types,
+        agent_type_hints={
+            "explorer": "read-only investigation",
+            "reviewer": "review",
+            "implementation_worker": "implementation in an isolated worktree",
+        },
         register_tools=register_tools,
     )
 
