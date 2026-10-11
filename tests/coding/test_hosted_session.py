@@ -149,6 +149,7 @@ async def _binding(tmp_path: Path):
 def test_G14_PRODUCT_real_agent_session_streams_and_persists_messages(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, record_property,
 ) -> None:
+    import loushang.coding.bootstrap as bootstrap_module
     import loushang.coding.hosted_session as hosted_module
     from loushang.harness.capabilities.component_runtime import (
         CapabilityOwnerComponentBinder,
@@ -165,56 +166,72 @@ def test_G14_PRODUCT_real_agent_session_streams_and_persists_messages(
             (name, round(started - began, 3), round(time.perf_counter() - started, 3))
         )
 
-    original_product = CodingRealHostedSessionFactoryV1._default_product_factory_for_session
-    original_session = hosted_module.create_agent_session
-    original_prepare = AgentSession.prepare_model_call_runtime
-    original_catalog = InitialSessionResourceCatalogBootstrap.prepare
-    original_bind = CapabilityOwnerComponentBinder.bind
+    def timed_sync(name, original):
+        def wrapper(*args, **kwargs):
+            started = time.perf_counter()
+            try:
+                return original(*args, **kwargs)
+            finally:
+                observe(name, started)
 
-    def timed_product(self, *args, **kwargs):
-        started = time.perf_counter()
-        try:
-            return original_product(self, *args, **kwargs)
-        finally:
-            observe("product-owner-selection", started)
+        return wrapper
 
-    def timed_session(*args, **kwargs):
-        started = time.perf_counter()
-        try:
-            return original_session(*args, **kwargs)
-        finally:
-            observe("agent-session-construction", started)
+    def timed_async(name, original):
+        async def wrapper(*args, **kwargs):
+            started = time.perf_counter()
+            try:
+                return await original(*args, **kwargs)
+            finally:
+                observe(name, started)
 
-    async def timed_prepare(self, *args, **kwargs):
-        started = time.perf_counter()
-        try:
-            return await original_prepare(self, *args, **kwargs)
-        finally:
-            observe("model-call-preparation", started)
-
-    async def timed_catalog(self, *args, **kwargs):
-        started = time.perf_counter()
-        try:
-            return await original_catalog(self, *args, **kwargs)
-        finally:
-            observe("catalog-preparation", started)
-
-    async def timed_bind(self, *args, **kwargs):
-        started = time.perf_counter()
-        try:
-            return await original_bind(self, *args, **kwargs)
-        finally:
-            observe("component-binding", started)
+        return wrapper
 
     monkeypatch.setattr(
         CodingRealHostedSessionFactoryV1,
         "_default_product_factory_for_session",
-        timed_product,
+        timed_sync(
+            "product-owner-selection",
+            CodingRealHostedSessionFactoryV1._default_product_factory_for_session,
+        ),
     )
-    monkeypatch.setattr(hosted_module, "create_agent_session", timed_session)
-    monkeypatch.setattr(AgentSession, "prepare_model_call_runtime", timed_prepare)
-    monkeypatch.setattr(InitialSessionResourceCatalogBootstrap, "prepare", timed_catalog)
-    monkeypatch.setattr(CapabilityOwnerComponentBinder, "bind", timed_bind)
+    monkeypatch.setattr(
+        hosted_module,
+        "create_agent_session",
+        timed_sync("agent-session-construction", hosted_module.create_agent_session),
+    )
+    monkeypatch.setattr(
+        bootstrap_module,
+        "_prepare_coding_catalog_projection",
+        timed_sync(
+            "product-catalog-projection",
+            bootstrap_module._prepare_coding_catalog_projection,
+        ),
+    )
+    monkeypatch.setattr(
+        bootstrap_module,
+        "prepare_coding_builtin_product_composition",
+        timed_sync(
+            "product-catalog-composition",
+            bootstrap_module.prepare_coding_builtin_product_composition,
+        ),
+    )
+    monkeypatch.setattr(
+        AgentSession,
+        "prepare_model_call_runtime",
+        timed_async("model-call-preparation", AgentSession.prepare_model_call_runtime),
+    )
+    monkeypatch.setattr(
+        InitialSessionResourceCatalogBootstrap,
+        "prepare",
+        timed_async(
+            "initial-catalog-preparation", InitialSessionResourceCatalogBootstrap.prepare
+        ),
+    )
+    monkeypatch.setattr(
+        CapabilityOwnerComponentBinder,
+        "bind",
+        timed_async("component-binding", CapabilityOwnerComponentBinder.bind),
+    )
 
     async def scenario() -> None:
         started = time.perf_counter()
