@@ -2222,7 +2222,11 @@ publisher. Under Package runtime quiescence and the GC write gate, publication
 requires the exact durable preparation bytes, the guarded Package/backup
 preflight, Desired history, and all six typed bases. The record preserves the
 source byte inventory, semantic base digests, retained operation/receipt/attempt
-identities, GC reservation revision, and backup topology revision. An
+identities, the full native-release approval decision chain and its operation
+high-water mark, GC reservation revision, and backup topology revision. The
+approval chain is replayed through its pinned Product journal and checked
+against the same source byte digest, so a later revoke does not erase the
+historical approval. An
 interrupted private stage remains a refusal for ordinary readers; only the
 publisher may reprove the full current input and finish those exact bytes.
 The published record remains pre-cutover evidence: old journals retain sole

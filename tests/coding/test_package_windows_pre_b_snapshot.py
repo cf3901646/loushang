@@ -2793,6 +2793,9 @@ def _assert_windows_product_worker_native_approval_journal(
     )
     owner = CodingWindowsWorkerNativeApprovalOwner(product)
     assert owner.current() is None
+    with product.gc_gate.guard():
+        with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
+            assert journal.history_read_only(directory_fd=root) == ()
     assert not path.exists()
     assert not path.with_name(path.name + ".lock").exists()
     with pytest.raises(CodingWorkerNativeApprovalError) as absent:
@@ -2817,6 +2820,7 @@ def _assert_windows_product_worker_native_approval_journal(
                 approval=synthetic,
             )
             assert journal.current(directory_fd=root) == approved
+            assert journal.history_read_only(directory_fd=root) == (approved,)
             assert (
                 journal.change(
                     directory_fd=root,
@@ -2847,6 +2851,9 @@ def _assert_windows_product_worker_native_approval_journal(
         == revoked
     )
     assert owner.current() == revoked
+    with product.gc_gate.guard():
+        with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
+            assert journal.history_read_only(directory_fd=root) == (approved, revoked)
     held = path.with_name(path.name + ".held")
     path.replace(held)
     try:
@@ -3881,6 +3888,9 @@ def _retain_windows_c5_test_attempt(
 def _assert_windows_worker_retired_history_allows_gc(
     tmp_path: Path, *, partial_attempt_id: str | None
 ) -> None:
+    from loushang.coding.package_product_worker_windows_checkpoint import (
+        publish_coding_windows_worker_history_checkpoint,
+    )
     from loushang.coding.package_product_worker_windows_desired_references import (
         CodingWindowsWorkerDesiredReferenceReviewV1,
     )
@@ -3889,6 +3899,7 @@ def _assert_windows_worker_retired_history_allows_gc(
     )
     from loushang.coding.package_product_worker_windows_history_preparation import (
         CodingWindowsWorkerHistoryPreparationV1,
+        prepare_coding_windows_worker_history,
     )
     from loushang.coding.package_product_worker_windows_history_sources import (
         read_coding_windows_worker_history_semantics,
@@ -4141,6 +4152,14 @@ def _assert_windows_worker_retired_history_allows_gc(
         assert {
             attempt_id for attempt_id, _ in package_review.worker_backup_observations
         } == {item.attempt_id for item in semantic.offline_recovery.attempts}
+        prepared = prepare_coding_windows_worker_history(product)
+        checkpoint = publish_coding_windows_worker_history_checkpoint(product)
+        assert checkpoint.preparation_digest == prepared.record_digest
+        assert checkpoint.package_reference_digest == package_review.review_digest
+        assert checkpoint.native_approval_record_digests
+        assert checkpoint.receipt_fingerprints == (
+            semantic.offline_recovery.retained_receipt_fingerprints
+        )
         assert {
             fingerprint
             for fingerprint, _, _ in desired_review.retained_receipt_revisions
