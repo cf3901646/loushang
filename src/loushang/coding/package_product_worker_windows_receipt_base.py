@@ -16,6 +16,7 @@ from loushang.harness.resources.packages.plugin_lifecycle.records import (
 )
 
 from .package_product_worker_opt_in import CodingWorkerOptInDecisionV1
+from .package_product_worker_policy import coding_worker_session_scope_id
 from .package_product_worker_receipt import CodingWorkerReceiptRecordV1
 from .package_product_worker_windows_history_preparation import (
     CodingWindowsWorkerHistoryPreparationV1,
@@ -156,13 +157,18 @@ class CodingWindowsWorkerReceiptSemanticBaseV1:
                 or record.scope_id != source.scope_id
                 or receipt.fingerprint in fingerprints
                 or policy.product_id != "coding"
-                or policy.product_scope_id != source.scope_id
+                or policy.product_scope_id
+                != coding_worker_session_scope_id(policy.session_id)
                 or policy.native_profile_id != "windows-lpac-contained-pe-v1"
                 or decision is None
                 or decision.action != "allow"
                 or decision.opt_in is None
                 or decision.plugin_id != policy.plugin_id
                 or decision.opt_in.contribution_id != policy.contribution_id
+                or decision.opt_in.artifact_digest != policy.plugin_revision_digest
+                or decision.opt_in.native_platform != "windows-amd64"
+                or policy.effective_required
+                != (policy.declared_required or decision.opt_in.require_worker)
                 or decision.generation != policy.owner_selection_generation
                 or decision.kill_switch_generation != policy.kill_switch_generation
             ):
