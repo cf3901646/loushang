@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 import time
@@ -146,15 +147,137 @@ async def _binding(tmp_path: Path):
 
 
 def test_G14_PRODUCT_real_agent_session_streams_and_persists_messages(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, record_property,
 ) -> None:
+    import loushang.coding.bootstrap as bootstrap_module
+    import loushang.coding.hosted_session as hosted_module
+    import loushang.coding.package_product_runtime as product_runtime_module
+    from loushang.harness.capabilities.component_runtime import (
+        CapabilityOwnerComponentBinder,
+    )
+    from loushang.harness.resource_catalog.session_bootstrap import (
+        InitialSessionResourceCatalogBootstrap,
+    )
+
+    began = time.perf_counter()
+    durations: list[tuple[str, float, float]] = []
+    cpu_durations: list[tuple[str, float]] = []
+
+    def observe(name: str, started: float) -> None:
+        durations.append(
+            (name, round(started - began, 3), round(time.perf_counter() - started, 3))
+        )
+
+    def timed_sync(name, original):
+        def wrapper(*args, **kwargs):
+            started = time.perf_counter()
+            cpu_started = time.process_time()
+            try:
+                return original(*args, **kwargs)
+            finally:
+                observe(name, started)
+                cpu_durations.append((name, round(time.process_time() - cpu_started, 3)))
+
+        return wrapper
+
+    def timed_async(name, original):
+        async def wrapper(*args, **kwargs):
+            started = time.perf_counter()
+            cpu_started = time.process_time()
+            try:
+                return await original(*args, **kwargs)
+            finally:
+                observe(name, started)
+                cpu_durations.append((name, round(time.process_time() - cpu_started, 3)))
+
+        return wrapper
+
+    monkeypatch.setattr(
+        CodingRealHostedSessionFactoryV1,
+        "_default_product_factory_for_session",
+        timed_sync(
+            "product-owner-selection",
+            CodingRealHostedSessionFactoryV1._default_product_factory_for_session,
+        ),
+    )
+    monkeypatch.setattr(
+        product_runtime_module,
+        "_initialize_fresh_coding_product_for_session",
+        timed_sync(
+            "fresh-product-cutover",
+            product_runtime_module._initialize_fresh_coding_product_for_session,
+        ),
+    )
+    monkeypatch.setattr(
+        product_runtime_module,
+        "_bootstrap_coding_builtin_plugin",
+        timed_sync(
+            "builtin-plugin-bootstrap",
+            product_runtime_module._bootstrap_coding_builtin_plugin,
+        ),
+    )
+    monkeypatch.setattr(
+        hosted_module,
+        "create_agent_session",
+        timed_sync("agent-session-construction", hosted_module.create_agent_session),
+    )
+    monkeypatch.setattr(
+        bootstrap_module,
+        "_prepare_coding_catalog_projection",
+        timed_sync(
+            "product-catalog-projection",
+            bootstrap_module._prepare_coding_catalog_projection,
+        ),
+    )
+    monkeypatch.setattr(
+        bootstrap_module,
+        "prepare_coding_builtin_product_composition",
+        timed_sync(
+            "product-catalog-composition",
+            bootstrap_module.prepare_coding_builtin_product_composition,
+        ),
+    )
+    monkeypatch.setattr(
+        AgentSession,
+        "prepare_model_call_runtime",
+        timed_async("model-call-preparation", AgentSession.prepare_model_call_runtime),
+    )
+    monkeypatch.setattr(
+        InitialSessionResourceCatalogBootstrap,
+        "prepare",
+        timed_async(
+            "initial-catalog-preparation", InitialSessionResourceCatalogBootstrap.prepare
+        ),
+    )
+    monkeypatch.setattr(
+        CapabilityOwnerComponentBinder,
+        "bind",
+        timed_async("component-binding", CapabilityOwnerComponentBinder.bind),
+    )
+
     async def scenario() -> None:
-        binding = await _binding(tmp_path)
+        started = time.perf_counter()
+        cpu_started = time.process_time()
+        try:
+            binding = await _binding(tmp_path)
+        finally:
+            observe("hosted-binding", started)
+            cpu_durations.append(
+                ("hosted-binding", round(time.process_time() - cpu_started, 3))
+            )
         hosted = CodingHostedSessionV1(binding)
         events = []
         hosted.subscribe(events.append)
         try:
-            await hosted.start_turn("hello actual Session")
+            started = time.perf_counter()
+            cpu_started = time.process_time()
+            try:
+                await hosted.start_turn("hello actual Session")
+            finally:
+                observe("first-start-turn", started)
+                cpu_durations.append(
+                    ("first-start-turn", round(time.process_time() - cpu_started, 3))
+                )
             snapshot = await hosted.snapshot()
             assert [record.text for record in snapshot.records] == [
                 "hello actual Session",
@@ -169,10 +292,25 @@ def test_G14_PRODUCT_real_agent_session_streams_and_persists_messages(
             } <= kinds
             assert not snapshot.running
         finally:
-            await hosted.close()
+            started = time.perf_counter()
+            cpu_started = time.process_time()
+            try:
+                await hosted.close()
+            finally:
+                observe("hosted-close", started)
+                cpu_durations.append(
+                    ("hosted-close", round(time.process_time() - cpu_started, 3))
+                )
         assert len(tuple((tmp_path / "sessions").glob("*.jsonl"))) == 1
 
-    asyncio.run(asyncio.wait_for(scenario(), 20))
+    try:
+        asyncio.run(asyncio.wait_for(scenario(), 20))
+    except TimeoutError as error:
+        error.add_note(f"G14 safe phase durations: {durations!r}")
+        raise
+    finally:
+        record_property("g14_phase_durations", json.dumps(durations))
+        record_property("g14_phase_cpu_durations", json.dumps(cpu_durations))
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows native Product route")
@@ -470,14 +608,72 @@ def test_hosted_product_runtime_missing_selection_cannot_fall_back(
 def test_G14_OWNERSHIP_failed_session_construction_retains_cleanup_for_retry(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    record_property,
 ) -> None:
+    import loushang.coding.bootstrap as bootstrap_module
     import loushang.coding.hosted_session as module
+    import loushang.coding.package_product_runtime as product_runtime_module
 
     began = time.perf_counter()
+    cpu_began = time.process_time()
     phases = []
 
     def phase(name):
-        phases.append((name, round(time.perf_counter() - began, 3)))
+        phases.append(
+            (
+                name,
+                round(time.perf_counter() - began, 3),
+                round(time.process_time() - cpu_began, 3),
+            )
+        )
+
+    def timed_sync(name, original):
+        def wrapper(*args, **kwargs):
+            phase(name + "-enter")
+            try:
+                return original(*args, **kwargs)
+            finally:
+                phase(name + "-exit")
+
+        return wrapper
+
+    monkeypatch.setattr(
+        CodingRealHostedSessionFactoryV1,
+        "_default_product_factory_for_session",
+        timed_sync(
+            "product-owner-selection",
+            CodingRealHostedSessionFactoryV1._default_product_factory_for_session,
+        ),
+    )
+    monkeypatch.setattr(
+        product_runtime_module,
+        "_initialize_fresh_coding_product_for_session",
+        timed_sync(
+            "fresh-product-cutover",
+            product_runtime_module._initialize_fresh_coding_product_for_session,
+        ),
+    )
+    monkeypatch.setattr(
+        product_runtime_module,
+        "_bootstrap_coding_builtin_plugin",
+        timed_sync(
+            "builtin-plugin-bootstrap",
+            product_runtime_module._bootstrap_coding_builtin_plugin,
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "create_agent_session",
+        timed_sync("agent-session-construction", module.create_agent_session),
+    )
+    monkeypatch.setattr(
+        bootstrap_module,
+        "prepare_coding_builtin_product_composition",
+        timed_sync(
+            "product-catalog-composition",
+            bootstrap_module.prepare_coding_builtin_product_composition,
+        ),
+    )
 
     async def scenario() -> None:
         candidate, claimed, identity, factory = await _construction(tmp_path)
@@ -521,6 +717,8 @@ def test_G14_OWNERSHIP_failed_session_construction_retains_cleanup_for_retry(
         # representations. Keep the original watchdog and failure unchanged.
         error.add_note(f"Hosted construction/cleanup phase durations: {phases!r}")
         raise
+    finally:
+        record_property("g14_ownership_phases", json.dumps(phases))
 
 
 def test_G14_PRODUCT_real_approval_broker_round_trip_and_close(tmp_path: Path) -> None:
