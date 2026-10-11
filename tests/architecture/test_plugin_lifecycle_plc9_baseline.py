@@ -35,7 +35,6 @@ PACKAGE_OPERATIONS = Path("src/loushang/harness/resources/packages/operations.py
 PACKAGE_SOURCE_RESOLVER = Path(
     "src/loushang/harness/resources/packages/source_resolver.py"
 )
-PLUGIN_MANAGER = Path("src/loushang/harness/resources/plugins/manager.py")
 PLUGIN_AUTHORITY = Path("src/loushang/harness/resources/plugins/authority.py")
 PLUGIN_RESOLVER = Path("src/loushang/harness/resources/plugins/resolver.py")
 PLUGIN_SELECTION = Path("src/loushang/harness/resources/plugins/selection.py")
@@ -89,7 +88,6 @@ LEGACY_DISABLED_PLUGIN_FILES = {
     Path("src/loushang/harness/resources/packages/roots.py"),
     Path("src/loushang/harness/resources/packages/session.py"),
     Path("src/loushang/harness/resources/plugins/authority.py"),
-    Path("src/loushang/harness/resources/plugins/manager.py"),
     Path("src/loushang/harness/session/bootstrap_activation.py"),
 }
 MANIFEST_ENABLED_FILES = {
@@ -196,10 +194,6 @@ LEGACY_DISABLED_PLUGIN_SCOPE_COUNTS = Counter(
             "SessionPackageController.get_packages",
         ): 2,
         (Path("src/loushang/harness/config/agent/_settings_codec.py"), "<module>"): 2,
-        (
-            Path("src/loushang/harness/resources/plugins/manager.py"),
-            "PluginManager.__init__",
-        ): 2,
         (
             Path("src/loushang/harness/config/agent/manager.py"),
             "SettingsManager.update_settings",
@@ -414,7 +408,6 @@ SOURCE_ENABLED_SCOPE_COUNTS = Counter(
         (PLUGIN_AUTHORITY, "PluginResolutionAuthority.project_package"): 1,
     }
 )
-PLUGIN_MANAGER_SCOPE_COUNTS = Counter({(PLUGIN_MANAGER, "PluginManager"): 1})
 PACKAGE_ENTRYPOINT_ROOTS = (
     Path("src/loushang/coding/cli"),
     Path("src/loushang/harness/cli"),
@@ -918,7 +911,6 @@ def test_plc9_inventory_names_existing_owner_and_peer_source_sites() -> None:
         "src/loushang/harness/resources/packages/session.py",
         "src/loushang/harness/resources/packages/operations.py",
         "src/loushang/harness/resources/packages/source_resolver.py",
-        "src/loushang/harness/resources/plugins/manager.py",
         "src/loushang/harness/resources/plugins/authority.py",
         "src/loushang/harness/resources/plugins/resolver.py",
         "src/loushang/harness/resources/plugins/selection.py",
@@ -960,7 +952,6 @@ def test_plc9_freezes_the_current_management_and_enablement_split() -> None:
     updates = _source(MANAGEMENT_UPDATES)
     toggles = _source(CLI_TOGGLES)
     listing = _source(CLI_LISTING)
-    manager = _source(PLUGIN_MANAGER)
     authority = _source(PLUGIN_AUTHORITY)
     resolver = _source(PLUGIN_RESOLVER)
     selection = _source(PLUGIN_SELECTION)
@@ -982,10 +973,7 @@ def test_plc9_freezes_the_current_management_and_enablement_split() -> None:
     assert '_call(settings_manager, "enable_plugin"' not in toggles
     assert "management.query(" in listing
     assert "PluginResolutionAuthority" not in listing
-    assert "class PluginManager:" in manager
-    assert "def enable_plugin(" in manager
-    assert "def disable_plugin(" in manager
-    assert "def remove_plugin_source(" in manager
+    assert not Path("src/loushang/harness/resources/plugins/manager.py").exists()
     assert "package.manifest.name not in self._disabled_plugins" in authority
     assert "enabled=enabled and resolved_package.manifest.enabled" in resolver
     assert "package.manifest.enabled" not in selection
@@ -1009,7 +997,7 @@ def test_plc9_inventories_every_legacy_plugin_enablement_token_file() -> None:
     assert _semantic_token_scope_counts("source.enabled") == (
         SOURCE_ENABLED_SCOPE_COUNTS
     )
-    assert _semantic_token_scope_counts("PluginManager") == PLUGIN_MANAGER_SCOPE_COUNTS
+    assert _semantic_token_scope_counts("PluginManager") == Counter()
     for path in LEGACY_DISABLED_PLUGIN_FILES | SOURCE_ENABLED_FILES:
         assert str(path) in inventory, path
 
@@ -1579,13 +1567,9 @@ def test_plc9_classifies_compatibility_candidates_before_plc9e() -> None:
         Path(
             "src/loushang/harness/resources/packages/operations.py"
         ): "PackageOperationsRuntime.uninstall_sync",
-        Path("src/loushang/harness/resources/plugins/manager.py"): "PluginManager",
         Path(
             "src/loushang/harness/resources/plugins/resolver.py"
         ): "PluginResolver.resolve_resources",
-        Path(
-            "src/loushang/harness/resources/plugins/safe_files.py"
-        ): "compatibility import",
         Path(
             "src/loushang/harness/resources/plugins/import_realm.py"
         ): "PluginImportRealm",
@@ -1605,6 +1589,10 @@ def test_plc9_classifies_compatibility_candidates_before_plc9e() -> None:
         assert path.is_file()
         assert str(path) in inventory
         assert symbol in inventory
+    assert not Path("src/loushang/harness/resources/plugins/safe_files.py").exists()
+    assert "def resolve_resources(" not in _source(
+        Path("src/loushang/harness/resources/plugins/resolver.py")
+    )
     for disposition in (
         "migrate/delete",
         "decision-required",
