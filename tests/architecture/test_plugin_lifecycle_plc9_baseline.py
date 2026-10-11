@@ -1605,6 +1605,9 @@ def test_plc9_classifies_compatibility_candidates_before_plc9e() -> None:
         assert path.is_file()
         assert str(path) in inventory
         assert symbol in inventory
+    assert "def resolve_resources(" not in _source(
+        Path("src/loushang/harness/resources/plugins/resolver.py")
+    )
     for disposition in (
         "migrate/delete",
         "decision-required",

@@ -77,10 +77,7 @@ def test_legacy_manager_and_resolver_cannot_publish_runtime_resources(
         manager.resolve_package_roots()
     assert caught.value.code == "plugin_manager_inventory_only"
 
-    direct_plugin = PluginResolver().resolve_plugin(root)
-    with pytest.raises(PluginManifestError) as caught:
-        PluginResolver().resolve_resources(direct_plugin)
-    assert caught.value.code == "plugin_runtime_authority_required"
+    assert not hasattr(PluginResolver, "resolve_resources")
 
 
 def test_authority_alone_projects_published_frozen_resources(
@@ -107,10 +104,6 @@ def test_authority_alone_projects_published_frozen_resources(
 
     resources = authority.resolve_resources(plugin)
     assert resources.package_roots == (original_root,)
-    with pytest.raises(PluginManifestError) as caught:
-        PluginResolver().resolve_resources(plugin)
-    assert caught.value.code == "plugin_runtime_authority_required"
-
     published.revision_handle.close()
     with pytest.raises(PluginRevisionError):
         authority.resolve_resources(plugin)
