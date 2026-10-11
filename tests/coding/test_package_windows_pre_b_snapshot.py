@@ -3913,6 +3913,9 @@ def _assert_windows_worker_retired_history_allows_gc(
     from loushang.coding.package_product_worker_windows_package_references import (
         review_coding_windows_worker_package_references,
     )
+    from loushang.coding.package_product_worker_windows_persisted_bases import (
+        read_coding_windows_worker_persisted_bases,
+    )
     from loushang.coding.package_product_worker_windows_provisioning_base import (
         CodingWindowsWorkerNativeProvisioningSemanticBaseV1,
     )
@@ -4184,6 +4187,9 @@ def _assert_windows_worker_retired_history_allows_gc(
         assert publish_coding_windows_worker_history_bases(product) == checkpoint
         assert read_coding_windows_worker_history_bases(product) == checkpoint
         assert not base_stage.exists()
+        persisted = read_coding_windows_worker_persisted_bases(product)
+        assert persisted.checkpoint == checkpoint
+        assert persisted.native_provisioning == joined.native_provisioning
         checkpoint_stage = (
             product.state_root / "worker-history-checkpoint-v1.json.stage"
         )
