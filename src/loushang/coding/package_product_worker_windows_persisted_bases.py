@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from loushang.foundation.windows_private_acl import WindowsPrivateDirectoryAcl
 from loushang.harness.package_product.product_local_wheel_runtime import (
@@ -38,6 +39,9 @@ from .package_product_worker_windows_checkpoint import (
 from .package_product_worker_windows_gc_history import (
     _require_known_windows_worker_state_names,
 )
+from .package_product_worker_windows_history_write_fence import (
+    WINDOWS_WORKER_HISTORY_CUTOVER_NAME,
+)
 from .package_product_worker_windows_launch_intent_base import (
     CodingWindowsWorkerLaunchIntentSemanticBaseV1,
 )
@@ -55,6 +59,12 @@ from .package_product_worker_windows_supervisor_base import (
 )
 
 _MAX_BASE_BYTES = 32 * 1024 * 1024
+_MAX_CUTOVER_BYTES = 4096
+
+if TYPE_CHECKING:
+    from .package_product_worker_windows_history_cutover_record import (
+        CodingWindowsWorkerHistoryCutoverRecordV1,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,10 +130,15 @@ class CodingWindowsWorkerPersistedBasesV1:
             raise ValueError("Windows Worker persisted bases are invalid")
 
 
-def read_coding_windows_worker_persisted_bases(
+def _read_coding_windows_worker_persisted_bases(
     product: WindowsLocalWheelProductSessionOwner,
-) -> CodingWindowsWorkerPersistedBasesV1:
-    """Validate the checkpoint and exact typed base files without old journals."""
+    *,
+    require_cutover: bool,
+) -> tuple[
+    CodingWindowsWorkerPersistedBasesV1,
+    CodingWindowsWorkerHistoryCutoverRecordV1 | None,
+]:
+    """Read one Product snapshot under quiescence, its GC gate, and pinned root."""
 
     if (
         os.name != "nt"
@@ -147,7 +162,17 @@ def read_coding_windows_worker_persisted_bases(
                     if not os.path.samestat(os.fstat(root), product.state_root.lstat()):
                         raise ValueError("Windows Worker persisted root changed")
                     names = tuple(windows_listdir_at(root))
-                    _require_known_windows_worker_state_names(names)
+                    if require_cutover:
+                        if names.count(WINDOWS_WORKER_HISTORY_CUTOVER_NAME) != 1:
+                            raise ValueError("Windows Worker cutover marker is absent")
+                        known_names = tuple(
+                            name
+                            for name in names
+                            if name != WINDOWS_WORKER_HISTORY_CUTOVER_NAME
+                        )
+                    else:
+                        known_names = names
+                    _require_known_windows_worker_state_names(known_names)
                     if any(name.casefold().endswith(".stage") for name in names):
                         raise ValueError("Windows Worker persisted stage remains")
                     checkpoint_raw = _read_file(
@@ -188,6 +213,25 @@ def read_coding_windows_worker_persisted_bases(
                             native
                         ),
                     )
+                    cutover = None
+                    cutover_raw = None
+                    if require_cutover:
+                        from .package_product_worker_windows_history_cutover_record import (
+                            CodingWindowsWorkerHistoryCutoverRecordV1,
+                        )
+
+                        cutover_raw = _read_file(
+                            root,
+                            acl,
+                            WINDOWS_WORKER_HISTORY_CUTOVER_NAME,
+                            maximum_bytes=_MAX_CUTOVER_BYTES,
+                        )
+                        if cutover_raw is None:
+                            raise ValueError("Windows Worker cutover marker is absent")
+                        cutover = CodingWindowsWorkerHistoryCutoverRecordV1.from_bytes(
+                            cutover_raw
+                        )
+                        cutover.require_persisted_bases(result)
                     if (
                         _read_file(
                             root,
@@ -201,6 +245,16 @@ def read_coding_windows_worker_persisted_bases(
                             for _, name in WINDOWS_WORKER_BASE_FILES
                         )
                         != raw_bases
+                        or (
+                            require_cutover
+                            and _read_file(
+                                root,
+                                acl,
+                                WINDOWS_WORKER_HISTORY_CUTOVER_NAME,
+                                maximum_bytes=_MAX_CUTOVER_BYTES,
+                            )
+                            != cutover_raw
+                        )
                         or tuple(windows_listdir_at(root)) != names
                         or not os.path.samestat(
                             os.fstat(root), product.state_root.lstat()
@@ -211,10 +265,38 @@ def read_coding_windows_worker_persisted_bases(
                     _require_simple_attributes(os.fstat(root), directory=True)
                     _require_no_named_directory_streams(root)
             product.assert_root_gc_authority_current()
-            return result
+            return result, cutover
+
+
+def read_coding_windows_worker_persisted_bases(
+    product: WindowsLocalWheelProductSessionOwner,
+) -> CodingWindowsWorkerPersistedBasesV1:
+    """Validate pre-cutover bases without accepting a cutover marker."""
+
+    result, _ = _read_coding_windows_worker_persisted_bases(
+        product, require_cutover=False
+    )
+    return result
+
+
+def read_coding_windows_worker_persisted_cutover(
+    product: WindowsLocalWheelProductSessionOwner,
+) -> tuple[
+    CodingWindowsWorkerHistoryCutoverRecordV1,
+    CodingWindowsWorkerPersistedBasesV1,
+]:
+    """Validate a visible marker and bases together, without old journals."""
+
+    result, marker = _read_coding_windows_worker_persisted_bases(
+        product, require_cutover=True
+    )
+    if marker is None:
+        raise ValueError("Windows Worker cutover marker is absent")
+    return marker, result
 
 
 __all__ = [
     "CodingWindowsWorkerPersistedBasesV1",
     "read_coding_windows_worker_persisted_bases",
+    "read_coding_windows_worker_persisted_cutover",
 ]
