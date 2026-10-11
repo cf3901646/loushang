@@ -4307,7 +4307,6 @@ def _exercise_windows_worker_wheel_transaction(
                         (
                             "--workspace",
                             str(workspace),
-                            "--windows-candidate",
                             "candidate-capture",
                             "--wheel",
                             str(source),

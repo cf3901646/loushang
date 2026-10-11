@@ -1,4 +1,4 @@
-"""Explicit Windows Worker candidate management and offline recovery."""
+"""Explicit Windows Worker management and offline recovery."""
 
 from __future__ import annotations
 
@@ -193,7 +193,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     if (
         os.name != "nt"
         or platform.machine().lower() not in {"x86_64", "amd64"}
-        or not args.windows_candidate
     ):
         sys.stderr.write(
             "Windows Worker candidate refused: windows_worker_candidate_platform_closed\n"
