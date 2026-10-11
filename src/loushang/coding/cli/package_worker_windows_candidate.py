@@ -12,6 +12,7 @@ import sys
 from collections.abc import Sequence
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from typing import Literal
 
 from loushang.coding._plugin_lifecycle import (
     CodingPluginLifecycleStateLayout,
@@ -62,14 +63,27 @@ from loushang.harness.package_product.product_local_wheel_runtime import (
 from loushang.harness.package_product.product_runtime import (
     PackageProductRuntimeRequestV1,
 )
-from loushang.harness.plugin_management.operations import PluginManagementCommandV1
+from loushang.harness.plugin_management.operations import (
+    PluginManagementCommandV1,
+    PluginManagementOperationEventV1,
+)
 from loushang.harness.plugin_management.records import PluginDesiredStateMutationV1
+from loushang.harness.plugin_management.updates import PluginUpdateOperationEventV2
+from loushang.harness.resources.packages.plugin_lifecycle.journal import (
+    PackageLifecycleJournal,
+)
+from loushang.harness.resources.packages.plugin_lifecycle.records import (
+    PackageLifecycleRequestV2,
+)
 from loushang.harness.resources.packages.plugin_lifecycle.windows_quarantine import (
     open_windows_directory,
     open_windows_regular_file_at,
 )
 from loushang.harness.resources.packages.product_contract import (
     PackageProductLifecycleIntentV1,
+)
+from loushang.harness.resources.packages.product_handoff import (
+    package_product_command_identity,
 )
 from loushang.harness.resources.packages.product_local_wheel_policy import (
     PackageProductLocalWorkerAdmissionV1,
@@ -111,6 +125,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     install_candidate.add_argument("--plugin-id", required=True)
     install_candidate.add_argument("--artifact-digest", required=True)
     install_candidate.add_argument("--operation-id", required=True)
+    update_candidate = actions.add_parser(
+        "candidate-update", help="update one exact installed Worker revision"
+    )
+    update_candidate.add_argument("--plugin-id", required=True)
+    update_candidate.add_argument("--from-artifact-digest", required=True)
+    update_candidate.add_argument("--artifact-digest", required=True)
+    update_candidate.add_argument("--operation-id", required=True)
+    update_candidate.add_argument(
+        "--expected-inventory-revision", type=int, required=True
+    )
     enable_candidate = actions.add_parser(
         "candidate-enable", help="enable one exact installed Worker"
     )
@@ -120,6 +144,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     enable_candidate.add_argument(
         "--expected-inventory-revision", type=int, required=True
     )
+    for action, help_text in (
+        ("candidate-disable", "disable one exact installed Worker"),
+        ("candidate-remove", "remove one Worker from Desired State"),
+    ):
+        change = actions.add_parser(action, help=help_text)
+        change.add_argument("--plugin-id", required=True)
+        change.add_argument("--artifact-digest", required=True)
+        change.add_argument("--operation-id", required=True)
+        change.add_argument("--expected-inventory-revision", type=int, required=True)
     actions.add_parser("release-status", help="read the exact native approval")
     review = actions.add_parser(
         "release-review", help="review the installed backend Wheel"
@@ -164,6 +197,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not workspace.is_dir():
             raise ValueError("Coding workspace must be a directory")
         lifecycle = resolve_coding_plugin_lifecycle_state_layout(workspace)
+        document: dict[str, object]
         if args.action == "candidate-capture":
             binding = admit_coding_external_worker_wheel(
                 lifecycle,
@@ -250,6 +284,8 @@ def _run_product_action(
 def _execute(
     product: WindowsLocalWheelProductSessionOwner, args: argparse.Namespace
 ) -> dict[str, object]:
+    if args.action in {"candidate-update", "candidate-disable", "candidate-remove"}:
+        return _change_candidate(product, args)
     if args.action == "list-attempts":
         return {
             "attempts": [
@@ -266,7 +302,7 @@ def _execute(
         }
     if args.action in {"review-normal", "retire-normal"}:
         try:
-            review = review_coding_windows_product_worker_complete_stage(
+            stage_review = review_coding_windows_product_worker_complete_stage(
                 product, attempt_id=args.attempt_id
             )
         except CodingWindowsWorkerStageReviewError as error:
@@ -277,23 +313,24 @@ def _execute(
                 raise
             with product.gc_gate.guard():
                 product.assert_root_gc_authority_current()
-                review = read_coding_windows_worker_stage_retirement_review(
+                resumed_review = read_coding_windows_worker_stage_retirement_review(
                     product, args.attempt_id
                 )
                 product.assert_root_gc_authority_current()
-            if review is None:
+            if resumed_review is None:
                 raise
+            stage_review = resumed_review
         if args.action == "review-normal":
             return {
                 "normalStageReview": {
-                    "attemptId": review.attempt_id,
-                    "reviewId": review.fingerprint,
+                    "attemptId": stage_review.attempt_id,
+                    "reviewId": stage_review.fingerprint,
                 }
             }
-        if args.review_id != review.fingerprint:
+        if args.review_id != stage_review.fingerprint:
             raise ValueError("Windows Worker normal stage review changed")
         receipt = retire_coding_windows_product_worker_complete_stage(
-            product, expected_review=review
+            product, expected_review=stage_review
         )
         return {
             "normalStageRetirement": {
@@ -313,12 +350,12 @@ def _execute(
         return {"approvalDecision": decision.to_dict()}
     if args.action in {"release-review", "release-approve", "release-install"}:
         wheel = _read_wheel(Path(args.wheel))
-        review = review_coding_windows_worker_backend_release(
+        release_review = review_coding_windows_worker_backend_release(
             product, loushang_wheel=wheel
         )
         if args.action == "release-review":
-            return {"nativeReleaseReview": review.to_dict()}
-        if args.review_id != review.review_id:
+            return {"nativeReleaseReview": release_review.to_dict()}
+        if args.review_id != release_review.review_id:
             raise ValueError("Windows Worker backend review changed")
         if args.action == "release-approve":
             decision = CodingWindowsWorkerNativeApprovalOwner(product).approve(
@@ -328,32 +365,34 @@ def _execute(
                 expected_generation=args.expected_generation,
             )
             return {"approvalDecision": decision.to_dict()}
-        installed = install_coding_windows_worker_backend_release(
+        native_installed = install_coding_windows_worker_backend_release(
             product, loushang_wheel=wheel, review_id=args.review_id
         )
         return {
-            "nativeClosure": installed.native_closure().to_dict(),
-            "approvalGeneration": installed.approval_generation,
+            "nativeClosure": native_installed.native_closure().to_dict(),
+            "approvalGeneration": native_installed.approval_generation,
         }
     if args.action in {"candidate-status", "candidate-allow", "candidate-revoke"}:
         opt_in = CodingWindowsWorkerProductOptInOwner(product)
         if args.action == "candidate-status":
-            decision = opt_in.current(args.plugin_id)
+            opt_in_decision = opt_in.current(args.plugin_id)
         elif args.action == "candidate-allow":
-            decision = opt_in.allow(
+            opt_in_decision = opt_in.allow(
                 plugin_id=args.plugin_id,
                 operation_id=args.operation_id,
                 expected_generation=args.expected_generation,
                 require_worker=args.require_worker,
             )
         else:
-            decision = opt_in.revoke(
+            opt_in_decision = opt_in.revoke(
                 plugin_id=args.plugin_id,
                 operation_id=args.operation_id,
                 expected_generation=args.expected_generation,
             )
         return {
-            "candidateOptInDecision": None if decision is None else decision.to_dict(),
+            "candidateOptInDecision": (
+                None if opt_in_decision is None else opt_in_decision.to_dict()
+            ),
             "defaultSessionRouting": "closed",
         }
     if args.action in {"candidate-install", "candidate-enable"}:
@@ -412,11 +451,11 @@ def _execute(
                 "inventoryRevision": product.desired_state.snapshot().inventory_revision,
             }
         if installed:
-            revision = installed[0].selection.package_revision
+            installed_revision = installed[0].selection.package_revision
             if (
-                revision is None
-                or revision.package_source_identity != binding.source_identity
-                or revision.package_content_digest != binding.artifact_digest
+                installed_revision is None
+                or installed_revision.package_source_identity != binding.source_identity
+                or installed_revision.package_content_digest != binding.artifact_digest
             ):
                 raise ValueError("Windows Worker candidate installation changed")
             return {
@@ -486,6 +525,222 @@ def _execute(
         finally:
             runtime.dispose_runtime()
     raise ValueError("Windows Worker candidate action is unsupported")
+
+
+def _change_candidate(
+    product: WindowsLocalWheelProductSessionOwner, args: argparse.Namespace
+) -> dict[str, object]:
+    matching = tuple(
+        binding
+        for binding in product.policy.bindings
+        if binding.source_trust_class == "local-worker-candidate"
+        and binding.plugin_id == args.plugin_id
+        and binding.artifact_digest == args.artifact_digest
+    )
+    if len(matching) != 1:
+        raise ValueError("Windows Worker candidate is unavailable or ambiguous")
+    binding = matching[0]
+    snapshot = product.desired_state.snapshot()
+    installed = tuple(
+        item
+        for item in snapshot.installations
+        if item.installation_key.plugin_id == args.plugin_id
+        and item.installation_key.product_id == "coding"
+        and item.installation_key.installation_scope == "workspace"
+    )
+    if len(installed) != 1:
+        raise ValueError("Windows Worker candidate installation changed")
+    selected = installed[0]
+    revision = selected.selection.package_revision
+    if args.action == "candidate-update":
+        request = PackageLifecycleJournal(
+            product.state_root / "lifecycle.jsonl"
+        ).request(args.operation_id)
+        prior_update = None
+        if (
+            isinstance(request, PackageLifecycleRequestV2)
+            and request.action == "update"
+            and request.requested_plugin_id == args.plugin_id
+            and request.canonical_source_identity == binding.source_identity
+        ):
+            command_id, _ = package_product_command_identity(
+                args.operation_id, request.request_fingerprint
+            )
+            prior_update = product.management.operation(command_id)
+        if (
+            isinstance(prior_update, PluginUpdateOperationEventV2)
+            and revision is not None
+            and prior_update.status == "terminal"
+            and prior_update.result is not None
+            and prior_update.result.disposition in {"succeeded", "restart_required"}
+            and prior_update.result.transition is not None
+            and prior_update.command.installation_key == selected.installation_key
+            and prior_update.command.expected_inventory_revision
+            == args.expected_inventory_revision
+            and prior_update.command.expected_package_revision.package_content_digest
+            == args.from_artifact_digest
+            and prior_update.command.staged_package_revision.package_source_identity
+            == binding.source_identity
+            and prior_update.command.staged_package_revision.package_content_digest
+            == args.artifact_digest
+            and prior_update.result.transition.committed_state == selected
+            and prior_update.result.transition.inventory_revision
+            == snapshot.inventory_revision
+        ):
+            _require_candidate_revoked(product, args.plugin_id)
+            return {
+                "candidateUpdate": {
+                    "pluginId": args.plugin_id,
+                    "fromArtifactDigest": args.from_artifact_digest,
+                    "artifactDigest": args.artifact_digest,
+                    "inventoryRevision": snapshot.inventory_revision,
+                    "alreadyUpdated": True,
+                }
+            }
+        if (
+            snapshot.inventory_revision != args.expected_inventory_revision
+            or revision is None
+            or revision.package_content_digest != args.from_artifact_digest
+            or args.from_artifact_digest == args.artifact_digest
+            or selected.selection.desired_state
+            not in {"installed_enabled", "installed_disabled"}
+        ):
+            raise ValueError("Windows Worker candidate update selection changed")
+        _require_candidate_revoked(product, args.plugin_id)
+        session_id = f"worker-candidate-update-{secrets.token_hex(16)}"
+        factory = product.factory_for_session(
+            session_id=session_id, cwd=product.workspace, runtime_id=session_id
+        )
+        try:
+            runtime = factory.create(
+                PackageProductRuntimeRequestV1(
+                    product_id="coding",
+                    session_id=session_id,
+                    cwd=str(product.workspace),
+                )
+            )
+        except BaseException:
+            factory.dispose_unbound_runtime()
+            raise
+        try:
+            runtime.activate()
+            routed = runtime.lifecycle.route(
+                PackageProductLifecycleIntentV1(
+                    operation_id=args.operation_id,
+                    action="update",
+                    source=binding.source_identity,
+                    scope="project",
+                ),
+                entrypoint="cli",
+            )
+            if (
+                not routed.handled
+                or routed.record is None
+                or routed.record.lifecycle != "installed"
+            ):
+                raise ValueError("Windows Worker candidate update did not settle")
+            updated_snapshot = product.desired_state.snapshot()
+            updated = tuple(
+                item
+                for item in updated_snapshot.installations
+                if item.installation_key == selected.installation_key
+            )
+            if (
+                len(updated) != 1
+                or updated[0].selection.package_revision is None
+                or updated[0].selection.package_revision.package_source_identity
+                != binding.source_identity
+                or updated[0].selection.package_revision.package_content_digest
+                != binding.artifact_digest
+            ):
+                raise ValueError("Windows Worker candidate update selection changed")
+            return {
+                "candidateUpdate": {
+                    "pluginId": args.plugin_id,
+                    "fromArtifactDigest": args.from_artifact_digest,
+                    "artifactDigest": args.artifact_digest,
+                    "inventoryRevision": updated_snapshot.inventory_revision,
+                    "alreadyUpdated": False,
+                }
+            }
+        finally:
+            runtime.dispose_runtime()
+
+    if args.action == "candidate-remove":
+        _require_candidate_revoked(product, args.plugin_id)
+    if revision is None:
+        prior = product.management.operation(args.operation_id)
+        if (
+            args.action != "candidate-remove"
+            or selected.selection.desired_state != "absent"
+            or not isinstance(prior, PluginManagementOperationEventV1)
+            or prior.command.action != "remove"
+            or prior.command.mutation.installation_key != selected.installation_key
+            or prior.command.mutation.expected_inventory_revision
+            != args.expected_inventory_revision
+            or prior.status != "terminal"
+            or prior.result is None
+            or prior.result.disposition != "succeeded"
+            or prior.result.transition is None
+            or (
+                previous
+                := prior.result.transition.previous_state.selection.package_revision
+            )
+            is None
+            or previous.package_source_identity != binding.source_identity
+            or previous.package_content_digest != binding.artifact_digest
+        ):
+            raise ValueError("Windows Worker candidate removal changed")
+        return {
+            "candidateManagementOperation": prior.to_dict(),
+            "inventoryRevision": snapshot.inventory_revision,
+            "packageRetirement": "not_checked",
+        }
+    if (
+        revision.package_source_identity != binding.source_identity
+        or revision.package_content_digest != binding.artifact_digest
+    ):
+        raise ValueError("Windows Worker candidate installation changed")
+    action: Literal["disable", "remove"] = (
+        "disable" if args.action == "candidate-disable" else "remove"
+    )
+    desired_state: Literal["installed_disabled", "absent"] = (
+        "installed_disabled" if action == "disable" else "absent"
+    )
+    operation = product.management.submit(
+        PluginManagementCommandV1(
+            action=action,
+            mutation=PluginDesiredStateMutationV1(
+                operation_id=args.operation_id,
+                idempotency_key=args.operation_id,
+                expected_inventory_revision=args.expected_inventory_revision,
+                installation_key=selected.installation_key,
+                desired_state=desired_state,
+                package_revision=None,
+                actor_id=product.actor_id,
+                policy_revision=product.desired_policy_revision,
+            ),
+        )
+    )
+    if (
+        operation.status != "terminal"
+        or operation.result is None
+        or operation.result.disposition != "succeeded"
+    ):
+        raise ValueError("Windows Worker candidate change did not settle")
+    return {
+        "candidateManagementOperation": operation.to_dict(),
+        "inventoryRevision": product.desired_state.snapshot().inventory_revision,
+        **({"packageRetirement": "not_checked"} if action == "remove" else {}),
+    }
+
+
+def _require_candidate_revoked(
+    product: WindowsLocalWheelProductSessionOwner, plugin_id: str
+) -> None:
+    decision = CodingWindowsWorkerProductOptInOwner(product).current(plugin_id)
+    if decision is not None and decision.action == "allow":
+        raise ValueError("Windows Worker candidate opt-in must be revoked")
 
 
 def _read_wheel(path: Path) -> bytes:

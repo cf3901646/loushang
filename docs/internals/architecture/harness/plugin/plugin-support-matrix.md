@@ -109,8 +109,10 @@ Desired State drift as stale. See the
 and [read SDK](../../../../../src/loushang/coding/plugin_management_read_sdk.py).
 
 The explicit `loushang-worker-windows-candidate` command is gated to Windows
-AMD64 and `--windows-candidate`. It captures an inert Wheel, installs and
-enables an exact candidate, reviews and approves the current Loushang backend
+AMD64 and `--windows-candidate`. It captures an inert Wheel, installs, updates,
+enables, disables, and removes an exact candidate through Product management;
+update and removal require revoked opt-in. Removal leaves Package retirement
+as a separate operation. The command reviews and approves the current Loushang backend
 release, installs that approved release, and records a per-install allow or
 revoke decision. `release-status` and `candidate-status` expose the durable
 generations needed by those commands. `inspect` and `recover-crash` remain
