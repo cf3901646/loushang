@@ -397,7 +397,9 @@ loushang-plugin-private-data --workspace /absolute/path/to/workspace --plugin-id
 loushang-plugin-private-data --workspace /absolute/path/to/workspace --plugin-id coding.arch.default backup-status
 ```
 
-`backup-expire` permanently deletes the verified archive. It requires the Installation to remain removed, the confirmed restored data to remain unchanged, and no active Product Sessions. An interruption leaves `expiry_pending`; repeat the same command to recover. A completed expiry reports `expired` with an independent receipt ID. The restored Installation data remains in place. Other Plugin data types and Windows are not admitted.
+`backup-expire` permanently deletes the verified archive. It requires the Installation to remain removed, the confirmed restored data to remain unchanged, and no active Product Sessions. An interruption leaves `expiry_pending`; repeat the same command to recover. A completed expiry reports `expired` with an independent receipt ID. The restored Installation data remains in place. Other Plugin data types are not admitted.
+
+On a B-fenced Windows AMD64 workspace, the same explicit `loushang-plugin-private-data` actions use the Windows Product owner. Use an absolute Windows workspace path and stop active Coding Sessions. Windows `restore-confirm` and `restore-confirm-verify` additionally require `--plan-file arch-restore-plan.json`, because the original accepted restore plan must be reopened. Keep the saved preview and confirmation JSON files for retries. Windows native CLI acceptance remains a separate gate for this candidate route.
 
 For a Product that has already admitted a dependency-bearing Wheel, `list` also shows `dependencyRetention`. After every holder root has a verified deletion, an `exact_target` row gives the dependency ref and settlement IDs. Use those exact IDs to delete the orphan; if deletion started without a result, retry its durable start ID:
 
