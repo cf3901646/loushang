@@ -7,6 +7,7 @@ import subprocess
 import sys
 from hashlib import sha256
 from pathlib import Path
+from struct import pack_into
 
 import pytest
 
@@ -33,7 +34,12 @@ def test_author_worker_smoke_proves_admission_and_selection_without_use(
     executable = tmp_path / "query-worker"
     built = subprocess.run(
         (
-            compiler, "-static", "-O2", "-s", "-o", str(executable),
+            compiler,
+            "-static",
+            "-O2",
+            "-s",
+            "-o",
+            str(executable),
             str(source),
         ),
         stdin=subprocess.DEVNULL,
@@ -51,12 +57,22 @@ def test_author_worker_smoke_proves_admission_and_selection_without_use(
         wheel_tag="py3-none-manylinux_2_17_x86_64",
         executable=executable.read_bytes(),
     )
-    assert smoke_cli_main(
-        [
-            str(wheel), "--kind", "worker", "--plugin-id", "reviewworker",
-            "--contribution-id", "query-provider", "--owner-id", "coding",
-        ]
-    ) == 0
+    assert (
+        smoke_cli_main(
+            [
+                str(wheel),
+                "--kind",
+                "worker",
+                "--plugin-id",
+                "reviewworker",
+                "--contribution-id",
+                "query-provider",
+                "--owner-id",
+                "coding",
+            ]
+        )
+        == 0
+    )
     report = json.loads(capsys.readouterr().out)
     assert report["status"] == "passed"
     assert report["artifactSha256"] == sha256(wheel.read_bytes()).hexdigest()
@@ -74,16 +90,75 @@ def test_author_worker_smoke_does_not_claim_selection_after_bad_wheel(
 ) -> None:
     wheel = tmp_path / "reviewworker-1-py3-none-manylinux_2_17_x86_64.whl"
     wheel.write_bytes(b"not a Worker Wheel")
-    assert smoke_cli_main(
-        [
-            str(wheel), "--kind", "worker", "--plugin-id", "reviewworker",
-            "--contribution-id", "query-provider", "--owner-id", "coding",
-        ]
-    ) == 1
+    assert (
+        smoke_cli_main(
+            [
+                str(wheel),
+                "--kind",
+                "worker",
+                "--plugin-id",
+                "reviewworker",
+                "--contribution-id",
+                "query-provider",
+                "--owner-id",
+                "coding",
+            ]
+        )
+        == 1
+    )
     report = json.loads(capsys.readouterr().out)
     assert report["status"] == "failed"
     assert report["productAdmission"] == "failed"
     assert report["productSelection"] == "not_checked"
+    assert report["productUse"] == "not_checked"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows Worker candidate smoke")
+def test_windows_author_worker_smoke_proves_selected_bytes_without_use(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    executable = bytearray(512)
+    executable[:2] = b"MZ"
+    pack_into("<I", executable, 0x3C, 0x80)
+    executable[0x80:0x84] = b"PE\x00\x00"
+    pack_into("<H", executable, 0x84, 0x8664)
+    pack_into("<H", executable, 0x86, 1)
+    pack_into("<H", executable, 0x94, 112)
+    pack_into("<H", executable, 0x96, 0x0002)
+    pack_into("<H", executable, 0x98, 0x20B)
+    wheel = write_coding_local_worker_candidate_wheel(
+        tmp_path,
+        plugin_id="reviewworker",
+        version="1",
+        contribution_id="query-provider",
+        owner_id="coding",
+        native_platform="windows-amd64",
+        wheel_tag="py3-none-win_amd64",
+        executable=bytes(executable),
+    )
+    assert (
+        smoke_cli_main(
+            [
+                str(wheel),
+                "--kind",
+                "worker",
+                "--plugin-id",
+                "reviewworker",
+                "--contribution-id",
+                "query-provider",
+                "--owner-id",
+                "coding",
+            ]
+        )
+        == 0
+    )
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "passed"
+    assert report["artifactSha256"] == sha256(wheel.read_bytes()).hexdigest()
+    assert report["productAdmission"] == "passed"
+    assert report["productSelection"] == "passed"
+    assert report["selectedPluginVersion"] == "1"
+    assert report["nativeRelease"] == "not_checked"
     assert report["productUse"] == "not_checked"
 
 
@@ -154,17 +229,20 @@ def test_author_smoke_reports_the_exact_failed_boundary(
         skill_name="review",
         skill_document=b"---\nname: review\n---\n# Review\nCheck this.\n",
     )
-    assert smoke_cli_main(
-        [
-            str(wheel),
-            "--kind",
-            "skill",
-            "--plugin-id",
-            "reviewpack",
-            "--resource-name",
-            "missing",
-        ]
-    ) == 1
+    assert (
+        smoke_cli_main(
+            [
+                str(wheel),
+                "--kind",
+                "skill",
+                "--plugin-id",
+                "reviewpack",
+                "--resource-name",
+                "missing",
+            ]
+        )
+        == 1
+    )
     report = json.loads(capsys.readouterr().out)
     assert report["status"] == "failed"
     assert report["failedStage"] == "product_selection"
@@ -180,17 +258,20 @@ def test_author_smoke_does_not_claim_selection_after_admission_refusal(
 ) -> None:
     invalid_wheel = tmp_path / "invalid-1-py3-none-any.whl"
     invalid_wheel.write_bytes(b"not a Wheel")
-    assert smoke_cli_main(
-        [
-            str(invalid_wheel),
-            "--kind",
-            "skill",
-            "--plugin-id",
-            "reviewpack",
-            "--resource-name",
-            "review",
-        ]
-    ) == 1
+    assert (
+        smoke_cli_main(
+            [
+                str(invalid_wheel),
+                "--kind",
+                "skill",
+                "--plugin-id",
+                "reviewpack",
+                "--resource-name",
+                "review",
+            ]
+        )
+        == 1
+    )
     report = json.loads(capsys.readouterr().out)
     assert report["failedStage"] == "product_admission"
     assert report["productAdmission"] == "failed"
@@ -203,9 +284,12 @@ def test_author_theme_scaffold_reaches_screen_consumer(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     source_root = tmp_path / "themepack"
-    assert plugin_cli_main(
-        ["init-coding-theme", str(source_root), "--resource-name", "dusk"]
-    ) == 0
+    assert (
+        plugin_cli_main(
+            ["init-coding-theme", str(source_root), "--resource-name", "dusk"]
+        )
+        == 0
+    )
     scaffold = json.loads(capsys.readouterr().out)
     assert scaffold["productUse"] == "not_checked"
     assert plugin_cli_main(scaffold["buildCommand"][1:]) == 0

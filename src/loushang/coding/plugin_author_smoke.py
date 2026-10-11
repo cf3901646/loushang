@@ -100,7 +100,7 @@ def smoke_coding_worker_candidate_wheel(
     contribution_id: str,
     owner_id: str,
 ) -> dict[str, object]:
-    """Prove inert Linux Worker admission and selection in a disposable Product."""
+    """Prove inert native Worker admission and selection in a disposable Product."""
 
     report: dict[str, object] = {
         "status": "failed",
@@ -112,8 +112,12 @@ def smoke_coding_worker_candidate_wheel(
         "productUse": "not_checked",
         "workspace": "disposable",
     }
-    if not sys.platform.startswith("linux") or os.name != "posix":
-        return _failure(report, "artifact", "linux_worker_candidate_required")
+    if sys.platform == "linux" and os.name == "posix":
+        native_platform = "linux-x86_64"
+    elif sys.platform == "win32" and os.name == "nt":
+        native_platform = "windows-amd64"
+    else:
+        return _failure(report, "artifact", "native_worker_candidate_required")
     if _ID.fullmatch(plugin_id) is None:
         return _failure(report, "artifact", "invalid_profile_identity")
     try:
@@ -123,9 +127,12 @@ def smoke_coding_worker_candidate_wheel(
     report["artifactSha256"] = sha256(wheel_bytes).hexdigest()
 
     with TemporaryDirectory(prefix="loushang-worker-author-smoke-") as scratch:
-        root = Path(scratch)
+        # Windows may expose its temporary directory through a lexical alias.
+        # Product workspace identity requires the resolved on-disk path.
+        root = Path(scratch).resolve(strict=True)
         workspace = root / "workspace"
         workspace.mkdir(mode=0o700)
+        workspace = workspace.resolve(strict=True)
         captured = root / Path(wheel_path).name
         captured.write_bytes(wheel_bytes)
         with _temporary_home(root / "home"):
@@ -142,6 +149,7 @@ def smoke_coding_worker_candidate_wheel(
                     namespace_id=token_hex(32),
                     runtime_version=version("loushang"),
                     runtime_protocol_epoch=2,
+                    windows_candidate=native_platform == "windows-amd64",
                 )
             except Exception as exc:
                 return _failure(
@@ -157,11 +165,17 @@ def smoke_coding_worker_candidate_wheel(
                     contribution_id,
                     "--owner-id",
                     owner_id,
-                    "--native-platform",
-                    "linux-x86_64",
+                    *(
+                        ("--native-platform", native_platform)
+                        if native_platform == "linux-x86_64"
+                        else ()
+                    ),
                 )
                 binding = capture["workerCandidateBinding"]
-                if not isinstance(binding, dict) or binding.get("pluginId") != plugin_id:
+                if (
+                    not isinstance(binding, dict)
+                    or binding.get("pluginId") != plugin_id
+                ):
                     raise ValueError("Captured Worker identity differs from request")
                 digest = binding["artifactDigest"]
                 if digest != report["artifactSha256"]:
@@ -176,10 +190,19 @@ def smoke_coding_worker_candidate_wheel(
                     "--operation-id",
                     "author-smoke-install",
                 )
-            except (OSError, RuntimeError, ValueError, KeyError, subprocess.SubprocessError) as exc:
+            except (
+                OSError,
+                RuntimeError,
+                ValueError,
+                KeyError,
+                subprocess.SubprocessError,
+            ) as exc:
                 return _failure(
-                    report, "product_admission", "worker_candidate_admission_refused",
-                    str(exc), root,
+                    report,
+                    "product_admission",
+                    "worker_candidate_admission_refused",
+                    str(exc),
+                    root,
                 )
             report["productAdmission"] = "passed"
             try:
@@ -202,20 +225,47 @@ def smoke_coding_worker_candidate_wheel(
                     str(revision),
                 )
                 status = _run_worker_candidate_command(
-                    workspace, "candidate-status", "--plugin-id", plugin_id
+                    workspace,
+                    "candidate-status"
+                    if native_platform == "linux-x86_64"
+                    else "candidate-selection",
+                    "--plugin-id",
+                    plugin_id,
                 )
                 selection = status["candidateSelection"]
                 if (
                     not isinstance(selection, dict)
                     or selection.get("stage") != "observed_in_read"
-                    or status.get("snapshotStatus") != "partial_evidence"
-                    or status.get("candidateOptInAlignment") != "not_allowed"
+                    or (
+                        native_platform == "linux-x86_64"
+                        and (
+                            status.get("snapshotStatus") != "partial_evidence"
+                            or status.get("candidateOptInAlignment") != "not_allowed"
+                        )
+                    )
+                    or (
+                        native_platform == "windows-amd64"
+                        and (
+                            selection.get("pluginId") != plugin_id
+                            or selection.get("artifactDigest") != digest
+                            or status.get("productUse") != "not_checked"
+                        )
+                    )
                 ):
                     raise ValueError("Selected Worker was not observed in Product")
-            except (OSError, RuntimeError, ValueError, KeyError, subprocess.SubprocessError) as exc:
+            except (
+                OSError,
+                RuntimeError,
+                ValueError,
+                KeyError,
+                subprocess.SubprocessError,
+            ) as exc:
                 return _failure(
-                    report, "product_selection", "worker_candidate_selection_refused",
-                    str(exc), root,
+                    report,
+                    "product_selection",
+                    "worker_candidate_selection_refused",
+                    str(exc),
+                    root,
                 )
             report["productSelection"] = "passed"
             report["selectedPluginVersion"] = selection["pluginVersion"]
@@ -226,13 +276,19 @@ def smoke_coding_worker_candidate_wheel(
 def _run_worker_candidate_command(
     workspace: Path, action: str, *arguments: str
 ) -> dict[str, object]:
+    windows = os.name == "nt"
     completed = subprocess.run(
         (
             sys.executable,
             "-m",
-            "loushang.coding.cli.package_worker_native",
+            (
+                "loushang.coding.cli.package_worker_windows_candidate"
+                if windows
+                else "loushang.coding.cli.package_worker_native"
+            ),
             "--workspace",
             str(workspace),
+            *(("--windows-candidate",) if windows else ()),
             action,
             *arguments,
         ),
@@ -259,7 +315,9 @@ class _OfflineAdapter:
             request,
             payload={
                 "system": request.context.system_prompt,
-                "messages": [serialize_message(item) for item in request.context.messages],
+                "messages": [
+                    serialize_message(item) for item in request.context.messages
+                ],
                 "model": request.model.id,
             },
         )
@@ -274,9 +332,7 @@ class _OfflineAdapter:
         yield {"type": "stop_reason", "stop_reason": "stop"}
         yield {"type": "response_done"}
 
-    async def invoke_raw(
-        self, request: ProviderRequest
-    ) -> AsyncIterator[RawPart]:
+    async def invoke_raw(self, request: ProviderRequest) -> AsyncIterator[RawPart]:
         prepared = self.prepare_request(request)
         async for part in self.invoke_prepared_raw(request, prepared):
             yield part
@@ -350,7 +406,11 @@ def smoke_coding_data_wheel(
             )
             if install_error is not None:
                 return _failure(
-                    report, "product_admission", "product_install_refused", install_error, root
+                    report,
+                    "product_admission",
+                    "product_install_refused",
+                    install_error,
+                    root,
                 )
             report["productAdmission"] = "passed"
             enable_error = _run_coding_cli(
@@ -358,13 +418,20 @@ def smoke_coding_data_wheel(
             )
             if enable_error is not None:
                 return _failure(
-                    report, "product_selection", "product_enable_refused", enable_error, root
+                    report,
+                    "product_selection",
+                    "product_enable_refused",
+                    enable_error,
+                    root,
                 )
             if kind == "theme":
                 settings.set_theme(f"plugin:{resource_name}", scope="project")
             try:
                 expected_body = _document_body(
-                    captured, kind=kind, plugin_id=plugin_id, resource_name=resource_name
+                    captured,
+                    kind=kind,
+                    plugin_id=plugin_id,
+                    resource_name=resource_name,
                 )
                 _prove_new_session_use(
                     workspace=workspace,
@@ -385,7 +452,11 @@ def smoke_coding_data_wheel(
                 )
             except Exception as exc:
                 return _failure(
-                    report, "product_selection", "resource_selection_unproven", str(exc), root
+                    report,
+                    "product_selection",
+                    "resource_selection_unproven",
+                    str(exc),
+                    root,
                 )
             report["productSelection"] = "passed"
             report["productUse"] = "passed"
@@ -409,17 +480,25 @@ def _capture_wheel(path: Path) -> bytes:
     with os.fdopen(os.open(path, flags), "rb") as stream:
         opened = os.fstat(stream.fileno())
         if not stat.S_ISREG(opened.st_mode) or (
-            opened.st_dev, opened.st_ino, opened.st_size
+            opened.st_dev,
+            opened.st_ino,
+            opened.st_size,
         ) != (before.st_dev, before.st_ino, before.st_size):
             raise ValueError("Wheel changed before capture")
         body = stream.read(_MAX_WHEEL_BYTES + 1)
         after = os.fstat(stream.fileno())
     if not 0 < len(body) <= _MAX_WHEEL_BYTES or (
-        opened.st_dev, opened.st_ino, opened.st_size,
-        opened.st_mtime_ns, opened.st_ctime_ns,
+        opened.st_dev,
+        opened.st_ino,
+        opened.st_size,
+        opened.st_mtime_ns,
+        opened.st_ctime_ns,
     ) != (
-        after.st_dev, after.st_ino, after.st_size,
-        after.st_mtime_ns, after.st_ctime_ns,
+        after.st_dev,
+        after.st_ino,
+        after.st_size,
+        after.st_mtime_ns,
+        after.st_ctime_ns,
     ):
         raise ValueError("Wheel changed during capture")
     return body
@@ -472,7 +551,9 @@ def _document_body(
         with ZipFile(wheel) as archive:
             info = archive.getinfo(member)
             if not 0 < info.file_size <= 1024 * 1024:
-                raise _SelectionRefusal("selected Resource document is empty or oversized")
+                raise _SelectionRefusal(
+                    "selected Resource document is empty or oversized"
+                )
             body = archive.read(info).decode("utf-8")
     except (BadZipFile, KeyError, UnicodeDecodeError) as exc:
         raise _SelectionRefusal("Wheel lacks the requested Resource document") from exc
@@ -482,7 +563,9 @@ def _document_body(
             if kind == "prompt":
                 body = expand_prompt_template(body, _SMOKE_ARGUMENTS)
     except ValueError as exc:
-        raise _SelectionRefusal("requested Resource frontmatter or template is invalid") from exc
+        raise _SelectionRefusal(
+            "requested Resource frontmatter or template is invalid"
+        ) from exc
     if not body:
         raise _SelectionRefusal("selected Resource document has no body")
     return body
@@ -503,7 +586,9 @@ def _prove_new_session_use(
     session = None
     try:
         manager = asyncio.run(
-            SessionManager.new(session_dir=session_root, cwd=str(workspace), persist=True)
+            SessionManager.new(
+                session_dir=session_root, cwd=str(workspace), persist=True
+            )
         )
         session = create_agent_session(
             session_manager=manager,
@@ -540,7 +625,9 @@ def _prove_new_session_use(
             item.name == resource_name and item.source_kind == "external_package"
             for item in selected
         ):
-            raise _SelectionRefusal("requested external Resource is absent from new Session")
+            raise _SelectionRefusal(
+                "requested external Resource is absent from new Session"
+            )
         if kind == "theme":
             try:
                 expected_tokens = parse_coding_plugin_theme_document(expected_body)
