@@ -3890,6 +3890,7 @@ def _assert_windows_worker_retired_history_allows_gc(
 ) -> None:
     from loushang.coding.package_product_worker_windows_checkpoint import (
         publish_coding_windows_worker_history_checkpoint,
+        read_coding_windows_worker_history_checkpoint,
     )
     from loushang.coding.package_product_worker_windows_desired_references import (
         CodingWindowsWorkerDesiredReferenceReviewV1,
@@ -4153,7 +4154,19 @@ def _assert_windows_worker_retired_history_allows_gc(
             attempt_id for attempt_id, _ in package_review.worker_backup_observations
         } == {item.attempt_id for item in semantic.offline_recovery.attempts}
         prepared = prepare_coding_windows_worker_history(product)
+        with pytest.raises(ValueError, match="checkpoint is absent"):
+            read_coding_windows_worker_history_checkpoint(product)
         checkpoint = publish_coding_windows_worker_history_checkpoint(product)
+        assert read_coding_windows_worker_history_checkpoint(product) == checkpoint
+        checkpoint_stage = (
+            product.state_root / "worker-history-checkpoint-v1.json.stage"
+        )
+        checkpoint_stage.write_bytes(b"unpublished")
+        try:
+            with pytest.raises(RuntimeError, match="unexpected stage"):
+                read_coding_windows_worker_history_checkpoint(product)
+        finally:
+            checkpoint_stage.unlink()
         assert checkpoint.preparation_digest == prepared.record_digest
         assert checkpoint.package_reference_digest == package_review.review_digest
         assert checkpoint.native_approval_record_digests

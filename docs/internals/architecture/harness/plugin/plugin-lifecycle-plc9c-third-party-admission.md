@@ -2237,6 +2237,10 @@ The published record remains pre-cutover evidence: old journals retain sole
 authority, and no reader/writer switch, capacity rollover, or source deletion
 is enabled. Native Windows publication, restart, and staged-retry evidence
 awaits CI.
+A guarded read-only checkpoint reader now rederives the same Package, Desired,
+backup, native-approval, and six-ledger inputs before accepting published
+bytes. It refuses an absent or stale checkpoint. This does not switch the
+Worker history owner; the native read assertion also awaits CI.
 
 1. **Author artifact.** A versioned author recipe packages one Worker
    declaration document, a platform-specific executable, and a manifest whose

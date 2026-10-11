@@ -15,8 +15,14 @@ from hashlib import sha256
 from loushang.harness.package_product.product_local_wheel_runtime import (
     WindowsLocalWheelProductSessionOwner,
 )
+from loushang.harness.plugin_management.package_gc_reservation import (
+    PluginPackageGcReservationSnapshotV1,
+)
 from loushang.harness.resources.packages.plugin_lifecycle.records import (
     canonical_json_bytes,
+)
+from loushang.harness.resources.packages.plugin_lifecycle.windows_lease_registry import (
+    PackageWindowsRuntimeQuiescenceV1,
 )
 
 from .package_legacy_windows_receipt import (
@@ -346,6 +352,81 @@ class CodingWindowsWorkerHistoryCheckpointV1:
         )
 
 
+def _current_checkpoint_under_guard(
+    product: WindowsLocalWheelProductSessionOwner,
+    *,
+    quiescence: PackageWindowsRuntimeQuiescenceV1,
+    gc_snapshot: PluginPackageGcReservationSnapshotV1,
+    allow_checkpoint_stage: bool,
+) -> CodingWindowsWorkerHistoryCheckpointV1:
+    review, prepared, semantic = (
+        _review_coding_windows_worker_package_references_under_guard(
+            product,
+            quiescence=quiescence,
+            gc_snapshot=gc_snapshot,
+            allow_checkpoint_stage=allow_checkpoint_stage,
+        )
+    )
+    retained_preparation = read_windows_private_receipt(
+        product.state_root / _PREPARATION_NAME,
+        maximum_bytes=_MAX_BYTES,
+    )
+    if retained_preparation != prepared.to_bytes():
+        raise ValueError("Windows Worker checkpoint preparation changed")
+    with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
+        native_approvals = CodingWindowsWorkerNativeApprovalJournal(
+            product.state_root / "worker-native-release-approvals.jsonl",
+            scope_id=product.policy.project_scope_id,
+        ).history_read_only(directory_fd=root)
+    return CodingWindowsWorkerHistoryCheckpointV1.from_guarded_read(
+        prepared, semantic, review, native_approvals
+    )
+
+
+def read_coding_windows_worker_history_checkpoint(
+    product: WindowsLocalWheelProductSessionOwner,
+) -> CodingWindowsWorkerHistoryCheckpointV1:
+    """Reprove published checkpoint bytes against the current guarded Product."""
+
+    if (
+        os.name != "nt"
+        or type(product) is not WindowsLocalWheelProductSessionOwner
+        or product.policy.product_id != "coding"
+    ):
+        raise ValueError("Windows Worker checkpoint requires its Product")
+    registry = product.epoch_runtime.registry
+    with registry.exclusive_runtime_quiescence(
+        store_id=registry.store_id
+    ) as quiescence:
+        if quiescence.active_runtime_lease_ids:
+            raise ValueError("Windows Worker checkpoint runtime remains active")
+        product.assert_root_gc_authority_current()
+        with product.gc_gate.guard(require_write=True):
+            published = read_windows_private_receipt(
+                product.state_root / _CHECKPOINT_NAME,
+                maximum_bytes=_MAX_BYTES,
+            )
+            if published is None:
+                raise ValueError("Windows Worker checkpoint is absent")
+            checkpoint = CodingWindowsWorkerHistoryCheckpointV1.from_bytes(published)
+            current = _current_checkpoint_under_guard(
+                product,
+                quiescence=quiescence,
+                gc_snapshot=product.gc_gate.snapshot(),
+                allow_checkpoint_stage=False,
+            )
+            if checkpoint != current:
+                raise ValueError("Windows Worker checkpoint source changed")
+            retained = read_windows_private_receipt(
+                product.state_root / _CHECKPOINT_NAME,
+                maximum_bytes=_MAX_BYTES,
+            )
+            if retained != published:
+                raise ValueError("Windows Worker checkpoint publication changed")
+            product.assert_root_gc_authority_current()
+            return checkpoint
+
+
 def publish_coding_windows_worker_history_checkpoint(
     product: WindowsLocalWheelProductSessionOwner,
 ) -> CodingWindowsWorkerHistoryCheckpointV1:
@@ -381,27 +462,11 @@ def publish_coding_windows_worker_history_checkpoint(
             for raw in (published, staged):
                 if raw is not None:
                     CodingWindowsWorkerHistoryCheckpointV1.from_bytes(raw)
-            review, prepared, semantic = (
-                _review_coding_windows_worker_package_references_under_guard(
-                    product,
-                    quiescence=quiescence,
-                    gc_snapshot=gc_snapshot,
-                    allow_checkpoint_stage=staged is not None,
-                )
-            )
-            retained_preparation = read_windows_private_receipt(
-                product.state_root / _PREPARATION_NAME,
-                maximum_bytes=_MAX_BYTES,
-            )
-            if retained_preparation != prepared.to_bytes():
-                raise ValueError("Windows Worker checkpoint preparation changed")
-            with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
-                native_approvals = CodingWindowsWorkerNativeApprovalJournal(
-                    product.state_root / "worker-native-release-approvals.jsonl",
-                    scope_id=product.policy.project_scope_id,
-                ).history_read_only(directory_fd=root)
-            checkpoint = CodingWindowsWorkerHistoryCheckpointV1.from_guarded_read(
-                prepared, semantic, review, native_approvals
+            checkpoint = _current_checkpoint_under_guard(
+                product,
+                quiescence=quiescence,
+                gc_snapshot=gc_snapshot,
+                allow_checkpoint_stage=staged is not None,
             )
             candidate = checkpoint.to_bytes()
             if any(raw is not None and raw != candidate for raw in (published, staged)):
@@ -417,5 +482,6 @@ def publish_coding_windows_worker_history_checkpoint(
 
 __all__ = [
     "CodingWindowsWorkerHistoryCheckpointV1",
+    "read_coding_windows_worker_history_checkpoint",
     "publish_coding_windows_worker_history_checkpoint",
 ]
