@@ -1896,17 +1896,15 @@ def test_windows_arch_backup_expiry_recovers_across_native_effects(
         )["restore"]["disposition"]
         == "restored"
     )
+    restore_confirmation_document = run_private_data_cli(
+        "restore-confirm",
+        "--backup-id",
+        backup.backup_id,
+        "--plan-file",
+        str(restore_plan_file),
+    )["restoreConfirmation"]
     restore_confirmation = client.restore_confirm(restore_plan)
-    assert (
-        run_private_data_cli(
-            "restore-confirm",
-            "--backup-id",
-            backup.backup_id,
-            "--plan-file",
-            str(restore_plan_file),
-        )["restoreConfirmation"]
-        == restore_confirmation.to_dict()
-    )
+    assert restore_confirmation_document == restore_confirmation.to_dict()
     assert (
         run_private_data_cli(
             "restore-confirm-verify",
