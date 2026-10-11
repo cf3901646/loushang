@@ -64,6 +64,9 @@ def test_windows_worker_history_source_capture_is_private_and_fail_closed(
     )
     from loushang.foundation.windows_private_acl import WindowsPrivateDirectoryAcl
     from loushang.harness.config.agent import SettingsManager
+    from loushang.harness.package_product.product_runtime import (
+        PackageProductRuntimeRequestV1,
+    )
     from loushang.harness.resources.packages.plugin_lifecycle.windows_quarantine import (
         open_windows_regular_file_at,
         windows_flush_directory,
@@ -99,6 +102,22 @@ def test_windows_worker_history_source_capture_is_private_and_fail_closed(
     try:
         product = owner.runtime_owner.product_owner
         before = capture_coding_windows_worker_history_sources(product)
+        session_id = "windows-history-source-active"
+        factory = product.factory_for_session(
+            session_id=session_id,
+            cwd=workspace,
+            runtime_id="runtime:windows-history-source-active",
+        )
+        runtime = factory.create(
+            PackageProductRuntimeRequestV1(
+                product_id="coding", session_id=session_id, cwd=str(workspace)
+            )
+        )
+        try:
+            with pytest.raises(ValueError, match="runtime remains active"):
+                capture_coding_windows_worker_history_sources(product)
+        finally:
+            runtime.dispose_runtime()
         name = "worker-opt-in.jsonl.lock"
         payload = b"history-source-byte-identity"
         with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
