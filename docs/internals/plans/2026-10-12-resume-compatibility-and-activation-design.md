@@ -2248,3 +2248,48 @@ selectors and original timeouts. No installed source-path fallback or timeout
 increase was added. That gate began before later source changes and remains
 failed; neither this focused pass nor its earlier progress proves a full
 final-tree Coding gate.
+
+
+#### Main synchronization and exact architecture inventories
+
+After committing native component-use checks as `04af17f8`, the issue branch
+merged control `main` at `f7d18114` in `de075e70`. The six changed runtime owner
+sources were unaffected by that merge. The generated package dependency diagram
+check passed after the merge. This synchronization includes the main branch's
+CI scope and Harness setup corrections; it does not claim final quality gates.
+
+The full architecture run terminated, but its terminal report was lost during
+context rollover. Its retained failure cache identified nine architecture cases.
+An exact rerun recovered all nine failures in 88.23 seconds. The following
+source-backed inventory corrections retain exact files and qualified functions:
+
+| Boundary | Reviewed owner and correction |
+| --- | --- |
+| Hosted wiring | Coding's `_hosted_execution_work.py` retains native execution work and borrows the existing `AppClientScopeV1` subject; it constructs no AppServer binder. |
+| Session consumers | All five typed consumers moved together from `_ensure_session_graph_prepared` to the original Session's `_prepare_candidate_session_graph`. The ordinary entry delegates to that method; the combined Provider construction site is unchanged. |
+| AppServer/AppService module inventory | `resume_model.py` adds bounded optional query/result data and a negotiated read protocol. `resume_ports.py` adapts that data through the original scoped Session and borrows its current controller context. They create no execution, approval or retry authority. |
+| Skill attributes | `prepare_resource_catalog_bootstrap_result` projects existing Catalog-selected Skill identities. `ResourceCatalogInputReceipt.input_fingerprint` hashes configured Skill switches and paths, without reading Skill bodies. |
+| Resource cleanup | The existing loader joins preview tasks and releases original read-only revision pins through exact `aclose`, `close_catalog_preview_tasks` and `_release_catalog_preview_pins` sites. Session views close their local references through the original owner. |
+| Private Catalog consumers | Existing main-branch Product preview/local-discovery adapters consume Catalog facts. The original Coding Session also consumes its immutable snapshot and fingerprint codec for Resume checks. None is a new Catalog selector. |
+| Package read boundary | `PackageResourceMount.capture_text` uses its original verified revision handle with a byte budget. It remains classified as `package-resource-mount`, alongside `read_text`; no directory-level read exemption is added. |
+
+The first correction changes inventory tests only. Runtime behavior, ordinary
+read/load semantics, admission checks and external-effect settlement requirements
+are unchanged. Exact unknown consumers, extra construction sites, eager body
+sinks and unowned Package reads still fail their original assertions. The
+private Catalog access inventory remains transitional rather than a public API
+compatibility promise.
+
+
+The first corrected exact rerun passed eight cases and failed the current
+Hosted inventory on the additional AppService `resume_ports.py` module
+(119.39 seconds). After reviewing that original-scope data/subject adapter and
+adding its exact module entry, the remaining case passed in 18.16 seconds.
+Thus all nine previously failing architecture cases have focused passing
+results. Ten architecture documentation checks passed in 31.37 seconds; Ruff
+passed the eight changed test modules and `git diff --check` passed. These
+results are focused verification, not a complete final-tree architecture gate.
+The next full run preserves its output outside the checkout to avoid another
+lost terminal report. The full Issue remains open, including default activation,
+external-effect reconciliation, Hosted writable preparation, release/version
+compatibility and performance acceptance.

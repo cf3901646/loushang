@@ -127,6 +127,11 @@ def test_resource_catalog_internals_remain_confined_to_migration_modules() -> No
     production_paths = set(Path("src/loushang").rglob("*.py")) - PRIVATE_CATALOG_MODULES
 
     assert {path for path in production_paths if _imports_catalog_module(path)} == {
+        # Existing Product preview/discovery consume immutable Catalog data.
+        Path("src/loushang/coding/package_product_preview.py"),
+        Path("src/loushang/coding/plugin_local_discovery.py"),
+        # Original Session fingerprints its selected snapshot for Resume use.
+        Path("src/loushang/coding/session/agent_session.py"),
         Path("src/loushang/coding/_resource_catalog_shadow.py"),
         # Product-selected Store bytes enter through this explicit Catalog source.
         Path("src/loushang/harness/resource_catalog/product_snapshot_source.py"),

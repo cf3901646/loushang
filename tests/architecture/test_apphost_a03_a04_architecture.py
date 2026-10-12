@@ -140,6 +140,8 @@ def test_a0_4_hosted_binder_stays_wiring_only_after_g11_consumers() -> None:
             or consumer == Path("src/loushang/coding/managed_local.py")
             or consumer == Path("src/loushang/coding/hosted_session.py")
             or consumer == Path("src/loushang/coding/hosted_execution.py")
+            # Retained native execution and original subject borrow, no binder.
+            or consumer == Path("src/loushang/coding/_hosted_execution_work.py")
             or consumer == Path("src/loushang/coding/cli/hosted.py")
             or consumer == Path("src/loushang/coding/cli/hosted_client.py")
             or consumer == Path("src/loushang/coding/cli/mux.py")

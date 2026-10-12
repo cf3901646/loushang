@@ -141,6 +141,11 @@ EXPECTED_CALL_SITES = {
 }
 
 EXPECTED_SKILLS_ATTRIBUTE_LOAD_SITES = {
+    # Hashes configured enable/disable facts, without reading Skill bodies.
+    (
+        Path("src/loushang/harness/resources/_catalog_input_receipt.py"),
+        "ResourceCatalogInputReceipt.input_fingerprint",
+    ),
     # The author smoke checks the new Session's selected Skill identity; the
     # actual body use is proven separately in persisted model input.
     (
@@ -159,7 +164,7 @@ EXPECTED_SKILLS_ATTRIBUTE_LOAD_SITES = {
         Path(
             "src/loushang/harness/resource_catalog/bootstrap_projection.py"
         ),
-        "prepare_resource_catalog_bootstrap_projection",
+        "prepare_resource_catalog_bootstrap_result",
     ),
     # The Product adapter compiles legacy disabled-name settings to typed
     # activation identities before Catalog composition; it does not select the
@@ -762,6 +767,11 @@ def test_rcp0_refresh_mount_mutation_and_close_inventory_is_exact() -> None:
         {loader_path: sources[loader_path], roots_path: sources[roots_path]},
         "close",
     ) == {
+        # Original loader owns asynchronous preview tasks and revision pins.
+        (loader_path, "ResourceLoader._release_catalog_preview_pins"),
+        (loader_path, "ResourceLoader.aclose"),
+        (loader_path, "ResourceLoader.close_catalog_preview_tasks"),
+        (loader_path, "CatalogSessionResourceLoaderView.aclose"),
         (loader_path, "ResourceLoader.__del__"),
         (loader_path, "ResourceLoader.close"),
         (loader_path, "ResourceLoader.set_package_mounts"),

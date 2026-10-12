@@ -695,7 +695,7 @@ def test_cla7_session_has_one_combined_provider_and_typed_consumer_owner() -> No
         {
             (
                 Path("src/loushang/harness/session/agent_product.py"),
-                "AgentProductSession._ensure_session_graph_prepared",
+                "AgentProductSession._prepare_candidate_session_graph",
             ): 1
         }
     )
@@ -703,7 +703,7 @@ def test_cla7_session_has_one_combined_provider_and_typed_consumer_owner() -> No
         {
             (
                 Path("src/loushang/harness/session/agent_product.py"),
-                "AgentProductSession._ensure_session_graph_prepared",
+                "AgentProductSession._prepare_candidate_session_graph",
             ): 1
         }
     )
@@ -713,7 +713,7 @@ def test_cla7_session_has_one_combined_provider_and_typed_consumer_owner() -> No
         {
             (
                 Path("src/loushang/harness/session/agent_product.py"),
-                "AgentProductSession._ensure_session_graph_prepared",
+                "AgentProductSession._prepare_candidate_session_graph",
             ): 1
         }
     )
@@ -721,7 +721,7 @@ def test_cla7_session_has_one_combined_provider_and_typed_consumer_owner() -> No
         {
             (
                 Path("src/loushang/harness/session/agent_product.py"),
-                "AgentProductSession._ensure_session_graph_prepared",
+                "AgentProductSession._prepare_candidate_session_graph",
             ): 1
         }
     )
