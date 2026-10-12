@@ -820,6 +820,18 @@ class SessionManager(
             self._transcript.active_path(),
             current_session_id=self.get_header().conversation_id,
         )
+        binding = project_coding_runtime_binding_path(
+            self._transcript.active_path(),
+            current_session_id=self.get_header().conversation_id,
+        )
+        if binding.status == "bound":
+            # A persisted Binding settles the input, not this process's current
+            # authority. Only the original locally published candidate retains
+            # live proof; reopened or fork-selected evidence cannot recreate it.
+            proof = self._resume_committed_input
+            if proof is None or binding.record_id != proof[1].record_id:
+                raise CodingResumeRecoveryRequired("runtime.current_admission_required")
+            self._require_committed_resume_input(proof[0].attempt_id, proof[1].record_id)
         self._activation_guard_snapshot = snapshot
 
 

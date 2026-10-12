@@ -1140,3 +1140,32 @@ This change reaches the production Embedded history-preview path. It does not
 connect the Resource Catalog scheduler to transcript reads, switch the default
 restore operation to a read-only session, or supply first-input activation.
 Full R2.1 delivery, Goal, and Issue #696 remain incomplete.
+
+#### Reopened Binding does not restore current admission
+
+The ordinary Coding activation guard now checks the selected current-Session
+Binding after validating historical attempt settlement. A bound input can be
+durably committed while the process that held its current admission has ended.
+Reopening that file therefore returns `runtime.current_admission_required`
+before ordinary Product runtime selection or another message append. A readable
+Binding and a historical Model Outcome cannot recreate current authority.
+
+The locally published candidate retains the original exact-input and original
+Writer proof. Its guard requires that proof to match the selected Binding;
+switching to another Binding cannot borrow an earlier publication. The existing
+publication-pending fence still runs first. Source-Session Binding copied into a
+fork remains historical origin under the original projector's identity rules.
+Existing revision caching remains unchanged for ordinary messages without new
+Binding metadata.
+
+The reopening regression first reproduced an ordinary guard accepting a bound
+input without local current proof. It exercises the real fixed input commit,
+file close and reopen, read-only history observation, a Product-selection
+sentinel, and an attempted subsequent write, with unchanged canonical bytes.
+This closes an admission bypass in the existing production guard; it does not
+provide the missing activation coordinator or default read-only restore route.
+Full R2.1 delivery and Issue #696 remain incomplete.
+
+Validation passed sixty-three non-live Binding and runtime-publication cases,
+including original offline prepared-model dispatch and cancellation/error
+boundaries, plus scoped source mypy, Ruff, and all nine documentation checks.
