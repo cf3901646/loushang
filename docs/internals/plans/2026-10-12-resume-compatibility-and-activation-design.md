@@ -1169,3 +1169,43 @@ Full R2.1 delivery and Issue #696 remain incomplete.
 Validation passed sixty-three non-live Binding and runtime-publication cases,
 including original offline prepared-model dispatch and cancellation/error
 boundaries, plus scoped source mypy, Ruff, and all nine documentation checks.
+
+#### Embedded runtime owns detached history reads
+
+`AgentSessionRuntime.preview_resume_history` is a read-only data entry using the
+original discovered-source resolver and bounded Coding snapshot reader. It
+accepts an exact path or discovered identity and an explicit selected leaf,
+preserves historical cwd without repair, and returns a preview rather than an
+Agent Session. It never calls the configured Product session factory, loads a
+Writer, imports a compatibility file, or replaces the current lifecycle Session.
+The original terminal history projector can consume its selected records with
+no live Tool resolver. The real Embedded Coding Continuity provider routes its
+bounded selected-history snapshot through this owner entry, retaining its
+existing summary/source revision checks. Other continuity runtime adapters
+keep the prior cancellation-atomic reader path.
+
+The runtime retains at most two submitted reads. Cancelling an observation
+waiter releases that waiter promptly but leaves its native read with the root;
+it does not free admission capacity early. Root disposal fences new reads,
+performs the original lifecycle disposal, and joins actual read completion
+before closing the transcript factory. A cancelled root close retains this
+join. Results arriving after the fence are rejected, as are files whose source
+revision changed between the bounded read and delivery. Read errors left by
+cancelled waiters are observed by the completion callback.
+
+This establishes the Embedded owner entry needed for fast history opening. The
+default CLI resolver and Continuity activation still restore an Agent Session
+eagerly, and no TUI current-session replacement, initial activation coordinator,
+or background Plan scheduling is supplied by this entry. Those production
+connections and the full R2.1 release evidence remain required. Goal and Issue
+#696 remain incomplete.
+
+The new owner and production Continuity integration run passed forty-six
+non-live cases. The new fixtures combine retired composition, changed
+capability profile, and deleted historical cwd. They cover both path and
+discovered identity, original owned and unowned runtime configurations,
+selected terminal projection, unchanged directory contents, stale source
+delivery, cancelled waiter retention, capacity accounting, cancelled root
+close, and rejection after closing. The final stale-delivery case passed after
+aligning its exception with the existing preview's read-error handling. Scoped
+mypy for both changed source modules and Ruff passed.

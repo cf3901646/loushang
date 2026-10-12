@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from pathlib import Path
 
@@ -14,9 +15,15 @@ from loushang.coding.session_manager import (
 )
 from loushang.foundation.json import JSONValue
 from loushang.harness.diagnostics.service import DiagnosticsService
+from loushang.harness.journal._owned_io import settled_io
 from loushang.harness.runtime import copy_file_exclusive
 from loushang.harness.session import AgentProductSessionRuntime
 from loushang.harness.session.multiagent import compose_multiagent_before_release
+from loushang.harness.transcript.session_catalog import (
+    session_file_authority_fingerprint,
+)
+
+from ..resume_history import CodingResumeHistoryPreview, read_coding_resume_snapshot
 
 SessionFactory = Callable[..., AgentSession]
 _copy_import_file = copy_file_exclusive
@@ -84,6 +91,9 @@ class AgentSessionRuntime(
             ) if owned_transcripts else None
         )
         self._product_owner_selection = product_owner_selection
+        self._resume_history_reads: set[asyncio.Task[CodingResumeHistoryPreview]] = set()
+        self._resume_history_loop: asyncio.AbstractEventLoop | None = None
+        self._resume_history_closed = False
         transcript_type = (
             _bind_owned_session_manager(self._owned_transcript_factory)
             if self._owned_transcript_factory is not None else SessionManager
@@ -111,6 +121,70 @@ class AgentSessionRuntime(
             session_index_flush_delay=session_index_flush_delay,
         )
 
+    async def preview_resume_history(
+        self, session_id: str | Path, *, max_bytes: int = 1024 * 1024,
+        selected_leaf_id: str | None = None,
+    ) -> CodingResumeHistoryPreview:
+        """Observe discovered history without selecting a writable Session.
+
+        The root retains cancelled waiters' native reads until completion. This
+        is a data entry, not a lifecycle replacement or execution admission.
+        """
+
+        if type(max_bytes) is not int or not 1 <= max_bytes <= 8 * 1024 * 1024:
+            raise ValueError("invalid Coding Resume history byte budget")
+        if self._resume_history_closed:
+            raise RuntimeError("coding_resume_history_closed")
+        loop = asyncio.get_running_loop()
+        if self._resume_history_loop is None:
+            self._resume_history_loop = loop
+        elif self._resume_history_loop is not loop:
+            raise RuntimeError("coding_resume_history_loop_changed")
+        if len(self._resume_history_reads) >= 2:
+            raise RuntimeError("coding_resume_history_capacity_exceeded")
+        source = self.resolve_discovered_session_source(session_id)
+
+        async def read() -> CodingResumeHistoryPreview:
+            return await settled_io(
+                read_coding_resume_snapshot, source.path, max_bytes=max_bytes,
+                selected_leaf_id=selected_leaf_id,
+                expected_source_fingerprint=source.authority_fingerprint,
+            )
+
+        work = read()
+        try:
+            task = asyncio.create_task(work)
+        except BaseException:
+            work.close()
+            raise
+        self._resume_history_reads.add(task)
+
+        def settled(completed: asyncio.Task[CodingResumeHistoryPreview]) -> None:
+            self._resume_history_reads.discard(completed)
+            if not completed.cancelled():
+                completed.exception()  # Observe errors after a waiter leaves.
+
+        task.add_done_callback(settled)
+        history = await asyncio.shield(task)
+        if self._resume_history_closed:
+            raise RuntimeError("coding_resume_history_closed")
+        if session_file_authority_fingerprint(source.path) != history.source_fingerprint:
+            raise ValueError("coding_resume_history_stale")
+        return history
+
+    async def _drain_resume_history_reads(self) -> None:
+        cancellation: asyncio.CancelledError | None = None
+        for task in tuple(self._resume_history_reads):
+            while not task.done():
+                try:
+                    await asyncio.shield(task)
+                except asyncio.CancelledError as error:
+                    cancellation = error
+                except Exception:
+                    break  # The read caller or completion callback observes it.
+        if cancellation is not None:
+            raise cancellation
+
     async def dispose_session_runtime(
         self,
         *,
@@ -118,7 +192,10 @@ class AgentSessionRuntime(
     ) -> None:
         from loushang.coding.continuity import shutdown_coding_continuity
 
+        if self._resume_history_reads and self._resume_history_loop is not asyncio.get_running_loop():
+            raise RuntimeError("coding_resume_history_loop_changed")
         failure: BaseException | None = None
+        self._resume_history_closed = True
         factory = self._owned_transcript_factory
         product_selection = self._product_owner_selection
         if product_selection is not None:
@@ -136,6 +213,13 @@ class AgentSessionRuntime(
                 failure = error
             else:
                 failure.add_note(f"Session cleanup retained: {type(error).__name__}")
+        try:
+            await self._drain_resume_history_reads()
+        except BaseException as error:
+            if failure is None:
+                failure = error
+            else:
+                failure.add_note(f"history read settlement retained: {type(error).__name__}")
         if factory is not None:
             try:
                 await factory.close()

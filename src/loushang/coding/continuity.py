@@ -420,11 +420,19 @@ class CodingContinuityProvider:
                         if history.composition is not None else "Legacy unknown",
                     ))
                     try:
-                        snapshot = await settled_io(
-                            read_coding_resume_snapshot,
-                            summary.session_file,
-                            max_bytes=1024 * 1024,
-                        )
+                        from .runtime.agent_session_runtime import AgentSessionRuntime
+
+                        if isinstance(self._runtime, AgentSessionRuntime):
+                            snapshot = await AgentSessionRuntime.preview_resume_history(
+                                self._runtime, summary.session_file,
+                                max_bytes=1024 * 1024,
+                            )
+                        else:
+                            snapshot = await settled_io(
+                                read_coding_resume_snapshot,
+                                summary.session_file,
+                                max_bytes=1024 * 1024,
+                            )
                     except AgentTranscriptFileError as exc:
                         if exc.code != "session_file_too_large":
                             rows.append(("Recent history", "Bounded preview unavailable"))
