@@ -111,7 +111,8 @@ class ScopedExecutionClientV1:
         _, binding = await self._resolve(control, expected_instance_id)
         # Duplicate lookup precedes every capacity check. No communication slot
         # is reserved and no await separates this authority cut from admission.
-        return self._registry.submit(binding, text, submission_id)
+        with self._scope.resume_subject_scope(control, submission_id=submission_id):
+            return self._registry.submit(binding, text, submission_id)
 
     async def get_execution(
         self, control: SessionSnapshotRequestV1, expected_instance_id: str,

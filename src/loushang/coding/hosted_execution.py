@@ -14,10 +14,8 @@ from loushang.appserver.protocol import (
     AppServiceError,
     SessionEventKindV1,
     SessionEventV1,
-    SessionSnapshotRequestV1,
     SessionSnapshotV1,
 )
-from loushang.appservice.client_scope import AppClientScopeV1
 from loushang.appservice.execution_contract import (
     ExecutionContentEventV1,
     ExecutionObservationV1,
@@ -32,31 +30,31 @@ from loushang.appservice.execution_guard import ExecutionGuardV1
 from loushang.appservice.execution_registry import ExecutionLimitsV1
 from loushang.appservice.execution_service import HostedExecutionServiceBindingV1
 
-from ._hosted_execution_work import CodingExecutionWorkV1
+from ._hosted_execution_work import (
+    CodingExecutionWorkV1,
+)
+from ._hosted_execution_work import (
+    HostedResumeSubjectControl as HostedResumeSubjectControl,
+)
+from ._hosted_execution_work import (
+    HostedResumeSubjectScope as HostedResumeSubjectScope,
+)
+from ._hosted_execution_work import (
+    _require_current_coding_hosted_resume_subject as _require_current_coding_hosted_resume_subject,
+)
+from ._hosted_execution_work import (
+    current_coding_hosted_resume_subject as current_coding_hosted_resume_subject,
+)
+from ._hosted_execution_work import (
+    current_coding_hosted_resume_submission_id as current_coding_hosted_resume_submission_id,
+)
 from .appservice_adapter import (
     CodingHostedEventProjectionV1,
     CodingHostedSessionBindingV1,
     CodingHostedSessionV1,
 )
 from .hosted_session import CodingRealHostedSessionV1
-from .resume_activation_attempt import CodingActivationAttemptV1
 from .session.agent_session import AgentSession
-
-# Concrete original owner types for the optional Coding confirmation borrow.
-HostedResumeSubjectScope = AppClientScopeV1
-HostedResumeSubjectControl = SessionSnapshotRequestV1
-
-
-def _require_current_coding_hosted_resume_subject(
-    attempt: CodingActivationAttemptV1,
-    scope: HostedResumeSubjectScope | None,
-    control: HostedResumeSubjectControl | None,
-) -> None:
-    if type(scope) is not AppClientScopeV1 or type(control) is not SessionSnapshotRequestV1:
-        raise TypeError("Coding Resume requires the original Hosted subject owner and control")
-    scope.require_current_resume_subject(
-        control, attempt.subject_digest, expected_session_id=attempt.session_id,
-    )
 
 
 class CodingHostedExecutionSessionV1(CodingHostedSessionV1):

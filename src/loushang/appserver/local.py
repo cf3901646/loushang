@@ -517,7 +517,5 @@ class LocalAppClientConnectionV1:
 __all__ = [
     "LocalAppServerV1", "LocalAppClientConnectionV1", "LocalConnectionModeV1",
     "OwnedLocalClientScopeV1", "MAX_LOCAL_CONNECTIONS", "MAX_LOCAL_APP_CONNECTIONS",
-    "OwnedLocalDiscoveryScopeV1",
-    "OwnedLocalExecutionScopeV1",
-    "MAX_LOCAL_AUTHENTICATING",
+    "OwnedLocalDiscoveryScopeV1", "OwnedLocalExecutionScopeV1", "MAX_LOCAL_AUTHENTICATING",
 ]

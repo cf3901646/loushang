@@ -16,6 +16,86 @@ from loushang.harness.config.agent import SettingsManager
 from loushang.harness.tools.workspace.factory import workspace_tool_runtime_settings
 
 
+def test_resume_confirmation_uses_actual_scoped_execution_context():
+    from loushang.appserver.protocol import AppServiceError, MuxAttachV1
+    from loushang.appservice.execution_contract import (
+        ExecutionOutcomeV1,
+        ExecutionStatusV1,
+    )
+    from loushang.coding.hosted_execution import (
+        current_coding_hosted_resume_subject,
+        current_coding_hosted_resume_submission_id,
+    )
+    from tests.appservice.test_execution_service import fixture
+
+    async def scenario():
+        service, host, first, second, selector, control, product = await fixture()
+        issuer = InteractiveApprovalResolver(fallback=DenyApprovalResolver())
+        captured = []
+        ready = asyncio.Event()
+
+        async def run(execution_control):
+            product.entered.set()
+            scope, current_control, digest = current_coding_hosted_resume_subject()
+            input_id = current_coding_hosted_resume_submission_id()
+            assert input_id == "resume-submit"
+            attempt = CodingActivationAttemptV1(
+                attempt_id="execution-attempt", request_id=input_id,
+                session_id=product.identity.session_id, original_leaf_id="leaf-1",
+                ancestry_digest="a" * 64, plan_fingerprint="b" * 64,
+                epoch_fingerprint="c" * 64, subject_digest=digest,
+            )
+            fact = await issuer.confirm(coding_resume_permission_request(
+                attempt, actor_id=current_control.attachment_id, expansion_codes=("authority.unknown",),
+                hosted_subject_scope=scope, hosted_subject_control=current_control,
+            ))
+            assert fact is not None
+            confirmation = CodingResumePermissionConfirmation(
+                attempt, current_control.attachment_id, ("authority.unknown",), issuer, fact,
+                hosted_subject_scope=scope, hosted_subject_control=current_control,
+            )
+            confirmation.require_current(attempt)
+            captured.append((scope, current_control, confirmation))
+            ready.set()
+            await product.release.wait()
+            with pytest.raises(AppServiceError):
+                confirmation.require_current(attempt)
+            return ExecutionOutcomeV1(ExecutionStatusV1.SUCCEEDED)
+
+        async def confirm(payload):
+            assert await issuer.handle_result(payload["action_id"], outcome="allow_once")
+
+        issuer.set_request_presenter(confirm)
+        product.run = run
+        try:
+            client = first.execution_client
+            accepted = await client.submit_execution(control, "instance", "resume-submit", "resume once")
+            await product.entered.wait()
+            waiter = asyncio.create_task(ready.wait())
+            try:
+                assert product.guard._task is not None
+                await asyncio.wait((waiter, product.guard._task), return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                waiter.cancel()
+                await asyncio.gather(waiter, return_exceptions=True)
+            assert len(captured) == 1
+            assert captured[0][:2] == (first, control)
+            with pytest.raises(AppServiceError):
+                current_coding_hosted_resume_subject()
+            await first.close()
+            await second.attach_mux(MuxAttachV1(selector))
+            product.release.set()
+            binding = service._sessions[product.identity.session_id]._execution
+            await service._execution_registry.wait(binding, accepted)
+            assert len(captured) == 1
+        finally:
+            product.release.set()
+            await service.close()
+            issuer.dispose()
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("mode", ["current", "wrong_target", "takeover", "await_takeover", "stripped_owner"])
 def test_resume_confirmation_borrows_original_hosted_controller(mode):
     from loushang.appserver.protocol import (

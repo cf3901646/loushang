@@ -169,3 +169,27 @@ def require_profile_operation(
         raise AppServiceError(AppErrorCodeV1.OPERATION_UNAVAILABLE)
     if supports_managed_mux(profile) and operation in {AppOperationV1.MUX_CREATE, AppOperationV1.MUX_CLOSE}:
         raise AppServiceError(AppErrorCodeV1.OPERATION_UNAVAILABLE)
+
+
+def _local_connection_profile(
+    session_discovery: bool, session_execution: bool, mux_management: bool,
+    mux_closure: bool, resume_input_lookup: bool,
+) -> AppConnectionProfileV1:
+    """Project validated local-record flags through the closed profile algebra."""
+
+    if mux_management:
+        if session_execution:
+            profile = (AppConnectionProfileV1.LOCAL_DISCOVERY_EXECUTION_MANAGED if session_discovery
+                    else AppConnectionProfileV1.LOCAL_EXECUTION_MANAGED)
+        else:
+            profile = (AppConnectionProfileV1.LOCAL_DISCOVERY_MANAGED if session_discovery
+                       else AppConnectionProfileV1.LOCAL_MANAGED)
+        if mux_closure:
+            profile = AppConnectionProfileV1(profile.value.removesuffix("/v1") + "/v2")
+    elif session_execution:
+        profile = (AppConnectionProfileV1.LOCAL_DISCOVERY_EXECUTION if session_discovery
+                   else AppConnectionProfileV1.LOCAL_EXECUTION)
+    else:
+        profile = (AppConnectionProfileV1.LOCAL_DISCOVERY if session_discovery
+                   else AppConnectionProfileV1.LOCAL)
+    return resume_input_lookup_profile(profile) if resume_input_lookup else profile

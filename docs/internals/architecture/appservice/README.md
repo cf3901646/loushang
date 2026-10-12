@@ -45,6 +45,17 @@ takeover or dropping the selected owner cannot reuse that fact. Default Hosted
 Resume activation and the remaining admission/effect producers still require
 integration under ARD-006.
 
+The selected scoped execution submit and registry-backed legacy turn routes
+carry the original scope, control request and observed fingerprint into the
+task created by the existing execution registry. Stable submit also carries
+its original submission ID; legacy Ack has no stable ID. The caller resets
+this task-local borrow after admission or settlement. Product access rechecks
+the original live owner, so takeover invalidates Resume borrowing while the
+registry continues to own and settle previously accepted ordinary work.
+The optional functions bind to the same scope instance; they keep no separate
+controller table, execution ledger or permission state. Coding consumes the
+borrow at its existing optional Hosted execution bridge.
+
 ## Purpose
 
 AppService is the transport-neutral hosted application boundary over injected

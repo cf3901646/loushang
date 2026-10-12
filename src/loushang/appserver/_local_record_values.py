@@ -9,11 +9,7 @@ from enum import Enum
 from hashlib import sha256
 
 from .local_auth import LOCAL_PROFILE_V1, LocalAuthenticationV1
-from .protocol import APP_PROTOCOL_VERSION, SessionScopeV1
-from .protocol.connection_profile import (
-    AppConnectionProfileV1,
-    resume_input_lookup_profile,
-)
+from .protocol import APP_PROTOCOL_VERSION, SessionScopeV1, connection_profile
 
 MAX_LOCAL_RECORD_BYTES = 8192
 _VERSION = "loushang.appserver.local-record/v1"
@@ -116,29 +112,15 @@ class LocalConnectionRecordV1:
             raise ValueError("invalid local record scopes")
 
     @property
-    def semantic_profile(self) -> AppConnectionProfileV1:
-        if self.mux_management:
-            if self.session_execution:
-                profile = (AppConnectionProfileV1.LOCAL_DISCOVERY_EXECUTION_MANAGED if self.session_discovery
-                        else AppConnectionProfileV1.LOCAL_EXECUTION_MANAGED)
-            else:
-                profile = (AppConnectionProfileV1.LOCAL_DISCOVERY_MANAGED if self.session_discovery
-                           else AppConnectionProfileV1.LOCAL_MANAGED)
-            if self.mux_closure:
-                profile = AppConnectionProfileV1(profile.value.removesuffix("/v1") + "/v2")
-        elif self.session_execution:
-            profile = (AppConnectionProfileV1.LOCAL_DISCOVERY_EXECUTION if self.session_discovery
-                       else AppConnectionProfileV1.LOCAL_EXECUTION)
-        else:
-            profile = (AppConnectionProfileV1.LOCAL_DISCOVERY if self.session_discovery
-                       else AppConnectionProfileV1.LOCAL)
-        return resume_input_lookup_profile(profile) if self.resume_input_lookup else profile
+    def semantic_profile(self) -> connection_profile.AppConnectionProfileV1:
+        return connection_profile._local_connection_profile(
+            self.session_discovery, self.session_execution, self.mux_management,
+            self.mux_closure, self.resume_input_lookup,
+        )
 
     @property
     def authentication(self) -> LocalAuthenticationV1:
-        return LocalAuthenticationV1(
-            self.instance, sha256(_encode(_public(self))).digest(), self.key
-        )
+        return LocalAuthenticationV1(self.instance, sha256(_encode(_public(self))).digest(), self.key)
 
 
 def _public(record: LocalConnectionRecordV1) -> dict[str, object]:

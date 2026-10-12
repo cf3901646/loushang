@@ -7,8 +7,6 @@ unscoped client alongside these scoped clients to untrusted callers.
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from typing import TypeVar
@@ -50,7 +48,15 @@ from ._operations import _observe, _OwnedAppOperations
 from ._scope_interactions import _ScopeInteractions
 from .execution_registry import ExecutionErrorCodeV1, ExecutionServiceErrorV1
 from .execution_service import ScopedExecutionClientV1
-from .resume_ports import ResumeInputLookupQueryV1, ResumeInputLookupResultV1
+from .resume_ports import (
+    _current_resume_subject,
+    _current_resume_submission_id,
+    _lookup_scoped_resume_input,
+    _require_current_resume_subject,
+    _require_scoped_session,
+    _resume_subject_digest,
+    _resume_subject_scope,
+)
 from .runtime import AppServiceV1, _SessionOwner
 from .session_discovery import SessionDiscoveryViewV1
 
@@ -461,82 +467,14 @@ class AppClientScopeV1:
             raise AppServiceError(AppErrorCodeV1.STALE_ATTACHMENT)
         return session
 
-    def _require_current_session(
-        self, request: SessionSnapshotRequestV1, session: _SessionOwner,
-    ) -> None:
-        self._attachment(request.attachment_id, request.controller_generation)
-        pair = self._service._attachments.get(request.attachment_id)
-        if pair is None:
-            raise AppServiceError(AppErrorCodeV1.STALE_ATTACHMENT)
-
-        mux, attachment = pair
-        if (
-            not attachment.active or mux.closed
-            or attachment.controller_generation != request.controller_generation
-            or mux.next_generation != request.controller_generation
-            or self._service._sessions.get(session.identity.session_id) is not session
-            or not any(member.member_id == request.member_id and member.session is session
-                       for member in mux.members)
-        ):
-            raise AppServiceError(AppErrorCodeV1.STALE_ATTACHMENT)
-
-    def resume_subject_digest(
-        self, request: SessionSnapshotRequestV1, *, expected_session_id: str | None = None,
-    ) -> str:
-        """Observe the current native controller's exact target as bounded data.
-
-        This is neither a Product permission nor an execution reservation. A
-        Resume caller must recheck this owner at each mutation boundary and
-        obtain current Product Policy/Approval and effect settlement separately.
-        """
-
-        self._service._require_request(request, SessionSnapshotRequestV1)
-        self._attachment(request.attachment_id, request.controller_generation)
-        pair = self._service._attachments.get(request.attachment_id)
-        if pair is None:
-            raise AppServiceError(AppErrorCodeV1.STALE_ATTACHMENT)
-        mux, _ = pair
-        session = next((
-            member.session for member in mux.members if member.member_id == request.member_id
-        ), None)
-        if session is None:
-            raise AppServiceError(AppErrorCodeV1.STALE_ATTACHMENT)
-        self._require_current_session(request, session)
-        if not session._accepting:
-            raise AppServiceError(AppErrorCodeV1.SESSION_UNAVAILABLE)
-        registry = self._service._execution_registry
-        if registry is None:
-            raise AppServiceError(AppErrorCodeV1.OPERATION_UNAVAILABLE)
-        identity = session.identity
-        if expected_session_id is not None and (
-            type(expected_session_id) is not str or expected_session_id != identity.session_id
-        ):
-            raise AppServiceError(AppErrorCodeV1.STALE_ATTACHMENT)
-        encoded = json.dumps({
-            "applicationId": registry.application_id,
-            "serviceInstanceId": registry.service_instance_id,
-            "attachmentId": request.attachment_id,
-            "controllerGeneration": request.controller_generation,
-            "memberId": request.member_id,
-            "productId": identity.product_id,
-            "continuityId": identity.continuity_id,
-            "sessionId": identity.session_id,
-            "scope": identity.scope.value,
-            "scopeFingerprint": identity.scope_fingerprint,
-        }, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        if len(encoded) > 4096:
-            raise AppServiceError(AppErrorCodeV1.OPERATION_UNAVAILABLE)
-        return hashlib.sha256(b"loushang.appservice.resume-subject/v1\0" + encoded).hexdigest()
-
-    def require_current_resume_subject(
-        self, request: SessionSnapshotRequestV1, expected_digest: str,
-        *, expected_session_id: str | None = None,
-    ) -> None:
-        """Revalidate against this original live owner, never a copied digest."""
-
-        current = self.resume_subject_digest(request, expected_session_id=expected_session_id)
-        if type(expected_digest) is not str or expected_digest != current:
-            raise AppServiceError(AppErrorCodeV1.STALE_ATTACHMENT)
+    # Optional Resume functions bind to this exact original scope instance.
+    # Controller/session tables and execution ownership remain on their owners.
+    _require_current_session = _require_scoped_session
+    resume_subject_digest = _resume_subject_digest
+    require_current_resume_subject = _require_current_resume_subject
+    resume_subject_scope = _resume_subject_scope
+    current_resume_subject = staticmethod(_current_resume_subject)
+    current_resume_submission_id = staticmethod(_current_resume_submission_id)
 
     async def snapshot_session(
         self, request: SessionSnapshotRequestV1
@@ -549,24 +487,7 @@ class AppClientScopeV1:
         self._attachment(request.attachment_id, request.controller_generation)
         return value
 
-    async def lookup_resume_input(
-        self, request: SessionSnapshotRequestV1, query: ResumeInputLookupQueryV1,
-    ) -> ResumeInputLookupResultV1:
-        """Read under current attachment/member authority, including delivery.
-
-        The result observes input durability only. It neither reserves an
-        execution nor grants re-admission or permission to replay a model call.
-        """
-
-        self._service._require_request(request, SessionSnapshotRequestV1)
-        self._service._require_request(query, ResumeInputLookupQueryV1)
-        session = await self._session(
-            request.attachment_id, request.controller_generation, request.member_id,
-        )
-        self._require_current_session(request, session)
-        value = await session.lookup_resume_input(query)
-        self._require_current_session(request, session)
-        return value
+    lookup_resume_input = _lookup_scoped_resume_input
 
     async def start_turn(self, request: TurnTextV1) -> AckV1:
         self._service._require_request(request, TurnTextV1)
@@ -584,7 +505,10 @@ class AppClientScopeV1:
                 self._require_current_session(SessionSnapshotRequestV1(
                     request.attachment_id, request.controller_generation, request.member_id
                 ), session)
-                await registry.start_legacy(binding, request.text)
+                with self.resume_subject_scope(SessionSnapshotRequestV1(
+                    request.attachment_id, request.controller_generation, request.member_id,
+                )):
+                    await registry.start_legacy(binding, request.text)
                 return AckV1()
         await self._owner._operations.execute(
             lambda: session.start_turn(request.text), key=session.identity.session_id

@@ -1812,3 +1812,49 @@ lookup helper placement was separately revalidated by 67 confirmation,
 adapter, scope and G11 cases. Scoped mypy passed all eight affected source
 files; Ruff, whitespace and documentation validation passed. These focused
 results do not discharge the branch-wide delivery and platform gates.
+
+#### Native accepted execution task carries the current Hosted subject
+
+The selected scoped submit route now borrows the original AppClientScope and
+control at admission. The existing registry creates its accepted task in that
+context and continues to own submission deduplication, execution and settlement.
+The stable submission ID follows that same task; the registry-backed legacy
+turn route carries no invented ID. The caller resets its borrow in `finally`.
+Every Product getter revalidates the original live controller. A replacement
+controller can inspect the original execution ledger without restarting work;
+the old task cannot use its stale borrow for Resume confirmation.
+
+A regression crosses actual native scope admission, execution registry and
+guard task into the original Coding Approval resolver. Its activation attempt
+uses the captured stable submission ID as request identity. Native takeover
+then rejects the exact retained confirmation. The injected Product and attempt
+leaf/epoch data remain fixtures: this does not establish default writable
+history activation, production epoch/effect settlement or restart safety.
+
+G16 scope reviewability required moving optional functions into the existing
+Resume port module and binding them to the same original scope instance.
+Controller/session tables and lifecycle checks remain with their original
+owners. Local record profile selection is now a pure projection in the
+existing closed profile algebra; record authentication and wire fields are
+unchanged. No architecture budget was raised or test bypassed.
+
+The combined controller/execution/confirmation, local-record and G11/G16 run
+passed 113 cases and failed the local-record line budget while import placement
+was still being adjusted. The final placement is checked separately below.
+Scoped mypy passed eight source files. The broader Coding Wave A gate also
+exposed a remaining G14 slice excess (1,854 lines against 1,516); it remains
+delivery work. Default Embedded/Hosted routing, production activation inputs,
+background invocation/performance, released compatibility and full delivery
+gates remain required. Goal and Issue #696 remain active.
+
+Final local-record/G16 revalidation passed all 41 cases after correcting the
+profile module import (the intermediate facade import failed collection).
+Ruff and the nine static documentation checks passed. The optional Coding
+subject functions now share the existing execution-work bridge and retain
+their public imports from `hosted_execution`; both existing files count in
+the execution slice (248 and 133 lines, total 381 within 400, each within 250).
+This placement adds no execution owner or default composition import.
+After that final placement, all 70 scoped execution, Coding confirmation,
+native Coding execution and G11 cases passed. Scoped mypy also passed the
+three relocated/import-adjusted sources. G14 remains the identified failing
+Wave A gate; the execution slice itself stays within its existing limits.
