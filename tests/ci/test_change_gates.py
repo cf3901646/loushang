@@ -244,6 +244,21 @@ class ScopeTests(unittest.TestCase):
                 self.assertTrue(plan["checks"]["windows_shell"])
                 self.assertTrue(plan["workflows"]["windows-shell"])
 
+    def test_plugin_sdk_sources_select_owners_without_full_validation(self):
+        expected = {"docs", "architecture", "coding", "harness", "host_runtime"}
+        native = {"__init__.py", "__main__.py", "_coding_local_worker_wheel.py"}
+        for path in sorted((ROOT / "src/loushang/plugin").glob("*.py")):
+            with self.subTest(path=path.name):
+                actual = self.selected(path.relative_to(ROOT).as_posix())
+                if path.name in native:
+                    self.assertEqual(actual, expected | {"hosting", "windows_shell"})
+                else:
+                    self.assertEqual(actual, expected)
+        self.assertEqual(
+            self.selected("src/loushang/plugin/new_native_entry.py"),
+            set(selector.select([], full=True)["checks"]),
+        )
+
     def test_registered_worker_recovery_changes_select_real_reboot_gate(self):
         for path in (
             ".github/workflows/worker-registered-reboot-drill.yml",
@@ -310,6 +325,30 @@ class ScopeTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.assertEqual(self.selected(path), expected)
+
+    def test_pr_routing_files_use_ci_contract_gate(self):
+        for path in selector.PR_ROUTING_FILES:
+            with self.subTest(path=path):
+                plan = selector.select([path], pr_fast=True)
+                self.assertEqual(
+                    {name for name, enabled in plan["checks"].items() if enabled},
+                    {"docs", "ci"},
+                )
+        plan = selector.select(sorted(selector.PR_ROUTING_FILES), pr_fast=True)
+        self.assertEqual(
+            {name for name, enabled in plan["checks"].items() if enabled},
+            {"docs", "ci"},
+        )
+
+    def test_pr_routing_exception_keeps_build_and_other_ci_files_full(self):
+        expected = set(selector.select([], full=True)["checks"])
+        for path in (
+            "pyproject.toml", ".github/workflows/quality.yml",
+            "scripts/ci/run_checks.py", "tests/ci/test_new_gate.py",
+        ):
+            with self.subTest(path=path):
+                actual = selector.select([path], pr_fast=True)["checks"]
+                self.assertEqual({name for name, enabled in actual.items() if enabled}, expected)
 
     def test_generated_document_rechecks_source_facts(self):
         self.assertEqual(
