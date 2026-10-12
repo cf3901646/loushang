@@ -1473,3 +1473,44 @@ before the ordering fix. Forty-three non-live Root, continuation, bootstrap,
 history and Product revision regressions passed. After the retirement fix,
 all eleven Root scenarios and four existing owned-runtime cleanup cases passed
 (15 tests). Scoped mypy, Ruff and nine documentation checks passed.
+
+#### Root first input executes through the original Model Input transport
+
+`CodingRuntimePreparedResume.run_first_input` delegates to the original
+Session's committed-input entry only after its native lifecycle operation was
+consumed and the Root still holds that exact Session. A closed Root, an
+undelivered operation or a replaced current slot is rejected before the native
+dispatch claim. This leaves an undelivered candidate's committed input and
+dispatch claim unchanged. The UI can complete native delivery and rebind its
+presentation before calling this separate entry.
+
+The existing native Session owns the Host claim, Model Input snapshot and
+transport barrier, once-only dispatch, and cancellation. The Root entry does
+not submit a normal prompt, append another UserMessage, create a second model
+loop, or provide automatic replay after failure or uncertainty. Current native
+permission confirmation and mandatory effect-settlement checks remain active
+at the original transport boundary.
+
+Real owned-Root fixtures register an original AI API adapter and invoke prepared
+transport. They verify the committed input and lookup digest, exact legacy
+Header preservation, one main input snapshot, the original model outcome, and
+no duplicate user append or transport invocation. Revocation before dispatch
+prevents snapshots and transport; revocation after snapshot commit prevents
+transport while retaining that snapshot. Provider uncertainty and cancellation
+prevent another invocation of this input. An `observed_failed` native model
+outcome records local invocation failure; it is not proof of absent remote
+effects or a replay grant.
+
+Standard-composition fixtures modify Skill or AGENTS bytes after pure history
+preview. The actual provider request uses the current bytes. Skill Request
+Evidence carries the current content digest on the same fixed UserMessage,
+while the original Header and Session identity remain unchanged. These tests
+exercise the explicit Root entry; default CLI/TUI and Hosted startup, actual
+current actor/policy comparison, external effect recovery and background
+performance remain incomplete.
+
+Validation: the missing Root first-input entry was reproduced before the fix,
+after correcting the fixture's native API registry cleanup call. All nine
+non-live prepared-transport scenarios passed, including current Skill/AGENTS
+bytes and exact original Header checks. Scoped mypy, Ruff and nine
+documentation checks passed.

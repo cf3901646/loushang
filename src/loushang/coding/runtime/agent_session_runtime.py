@@ -75,6 +75,10 @@ class CodingRuntimePreparedResume:
     async def abort(self) -> None:
         await self._root._abort_resume_preparation(self)
 
+    async def run_first_input(self) -> None:
+        """Run the committed input after original lifecycle delivery, once."""
+        await self._root._run_resume_first_input(self)
+
 
 def _copy_session_import(
     source: Path,
@@ -345,6 +349,25 @@ class AgentSessionRuntime(
             await self._settle_cancelled_resume_task(task)
         await operation.abort()
         self._resume_prepared_operations.discard(operation)
+
+    async def _run_resume_first_input(self, prepared: CodingRuntimePreparedResume) -> None:
+        from ..resume_activation_attempt import CodingResumeRecoveryRequired
+
+        if self._resume_history_closed:
+            raise CodingResumeRecoveryRequired("model.root_closed")
+        if (
+            prepared._root is not self or not prepared.consumed
+            or self.current_session is not prepared.continuation.session
+        ):
+            raise CodingResumeRecoveryRequired("model.root_not_delivered")
+        if self._resume_activation_loop is not asyncio.get_running_loop():
+            raise RuntimeError("coding_resume_activation_loop_changed")
+        continuation = prepared.continuation
+        # Original Host claim, Model Input transport admission, fixed input
+        # identity and once-only dispatch remain owned by the native Session.
+        await continuation.session._run_published_resume_input(
+            attempt_id=continuation.attempt_id, input_record_id=continuation.input_record_id,
+        )
 
     async def _drain_resume_activations(self) -> None:
         if self._resume_activation_loop is not None and self._resume_activation_loop is not asyncio.get_running_loop():
