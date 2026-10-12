@@ -21,6 +21,15 @@ PR_ROUTING_FILES = {
     "scripts/ci/verify_gate.py",
     "tests/ci/test_change_gates.py",
 }
+FAST_EXCLUDED_PACKAGES = {
+    "plugin", "hosting", "apphost", "appservice", "appserver", "foundation",
+}
+FAST_RISK_CHECKS = {
+    "registered_reboot", "windows_shell", "tui_native", "harness_native",
+    "lsp", "install", "hosting", "apphost", "appservice",
+}
+E2E_PATH_PARTS = ("/session/", "/conversation/", "/transcript/")
+FAST_RISK_RULE_REASONS = {"AI consumer contracts"}
 
 
 def git(*args: str, root: Path = ROOT) -> bytes:
@@ -56,8 +65,11 @@ def select(
     paths: list[str], *, full: bool = False, pr_fast: bool = False, root: Path = ROOT
 ) -> dict:
     rules = json.loads((root / "scripts/ci/check-scopes.json").read_text())
+    unit_inventory = json.loads((root / "scripts/ci/unit-tests.json").read_text())
     checks = {name: False for name in rules["checks"]}
     reasons: dict[str, list[str]] = {name: [] for name in checks}
+    unit_packages: set[str] = set()
+    e2e = False
 
     def enable(names: list[str], reason: str) -> None:
         for name in names:
@@ -93,6 +105,41 @@ def select(
         if pr_fast and not full and path in PR_ROUTING_FILES:
             enable(["ci"], f"{path}: PR gate routing regression and Actions syntax")
             continue
+        if pr_fast and not full:
+            parts = Path(path).parts
+            package = None
+            if len(parts) >= 4 and parts[:2] == ("src", "loushang"):
+                package = parts[2]
+            elif len(parts) >= 3 and parts[0] == "tests":
+                package = parts[1]
+            if package in unit_inventory and package not in FAST_EXCLUDED_PACKAGES:
+                # Test support and newly added tests require the established
+                # routing until they are explicitly classified as unit tests.
+                test_is_unit = (
+                    path.startswith("src/") and path.endswith(".py")
+                ) or path in unit_inventory[package]
+                matching_rules = [
+                    rule for rule in rules["rules"]
+                    if any(fnmatch.fnmatchcase(path, p) for p in rule["paths"])
+                ]
+                matched_checks = {
+                    check
+                    for rule in matching_rules
+                    for check in rule["checks"]
+                }
+                if (
+                    test_is_unit
+                    and not (matched_checks & FAST_RISK_CHECKS)
+                    and not (package == "coding" and "coding_ui" in matched_checks)
+                    and not any(
+                        rule["reason"] in FAST_RISK_RULE_REASONS
+                        for rule in matching_rules
+                    )
+                ):
+                    unit_packages.add(package)
+                    e2e |= any(part in path for part in E2E_PATH_PARTS)
+                    e2e |= package == "coding" and "hosted" in Path(path).name
+                    continue
         matched = False
         for rule in rules["rules"]:
             if any(fnmatch.fnmatchcase(path, pattern) for pattern in rule["paths"]):
@@ -130,11 +177,15 @@ def select(
         name: any(checks[check] for check in scopes)
         for name, scopes in rules["workflows"].items()
     }
+    workflows["units"] = bool(unit_packages)
+    workflows["e2e"] = e2e
     return {
         "version": 1,
         "paths": sorted(set(paths)),
         "checks": checks,
         "workflows": workflows,
+        "unit_packages": sorted(unit_packages),
+        "e2e": e2e,
         "reasons": reasons,
     }
 
@@ -149,7 +200,8 @@ def workflow_plan(plan: dict) -> dict:
     receive only the executable portion.
     """
     return {
-        key: plan[key] for key in ("version", "paths", "checks", "workflows")
+        key: plan[key]
+        for key in ("version", "paths", "checks", "workflows", "unit_packages", "e2e")
     }
 
 
@@ -179,6 +231,7 @@ def main() -> None:
     parser.add_argument("--base", default="origin/main")
     parser.add_argument("--head")
     parser.add_argument("--full", action="store_true")
+    parser.add_argument("--pr-fast", action="store_true")
     parser.add_argument("--event", action="store_true")
     parser.add_argument("--paths", nargs="+")
     parser.add_argument("--output", type=Path)
@@ -200,7 +253,9 @@ def main() -> None:
         paths = local_paths(args.base)
     plan = select(
         paths, full=full,
-        pr_fast=args.event and os.environ["GITHUB_EVENT_NAME"] == "pull_request",
+        pr_fast=args.pr_fast or (
+            args.event and os.environ["GITHUB_EVENT_NAME"] == "pull_request"
+        ),
     )
     if args.output:
         args.output.write_text(json.dumps(plan, indent=2) + "\n")

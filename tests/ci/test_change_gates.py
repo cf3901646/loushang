@@ -367,12 +367,76 @@ class ScopeTests(unittest.TestCase):
         compact = selector.workflow_plan(plan)
 
         self.assertEqual(
-            set(compact), {"version", "paths", "checks", "workflows"}
+            set(compact), {"version", "paths", "checks", "workflows", "unit_packages", "e2e"}
         )
         self.assertEqual(compact["paths"], plan["paths"])
         self.assertEqual(compact["checks"], plan["checks"])
         self.assertEqual(compact["workflows"], plan["workflows"])
+        self.assertEqual(compact["unit_packages"], plan["unit_packages"])
+        self.assertEqual(compact["e2e"], plan["e2e"])
         self.assertNotIn("reasons", compact)
+
+    def test_pr_ordinary_package_change_selects_only_owner_units(self):
+        for path, package in (
+            ("src/loushang/ai/pricing.py", "ai"),
+            ("src/loushang/agent/agent_loop.py", "agent"),
+            ("src/loushang/coding/compaction.py", "coding"),
+            ("src/loushang/harness/tools/core.py", "harness"),
+            ("tests/coding/test_compaction_core.py", "coding"),
+        ):
+            with self.subTest(path=path):
+                plan = selector.select([path], pr_fast=True)
+                self.assertEqual(plan["unit_packages"], [package])
+                self.assertFalse(plan["checks"]["coding"])
+                self.assertFalse(plan["checks"]["host_runtime"])
+                self.assertTrue(plan["workflows"]["units"])
+
+    def test_pr_multi_package_change_keeps_each_owner(self):
+        plan = selector.select(
+            ["src/loushang/ai/pricing.py", "src/loushang/coding/compaction.py"],
+            pr_fast=True,
+        )
+        self.assertEqual(plan["unit_packages"], ["ai", "coding"])
+
+    def test_pr_session_change_adds_resume_turn_e2e(self):
+        plan = selector.select(["src/loushang/harness/session/queue.py"], pr_fast=True)
+        self.assertEqual(plan["unit_packages"], ["harness"])
+        self.assertTrue(plan["workflows"]["e2e"])
+
+    def test_pr_platform_and_unclassified_tests_keep_existing_gates(self):
+        for path in (
+            "src/loushang/ai/types.py",
+            "src/loushang/foundation/json.py",
+            "src/loushang/coding/package_product_worker_registered_recovery.py",
+            "src/loushang/coding/lsp/client.py",
+            "src/loushang/tui/terminal_backends/windows.py",
+            "src/loushang/coding/ui/plain_renderer.py",
+            "src/loushang/coding/schemas/session.json",
+            "tests/coding/test_hosted_application.py",
+            "tests/coding/test_new_unclassified.py",
+            ".github/workflows/quality.yml",
+        ):
+            with self.subTest(path=path):
+                plan = selector.select([path], pr_fast=True)
+                self.assertEqual(plan["unit_packages"], [])
+                self.assertEqual(plan["checks"], selector.select([path])["checks"])
+
+    def test_full_validation_disables_fast_route(self):
+        plan = selector.select(["src/loushang/ai/pricing.py"], full=True, pr_fast=True)
+        self.assertEqual(plan["unit_packages"], [])
+        self.assertTrue(all(plan["checks"].values()))
+
+    def test_unit_inventory_is_explicit_existing_and_unique(self):
+        inventory = json.loads((ROOT / "scripts/ci/unit-tests.json").read_text())
+        self.assertTrue(inventory)
+        for package, paths in inventory.items():
+            with self.subTest(package=package):
+                self.assertRegex(package, r"^[a-z][a-z0-9_]*$")
+                self.assertTrue(paths)
+                self.assertEqual(paths, sorted(set(paths)))
+                for path in paths:
+                    self.assertTrue(path.startswith("tests/"))
+                    self.assertTrue((ROOT / path).is_file(), path)
 
     def test_schedule_and_manual_dispatch_are_full(self):
         for event in ("schedule", "workflow_dispatch"):
@@ -664,7 +728,16 @@ class WorkflowContractTests(unittest.TestCase):
                 )
             )
             mapping = json.loads(re.search(r"--jobs '(.*)'", text)[1])
-            self.assertEqual(jobs, mapping, path.name)
+            if path.name in {"package-unit-quality.yml", "e2e-smoke-quality.yml"}:
+                self.assertEqual(
+                    mapping,
+                    {"package": "units"}
+                    if path.name == "package-unit-quality.yml"
+                    else {"resume-turn": "e2e"},
+                )
+                self.assertIn("--section workflows", text)
+            else:
+                self.assertEqual(jobs, mapping, path.name)
             all_jobs = set(
                 re.findall(r"^  ([\w-]+):", text.split("\njobs:\n")[1], re.M)
             )
