@@ -67,6 +67,7 @@ def _binding() -> CodingRuntimeBindingV1:
 
 async def _append_test_activation_attempt(
     manager: SessionManager,
+    *, close_runtime_gate: bool = False,
 ) -> tuple[str, str | None, str]:
     original_leaf_id = manager.leaf_id
     ancestry = project_coding_runtime_binding_path(
@@ -88,9 +89,105 @@ async def _append_test_activation_attempt(
     record = prepare_coding_activation_attempt_record(
         attempt, created_at=datetime(2026, 10, 12, tzinfo=UTC),
     )
-    result = await manager.commit_prebuilt_extension_data(record)
+    result = await (manager._commit_resume_activation_intent(record) if close_runtime_gate
+                    else manager.commit_prebuilt_extension_data(record))
     assert result.disposition == "committed"
     return record.record_id, original_leaf_id, ancestry
+
+
+@pytest.mark.parametrize("outcome", ["committed", "unknown", "failed", "cancelled"])
+def test_resume_intent_closes_runtime_gate_before_commit_and_keeps_it_closed(
+    tmp_path, monkeypatch, outcome,
+):
+    async def scenario():
+        manager = await SessionManager.new(
+            session_dir=tmp_path, cwd=str(tmp_path), session_id="session-1",
+            defer_materialization=False,
+        )
+        store = manager._lifecycle_session.runtime_binding.store
+        append = store.append
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def held(*args, **kwargs):
+            entered.set()
+            await release.wait()
+            if outcome == "unknown":
+                await append(*args, **kwargs)
+                raise StoreCommitOutcomeUnknown("intent ack lost")
+            if outcome == "failed":
+                raise OSError("intent write failed")
+            return await append(*args, **kwargs)
+
+        monkeypatch.setattr(store, "append", held)
+        task = asyncio.create_task(_append_test_activation_attempt(manager, close_runtime_gate=True))
+        entering = asyncio.create_task(entered.wait())
+        try:
+            await asyncio.wait((task, entering), return_when=asyncio.FIRST_COMPLETED)
+            if not entered.is_set():
+                await task
+            assert manager.resume_runtime_publication_pending
+            with pytest.raises(CodingResumeRecoveryRequired, match="runtime.publication_pending"):
+                manager.require_no_unsettled_resume_activation()
+            with pytest.raises(CodingResumeRecoveryRequired):
+                await manager.append_message(UserMessage(role="user", content="racing input", timestamp=1.0))
+            if outcome == "cancelled":
+                assert task.cancel()
+            release.set()
+            if outcome in {"committed", "cancelled"}:
+                await task
+                if outcome == "cancelled":
+                    # The original commit owner settles its durable operation
+                    # atomically even when the caller requests cancellation.
+                    assert manager.leaf_id == "attempt-1"
+                    assert len(manager.get_entries()) == 1
+            else:
+                expected = {"unknown": StoreCommitOutcomeUnknown, "failed": OSError}[outcome]
+                with pytest.raises(expected):
+                    await task
+            assert manager.resume_runtime_publication_pending
+            with pytest.raises(CodingResumeRecoveryRequired):
+                manager.require_no_unsettled_resume_activation()
+        finally:
+            release.set()
+            entering.cancel()
+            await asyncio.gather(entering, return_exceptions=True)
+            await asyncio.gather(task, return_exceptions=True)
+            await manager.dispose_runtime_profile()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("changed", ["session", "leaf", "ancestry", "metadata"])
+def test_resume_intent_rejects_changed_history_before_closing_gate(tmp_path, changed):
+    async def scenario():
+        manager = await SessionManager.new(
+            session_dir=tmp_path, cwd=str(tmp_path), session_id="session-1",
+            defer_materialization=False,
+        )
+        ancestry = project_coding_runtime_binding_path(
+            manager._transcript.active_path(), current_session_id="session-1",
+        ).ancestry_digest
+        attempt = CodingActivationAttemptV1(
+            attempt_id="attempt-1", request_id="input-1",
+            session_id="other" if changed == "session" else "session-1",
+            original_leaf_id="other" if changed == "leaf" else None,
+            ancestry_digest="a" * 64 if changed == "ancestry" else ancestry,
+            plan_fingerprint="b" * 64, epoch_fingerprint="c" * 64, subject_digest="d" * 64,
+        )
+        record = prepare_coding_activation_attempt_record(
+            attempt, created_at=datetime(2026, 10, 12, tzinfo=UTC),
+        )
+        if changed == "metadata":
+            record = replace(record, metadata={"extra": "unadmitted"})
+        try:
+            with pytest.raises(ValueError, match="differs"):
+                await manager._commit_resume_activation_intent(record)
+            assert not manager.resume_runtime_publication_pending
+            assert manager.get_entries() == []
+        finally:
+            await manager.dispose_runtime_profile()
+
+    asyncio.run(scenario())
 
 
 def test_activation_attempt_is_a_bounded_fixed_id_historical_fact() -> None:
@@ -783,7 +880,7 @@ def test_staged_resume_first_input_uses_the_session_append_path(tmp_path) -> Non
         message = UserMessage(role="user", content="continue", timestamp=1.0)
         try:
             intent_id, original_leaf_id, ancestry = (
-                await _append_test_activation_attempt(manager)
+                await _append_test_activation_attempt(manager, close_runtime_gate=True)
             )
             manager._stage_resume_first_user_input(
                 message,

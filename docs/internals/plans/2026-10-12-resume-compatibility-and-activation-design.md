@@ -72,7 +72,14 @@
   not enabled this capability; client reconnection/editor integration,
   actor-policy read revocation and the
   full Hosted Resume readiness/admission flow remain pending.
-  Staging also closes a distinct local Runtime publication gate. That gate
+  The internal SessionManager initial-intent route now validates current
+  Session, selected leaf and ancestry, freezes the canonical intent, and closes
+  the local Runtime publication gate before its first await into the original
+  fixed-ID Transcript commit owner. Success, write failure, lost acknowledgement
+  and caller cancellation cannot reopen that gate. This route still requires
+  the activation coordinator's live admission; it is not a retry/recovery port
+  and is not yet wired into ordinary Product bootstrap. Staging also closes
+  the same distinct local Runtime publication gate. That gate
   remains closed after successful input/Binding commit, including when the
   historical attempt projection becomes settled and a historical guard result
   is cached. Ordinary message writes, startup readiness and Coding model-runtime

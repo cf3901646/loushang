@@ -29,7 +29,12 @@
   and compares frozen payload, complete metadata, and selected branch, with
   committed, not_committed_verified, unknown, and conflict results. Complete
   evidence and an unchanged target are required to prove absence; this is
-  not yet the Hosted logical-ID/model-outcome port. Current activation admission,
+  not yet the full Hosted logical-ID/model-outcome flow. SessionManager now has
+  an internal initial-intent commit route that validates selected Session/leaf/
+  ancestry, detaches the canonical record, and closes the local Runtime gate
+  before awaiting the original commit owner. Failure, lost acknowledgement and
+  cancellation keep the gate closed. This route requires live owner admission
+  and is not yet called by ordinary Product bootstrap. Current activation admission,
   complete recovery, and runtime wiring are not implemented
 - Owner: Loushang architecture, Coding continuity, and Harness transcript
 - Tracking: [Issue #696](https://github.com/zhnt/loushang/issues/696)

@@ -37,6 +37,7 @@ from loushang.harness.transcript import (
     AgentTranscriptLifecycle,
     AgentTranscriptRecord,
     AgentTranscriptSessionFactory,
+    CommitResult,
     PrebuiltUserMessageLookupResult,
     ProductTranscriptSession,
     SessionSummary,
@@ -50,6 +51,7 @@ from loushang.harness.transcript.jsonl_file import (
 from .resume_activation_attempt import (
     CodingActivationAttemptV1,
     CodingResumeRecoveryRequired,
+    prepare_coding_activation_attempt_record,
     project_coding_activation_attempt_path,
     require_no_unsettled_coding_activation,
     validate_coding_activation_attempt_record,
@@ -200,6 +202,42 @@ class SessionManager(
         """Local readiness only; historical Binding cannot prove publication."""
 
         return self._resume_runtime_publication_pending
+
+    async def _commit_resume_activation_intent(
+        self, record: AgentTranscriptRecord,
+    ) -> CommitResult:
+        """Fence execution before the admitted owner's first durable intent.
+
+        The caller still owns live subject/policy validation and effect
+        settlement. This is the initial intent route, not a retry or recovery
+        admission. Transcript retains the original Writer and fixed-ID commit.
+        """
+
+        if not self.persist or not self._transcript.is_materialized:
+            raise ValueError("Coding Resume intent requires a materialized Writer")
+        self.require_no_unsettled_resume_activation()
+        attempt = validate_coding_activation_attempt_record(record)
+        frozen = prepare_coding_activation_attempt_record(
+            attempt, created_at=datetime.fromisoformat(record.created_at.replace("Z", "+00:00")),
+        )
+        if frozen != record:
+            raise ValueError("Coding Resume intent differs from its canonical record")
+        projection = project_coding_runtime_binding_path(
+            self._transcript.active_path(),
+            current_session_id=self.get_header().conversation_id,
+        )
+        if (
+            attempt.session_id != self.get_header().conversation_id
+            or attempt.original_leaf_id != self._transcript.leaf_id
+            or projection.status == "unknown_version"
+            or attempt.ancestry_digest != projection.ancestry_digest
+        ):
+            raise ValueError("Coding Resume intent differs from selected history")
+        # This assignment precedes even operation-scope acquisition. A failed
+        # or cancelled await cannot prove intent/effects absent or reopen live
+        # execution; the activation recovery owner must settle that decision.
+        self._resume_runtime_publication_pending = True
+        return await self.commit_prebuilt_extension_data(frozen)
 
     @classmethod
     async def new_with_composition(
