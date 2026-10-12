@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping, Sequence
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from math import isfinite
 from pathlib import Path
 from typing import Any, Literal
 
@@ -16,6 +17,7 @@ from loushang.harness.resources._catalog_input_receipt import (
     CatalogPluginPackageInput,
     ResourceCatalogInputReceipt,
 )
+from loushang.harness.resources._catalog_preview_tasks import CatalogPreviewTaskScope
 from loushang.harness.resources._catalog_projection import ResourceCatalogProjection
 from loushang.harness.resources._discovery_conventions import (
     DEFAULT_CONTEXT_FILE_NAMES,
@@ -27,6 +29,7 @@ from loushang.harness.resources.layout import (
 )
 from loushang.harness.resources.packages.mounts import PackageResourceMount
 from loushang.harness.resources.packages.source import PackageSourceConfig
+from loushang.harness.resources.plugins.revisions import VerifiedRevisionHandle
 from loushang.harness.resources.types import (
     ExtensionDescriptor,
     PackageResourceSummary,
@@ -209,6 +212,7 @@ class ResourceLoader:
             ResourceCatalogInputReceipt | None
         ) = None
         self._catalog_plugin_package_inputs: tuple[CatalogPluginPackageInput, ...] = ()
+        self._catalog_preview_tasks: CatalogPreviewTaskScope | None = None
         self._package_mounts = _package_mounts_from_legacy_roots(
             package_roots,
             package_source_filters,
@@ -439,6 +443,111 @@ class ResourceLoader:
             cwd, work_probe=work_probe, package_text_byte_budget=8 * 1024 * 1024,
         )
 
+    async def preview_catalog_input_fingerprint(
+        self, cwd: Path, *, subject_digest: str, policy_digest: str,
+        max_work_units: int, time_budget_seconds: float,
+    ) -> str:
+        """Share bounded native pure computation inside this Resource owner.
+
+        A waiter owns only its reference. The owner retains temporary read pins
+        through actual native completion. No receipt or live handle is returned.
+        Separate subject/policy domains never share a job. This API does not yet
+        provide priority or reuse across distinct ResourceLoader instances.
+        """
+
+        if not isinstance(cwd, Path) or not cwd.is_absolute():
+            raise ValueError("Catalog background preview requires an absolute workspace")
+        for digest in (subject_digest, policy_digest):
+            if type(digest) is not str or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+                raise ValueError("Catalog background preview isolation digest is invalid")
+        if type(max_work_units) is not int or not 1 <= max_work_units <= 65536:
+            raise ValueError("Catalog background preview work budget is invalid")
+        if (
+            type(time_budget_seconds) not in (int, float)
+            or not isfinite(time_budget_seconds) or not 0 < time_budget_seconds <= 60
+        ):
+            raise ValueError("Catalog background preview time budget is invalid")
+        if self._legacy_authority_selected:
+            raise ResourceLoaderCompatibilityError("legacy_loader_cannot_preview_catalog_inputs")
+        if self._catalog_preview_tasks is None:
+            self._catalog_preview_tasks = CatalogPreviewTaskScope()
+        state = self._catalog_input_state()
+
+        def prepare() -> tuple[Callable[[Callable[[], None]], str], Callable[[], None]]:
+            captured, pins = self._capture_catalog_preview_state(state)
+
+            def compute(probe: Callable[[], None]) -> str:
+                probe()
+                receipt = ResourceLoader._compute_catalog_input_receipt_from_state(
+                    captured, cwd, work_probe=probe,
+                    package_text_byte_budget=8 * 1024 * 1024,
+                )
+                return receipt.input_fingerprint
+
+            return compute, lambda: self._release_catalog_preview_pins(pins)
+
+        fingerprint = await self._catalog_preview_tasks.run(
+            (cwd, subject_digest, policy_digest, state, max_work_units, time_budget_seconds),
+            prepare, max_work_units=max_work_units, time_budget_seconds=time_budget_seconds,
+        )
+        if self._catalog_input_state() != state or self._legacy_authority_selected:
+            raise ResourceLoaderCompatibilityError("catalog_preview_stale")
+        return fingerprint
+
+    @staticmethod
+    def _release_catalog_preview_pins(pins: Sequence[VerifiedRevisionHandle]) -> None:
+        failure: BaseException | None = None
+        for pin in reversed(pins):
+            try:
+                pin.close()
+            except BaseException as error:
+                if failure is None:
+                    failure = error
+                else:
+                    failure.add_note(f"additional preview pin close failed: {type(error).__name__}")
+        if failure is not None:
+            raise failure
+
+    @staticmethod
+    def _capture_catalog_preview_state(
+        state: _CatalogInputState,
+    ) -> tuple[_CatalogInputState, list[VerifiedRevisionHandle]]:
+        if len(state.package_mounts) > 64:
+            raise ResourceLoaderCompatibilityError("catalog_preview_pin_capacity_exceeded")
+        pins: dict[int, VerifiedRevisionHandle] = {}
+        try:
+            mounts = []
+            for mount in state.package_mounts:
+                handle = mount.revision_handle
+                if handle is None:
+                    mounts.append(mount)
+                    continue
+                if id(handle) not in pins:
+                    pins[id(handle)] = handle.acquire_readonly_capture()
+                mounts.append(replace(mount, revision_handle=pins[id(handle)]))
+            packages = tuple(
+                replace(item, package=replace(
+                    item.package, revision_handle=pins[id(item.package.revision_handle)],
+                ))
+                for item in state.catalog_plugin_package_inputs
+            )
+            return replace(state, package_mounts=tuple(mounts), catalog_plugin_package_inputs=packages), list(pins.values())
+        except BaseException:
+            ResourceLoader._release_catalog_preview_pins(list(pins.values()))
+            raise
+
+    async def close_catalog_preview_tasks(self) -> None:
+        """Fence and join native computation before the existing owner closes."""
+
+        if self._catalog_preview_tasks is not None:
+            await self._catalog_preview_tasks.close()
+
+    async def aclose(self) -> None:
+        try:
+            await self.close_catalog_preview_tasks()
+        finally:
+            self.close()
+
     def _catalog_input_state(self) -> _CatalogInputState:
         return _CatalogInputState(
             package_mounts=self._package_mounts,
@@ -469,6 +578,22 @@ class ResourceLoader:
         package_text_byte_budget: int | None = None,
     ) -> ResourceCatalogInputReceipt:
         state = self._catalog_input_state()
+        receipt = self._compute_catalog_input_receipt_from_state(
+            state, cwd, work_probe=work_probe,
+            package_text_byte_budget=package_text_byte_budget,
+        )
+        if self._catalog_input_state() != state:
+            raise ResourceLoaderCompatibilityError("catalog_preview_stale")
+        return receipt
+
+    @staticmethod
+    def _compute_catalog_input_receipt_from_state(
+        state: _CatalogInputState, cwd: str | Path, *,
+        work_probe: Callable[[], None] | None = None,
+        package_text_byte_budget: int | None = None,
+    ) -> ResourceCatalogInputReceipt:
+        """Use the same source computation on a captured input state."""
+
         if work_probe is not None:
             work_probe()
         if work_probe is None:
@@ -510,8 +635,6 @@ class ResourceLoader:
             _verify_package_mounts(state.package_mounts)
         else:
             _verify_package_mounts(state.package_mounts, work_probe=work_probe)
-        if self._catalog_input_state() != state:
-            raise ResourceLoaderCompatibilityError("catalog_preview_stale")
         return receipt
 
     def create_catalog_session_view(self) -> CatalogSessionResourceLoaderView:
@@ -618,6 +741,8 @@ class ResourceLoader:
         self._catalog_inputs_pending = projection is None
 
     def close(self) -> None:
+        if self._catalog_preview_tasks is not None and not self._catalog_preview_tasks.fence():
+            raise ResourceLoaderCompatibilityError("catalog_preview_settlement_pending")
         self._initial_resource_catalog_input_receipt = None
         closed: set[int] = set()
         for mount in self._package_mounts:

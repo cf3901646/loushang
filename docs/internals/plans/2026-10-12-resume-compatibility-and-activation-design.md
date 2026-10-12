@@ -32,7 +32,7 @@
   Resource content is not closed by this receipt, which cannot replace current
   owner selection. The staged first-input path is not yet armed by live Resume
   activation. Writable admission, owner selection
-  completion, background scheduling, Hosted readiness, and release evidence
+  completion, Product background wiring, Hosted readiness, and release evidence
   are not implemented.
 - Planning cancellation: the shared Plan entry and original ResourceLoader
   preview accept a cooperative work probe. Checkpoints cover phase boundaries,
@@ -48,8 +48,22 @@
   Directory cancellation occurs before collecting
   and sorting all candidates. Cancellation discards the
   result without selecting authority and permits re-planning. Work-unit/time
-  budgets and shared scheduling,
-  Session waiting references, priority, and close settlement remain unimplemented.
+  budgets are explicit caller inputs to an internal Resource-owned background
+  entry. This entry shares one computation for identical input state, workspace,
+  subject and policy within one ResourceLoader; separate domains do not share.
+  The process limits admitted jobs to eight and native workers to two, with
+  at most 64 references per job. These provisional bounds are not release
+  performance evidence. Cancellation releases one waiter reference; only the
+  last reference cancels computation. Original revision owners supply temporary
+  read pins without an eager scan, then verify them during native computation.
+  Pin cleanup runs before a successful native completion receipt. `aclose` joins native
+  completion even when its caller is cancelled; synchronous close reports
+  pending settlement while work remains. A publication gate prevents source
+  reads when native submission loses its receipt and fences further background
+  submission; the ordinary on-demand path remains available. Only a redacted
+  fingerprint leaves the Resource owner. Product Session waiting references,
+  priority, cross-ResourceLoader Workspace deduplication, caches, and production
+  close wiring remain unimplemented.
 - Revision: R2.1, 2026-10-12; R2 independently rechecked, with the requested
   legacy Ack timing and fork-origin clarifications applied.
 - Owning scope: Coding Session continuity; collaborating scopes: Harness,

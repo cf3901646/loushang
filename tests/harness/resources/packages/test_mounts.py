@@ -272,6 +272,31 @@ def test_package_text_capture_cancels_between_byte_chunks_without_closing_owner(
         mount.close()
 
 
+def test_readonly_capture_pin_does_not_eagerly_verify_or_replace_ordinary_admission(tmp_path, monkeypatch) -> None:
+    source = _plugin(tmp_path / "source")
+    published = PluginRevisionStore(tmp_path / "revisions").publish(
+        PluginManifestParser().parse(source)
+    )
+    handle = published.revision_handle
+    assert handle is not None
+
+    def forbidden_verify(*args, **kwargs):
+        raise RuntimeError("eager verification forbidden")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(handle, "verify", forbidden_verify)
+        pin = handle.acquire_readonly_capture()
+        with pytest.raises(RuntimeError, match="eager verification forbidden"):
+            handle.acquire()
+    try:
+        handle.close()
+        pin.verify()
+        with pin.open_file("resources/prompts/review.md") as stream:
+            assert stream.read() == b"review v1"
+    finally:
+        pin.close()
+
+
 def _plugin(root: Path) -> Path:
     prompt_root = root / "resources" / "prompts"
     prompt_root.mkdir(parents=True)

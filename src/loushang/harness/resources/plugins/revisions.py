@@ -282,6 +282,17 @@ class VerifiedRevisionHandle:
         """Acquire an independently disposable lease over the same revision."""
 
         self.verify()
+        return self.acquire_readonly_capture()
+
+    def acquire_readonly_capture(self) -> VerifiedRevisionHandle:
+        """Pin existing immutable read facts without an eager content scan.
+
+        This read pin grants no Plugin activation or current integrity proof.
+        The capturing owner must verify it during its bounded computation and
+        retain it until actual native completion, including on cancellation.
+        """
+
+        self._require_open()
         root_fd: int | None = None
         if self._descriptor_backed:
             try:
@@ -295,7 +306,7 @@ class VerifiedRevisionHandle:
         handle = object.__new__(VerifiedRevisionHandle)
         handle.root = self.root
         handle.content_digest = self.content_digest
-        handle._entries = MappingProxyType(dict(self._entries))
+        handle._entries = self._entries
         handle._root_fd = root_fd
         handle._root_identity = self._root_identity
         handle._descriptor_backed = self._descriptor_backed
