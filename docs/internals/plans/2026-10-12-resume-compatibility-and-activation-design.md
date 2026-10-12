@@ -141,8 +141,19 @@
   appending startup history, activating the Worker turn Tool or reopening the
   execution gate. Unknown acknowledgements and historical intent alone do not
   establish local preparation admission. This is not yet the production Resume
-  coordinator: construction from a legacy resumed Writer, native effect
-  correlation, current grants and final Runtime publication remain pending.
+  coordinator: production bootstrap wiring, native effect correlation, current
+  grants and final Runtime publication remain pending.
+  An internal asynchronous Coding bootstrap now constructs a current candidate
+  from that same owned resumed Writer after definite intent commit. The Writer
+  retains its verified Plan locally; bootstrap matches the canonical current
+  composition to the Plan and gives its immutable attempt to current admission
+  before Product selection, before construction and before delivery. The
+  explicit internal context selects the current composition without sealing or
+  changing the original Header. Public ordinary bootstrap retains its pending
+  activation rejection and historical composition pinning. A candidate denied
+  after construction is disposed through the original Session owner before the
+  error returns. This route neither settles native effects nor publishes
+  execution readiness, and Embedded/Hosted production callers are still pending.
   ResourceLoader
   can calculate Catalog input facts and bounded native context content digests
   without choosing authority; Plan records only their redacted input fingerprint and
@@ -782,6 +793,28 @@ seven-case run completed normally.
 Seven focused composition tests also passed for detached current observations,
 concurrent ordinary preparation, foreign startup rejection and fenced Product
 startup records. Ruff, mypy for the two changed Product modules and all nine
-documentation checks passed. The test fixture constructs its AgentSession
-before committing intent; it does not yet prove bootstrap from a legacy resumed
+documentation checks passed. The graph-preparation fixture constructs its AgentSession
+before committing intent; those tests do not prove bootstrap from a legacy resumed
 Writer, native Worker effect settlement, Hosted readiness or Runtime publication.
+
+## Internal Resume Bootstrap Evidence (2026-10-12)
+
+The owned Writer baseline passed four tests before this slice. A new legacy
+reopen test first failed because the internal Resume bootstrap was absent.
+After implementation, 159 non-live tests passed across Resume bootstrap, runtime
+preparation, Writer, Binding and the ordinary Coding bootstrap suite. The seven
+new bootstrap cases cover legacy history, a previously prepared standard
+composition resumed with the current minimal composition, initial denial,
+wrong current composition, revocation after construction, a non-None admission
+result and an uncertain intent acknowledgement. Successful cases construct and
+prepare the real candidate graph without changing history after intent commit;
+execution remains unavailable. Delivery revocation disposes the original
+candidate Writer, while wrong composition and uncertain intent are rejected
+before the caller's admission callback.
+
+Ruff and mypy for the changed Product modules passed, documentation checks
+passed, and the cumulative change-aware gate plan was inspected. Full branch
+quality gates and Actions platform checks remain pending. These internal tests
+do not prove live subject/policy grants, native effect correlation, production
+Embedded/Hosted continuation, Runtime publication, performance acceptance or
+released N/N+1 behavior.

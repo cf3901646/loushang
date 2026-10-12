@@ -7,8 +7,9 @@ import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import suppress
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from functools import partial
+from inspect import iscoroutine, iscoroutinefunction
 from pathlib import Path
 from tempfile import TemporaryDirectory as _TemporaryDirectoryCleanup
 from tempfile import mkdtemp
@@ -128,6 +129,7 @@ from loushang.coding.resource_runtime import (
 from loushang.coding.resource_runtime import (
     CodingResourceLoader as DefaultResourceLoader,
 )
+from loushang.coding.resume_activation_attempt import CodingActivationAttemptV1
 from loushang.coding.runtime import AgentSessionRuntime
 from loushang.coding.runtime_capability_admission import (
     bind_coding_side_question,
@@ -536,6 +538,30 @@ class CodingPackageProductLegacyPathError(RuntimeError):
     code = "coding_package_product_legacy_plugin_path"
 
 
+@dataclass(frozen=True, slots=True)
+class _CodingResumeBootstrapAdmission:
+    manager: SessionManager
+    attempt_id: str
+    composition: CodingCompositionSetPlan
+    current_admission: Callable[[CodingActivationAttemptV1], None]
+
+    def require(
+        self, manager: SessionManager, composition: CodingCompositionSetPlan,
+    ) -> CodingCompositionSetPlan:
+        if manager is not self.manager or composition != self.composition:
+            raise ValueError("Coding Resume bootstrap admission belongs to another candidate")
+        with manager._lifecycle_session.sync_operation_scope():
+            attempt = manager._require_resume_bootstrap_composition(self.attempt_id, composition)
+            if not callable(self.current_admission) or iscoroutinefunction(self.current_admission):
+                raise TypeError("Coding Resume bootstrap admission must be synchronous")
+            result = cast(Callable[[CodingActivationAttemptV1], object], self.current_admission)(attempt)
+            if result is not None:
+                if iscoroutine(result):
+                    result.close()
+                raise TypeError("Coding Resume bootstrap admission must return None")
+        return composition
+
+
 def _create_agent_session(
     *,
     session_manager: SessionManager,
@@ -576,8 +602,12 @@ def _create_agent_session(
         CODING_STANDARD_RESOURCE_CATALOG_SOURCE_POLICY
     ),
     invocation_product_profile: CodingAgentInvocationProductProfile | None = None,
+    _resume_bootstrap_admission: _CodingResumeBootstrapAdmission | None = None,
 ) -> AgentSession:
-    session_manager.require_no_unsettled_resume_activation()
+    if _resume_bootstrap_admission is None:
+        session_manager.require_no_unsettled_resume_activation()
+    elif type(_resume_bootstrap_admission) is not _CodingResumeBootstrapAdmission:
+        raise TypeError("Coding Resume bootstrap requires its current admission context")
     if (
         initial_resource_catalog_product_composition_assembly is not None
         and not isinstance(
@@ -593,6 +623,8 @@ def _create_agent_session(
     )
     session_no_tools_mode = normalize_no_tools(no_tools)
     requested_composition_set = _canonical_coding_composition_set(composition_set)
+    if _resume_bootstrap_admission is not None:
+        _resume_bootstrap_admission.require(session_manager, requested_composition_set)
     services = services or create_services()
     if (
         composition_choice_from_cli
@@ -608,8 +640,10 @@ def _create_agent_session(
             "Coding composition settings changed before Session startup; "
             "retry with the current settings"
         )
-    resolved_composition_set = session_manager.bind_new_composition_plan(
-        requested_composition_set
+    resolved_composition_set = (
+        session_manager.bind_new_composition_plan(requested_composition_set)
+        if _resume_bootstrap_admission is None
+        else _resume_bootstrap_admission.require(session_manager, requested_composition_set)
     )
     if (
         composition_set_explicit
@@ -2523,6 +2557,57 @@ def _select_direct_coding_product_factory(
         selection.close()
         return None
     return CodingSessionOwnedProductRuntimeFactory(factory, selection)
+
+
+async def _create_resume_agent_session(
+    *, session_manager: SessionManager, attempt_id: str,
+    composition_set: CodingCompositionSetPlan,
+    require_current_admission: Callable[[CodingActivationAttemptV1], None],
+    services: BootstrapServices | None = None,
+    model: Model | ModelSelection | None = None,
+    stream_fn: StreamFn | None = None,
+    no_tools: NoToolsMode | bool | None = None,
+    agent_factory: AgentFactory = Agent,
+    approval_resolver: InteractiveApprovalResolver | None = None,
+    tool_policy_evaluator: PolicyEvaluator | None = None,
+) -> AgentSession:
+    """Construct a fenced current candidate for a locally committed Resume Plan.
+
+    Current admission belongs to the activation coordinator. This owner route
+    retains the old Header and does not publish execution or commit user input.
+    It must not be used for recovery of an uncertain or historical-only intent.
+    """
+
+    composition = _canonical_coding_composition_set(composition_set)
+    admission = _CodingResumeBootstrapAdmission(
+        session_manager, attempt_id, composition, require_current_admission,
+    )
+    admission.require(session_manager, composition)
+    selected_factory = _select_direct_coding_product_factory(
+        session_manager, services=services, windows_candidate=sys.platform == "win32",
+    )
+    session: AgentSession | None = None
+    try:
+        admission.require(session_manager, composition)
+        session = _create_agent_session(
+            session_manager=session_manager, composition_set=composition,
+            composition_set_explicit=True, services=services, model=model,
+            stream_fn=stream_fn, no_tools=no_tools, agent_factory=agent_factory,
+            approval_resolver=approval_resolver, tool_policy_evaluator=tool_policy_evaluator,
+            package_product_runtime_factory=selected_factory,
+            _resume_bootstrap_admission=admission,
+        )
+        admission.require(session_manager, composition)
+        return session
+    except BaseException as error:
+        if session is not None:
+            try:
+                await session.dispose()
+            except BaseException as cleanup_error:
+                error.add_note(f"Coding Resume candidate cleanup also failed: {cleanup_error!r}")
+        else:
+            _dispose_unbound_package_product_runtime(selected_factory, error)
+        raise
 
 
 def create_agent_session(

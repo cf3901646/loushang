@@ -208,6 +208,7 @@ class SessionManager(
     _resume_runtime_publication_pending: bool = False
     _resume_writer_plan: SessionActivationPlanV1 | None = None
     _resume_committed_attempt: tuple[CodingActivationAttemptV1, str] | None = None
+    _resume_committed_plan: SessionActivationPlanV1 | None = None
     _activation_guard_snapshot: tuple[int, str | None] | None = None
 
     @property
@@ -328,6 +329,7 @@ class SessionManager(
         self._resume_runtime_publication_pending = True
         self._resume_writer_plan = None
         self._resume_committed_attempt = None
+        self._resume_committed_plan = None
         result = await self.commit_prebuilt_extension_data(frozen)
         if (
             type(result) is not CommitResult or result.record_id != frozen.record_id
@@ -335,6 +337,7 @@ class SessionManager(
         ):
             raise StoreCommitOutcomeUnknown("Coding Resume intent commit was not verified")
         self._resume_committed_attempt = (attempt, frozen.created_at)
+        self._resume_committed_plan = writer_plan
         return result
 
     def _require_resume_runtime_preparation(self, attempt_id: str) -> CodingActivationAttemptV1:
@@ -364,6 +367,24 @@ class SessionManager(
                 raise ValueError("Coding Resume preparation selected history changed")
         except ValueError as error:
             raise CodingResumeRecoveryRequired("runtime.intent_changed") from error
+        return attempt
+
+    def _require_resume_bootstrap_composition(
+        self, attempt_id: str, composition: CodingCompositionSetPlan,
+    ) -> CodingActivationAttemptV1:
+        """Match the current candidate to this Writer's definitely committed Plan."""
+
+        attempt = self._require_resume_runtime_preparation(attempt_id)
+        plan = self._resume_committed_plan
+        if plan is None or plan.plan_id != attempt.plan_fingerprint:
+            raise CodingResumeRecoveryRequired("runtime.plan_unverified")
+        if (
+            not isinstance(composition, CodingCompositionSetPlan)
+            or resolve_coding_composition_set(composition.set_id) != composition
+            or composition.set_id != plan.composition_comparison.candidate_set_id
+            or composition.fingerprint != plan.composition_comparison.candidate_fingerprint
+        ):
+            raise ValueError("Coding Resume bootstrap composition differs from its Writer Plan")
         return attempt
 
     @classmethod
