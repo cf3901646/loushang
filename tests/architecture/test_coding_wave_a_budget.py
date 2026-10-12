@@ -85,7 +85,17 @@ def test_coding_product_slices_stay_within_wave_a_budget() -> None:
     # LMUX-M0: original catalog ownership, readonly hooks and validation (+205).
     # P3: seal canonical composition before Hosted candidate materialization (+8).
     # PLC9: admit the Windows ordinary Product route in Hosted construction (+3).
-    assert sum(groups["g14"].values()) <= 1_300 + 205 + 8 + 3, groups["g14"]
+    # ARD-004/005/006 R2.1: detached history, source-fenced recovery reads and
+    # narrow adapter data validation stay on these same original owners.
+    # Exact net delta from main: catalog +191, session +147, CLI unchanged.
+    # See foreground-stdio-hosted-app-g14.md, R2.1 reviewability supplement.
+    assert sum(groups["g14"].values()) <= 1_300 + 205 + 8 + 3 + 191 + 147, groups["g14"]
+    for path, limit in {
+        "cli/hosted.py": 256,
+        "hosted_catalog.py": 1_077,
+        "hosted_session.py": 521,
+    }.items():
+        assert groups["g14"][path] <= limit, (path, groups["g14"][path], limit)
     assert sum(groups["g16"].values()) <= 900, groups["g16"]
     assert sum(groups["g17"].values()) <= 450, groups["g17"]
     assert sum(groups["g18"].values()) <= 200, groups["g18"]

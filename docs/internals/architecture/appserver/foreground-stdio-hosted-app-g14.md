@@ -21,6 +21,36 @@ pending statements; the PR records integration status separately from capability
 
 ## Outcome, Facts And Delta
 
+### R2.1 Reviewability Supplement
+
+Issue [#696](https://github.com/zhnt/loushang/issues/696) implements the
+accepted [ARD-004](../decisions/accepted/ARD-004-resume-history-and-current-authority.md),
+[ARD-005](../decisions/accepted/ARD-005-resume-continuation-commit.md) and
+[ARD-006](../decisions/accepted/ARD-006-hosted-resume-readiness-and-admission.md)
+on the existing Coding catalog and Session binding owners. Their original
+Wave A allowance predates these Resume responsibilities. The R2.1 slice
+accounts for the following exact source delta from the control lane's `main`
+at `2cb18a0bac0989e9d67fbb0ba65038d51e559995`:
+
+| Existing file | Main lines | R2.1 net increment | File limit | Added responsibility |
+| --- | ---: | ---: | ---: | --- |
+| `coding/hosted_catalog.py` | 886 | 191 | 1,077 | Detached history claim, source-fenced Header/snapshot/outcome reads and canonical envelope projection |
+| `coding/hosted_session.py` | 374 | 147 | 521 | Bounded historical display, original factory dispatch, durable-input observation and closed adapter validation |
+| `coding/cli/hosted.py` | 256 | 0 | 256 | Existing foreground command |
+
+The previous aggregate limit was 1,516 lines. The net 338-line increment
+sets the R2.1 aggregate limit to 1,854, with the additional file limits above.
+`tests/architecture/test_coding_wave_a_budget.py` checks both constraints.
+The file partition remains unchanged: each Coding source is counted exactly
+once, and new files remain in the core partition. There is no directory or
+basename exemption. The original G11 dependency, bridge and budget gates,
+G16 native-scope limits and optional execution slice limits still apply.
+
+This accounting describes implemented source responsibilities. It does not
+establish default writable Resume, epoch/effect settlement, version rollback
+or performance acceptance. Those remain #696 delivery requirements; the
+historical G14 delivery record below retains its original scope.
+
 G14 makes the existing hosted application usable across a real process
 boundary. An installed, explicitly selected Coding command constructs real
 Coding Sessions and a G13 recoverable application. A transport AppClient can

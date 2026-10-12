@@ -1858,3 +1858,33 @@ After that final placement, all 70 scoped execution, Coding confirmation,
 native Coding execution and G11 cases passed. Scoped mypy also passed the
 three relocated/import-adjusted sources. G14 remains the identified failing
 Wave A gate; the execution slice itself stays within its existing limits.
+
+#### R2.1 Hosted slice accounting and broader AppService validation
+
+The previous G14 aggregate limit was measured against its pre-Resume scope.
+Reviewing the actual diff against control `main` at `2cb18a0b` identified
+catalog +191 and Session binding +147 lines, with the Hosted CLI unchanged.
+These are the detached history claim/factory path, bounded display, fenced
+history/outcome and input observation, and narrow canonical/data validation.
+Their placement retains the original catalog, factory and Session owners.
+Moving these functions solely to evade a slice budget would obscure that
+ownership. The existing G14 architecture document now records this exact
+338-line increment. Wave A keeps its file partition and adds individual
+catalog/Session/CLI ceilings alongside the 1,854-line aggregate ceiling.
+Other budgets and dependency gates retain their existing limits.
+
+The current Wave A test first failed on the measured 1,854/1,516 mismatch.
+After the accounting change, combined Wave A, G11/G16 and native Hosted
+catalog/Session/adapter regressions passed 57 cases, with one platform skip.
+Ruff and nine static documentation checks passed. This closes the identified
+G14 accounting gap, rather than claiming completion of the remaining default
+Resume, effect-settlement, background/performance or release requirements.
+
+The complete AppService quality target passed every Ruff invocation and mypy
+over 94 source files. Offline uv initially lacked build-system cache, so the
+gate uses the existing virtual environment with `UV_OFFLINE=1 UV_NO_SYNC=1`.
+Its first test collection selected that environment's control-lane editable
+source and failed 17 collections. Re-running the test phase with explicit
+`PYTHONPATH=src` selects this task branch. The command retains `-m 'not live'`
+and `--skip-host-runtime`; that full test phase is still running at this
+checkpoint. It must reach a terminal result before being reported as passed.
