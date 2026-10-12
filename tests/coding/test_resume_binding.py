@@ -28,6 +28,10 @@ from loushang.coding.resume_binding import (
     validate_coding_runtime_binding_record,
 )
 from loushang.coding.resume_history import read_coding_resume_snapshot
+from loushang.coding.resume_input_lookup import (
+    CodingResumeInputLookupQueryV1,
+    coding_resume_input_record_digest,
+)
 from loushang.coding.session_manager import SessionManager
 from loushang.harness.conversation import StoreCommitOutcomeUnknown
 from loushang.harness.conversation.repository import ConversationRepository
@@ -964,6 +968,12 @@ def test_staged_resume_first_input_does_not_replay_after_lost_ack(
                 observed = await manager._lookup_resume_first_user_input(request_id="input-1")
                 assert observed.status == "committed"
                 assert observed.record_id == "record-1"
+            pending = manager._resume_first_input
+            assert pending is not None and pending.prepared_record is not None
+            query = CodingResumeInputLookupQueryV1(
+                "input-1", coding_resume_input_record_digest(pending.prepared_record),
+            )
+            assert (await manager.lookup_resume_input(query)).status == "committed"
             assert manager.session_file.read_bytes() == before_lookup
             assert (manager._transcript.revision, manager.leaf_id) == before_target
             path = manager.session_file

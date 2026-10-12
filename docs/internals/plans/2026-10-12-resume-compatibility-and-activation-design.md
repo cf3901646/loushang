@@ -30,6 +30,19 @@
   incomplete tail or unavailable authority remains unknown. The observation
   does not clear the activation fence, authorize retry, or start a model call.
   Before record preparation there is no invented fixed-record observation.
+  An internal logical-input lookup query now contains only the stable input ID
+  and a digest of the exact prepared record. The original Transcript codec
+  covers payload, full metadata, timestamp, record identity and branch parent.
+  Coding resolves the matching current-Session Binding in selected ancestry
+  (outside truncated model context) or its retained prepared input, then calls
+  the original authority lookup. Duplicate selected IDs or digest mismatch are
+  conflict; missing local evidence is unknown, never verified absence. A
+  provisional 65536-record local scan ceiling also returns unknown. The real
+  Hosted binding forwards this observation without replacing control identity,
+  and rejects lookup once close begins. Callers still need current read
+  authorization. SessionManager reload tests cover committed identity with no local
+  submission ledger and partial-tail uncertainty. New/old client negotiation,
+  AppService read-admission wiring and model-attempt observation remain pending.
   Staging also closes a distinct local Runtime publication gate. That gate
   remains closed after successful input/Binding commit, including when the
   historical attempt projection becomes settled and a historical guard result

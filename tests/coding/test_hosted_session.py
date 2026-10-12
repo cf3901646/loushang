@@ -146,6 +146,28 @@ async def _binding(tmp_path: Path):
     return binding
 
 
+def test_hosted_resume_lookup_uses_the_existing_canonical_binding(tmp_path: Path) -> None:
+    from loushang.coding.hosted_catalog import CodingHostedCatalogError
+    from loushang.coding.resume_input_lookup import CodingResumeInputLookupQueryV1
+
+    async def scenario():
+        binding = await _binding(tmp_path)
+        try:
+            original_control = binding.control
+            query = CodingResumeInputLookupQueryV1("input-1", "a" * 64)
+            result = await binding.lookup_resume_input(query)
+            assert result.status == "unknown"
+            assert result.record_id is None
+            assert binding.control is original_control
+            assert binding._close_task is None
+        finally:
+            await binding.close()
+        with pytest.raises(CodingHostedCatalogError):
+            await binding.lookup_resume_input(query)
+
+    asyncio.run(scenario())
+
+
 def test_G14_PRODUCT_real_agent_session_streams_and_persists_messages(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, record_property,
 ) -> None:

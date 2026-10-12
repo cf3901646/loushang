@@ -59,8 +59,15 @@ from .resume_binding import (
     CodingRuntimeBindingV1,
     coding_user_input_digest,
     freeze_coding_user_input,
+    inspect_coding_runtime_binding,
     prepare_coding_resume_user_record,
     project_coding_runtime_binding_path,
+    validate_coding_runtime_binding_record,
+)
+from .resume_input_lookup import (
+    CodingResumeInputLookupQueryV1,
+    CodingResumeInputLookupResultV1,
+    coding_resume_input_record_digest,
 )
 
 
@@ -431,6 +438,52 @@ class SessionManager(
             if pending.prepared_record is None:
                 raise ValueError("Coding Resume input has no prepared record to observe")
             return await self.lookup_prebuilt_user_message(pending.prepared_record)
+
+    async def lookup_resume_input(
+        self, query: CodingResumeInputLookupQueryV1,
+    ) -> CodingResumeInputLookupResultV1:
+        """Observe a logical input using the existing Transcript authority owner.
+
+        Selected ancestry includes records outside current model context. A
+        missing local match remains unknown, including after service restart;
+        only an exact staged record permits the original owner to prove absence.
+        The caller must already hold current read authorization. No result
+        admits retry, Runtime publication or model execution.
+        """
+
+        if not isinstance(query, CodingResumeInputLookupQueryV1):
+            raise TypeError("Coding Resume lookup query is invalid")
+        unknown = CodingResumeInputLookupResultV1(query.input_id, None, "unknown")
+        if not self.persist or len(self._transcript.records) > 65536:
+            return unknown
+        session_id = self.get_header().conversation_id
+        candidates: list[AgentTranscriptRecord] = []
+        try:
+            path = tuple(self._transcript.active_path())
+            projection = project_coding_runtime_binding_path(path, current_session_id=session_id)
+            if projection.status == "unknown_version":
+                return unknown
+            for record in path:
+                binding = inspect_coding_runtime_binding(record.metadata).binding
+                if binding is None or binding.session_id != session_id or binding.input_id != query.input_id:
+                    continue
+                validate_coding_runtime_binding_record(record, expected_session_id=session_id)
+                candidates.append(record)
+        except ValueError:
+            return unknown
+        pending = self._resume_first_input
+        if (
+            not candidates and isinstance(pending, _PendingResumeFirstInput)
+            and pending.attempt.request_id == query.input_id
+            and pending.prepared_record is not None
+        ):
+            candidates.append(pending.prepared_record)
+        if not candidates:
+            return unknown
+        if len(candidates) != 1 or coding_resume_input_record_digest(candidates[0]) != query.record_digest:
+            return CodingResumeInputLookupResultV1(query.input_id, None, "conflict")
+        observed = await self.lookup_prebuilt_user_message(candidates[0])
+        return CodingResumeInputLookupResultV1(query.input_id, observed.record_id, observed.status)
 
     @classmethod
     def _session_factory(

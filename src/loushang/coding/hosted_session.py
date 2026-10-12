@@ -40,6 +40,10 @@ from .hosted_catalog import CodingHostedCandidateBindingV1, CodingHostedCatalogE
 from .package_product_runtime import (
     CodingFencedProductApplicationSelection,
 )
+from .resume_input_lookup import (
+    CodingResumeInputLookupQueryV1,
+    CodingResumeInputLookupResultV1,
+)
 from .session.agent_session import AgentSession
 from .session_manager import SessionManager
 
@@ -71,6 +75,22 @@ class CodingRealHostedSessionV1:
     @property
     def control(self) -> SessionControlPort:
         return self._session
+
+    async def lookup_resume_input(
+        self, query: CodingResumeInputLookupQueryV1,
+    ) -> CodingResumeInputLookupResultV1:
+        """Product observation for an already read-authorized Hosted caller.
+
+        This internal port does not negotiate a new client protocol, authorize
+        reads, or infer model outcome from durable message presence.
+        """
+
+        if self._close_task is not None:
+            raise CodingHostedCatalogError()
+        manager = self._session.session_manager
+        if not isinstance(manager, SessionManager) or manager.header.conversation_id != self.identity.session_id:
+            raise CodingHostedCatalogError()
+        return await manager.lookup_resume_input(query)
 
     def project_snapshot(self) -> CodingHostedSnapshotProjectionV1:
         records: list[TranscriptRecordV1] = []
