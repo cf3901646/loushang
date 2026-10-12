@@ -496,6 +496,7 @@ class GateTests(unittest.TestCase):
                 str(ROOT / "scripts/ci/verify_gate.py"),
                 "--section",
                 "workflows",
+                "--require-changes",
                 "--jobs",
                 "{}",
             ],
@@ -509,6 +510,24 @@ class GateTests(unittest.TestCase):
         )
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("change selection failed", completed.stderr)
+
+    def test_reusable_workflow_gate_has_no_selector_job(self):
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts/ci/verify_gate.py"),
+                "--section", "workflows",
+                "--jobs", '{"resume-turn":"e2e"}',
+            ],
+            env={
+                **os.environ,
+                "CI_PLAN": json.dumps({"version": 1, "workflows": {"e2e": True}}),
+                "CI_NEEDS": json.dumps({"resume-turn": {"result": "success"}}),
+            },
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
 
 class SuiteSelectionTests(unittest.TestCase):
