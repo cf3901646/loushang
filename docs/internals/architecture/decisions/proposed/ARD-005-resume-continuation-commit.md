@@ -12,8 +12,9 @@
   The existing TranscriptCommitter can commit a prebuilt durable UserMessage
   with a fixed record ID, reject conflicting identity or branch, and reconcile
   a lost acknowledgement after an authoritative MemoryStore reload; a JSONL
-  partial tail leaves absence unproven. RuntimeBinding schema, full recovery
-  and admission are not implemented
+  partial tail leaves absence unproven. Coding has a bounded internal
+  RuntimeBinding v1 metadata codec and pure single-record builder; activation
+  admission, full recovery, and runtime wiring are not implemented
 - Owner: Loushang architecture, Coding continuity, and Harness transcript
 - Tracking: [Issue #696](https://github.com/zhnt/loushang/issues/696)
 
@@ -106,6 +107,12 @@ new `UserMessage` without that metadata. This establishes why old-writer
 rollback cannot be treated as safe. It does **not** verify the final Binding
 schema, released N/N+1 artifacts, compaction, Blob references, or crash
 recovery; those remain release gates.
+
+A second local probe on 2026-10-12 used `main` at `29ff1c45` to read and export
+a UserMessage with the current internal RuntimeBinding v1 shape and Resource
+evidence metadata. The old reader displayed the message and retained both
+metadata keys in the export; the new decoder validated that exported binding.
+This is local source-version evidence only, not an N/N+1 released-artifact gate.
 
 N and N+1 reader/export tests must demonstrate that a known `agent.message`
 still displays or exports appropriately with the new metadata. An old writer
