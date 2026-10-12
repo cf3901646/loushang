@@ -16,6 +16,143 @@ from loushang.harness.config.agent import SettingsManager
 from loushang.harness.tools.workspace.factory import workspace_tool_runtime_settings
 
 
+@pytest.mark.parametrize("mode", ["current", "outside_view", "owner_closed", "root_closed", "owner_replaced", "subject_changed", "actor_changed", "binding_removed", "root_changed", "view_revoked", "unbound_attempt"])
+def test_embedded_resume_subject_uses_default_cli_root_and_original_approval(tmp_path, monkeypatch, mode):
+    from loushang.coding.bootstrap import create_services
+    from loushang.coding.cli.application import default_runtime_builder
+    from loushang.coding.cli.args import parse_args
+    from loushang.coding.session_manager import SessionManager
+    from loushang.harness.tools.workspace.registry import WorkspaceToolRegistry
+
+    monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
+
+    async def scenario():
+        original = await SessionManager.new(session_dir=tmp_path / "sessions", cwd=str(tmp_path), defer_materialization=False)
+        path = original.session_file
+        await original.dispose_runtime_profile()
+        assert path is not None
+        owner = InteractiveApprovalResolver(fallback=DenyApprovalResolver())
+        foreign = InteractiveApprovalResolver(fallback=DenyApprovalResolver())
+        runtime = default_runtime_builder(
+            args=parse_args(["--no-tools", "--composition-set", "coding-minimal"]), cwd=tmp_path,
+            session_dir=tmp_path / "sessions", services=create_services(),
+            tool_registry=WorkspaceToolRegistry(), approval_resolver=owner,
+        )
+        other_runtime = None
+        try:
+            before = path.read_bytes()
+            history = await runtime.preview_resume_history(path)
+            if mode == "unbound_attempt":
+                from datetime import UTC, datetime
+
+                from loushang.coding.composition_sets import (
+                    resolve_coding_composition_set,
+                )
+                from loushang.coding.resume_activation_plan import (
+                    build_session_activation_plan,
+                )
+
+                plan = build_session_activation_plan(
+                    history, resolve_coding_composition_set("coding-minimal"), workspace_root=tmp_path,
+                )
+                epoch = runtime._product_owner_selection.prepare_resume_epoch(
+                    tmp_path, require_current_admission=owner.require_current_root_subject,
+                )
+                attempt = CodingActivationAttemptV1(
+                    attempt_id="unbound-attempt", request_id="unbound-input", session_id=plan.session_id,
+                    original_leaf_id=plan.selected_leaf_id, ancestry_digest=plan.ancestry_digest,
+                    plan_fingerprint=plan.plan_id, epoch_fingerprint=epoch, subject_digest="d" * 64,
+                )
+                with runtime.resume_history_view_scope(path, history):
+                    with pytest.raises(PermissionError, match="subject changed"):
+                        await runtime.prepare_resume_continuation(
+                            session_file=path, plan=plan, current_owner_inputs=(), attempt=attempt,
+                            input_record_id="unbound-record", text="continue once", created_at=datetime.now(UTC),
+                            require_current_admission=lambda observed: None,
+                            require_current_epoch_settlement=lambda observed, receipt: None,
+                        )
+                assert path.read_bytes() == before
+                assert runtime.current_session is None
+                assert not runtime._owned_transcript_factory.pending_preparations
+                return
+            with pytest.raises(PermissionError, match="history input"):
+                runtime.embedded_resume_subject_digest()
+            with runtime.resume_history_view_scope(path, history):
+                digest = runtime.embedded_resume_subject_digest()
+                assert digest == runtime.embedded_resume_subject_digest()
+                attempt = CodingActivationAttemptV1(
+                    attempt_id="embedded-attempt", request_id="embedded-input", session_id=history.header_preview.header.conversation_id,
+                    original_leaf_id=history.selected_leaf_id, ancestry_digest=history.selected_ancestry_digest,
+                    plan_fingerprint="b" * 64, epoch_fingerprint="c" * 64, subject_digest=digest,
+                )
+                request = coding_resume_permission_request(
+                    attempt, actor_id="root", expansion_codes=("authority.unknown",), embedded_subject_root=runtime,
+                )
+
+                async def present(payload):
+                    assert payload["arguments"]["subjectOwner"] == "coding.embedded-root/v1"
+                    assert await owner.handle_result(payload["action_id"], outcome="allow_once")
+
+                owner.set_request_presenter(present)
+                fact = await owner.confirm(request)
+                assert fact is not None
+            bound = CodingResumePermissionConfirmation(
+                attempt, "root", ("authority.unknown",), owner, fact, embedded_subject_root=runtime,
+            )
+            bound.require_current(attempt)  # The captured owner survives the display scope.
+            if mode == "outside_view":
+                with pytest.raises(PermissionError, match="history input"):
+                    runtime.embedded_resume_subject_digest()
+            elif mode == "owner_closed":
+                owner.dispose()
+            elif mode == "root_closed":
+                await runtime.dispose_session_runtime()
+            elif mode == "owner_replaced":
+                with pytest.raises(PermissionError):
+                    runtime._bind_embedded_resume_approval_owner(foreign)
+                bound = replace(bound, owner=foreign)
+            elif mode == "subject_changed":
+                attempt = replace(attempt, subject_digest="d" * 64)
+                bound = replace(bound, attempt=attempt)
+            elif mode == "actor_changed":
+                bound = replace(bound, actor_id="other")
+            elif mode == "binding_removed":
+                bound = replace(bound, embedded_subject_root=None)
+            elif mode == "root_changed":
+                other_runtime = default_runtime_builder(
+                    args=parse_args(["--no-tools", "--composition-set", "coding-minimal"]), cwd=tmp_path,
+                    session_dir=tmp_path / "sessions", services=create_services(),
+                    tool_registry=WorkspaceToolRegistry(), approval_resolver=owner,
+                )
+                with runtime.resume_history_view_scope(path, history):
+                    with pytest.raises(PermissionError, match="history input"):
+                        other_runtime.embedded_resume_subject_digest()
+                with other_runtime.resume_history_view_scope(path, history):
+                    assert other_runtime.embedded_resume_subject_digest() != digest
+                bound = replace(bound, embedded_subject_root=other_runtime)
+            elif mode == "view_revoked":
+                def revoked():
+                    raise PermissionError("history input revoked")
+
+                with runtime.resume_history_view_scope(path, history, require_current_view=revoked):
+                    with pytest.raises(PermissionError, match="revoked"):
+                        runtime.embedded_resume_subject_digest()
+            if mode not in {"current", "outside_view", "view_revoked"}:
+                with pytest.raises(PermissionError):
+                    bound.require_current(attempt)
+            assert path.read_bytes() == before
+            assert not runtime._product_owner_selection._owners
+            assert runtime.current_session is None
+        finally:
+            if other_runtime is not None:
+                await other_runtime.dispose_session_runtime()
+            await runtime.dispose_session_runtime()
+            owner.dispose()
+            foreign.dispose()
+
+    asyncio.run(scenario())
+
+
 def test_resume_confirmation_uses_actual_scoped_execution_context():
     from loushang.appserver.protocol import AppServiceError, MuxAttachV1
     from loushang.appservice.execution_contract import (

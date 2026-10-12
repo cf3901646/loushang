@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
+from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -20,6 +21,7 @@ from loushang.coding.session_manager import (
     _create_owned_session_factory,
 )
 from loushang.foundation.json import JSONValue
+from loushang.harness.approval import InteractiveApprovalResolver
 from loushang.harness.diagnostics.service import DiagnosticsService
 from loushang.harness.journal._owned_io import settled_io
 from loushang.harness.runtime import copy_file_exclusive
@@ -157,6 +159,7 @@ class AgentSessionRuntime(
             ) if owned_transcripts else None
         )
         self._product_owner_selection = product_owner_selection
+        self._embedded_resume_approval_owner: InteractiveApprovalResolver | None = None
         self._resume_history_reads: set[asyncio.Task[CodingResumeHistoryPreview]] = set()
         self._resume_history_loop: asyncio.AbstractEventLoop | None = None
         self._resume_history_closed = False
@@ -194,6 +197,53 @@ class AgentSessionRuntime(
             session_index_refresh_interval=session_index_refresh_interval,
             session_index_flush_delay=session_index_flush_delay,
         )
+
+    def _bind_embedded_resume_approval_owner(self, owner: InteractiveApprovalResolver) -> None:
+        """Bind the native CLI's original Root approval owner once at startup."""
+
+        if type(owner) is not InteractiveApprovalResolver:
+            raise TypeError("Coding Embedded Resume requires its native Root Approval owner")
+        if self._resume_history_closed or self.current_session is not None or self._resume_activation_tasks:
+            raise PermissionError("Coding Embedded Resume Root binding is no longer available")
+        if self._embedded_resume_approval_owner is not None and self._embedded_resume_approval_owner is not owner:
+            raise PermissionError("Coding Embedded Resume Approval owner cannot be replaced")
+        owner.require_current_root_subject()
+        self._embedded_resume_approval_owner = owner
+
+    def _current_embedded_resume_subject_digest(self) -> str:
+        owner = self._embedded_resume_approval_owner
+        if self._resume_history_closed or owner is None:
+            raise PermissionError("Coding Embedded Resume subject is unavailable")
+        owner.require_current_root_subject()
+        # Original object custody, not a serialized actor/configuration claim.
+        # A confirmation retains the actual Root and owner, preventing identity
+        # reuse for its lifetime. This digest grants no execution permission.
+        identity = f"root={id(self):x};approval={id(owner):x};actor=root".encode("ascii")
+        return sha256(b"loushang.coding.embedded-resume-subject/v1\0" + identity).hexdigest()
+
+    def embedded_resume_subject_digest(self) -> str:
+        """Observe the native CLI Root subject from its current history input."""
+
+        view = _RESUME_HISTORY_VIEW_SCOPE.get()
+        if view is None or view.runtime is not self:
+            raise PermissionError("Coding Embedded Resume requires its original history input scope")
+        if view.require_current_view is not None:
+            result = cast(Callable[[], object], view.require_current_view)()
+            if result is not None:
+                if inspect.iscoroutine(result):
+                    result.close()
+                raise TypeError("Coding Resume view check must return None")
+        return self._current_embedded_resume_subject_digest()
+
+    def require_current_embedded_resume_subject(
+        self, attempt: CodingActivationAttemptV1, *, approval_owner: InteractiveApprovalResolver | None = None,
+    ) -> None:
+        """Recheck retained native Root custody after the history input scope."""
+
+        if approval_owner is not None and approval_owner is not self._embedded_resume_approval_owner:
+            raise PermissionError("Coding Embedded Resume Approval owner changed")
+        if attempt.subject_digest != self._current_embedded_resume_subject_digest():
+            raise PermissionError("Coding Embedded Resume subject changed")
 
     @contextmanager
     def resume_history_view_scope(
@@ -300,6 +350,8 @@ class AgentSessionRuntime(
             )
             if self.current_session is not expected:
                 raise RuntimeError("coding_resume_active_session_changed")
+            if self._embedded_resume_approval_owner is not None:
+                self.require_current_embedded_resume_subject(observed)
             result = cast("Callable[[CodingActivationAttemptV1], object]", require_current_admission)(observed)
             if result is not None:
                 if inspect.iscoroutine(result):

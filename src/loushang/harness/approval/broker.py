@@ -426,6 +426,16 @@ class InteractiveApprovalResolver:
         finally:
             self._confirmation_requests.pop(action_id, None)
 
+    def require_current_root_subject(self) -> None:
+        """Check the original Root approval lifetime, without issuing a grant.
+
+        Products must bind this exact owner at their native Root ingress. This
+        observation alone does not authenticate a caller or confirm an action.
+        """
+
+        if not self._session_open:
+            raise PermissionError("Root approval subject is no longer current")
+
     def require_current_confirmation(
         self, confirmation: ApprovalConfirmation, *, request: ApprovalRequest,
     ) -> None:

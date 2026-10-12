@@ -2015,3 +2015,54 @@ This does not establish a full Coding gate. The final-tree rerun will use the
 supported `LOUSHANG_RUNTIME_DIR` override outside Git on the workspace disk,
 with the same managed scratch owner, offline selectors and host-runtime skip.
 No Product workaround or manual deletion of another run is needed.
+
+#### Default Embedded Root/Approval subject dependency
+
+The default primary CLI builder now binds its actual original Root and native
+Interactive Approval owner once before any Session is created. The original
+Root supplies a bounded domain-separated digest of that live object custody
+from its current native history input scope, checking the original current
+view callback. It neither infers actor authority from configuration nor creates
+an actor ledger. The native Approval owner observes its existing open lifetime
+without issuing a grant. Delegated invocation profiles, custom runtimes and
+custom resolver types do not receive this default binding.
+
+The Root's admission now independently rejects an attempt with a subject other
+than this original binding before Writer acquisition and on subsequent native
+checks. The permission request and retained native confirmation bind
+`coding.embedded-root/v1` plus the exact attempt and require the same original
+Root and Approval owner. An old confirmation cannot remove that binding,
+substitute another live Root/owner/actor or survive owner/Root close. A digest
+is observation data, not authentication, Policy, Sandbox or effect-settlement
+proof. The complete first-input/default history coordinator still needs its
+production current owner checks and native effect settlement. Hosted continues
+to use its original scope/controller and does not gain an Embedded binding.
+
+The original Approval/Hosted baseline passed 28 cases. Seven initial Embedded
+regressions failed on the missing native Root entry. The first implementation
+passed all 35 cases. The expanded subject plus default-builder run passed
+47 cases, including foreign Root, removed binding and revoked current view.
+The final subject suite passed 39 cases, including a real default CLI Root
+whose permissive external callbacks cannot submit an arbitrary subject to the
+Writer. History bytes and the selected Product mapping remain unchanged during
+subject/confirmation observation. The native 15-case first-model suite now
+uses the original Root/Approval subject and native epoch instead of fixed
+subject/epoch fixtures; all 15 passed. Effect settlement remains explicitly a
+fixture in that suite, not a production settlement proof. The latest mandatory
+Root admission checks passed four focused model cases (completed, revoked,
+revoked at the transport barrier, Root closed) in 36.47 seconds. Three
+changed owner sources passed scoped mypy; six changed Python files passed Ruff
+after sorting a newly added test-local import. No new ownership placement or
+release scope is claimed by these implementation observations.
+
+The Coding gate with scratch below the workspace terminated at
+`test_runtime_lists_all_session_summaries_across_session_dirs`. The native
+Writer's original ancestor validation correctly rejected the group-writable
+workspace ancestors (`lsspace` and `.test-runtime` had mode 0775). The same
+focused case reproduced `transcript_writer:unsafe`; no safety selector or
+Product validation was changed. The supported runtime override was instead
+set to `/home/dev/.cache/loushang-pytest-resume-696`: its user-cache parent has
+mode 0700 and the filesystem had 5.7 GiB available. The exact focused case
+then passed (one passed, 88 deselected, 52.28 seconds). The next final-tree
+Coding gate must use that managed scratch root; previous runs do not prove
+a full final-tree green gate.

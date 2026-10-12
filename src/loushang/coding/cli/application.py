@@ -429,6 +429,11 @@ def default_runtime_builder(
         runtime_options["worker_candidate_plugin_id"] = worker_query_plugin
         runtime_options["worker_query_turn_tool"] = True
     runtime = runtime_factory(**runtime_options)
+    if invocation_product_profile is None and type(approval_resolver) is InteractiveApprovalResolver:
+        from loushang.coding.runtime.agent_session_runtime import AgentSessionRuntime
+
+        if type(runtime) is AgentSessionRuntime:
+            runtime._bind_embedded_resume_approval_owner(approval_resolver)
     resource_layout = resolve_machine_resource_layout(cwd=cwd)
     platform_sessions = resource_layout.sessions
     if session_dir.expanduser().resolve(strict=False) == platform_sessions:

@@ -105,6 +105,33 @@ replay and implicit Embedded-to-Hosted adoption are outside this decision.
 
 ## Consequences And Release Boundary
 
+### Current Embedded Subject Input
+
+The default primary CLI runtime builder now binds its actual original Coding
+Root to its actual native Interactive Approval owner once, before Session
+creation. Delegated invocation profiles and custom runtimes are not given this
+binding. The original Root can observe a bounded subject digest only from its
+own current history input scope. The digest refers to that live Root/Approval
+object custody and the Product Root actor; it is not an OS privilege claim,
+serialized authentication credential, Policy grant or effect receipt.
+
+The Root independently checks this subject before Resume Writer acquisition
+and along its original admission path. Exact current Approval confirmation
+remains separate. The native confirmation binds the Embedded subject owner
+code and the complete attempt, and rechecks the retained original Root and
+Approval owner after the transient display scope ends. Root close, Approval
+close, owner replacement, another Root, changed subject/actor, and removal of
+the subject binding cannot reuse the old confirmation. No new subject ledger,
+authority journal or lifecycle owner was introduced.
+
+This supplies the Embedded subject dependency in the default runtime builder;
+it does not establish the default history/first-input coordinator, current
+content closure, effect settlement or writable Hosted activation. Existing
+current Policy, Sandbox and Approval checks remain required. Its producer and
+default-builder regressions are in
+`tests/coding/test_resume_permission_confirmation.py`; original native model
+send/revocation checks use it in `test_runtime_resume_first_input.py`.
+
 Coding owns compatibility and historical intent. Harness owns read-only
 projection and Writer fencing. AppHost retains Product identity and one live
 binding. AppService observes a narrow Product status and admission port, not

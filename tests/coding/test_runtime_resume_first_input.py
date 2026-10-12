@@ -95,6 +95,7 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
             owned_transcripts=True, product_owner_selection=selection,
         )
         issuer = InteractiveApprovalResolver(fallback=DenyApprovalResolver())
+        root._bind_embedded_resume_approval_owner(issuer)
         registry = get_default_api_registry()
         requests = []
         entered, release = asyncio.Event(), asyncio.Event()
@@ -138,6 +139,8 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
         registry.register_api_adapter(Adapter(), source_id="root-resume-test")
         try:
             history = await root.preview_resume_history(path)
+            with root.resume_history_view_scope(path, history):
+                subject_digest = root.embedded_resume_subject_digest()
             plan = build_session_activation_plan(
                 history, resolve_coding_composition_set(composition_id), workspace_root=workspace,
             )
@@ -149,7 +152,7 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
                 attempt_id="root-attempt", request_id="root-input", session_id=header.conversation_id,
                 original_leaf_id=plan.selected_leaf_id, ancestry_digest=plan.ancestry_digest,
                 plan_fingerprint=plan.plan_id, epoch_fingerprint=selection.resume_epoch_fingerprint(workspace),
-                subject_digest="b" * 64,
+                subject_digest=subject_digest,
             )
 
             async def confirm(payload):
@@ -160,11 +163,13 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
             fact = await issuer.confirm(coding_resume_permission_request(
                 attempt, actor_id="root", expansion_codes=("authority.unknown",),
                 execution_profile=execution_profile, policy_evaluator=policy,
+                embedded_subject_root=root,
             ))
             assert fact is not None
             permission = CodingResumePermissionConfirmation(
                 attempt, "root", ("authority.unknown",), issuer, fact,
                 execution_profile=execution_profile, policy_evaluator=policy,
+                embedded_subject_root=root,
             )
 
             def admit(observed):

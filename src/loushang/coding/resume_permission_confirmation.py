@@ -30,6 +30,7 @@ from .resume_activation_attempt import CodingActivationAttemptV1
 
 if TYPE_CHECKING:
     from .hosted_execution import HostedResumeSubjectControl, HostedResumeSubjectScope
+    from .runtime.agent_session_runtime import AgentSessionRuntime
 
 _EXPANSION = re.compile(r"[a-z][a-z0-9._-]{0,63}\Z")
 NativeResumePolicy = PolicyEngine | PermissionProfilePolicyEvaluator
@@ -67,6 +68,7 @@ def coding_resume_permission_request(
     policy_evaluator: NativeResumePolicy | None = None,
     hosted_subject_scope: HostedResumeSubjectScope | None = None,
     hosted_subject_control: HostedResumeSubjectControl | None = None,
+    embedded_subject_root: AgentSessionRuntime | None = None,
 ) -> ApprovalRequest:
     """Bind owner-observed expansion to this exact subject, target and candidate.
 
@@ -77,6 +79,16 @@ def coding_resume_permission_request(
 
     if not isinstance(attempt, CodingActivationAttemptV1):
         raise TypeError("Coding Resume confirmation requires an activation attempt")
+    if embedded_subject_root is not None:
+        from .runtime.agent_session_runtime import AgentSessionRuntime
+
+        if type(embedded_subject_root) is not AgentSessionRuntime:
+            raise TypeError("Coding Embedded Resume requires its original native Root")
+        if hosted_subject_scope is not None or hosted_subject_control is not None:
+            raise ValueError("Coding Resume subject must have one original ingress")
+        if actor_id != "root":
+            raise PermissionError("Coding Embedded Resume requires its original Root actor")
+        embedded_subject_root.require_current_embedded_resume_subject(attempt)
     if hosted_subject_scope is not None or hosted_subject_control is not None:
         from .hosted_execution import _require_current_coding_hosted_resume_subject
 
@@ -98,6 +110,8 @@ def coding_resume_permission_request(
     arguments: dict[str, object] = {**attempt.to_data(), "permissionExpansion": list(expansion_codes)}
     if hosted_subject_scope is not None:
         arguments["subjectOwner"] = "appservice.controller/v1"
+    if embedded_subject_root is not None:
+        arguments["subjectOwner"] = "coding.embedded-root/v1"
     if policy_evaluator is not None:
         arguments["policyConfigurationFingerprint"] = _policy_fingerprint(policy_evaluator)
     if execution_profile is not None:
@@ -142,6 +156,7 @@ class CodingResumePermissionConfirmation:
     policy_evaluator: NativeResumePolicy | None = None
     hosted_subject_scope: HostedResumeSubjectScope | None = None
     hosted_subject_control: HostedResumeSubjectControl | None = None
+    embedded_subject_root: AgentSessionRuntime | None = None
 
     def require_current(
         self, attempt: CodingActivationAttemptV1,
@@ -150,6 +165,8 @@ class CodingResumePermissionConfirmation:
     ) -> None:
         if attempt != self.attempt:
             raise PermissionError("Coding Resume permission confirmation target changed")
+        if self.embedded_subject_root is not None:
+            self.embedded_subject_root.require_current_embedded_resume_subject(attempt, approval_owner=self.owner)
         if self.hosted_subject_scope is not None or self.hosted_subject_control is not None:
             from .hosted_execution import _require_current_coding_hosted_resume_subject
 
@@ -181,5 +198,6 @@ class CodingResumePermissionConfirmation:
             policy_evaluator=self.policy_evaluator,
             hosted_subject_scope=self.hosted_subject_scope,
             hosted_subject_control=self.hosted_subject_control,
+            embedded_subject_root=self.embedded_subject_root,
         )
         self.owner.require_current_confirmation(self.confirmation, request=expected)
