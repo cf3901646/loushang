@@ -10,7 +10,12 @@ import pytest
 from loushang.ai.types import ImagePart, UserMessage
 from loushang.harness.artifacts import SessionBlobStore
 from loushang.harness.conversation import StoreCommitOutcomeUnknown
-from loushang.harness.transcript import ApplicationMessage, ProductTranscriptSession
+from loushang.harness.transcript import (
+    AGENT_MESSAGE_KIND,
+    AgentTranscriptRecordFactory,
+    ApplicationMessage,
+    ProductTranscriptSession,
+)
 from loushang.harness.transcript import product_session as product_module
 from loushang.harness.transcript.jsonl_file import load_agent_transcript_file
 from loushang.harness.transcript.session_artifacts import (
@@ -52,6 +57,54 @@ def submit(session, entry):
     if entry == "application":
         return session.commit_application_message(message(True))
     return session.append_message(message(entry == "forwarded"))
+
+
+def test_product_fixed_user_input_keeps_binding_and_evidence_in_one_record(
+    session_root,
+) -> None:
+    async def scenario():
+        runtime = _runtime("coding")
+        owner, _ = prepare(session_root, runtime, runtime.bind_lifecycle_owned)
+        session = ProductTranscriptSession(lifecycle_session=await owner.create())
+        record = AgentTranscriptRecordFactory(id_factory=lambda: "fixed-user-input").create(
+            AGENT_MESSAGE_KIND,
+            UserMessage(role="user", content="continue", timestamp=1.0),
+            parent_id=None,
+            metadata={
+                "coding.runtimeBindingV1": {"version": 1, "inputId": "input-1"},
+                "harness.resourceEvidenceV1": {"version": 1},
+            },
+        )
+        first = await session.commit_prebuilt_user_message(record)
+        duplicate = await session.commit_prebuilt_user_message(record)
+        assert first.disposition == "committed"
+        assert duplicate.disposition == "already_committed"
+        await owner.dispose()
+
+        _, records = load_agent_transcript_file(session_root / "session.jsonl", read_only=True)
+        assert records == [record]
+
+    asyncio.run(scenario())
+
+
+def test_product_fixed_user_input_rejects_inline_image_before_transcript_commit(
+    session_root,
+) -> None:
+    async def scenario():
+        runtime = _runtime("coding")
+        owner, _ = prepare(session_root, runtime, runtime.bind_lifecycle_owned)
+        session = ProductTranscriptSession(lifecycle_session=await owner.create())
+        path = session_root / "session.jsonl"
+        before = path.read_bytes()
+        record = AgentTranscriptRecordFactory(id_factory=lambda: "fixed-user-input").create(
+            AGENT_MESSAGE_KIND, message(), parent_id=None,
+        )
+        with pytest.raises(ValueError, match="externalized first"):
+            await session.commit_prebuilt_user_message(record)
+        assert path.read_bytes() == before
+        await owner.dispose()
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("entry", ["user", "application", "forwarded"])

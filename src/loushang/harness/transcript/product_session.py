@@ -18,7 +18,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Generic, Self, TypeVar, cast
 
 from loushang.agent.types import AgentMessage
-from loushang.ai.types import AssistantMessage, ToolResultMessage, UserMessage
+from loushang.ai.types import (
+    AssistantMessage,
+    ImagePart,
+    ToolResultMessage,
+    UserMessage,
+)
 from loushang.foundation.json import JSONValue, require_json_value
 from loushang.harness.artifacts import (
     SessionBlobStore,
@@ -86,6 +91,7 @@ from loushang.harness.transcript.types import (
     AgentTranscriptContext,
     AgentTranscriptRecord,
     ApplicationMessage,
+    SessionImagePart,
 )
 
 BindingInputT = TypeVar("BindingInputT")
@@ -157,6 +163,29 @@ class ProductTranscriptSession(
                     transcript_changed=self._transcript.revision != revision,
                 )
                 raise
+
+    async def commit_prebuilt_user_message(
+        self, record: AgentTranscriptRecord,
+    ) -> CommitResult:
+        """Fence a fixed-ID input and verify its already-staged image references."""
+
+        if not self.persist:
+            raise ValueError("prebuilt user commit requires a persistent Product session")
+        async with self._lifecycle_session.operation_scope():
+            if isinstance(record.payload, UserMessage) and isinstance(
+                record.payload.content, list,
+            ):
+                parts = record.payload.content
+                if any(isinstance(part, ImagePart) for part in parts):
+                    raise ValueError("prebuilt user images must be externalized first")
+                if any(isinstance(part, SessionImagePart) for part in parts):
+                    externalize_session_message_images(
+                        record.payload,
+                        self._session_blob_store(
+                            file_io=self._lifecycle_session.blob_file_io,
+                        ),
+                    )
+            return await super().commit_prebuilt_user_message(record)
 
     async def commit_application_message(
         self,

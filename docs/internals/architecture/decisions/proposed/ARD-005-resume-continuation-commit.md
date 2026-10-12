@@ -8,8 +8,12 @@
 - Authority: normative when accepted; this proposal is not yet an accepted Target
 - Design status: proposed
 - Implementation status: partial — the original AgentEventRouter can merge
-  optional Product message metadata with resource evidence before one append;
-  RuntimeBinding schema, fixed record identity, recovery and admission are not implemented
+  optional Product message metadata with resource evidence before one append.
+  The existing TranscriptCommitter can commit a prebuilt durable UserMessage
+  with a fixed record ID, reject conflicting identity or branch, and reconcile
+  a lost acknowledgement after an authoritative MemoryStore reload; a JSONL
+  partial tail leaves absence unproven. RuntimeBinding schema, full recovery
+  and admission are not implemented
 - Owner: Loushang architecture, Coding continuity, and Harness transcript
 - Tracking: [Issue #696](https://github.com/zhnt/loushang/issues/696)
 

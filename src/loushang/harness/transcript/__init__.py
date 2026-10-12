@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from loushang.harness.transcript.committer import (
         ApplicationMessageIdentityConflictError,
         CommitResult,
+        PrebuiltUserMessageIdentityConflictError,
         TranscriptCommitter,
     )
     from loushang.harness.transcript.compaction import (
@@ -394,6 +395,7 @@ _EXPORT_MODULES = {
     "ApplicationMessage": "loushang.harness.transcript.types",
     "ApplicationMessageIdFactory": "loushang.harness.transcript.session",
     "ApplicationMessageIdentityConflictError": "loushang.harness.transcript.committer",
+    "PrebuiltUserMessageIdentityConflictError": "loushang.harness.transcript.committer",
     "BranchContextSummary": "loushang.harness.transcript.types",
     "BranchSummaryDelta": "loushang.harness.transcript.summarization",
     "BranchSummaryOutput": "loushang.harness.transcript.interaction",

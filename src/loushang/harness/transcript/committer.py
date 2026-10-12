@@ -4,19 +4,27 @@ import asyncio
 from dataclasses import dataclass
 from typing import Literal
 
+from loushang.ai.types import ImagePart, UserMessage
 from loushang.foundation.json import dump_json_value
-from loushang.harness.conversation import CommitReceipt
+from loushang.harness.conversation import CommitReceipt, StoreCommitOutcomeUnknown
 from loushang.harness.transcript.codecs import (
     STANDARD_PAYLOAD_VERSION,
     create_agent_transcript_payload_registry,
 )
-from loushang.harness.transcript.kinds import APPLICATION_MESSAGE_KIND
-from loushang.harness.transcript.types import ApplicationMessage
+from loushang.harness.transcript.kinds import (
+    AGENT_MESSAGE_KIND,
+    APPLICATION_MESSAGE_KIND,
+)
+from loushang.harness.transcript.types import AgentTranscriptRecord, ApplicationMessage
 from loushang.harness.transcript.unit_of_work import AgentTranscriptUnitOfWork
 
 
 class ApplicationMessageIdentityConflictError(ValueError):
     pass
+
+
+class PrebuiltUserMessageIdentityConflictError(ValueError):
+    """A fixed record ID names different facts or a different selected branch."""
 
 
 @dataclass(frozen=True)
@@ -38,9 +46,59 @@ class TranscriptCommitter:
     def __init__(self, store: AgentTranscriptUnitOfWork) -> None:
         self._store = store
         self._committed: dict[str, _CommittedApplicationMessage] = {}
+        self._uncertain_prebuilt_user_ids: set[str] = set()
         self._payload_codecs = create_agent_transcript_payload_registry()
         self._commit_lock = asyncio.Lock()
         self._index_committed_messages()
+
+    async def commit_prebuilt_user_message(
+        self, record: AgentTranscriptRecord,
+    ) -> CommitResult:
+        """Commit one durable fixed-ID UserMessage through the existing owner.
+
+        Product callers must supply final metadata and durable image references.
+        An unknown result is not automatically re-appended in this process.
+        A fresh authority load can reconcile the exact record before retry.
+        """
+
+        if record.kind != AGENT_MESSAGE_KIND or not isinstance(
+            record.payload, UserMessage,
+        ):
+            raise TypeError("prebuilt user commit requires an agent UserMessage")
+        content = record.payload.content
+        if isinstance(content, list) and any(
+            isinstance(part, ImagePart) for part in content
+        ):
+            raise ValueError("prebuilt user images must be externalized first")
+        async with self._commit_lock:
+            if not self._store.is_materialized:
+                raise ValueError("prebuilt user commit requires a materialized transcript")
+            existing = self._store.get(record.record_id)
+            if existing is not None:
+                if existing != record or existing not in self._store.active_path():
+                    raise PrebuiltUserMessageIdentityConflictError(
+                        "fixed user record ID conflicts with stored input or selected branch"
+                    )
+                self._uncertain_prebuilt_user_ids.discard(record.record_id)
+                return CommitResult(record.record_id, "already_committed", None)
+            if record.record_id in self._uncertain_prebuilt_user_ids:
+                raise StoreCommitOutcomeUnknown(
+                    "fixed user record outcome requires authoritative reload"
+                )
+            if self._store.diagnostics:
+                raise StoreCommitOutcomeUnknown(
+                    "incomplete transcript evidence cannot prove fixed user record absent"
+                )
+            try:
+                commit = await self._store.commit(record)
+            except StoreCommitOutcomeUnknown:
+                self._uncertain_prebuilt_user_ids.add(record.record_id)
+                raise
+            if commit.receipt is None:
+                raise StoreCommitOutcomeUnknown(
+                    "prebuilt user commit did not return a durable receipt"
+                )
+            return CommitResult(record.record_id, "committed", commit.receipt)
 
     async def commit_application_message(
         self,
@@ -118,5 +176,6 @@ class TranscriptCommitter:
 __all__ = [
     "ApplicationMessageIdentityConflictError",
     "CommitResult",
+    "PrebuiltUserMessageIdentityConflictError",
     "TranscriptCommitter",
 ]

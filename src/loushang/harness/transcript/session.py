@@ -244,6 +244,16 @@ class AgentTranscriptSession:
             )
         raise TypeError(f"Unsupported transcript message: {type(message)!r}")
 
+    async def commit_prebuilt_user_message(
+        self, record: AgentTranscriptRecord,
+    ) -> CommitResult:
+        """Commit or reconcile one fixed-ID user input through the message owner."""
+
+        result = await self._committer.commit_prebuilt_user_message(record)
+        if result.disposition == "committed":
+            self._notify_commit(result)
+        return result
+
     async def commit_application_message(
         self,
         message: ApplicationMessage,

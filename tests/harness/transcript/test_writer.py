@@ -5,17 +5,21 @@ from datetime import UTC, datetime
 
 import pytest
 
+from loushang.ai.types import UserMessage
 from loushang.harness.conversation import (
     ConversationHeader,
     ConversationKey,
     MemoryConversationStore,
+    StoreCommitOutcomeUnknown,
 )
 from loushang.harness.transcript import (
+    AGENT_MESSAGE_KIND,
     APPLICATION_MESSAGE_KIND,
     AgentTranscriptRecordFactory,
     AgentTranscriptUnitOfWork,
     ApplicationMessage,
     ApplicationMessageIdentityConflictError,
+    PrebuiltUserMessageIdentityConflictError,
     TranscriptCommitter,
 )
 
@@ -138,3 +142,93 @@ def test_record_factory_requires_timezone_aware_clock() -> None:
 
     with pytest.raises(ValueError, match="timezone-aware"):
         factory.create(APPLICATION_MESSAGE_KIND, _message(), parent_id=None)
+
+
+def _prebuilt_user_record(*, content: str = "continue"):
+    return AgentTranscriptRecordFactory(
+        clock=lambda: datetime(2026, 7, 16, tzinfo=UTC),
+        id_factory=lambda: "stable-input-record",
+    ).create(
+        AGENT_MESSAGE_KIND,
+        UserMessage(role="user", content=content, timestamp=1.0),
+        parent_id=None,
+        metadata={
+            "coding.runtimeBindingV1": {"version": 1, "inputId": "input-1"},
+            "harness.resourceEvidenceV1": {"version": 1},
+        },
+    )
+
+
+def test_prebuilt_user_record_is_committed_once_across_reload() -> None:
+    async def scenario() -> None:
+        store = await _store(ids=_ids("unused"))
+        record = _prebuilt_user_record()
+        committer = TranscriptCommitter(store)
+
+        first = await committer.commit_prebuilt_user_message(record)
+        duplicate = await committer.commit_prebuilt_user_message(record)
+        loaded = await AgentTranscriptUnitOfWork.load(store.backend, store.key)
+        after_restart = await TranscriptCommitter(loaded).commit_prebuilt_user_message(
+            record
+        )
+
+        assert first.disposition == "committed"
+        assert duplicate.disposition == "already_committed"
+        assert after_restart.disposition == "already_committed"
+        assert loaded.records == (record,)
+        assert loaded.revision == 1
+
+        with pytest.raises(PrebuiltUserMessageIdentityConflictError):
+            await TranscriptCommitter(loaded).commit_prebuilt_user_message(
+                _prebuilt_user_record(content="different")
+            )
+        loaded.reset_branch()
+        with pytest.raises(
+            PrebuiltUserMessageIdentityConflictError, match="selected branch",
+        ):
+            await TranscriptCommitter(loaded).commit_prebuilt_user_message(record)
+        assert loaded.records == (record,)
+
+    asyncio.run(scenario())
+
+
+def test_prebuilt_user_record_reconciles_lost_ack_by_fixed_record_id() -> None:
+    class LostAckStore(MemoryConversationStore):
+        append_calls = 0
+
+        async def append(self, key, record, *, expected_revision, operation_id):
+            self.append_calls += 1
+            await super().append(
+                key, record,
+                expected_revision=expected_revision,
+                operation_id=operation_id,
+            )
+            raise StoreCommitOutcomeUnknown("ack lost after durable append")
+
+    async def scenario() -> None:
+        backend = LostAckStore(record_id=lambda record: record.record_id)
+        key = ConversationKey("test", "conversation-1")
+        store = await AgentTranscriptUnitOfWork.create(
+            backend,
+            key,
+            ConversationHeader(
+                conversation_id="conversation-1",
+                version=1,
+                created_at="2026-07-16T00:00:00Z",
+            ),
+        )
+        record = _prebuilt_user_record()
+        committer = TranscriptCommitter(store)
+        with pytest.raises(StoreCommitOutcomeUnknown):
+            await committer.commit_prebuilt_user_message(record)
+        with pytest.raises(StoreCommitOutcomeUnknown, match="authoritative reload"):
+            await committer.commit_prebuilt_user_message(record)
+        assert backend.append_calls == 2
+
+        loaded = await AgentTranscriptUnitOfWork.load(backend, key)
+        result = await TranscriptCommitter(loaded).commit_prebuilt_user_message(record)
+        assert result.disposition == "already_committed"
+        assert loaded.records == (record,)
+        assert loaded.revision == 1
+
+    asyncio.run(scenario())
