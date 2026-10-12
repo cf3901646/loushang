@@ -533,6 +533,17 @@ class SessionManager(
         # separate phase; historical projection cannot open this local gate.
         self._resume_runtime_publication_pending = True
 
+    def _require_resume_staged_input(self, attempt_id: str, message: UserMessage) -> None:
+        """Check exact staged identity before invoking commit metadata owners."""
+
+        pending = self._resume_first_input
+        if pending is None or pending.attempt_id != attempt_id:
+            raise CodingResumeRecoveryRequired("input.staged_input_missing")
+        if pending.outcome_unknown:
+            raise StoreCommitOutcomeUnknown("Coding Resume first input requires authoritative reload")
+        if coding_user_input_digest(message) != pending.expected_message_digest:
+            raise ValueError("Coding Resume first input differs from the staged input")
+
     async def _append_resume_first_user_message(
         self,
         pending: _PendingResumeFirstInput,

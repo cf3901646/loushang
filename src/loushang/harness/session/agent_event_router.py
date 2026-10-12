@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from loushang.agent import AbortSignal, AgentEvent
-from loushang.ai.types import AssistantMessage
+from loushang.ai.types import AssistantMessage, UserMessage
 from loushang.foundation.json import JSONValue
 from loushang.harness.session.request_evidence import RequestEvidenceRuntimePort
 from loushang.harness.transcript import AutoRetryOutcome, CompactionResult
@@ -125,6 +125,21 @@ class AgentEventRouter:
             await self.check_auto_compaction(last_assistant_message)
         if committed_message is not None:
             self._forget_committed_message(committed_message)
+
+    async def commit_prepared_user_message(self, message: UserMessage) -> str:
+        """Commit an owner-prepared input with the original evidence metadata.
+
+        The caller owns admission and fixed-input identity. This persistence
+        entry emits no Agent event, starts no run, and grants no retry authority.
+        """
+
+        if not isinstance(message, UserMessage):
+            raise TypeError("prepared input requires a UserMessage")
+        record_id = await self._append_message_once(message)
+        if self.request_evidence is not None:
+            self.request_evidence.commit_message(message, record_id)
+        self._forget_committed_message(message)
+        return record_id
 
     async def _append_message_once(self, message: object) -> str:
         identity = id(message)

@@ -1209,3 +1209,55 @@ delivery, cancelled waiter retention, capacity accounting, cancelled root
 close, and rejection after closing. The final stale-delivery case passed after
 aligning its exception with the existing preview's read-error handling. Scoped
 mypy for both changed source modules and Ruff passed.
+
+The earlier owned-runtime and Agent-runtime regression run also completed:
+one hundred fourteen non-live cases passed. It included the initial detached
+history owner tests and the existing runtime lifecycle coverage.
+
+#### Initial input uses native Request Evidence commit coordination
+
+Coding's `_commit_resume_first_user_input` now joins the prepared current
+candidate, exact staged payload, original Writer, and current admission before
+calling `AgentEventRouter.commit_prepared_user_message`. The router uses its
+original metadata preparation and append path, including Request Evidence and
+Product metadata collision checks. The staged Manager supplies the fixed
+record ID and inline Binding to that same physical UserMessage record. The
+Request Evidence owner records the definite commit using the returned canonical
+record ID. No Agent event, model run, recovery, or Runtime publication occurs
+through this persistence entry.
+
+The initial Coding entry is claimed once before the append await. A lost ACK,
+cancellation, or failure after claiming leaves execution fenced and requires
+lookup/recovery; calling the entry again cannot prepare metadata or append
+another input. Exact staged-input checks run before metadata callbacks. The
+candidate, Writer proof and current admission are rechecked after commit. A
+revocation during the append can therefore leave a committed input without
+making the candidate executable.
+
+The original UnitOfWork retains its existing exact-record/operation-ID
+idempotent verification on Store uncertainty. That native behavior is distinct
+from submitting another input or replaying a model call. Fault evidence checks
+identical full records, expected revision and operation ID across native
+attempts, one canonical persisted user record, authoritative input lookup, and
+rejection of a second Coding submission. The native Store and UOW algorithms
+remain unchanged.
+
+The Resource evidence fixture is prepared and bound by the original Request
+Evidence runtime using its existing typed loaded-Skill fixture. It proves
+metadata co-commit and canonical record association, not production Skill
+preflight, current Resource generation pinning or authority admission. The
+existing offline model cases use this new input entry before original
+publication and prepared-model dispatch.
+
+Default Embedded/Hosted first-input coordination, live policy and native epoch
+settlement owners, logical input event publication, release compatibility, and
+performance evidence remain required. Goal and Issue #696 remain incomplete.
+
+Validation: the publication/dispatch and native Event Router run passed
+thirty-two cases with one new fault-test assertion failing. Source inspection
+confirmed the original UOW's fixed-ID verification; the assertion was corrected
+to check exact request identity and one physical record. All five new
+input-commit/evidence cases then passed, including the previously failing
+unknown-ACK case. The existing eighteen publication/dispatch cases also passed
+with the new input entry. Scoped mypy for all three source modules, Ruff and
+all nine documentation checks passed.

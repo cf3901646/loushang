@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -24,6 +25,10 @@ from loushang.coding.resume_binding import (
     coding_user_payload_digest,
 )
 from loushang.coding.resume_history import read_coding_resume_snapshot
+from loushang.coding.resume_input_lookup import (
+    CodingResumeInputLookupQueryV1,
+    coding_resume_input_record_digest,
+)
 from loushang.coding.session_manager import (
     SessionManager,
     _bind_owned_session_manager,
@@ -37,7 +42,9 @@ pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="Linux owned Cod
 
 
 @pytest.mark.parametrize("mode", [
-    "published", "input_unknown", "changed_leaf", "revoked", "unsettled",
+    "published", "published_evidence", "input_commit_unknown", "input_commit_revoked",
+    "input_commit_mismatch", "input_commit_revoked_after",
+    "input_unknown", "changed_leaf", "revoked", "unsettled",
     "receipt_changed", "graph_missing",
     "durable_lookup_unknown", "revoked_during_lookup",
     "durable_input_changed", "publication_cancelled",
@@ -156,6 +163,19 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
                     attempt_id=attempt.attempt_id, require_current_admission=admit,
                 )
             message = UserMessage(role="user", content="resume once", timestamp=2.0)
+            evidence = None
+            if mode == "published_evidence":
+                from loushang.harness.capabilities.prompt_preflight import (
+                    PromptPreflightResult,
+                )
+                from tests.harness.session.test_request_evidence import _loaded_skill
+
+                evidence_runtime = session._request_evidence_runtime
+                evidence = evidence_runtime.prepare(PromptPreflightResult(
+                    text=message.content, loaded_skills=(_loaded_skill(),),
+                ))
+                assert evidence is not None
+                evidence_runtime.bind(message, evidence, owner=session)
 
             def prepare_binding(persisted):
                 return CodingRuntimeBindingV1(
@@ -173,6 +193,64 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
                 original_leaf_id=attempt.original_leaf_id, ancestry_digest=attempt.ancestry_digest,
                 attempt_id=attempt.attempt_id,
             )
+            if mode.startswith("input_commit_"):
+                native_appends = []
+                store = manager._lifecycle_session.runtime_binding.store
+                append = store.append
+
+                async def observe_append(key, record, **kwargs):
+                    nonlocal revoked
+                    if record.record_id != "record-1":
+                        return await append(key, record, **kwargs)
+                    native_appends.append((record, kwargs["expected_revision"], kwargs["operation_id"]))
+                    result = await append(key, record, **kwargs)
+                    if mode == "input_commit_unknown":
+                        raise StoreCommitOutcomeUnknown("input acknowledgement lost")
+                    revoked = True
+                    return result
+
+                monkeypatch.setattr(store, "append", observe_append)
+                if mode == "input_commit_revoked":
+                    revoked = True
+                expected = StoreCommitOutcomeUnknown if mode.endswith("unknown") else (
+                    ValueError if mode.endswith("mismatch") else PermissionError
+                )
+                submitted = replace(message, content="different") if mode.endswith("mismatch") else message
+                with pytest.raises(expected):
+                    await session._commit_resume_first_user_input(
+                        submitted, attempt_id=attempt.attempt_id, require_current_admission=admit,
+                    )
+                assert not session.execution_available
+                assert manager.resume_runtime_publication_pending
+                assert not settlements
+                assert not requests
+                if mode in {"input_commit_unknown", "input_commit_revoked_after"}:
+                    expected_calls = 2 if mode == "input_commit_unknown" else 1
+                    assert len(native_appends) == expected_calls
+                    assert all(call == native_appends[0] for call in native_appends)
+                    assert native_appends[0][2] == "record-1"
+                    from loushang.harness.transcript.jsonl_file import (
+                        load_agent_transcript_file,
+                    )
+
+                    _, durable = load_agent_transcript_file(path, read_only=True)
+                    assert [record for record in durable if record.record_id == "record-1"] == [native_appends[0][0]]
+                    with pytest.raises(CodingResumeRecoveryRequired, match="input.commit_already_claimed"):
+                        await session._commit_resume_first_user_input(
+                            message, attempt_id=attempt.attempt_id, require_current_admission=admit,
+                        )
+                    if mode == "input_commit_unknown":
+                        pending = manager._resume_first_input
+                        assert pending is not None and pending.prepared_record is not None
+                        result = await manager.lookup_resume_input(CodingResumeInputLookupQueryV1(
+                            attempt.request_id, coding_resume_input_record_digest(pending.prepared_record),
+                        ))
+                        assert result.status == "committed"
+                    assert len(native_appends) == expected_calls
+                else:
+                    assert not native_appends
+                    assert len(manager.get_entries()) == 2
+                return
             if mode == "input_unknown":
                 store = manager._lifecycle_session.runtime_binding.store
                 append = store.append
@@ -185,7 +263,17 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
                 with pytest.raises(StoreCommitOutcomeUnknown):
                     await manager.append_message(message)
             else:
-                assert await manager.append_message(message) == "record-1"
+                if mode.startswith("published") or mode.startswith("dispatch_"):
+                    assert await session._commit_resume_first_user_input(
+                        message, attempt_id=attempt.attempt_id,
+                        require_current_admission=admit,
+                    ) == "record-1"
+                    with pytest.raises(CodingResumeRecoveryRequired, match="input.commit_already_claimed"):
+                        await session._commit_resume_first_user_input(
+                            message, attempt_id=attempt.attempt_id, require_current_admission=admit,
+                        )
+                else:
+                    assert await manager.append_message(message) == "record-1"
             assert manager.resume_runtime_publication_pending
             assert not session.execution_available
             before = path.read_bytes()
@@ -252,13 +340,22 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
                 assert manager.resume_runtime_publication_pending
                 assert not settlements
                 assert path.read_bytes() == before
-            elif mode == "published" or mode.startswith("dispatch_"):
+            elif mode.startswith("published") or mode.startswith("dispatch_"):
                 await session._publish_resume_runtime(
                     attempt_id=attempt.attempt_id, input_record_id="record-1",
                     require_current_admission=admit, require_current_epoch_settlement=settle_epoch,
                 )
                 assert settlements
                 assert session.execution_available
+                if evidence is not None:
+                    from loushang.harness.session.request_evidence import (
+                        RESOURCE_EVIDENCE_METADATA_KEY,
+                    )
+
+                    bound = next(record for record in manager.get_entries() if record.record_id == "record-1")
+                    assert bound.metadata[RESOURCE_EVIDENCE_METADATA_KEY] == evidence.to_message_metadata()
+                    assert manager._require_committed_resume_input(attempt.attempt_id, "record-1")[1] == bound
+                    assert session._request_evidence_runtime.commit_message(message, "record-1")
                 assert not manager.resume_runtime_publication_pending
                 if mode.startswith("dispatch_"):
                     options_before = session.agent.call_options
@@ -306,10 +403,6 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
                         snapshots = [r.payload for r in manager.get_entries() if r.kind == "model.input.prepared"]
                         assert len(snapshots) == 1
                         assert snapshots[0].source_leaf_id == "record-1"
-                        from loushang.coding.resume_input_lookup import (
-                            CodingResumeInputLookupQueryV1,
-                            coding_resume_input_record_digest,
-                        )
                         from loushang.coding.resume_model_outcome import (
                             observe_coding_resume_model_outcome,
                         )

@@ -10,6 +10,7 @@ from loushang.agent import Agent, PrepareModelCallFn
 from loushang.ai import PreparedRequestLimits
 from loushang.ai.api_registry import APIRegistry
 from loushang.ai.options import CallOptions, RetryOptions
+from loushang.ai.types import UserMessage
 from loushang.coding._base_plugin import (
     CodingBasePluginAssembly,
     CodingBasePluginAssemblyError,
@@ -633,6 +634,7 @@ class AgentSession(AgentProductSession):
         self._coding_resume_candidate: _CodingResumeRuntimeCandidate | None = None
         self._coding_resume_publication: _CodingResumeRuntimePublication | None = None
         self._coding_resume_dispatch_claimed = False
+        self._coding_resume_input_commit_claimed = False
         self._coding_composition_had_entries_at_construction = bool(
             session_manager.get_entries()
         )
@@ -1321,6 +1323,47 @@ class AgentSession(AgentProductSession):
                 raise
             finally:
                 self._coding_resume_graph_attempt_id = None
+
+    async def _commit_resume_first_user_input(
+        self, message: UserMessage, *, attempt_id: str,
+        require_current_admission: Callable[[CodingActivationAttemptV1], None],
+    ) -> str:
+        """Commit the staged fixed input through native Request Evidence owners.
+
+        This initial route is claimed once, including unknown outcomes. The
+        coordinator must use durable lookup for recovery and still settle the
+        current epoch before publication or model dispatch.
+        """
+
+        if not isinstance(message, UserMessage):
+            raise TypeError("Coding Resume input requires a UserMessage")
+        manager = self._coding_session_manager
+        async with self._coding_resume_runtime_preparation_lock:
+            candidate = self._coding_resume_candidate
+            if candidate is None or candidate.attempt.attempt_id != attempt_id:
+                raise CodingResumeRecoveryRequired("runtime.candidate_unverified")
+            if self._coding_resume_input_commit_claimed:
+                raise CodingResumeRecoveryRequired("input.commit_already_claimed")
+            with manager._lifecycle_session.sync_operation_scope():
+                manager._require_resume_runtime_preparation(attempt_id)
+                manager._require_resume_staged_input(attempt_id, message)
+                self._require_resume_candidate(candidate)
+                self._require_candidate_preparation_admission(
+                    lambda: require_current_admission(candidate.attempt),
+                )
+            self._coding_resume_input_commit_claimed = True
+            try:
+                record_id = await self._composition.session_runtime.agent_event_router.commit_prepared_user_message(message)
+                with manager._lifecycle_session.sync_operation_scope():
+                    manager._require_committed_resume_input(attempt_id, record_id)
+                    self._require_resume_candidate(candidate)
+                    self._require_candidate_preparation_admission(
+                        lambda: require_current_admission(candidate.attempt),
+                    )
+                return record_id
+            except BaseException:
+                self._execution_preparation_failed = True
+                raise
 
     def _require_resume_candidate(
         self, candidate: _CodingResumeRuntimeCandidate,
