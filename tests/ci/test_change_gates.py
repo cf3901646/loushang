@@ -374,12 +374,13 @@ class ScopeTests(unittest.TestCase):
         compact = selector.workflow_plan(plan)
 
         self.assertEqual(
-            set(compact), {"version", "paths", "checks", "workflows", "unit_packages", "e2e", "windows"}
+            set(compact), {"version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "windows"}
         )
         self.assertEqual(compact["paths"], plan["paths"])
         self.assertEqual(compact["checks"], plan["checks"])
         self.assertEqual(compact["workflows"], plan["workflows"])
         self.assertEqual(compact["unit_packages"], plan["unit_packages"])
+        self.assertEqual(compact["unit_jobs"], plan["unit_jobs"])
         self.assertEqual(compact["windows"], plan["windows"])
         self.assertEqual(compact["e2e"], plan["e2e"])
         self.assertNotIn("reasons", compact)
@@ -477,6 +478,10 @@ class ScopeTests(unittest.TestCase):
             with self.subTest(path=path):
                 plan = selector.select([path], pr_fast=True)
                 self.assertEqual(plan["unit_packages"], [package])
+                self.assertEqual(
+                    len(plan["unit_jobs"]),
+                    selector.UNIT_SHARD_COUNTS.get(package, 1),
+                )
                 self.assertFalse(plan["checks"]["coding"])
                 self.assertFalse(plan["checks"]["host_runtime"])
                 self.assertTrue(plan["workflows"]["units"])
@@ -487,6 +492,15 @@ class ScopeTests(unittest.TestCase):
             pr_fast=True,
         )
         self.assertEqual(plan["unit_packages"], ["ai", "coding"])
+
+    def test_pr_mixed_coding_risk_uses_full_package_once(self):
+        plan = selector.select(
+            ["src/loushang/coding/compaction.py", "src/loushang/coding/lsp/client.py"],
+            pr_fast=True,
+        )
+        self.assertTrue(plan["checks"]["coding"])
+        self.assertEqual(plan["unit_packages"], [])
+        self.assertEqual(plan["unit_jobs"], [])
 
     def test_pr_session_change_adds_resume_turn_e2e(self):
         plan = selector.select(["src/loushang/harness/session/queue.py"], pr_fast=True)
@@ -511,10 +525,21 @@ class ScopeTests(unittest.TestCase):
                 self.assertEqual(plan["checks"], selector.select([path])["checks"])
 
     def test_pr_gate_change_exercises_new_reusable_workflows(self):
-        plan = selector.select([".github/workflows/quality.yml"], pr_fast=True)
-        self.assertEqual(plan["unit_packages"], ["coding"])
-        self.assertTrue(plan["e2e"])
-        self.assertTrue(all(plan["checks"].values()))
+        for path in (
+            ".github/workflows/quality.yml",
+            ".github/workflows/package-quality.yml",
+            ".github/workflows/windows-shell-compatibility.yml",
+            "scripts/ci/windows_worker_session_cases.py",
+        ):
+            with self.subTest(path=path):
+                plan = selector.select([path], pr_fast=True)
+                self.assertEqual(plan["unit_packages"], ["agent"])
+                self.assertEqual(
+                    plan["unit_jobs"],
+                    [{"package": "agent", "shard": 0, "shards": 1}],
+                )
+                self.assertTrue(plan["e2e"])
+                self.assertTrue(all(plan["checks"].values()))
 
     def test_full_validation_disables_fast_route(self):
         plan = selector.select(["src/loushang/ai/pricing.py"], full=True, pr_fast=True)
@@ -532,6 +557,23 @@ class ScopeTests(unittest.TestCase):
                 for path in paths:
                     self.assertTrue(path.startswith("tests/"))
                     self.assertTrue((ROOT / path).is_file(), path)
+
+    def test_fast_unit_jobs_run_complete_offline_package_directories(self):
+        workflow = (ROOT / ".github/workflows/package-unit-quality.yml").read_text()
+        self.assertIn("include: ${{ fromJSON(inputs.plan).unit_jobs }}", workflow)
+        self.assertIn("--shard ${{ matrix.shard }} --shards ${{ matrix.shards }}", workflow)
+        self.assertIn("verify_pytest_xml.py", workflow)
+        for package in ("ai", "agent", "coding", "harness", "harnesstui", "tui"):
+            with self.subTest(package=package):
+                (command,) = runner.commands("unit_" + package)
+                self.assertIn("tests/" + package, command)
+                self.assertIn("not e2e_smoke", command[command.index("-m") + 1])
+                self.assertIn("--skip-host-runtime", command)
+        (coding_shard,) = runner.commands("unit_coding", shard=0, shards=16)
+        self.assertIn("--ci-shard-count", coding_shard)
+        self.assertIn("--ignore=tests/coding/test_screen_coding_tui_app.py", coding_shard)
+        (plugin,) = runner.commands("unit_plugin")
+        self.assertIn("tests/harness/plugin_authoring/test_public_sdk.py", plugin)
 
     def test_schedule_and_manual_dispatch_are_full(self):
         for event in ("schedule", "workflow_dispatch"):
