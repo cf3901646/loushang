@@ -555,3 +555,24 @@ These two local runs establish a pre-background baseline, not a speedup claim
 or a stable latency budget. The script does not yet measure first frame, input
 acceptance, Plan readiness, durable input, CPU/RSS/FD, or 1/2/8 concurrent
 Sessions and 10k/100k record scenarios required for R2.1 acceptance.
+
+## Internal Recovery Guard Evidence (2026-10-12)
+
+The internal ordinary-route guards were committed as `db90f355` and
+`2221b8c7`. The Resume Binding, Plan, comparison, and history-preview tests
+passed 46 cases after those changes. Three normal bootstrap/model-preparation
+cases also passed on the final guard code.
+
+Commit `6da762e1` adds three real JSONL reopen cases: an unbound v1 intent,
+an unknown v2 intent, and a malformed v1 intent. After closing and loading a
+new SessionManager, each case retains its Session ID and selected leaf,
+rejects ordinary continuation with the corresponding typed recovery reason,
+and remains viewable through the read-only snapshot. The final file bytes
+equal the bytes before reopening. All three cases passed.
+
+Ruff passed for the touched code and tests. Mypy with
+`--follow-imports=silent` passed for `resume_activation_attempt.py`,
+`session_manager.py`, `bootstrap.py`, and `session/agent_session.py`.
+These checks establish the internal historical guard; they do not establish
+live activation admission, effect settlement, Hosted continuation, released
+N/N+1 compatibility, or the complete R2.1 quality and performance gates.
