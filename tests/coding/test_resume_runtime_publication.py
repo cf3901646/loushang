@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import sys
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -36,13 +37,16 @@ from loushang.coding.session_manager import (
 )
 from loushang.harness.conversation import StoreCommitOutcomeUnknown
 from loushang.harness.session.bash import UserBashRequest
+from loushang.harness.transcript import user_message_text
 from loushang.harness.transcript.committer import PrebuiltUserMessageLookupResult
 
 pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="Linux owned Coding Writer")
 
 
 @pytest.mark.parametrize("mode", [
-    "published", "published_evidence", "input_commit_unknown", "input_commit_revoked",
+    "published", "published_evidence", "published_preflight",
+    "preflight_revoked", "preflight_cancelled", "preflight_repeated", "preflight_changed_input", "preflight_command",
+    "input_commit_unknown", "input_commit_revoked",
     "input_commit_mismatch", "input_commit_revoked_after",
     "input_unknown", "changed_leaf", "revoked", "unsettled",
     "receipt_changed", "graph_missing",
@@ -56,6 +60,10 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
     monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
 
     async def scenario():
+        if mode == "published_preflight" or mode.startswith("preflight_"):
+            skill = tmp_path / "skills" / "review" / "SKILL.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text("---\nname: review\ndescription: Review changes\n---\nReview actual source bytes.\n")
         original = await SessionManager.new(
             session_dir=tmp_path / "sessions", cwd=str(tmp_path), defer_materialization=False,
         )
@@ -64,7 +72,9 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
         header = original.header
         await original.dispose_runtime_profile()
         assert path is not None
-        composition = resolve_coding_composition_set("coding-minimal")
+        composition = resolve_coding_composition_set(
+            "coding-standard" if mode == "published_preflight" or mode.startswith("preflight_") else "coding-minimal",
+        )
         plan = build_session_activation_plan(
             read_coding_resume_snapshot(path, max_bytes=1024 * 1024), composition, workspace_root=tmp_path,
         )
@@ -91,7 +101,7 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
 
         def settle_epoch(observed, receipt):
             assert observed == attempt
-            assert receipt["setId"] == "coding-minimal"
+            assert receipt["setId"] == composition.set_id
             settlements.append(observed.attempt_id)
             if mode == "unsettled":
                 raise StoreCommitOutcomeUnknown("native effect is unsettled")
@@ -164,6 +174,81 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
                 )
             message = UserMessage(role="user", content="resume once", timestamp=2.0)
             evidence = None
+            if mode == "published_preflight" or mode.startswith("preflight_"):
+                prompt = session._composition.session_runtime.prompt_controller
+                preflight = prompt.preflight_user_input_async
+                entered, release = asyncio.Event(), asyncio.Event()
+                preflight_calls = []
+
+                async def observe_preflight(text, **kwargs):
+                    nonlocal revoked
+                    assert kwargs == {"allow_extension_commands": False}
+                    preflight_calls.append(text)
+                    result = await preflight(text, **kwargs)
+                    assert len(result.loaded_skills) == 1
+                    assert "Review actual source bytes." in result.text
+                    if mode == "preflight_revoked":
+                        revoked = True
+                    if mode == "preflight_cancelled":
+                        entered.set()
+                        await release.wait()
+                    return result
+
+                monkeypatch.setattr(prompt, "preflight_user_input_async", observe_preflight)
+                if mode == "preflight_command":
+                    commands = session._composition.command_controller
+
+                    async def forbidden_command(*args):
+                        pytest.fail("prepared Resume input must not execute a command")
+
+                    commands.builtin_executor = forbidden_command
+                    commands.builtin_matcher = lambda name: name == "compact"
+                    with pytest.raises(CodingResumeRecoveryRequired, match="input.command_requires_separate_admission"):
+                        await session._prepare_resume_first_user_input(
+                            "/compact", attempt_id=attempt.attempt_id,
+                            require_current_admission=admit,
+                        )
+                    assert not preflight_calls
+                    assert len(manager.get_entries()) == 2
+                    return
+                task = asyncio.create_task(session._prepare_resume_first_user_input(
+                    "/skill:review inspect", attempt_id=attempt.attempt_id,
+                    require_current_admission=admit,
+                ))
+                if mode == "preflight_cancelled":
+                    waiting = asyncio.create_task(entered.wait())
+                    try:
+                        await asyncio.wait((task, waiting), return_when=asyncio.FIRST_COMPLETED)
+                        if not entered.is_set():
+                            await task
+                        task.cancel()
+                        with pytest.raises(asyncio.CancelledError):
+                            await task
+                    finally:
+                        release.set()
+                        waiting.cancel()
+                        await asyncio.gather(task, waiting, return_exceptions=True)
+                    assert len(manager.get_entries()) == 2
+                    assert not session.execution_available
+                    return
+                if mode == "preflight_revoked":
+                    with pytest.raises(PermissionError):
+                        await task
+                    assert len(manager.get_entries()) == 2
+                    assert not session.execution_available
+                    assert not session._request_evidence_runtime._pending
+                    return
+                message = await task
+                assert "Review actual source bytes." in user_message_text(message)
+                assert len(manager.get_entries()) == 2
+                with pytest.raises(CodingResumeRecoveryRequired, match="input.preflight_already_claimed"):
+                    await session._prepare_resume_first_user_input(
+                        "/skill:review changed", attempt_id=attempt.attempt_id,
+                        require_current_admission=admit,
+                    )
+                assert preflight_calls == ["/skill:review inspect"]
+                if mode == "preflight_repeated":
+                    return
             if mode == "published_evidence":
                 from loushang.harness.capabilities.prompt_preflight import (
                     PromptPreflightResult,
@@ -187,12 +272,21 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
                     payload_digest=coding_user_payload_digest(persisted),
                 )
 
+            stage_message = replace(message, content="changed") if mode == "preflight_changed_input" else message
             manager._stage_resume_first_user_input(
-                message, prepare_binding=prepare_binding,
+                stage_message, prepare_binding=prepare_binding,
                 created_at=datetime(2026, 10, 12, tzinfo=UTC),
                 original_leaf_id=attempt.original_leaf_id, ancestry_digest=attempt.ancestry_digest,
                 attempt_id=attempt.attempt_id,
             )
+            if mode == "preflight_changed_input":
+                with pytest.raises(CodingResumeRecoveryRequired, match="input.preflight_payload_changed"):
+                    await session._commit_resume_first_user_input(
+                        stage_message, attempt_id=attempt.attempt_id,
+                        require_current_admission=admit,
+                    )
+                assert len(manager.get_entries()) == 2
+                return
             if mode.startswith("input_commit_"):
                 native_appends = []
                 store = manager._lifecycle_session.runtime_binding.store
@@ -347,6 +441,18 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
                 )
                 assert settlements
                 assert session.execution_available
+                if mode == "published_preflight":
+                    from loushang.harness.session.request_evidence import (
+                        RESOURCE_EVIDENCE_METADATA_KEY,
+                    )
+
+                    bound = next(record for record in manager.get_entries() if record.record_id == "record-1")
+                    metadata = bound.metadata[RESOURCE_EVIDENCE_METADATA_KEY]
+                    assert metadata["modelVisibleText"] == user_message_text(message)
+                    assert metadata["skills"][0]["observedContentDigest"] == hashlib.sha256(skill.read_bytes()).hexdigest()
+                    assert (await manager.lookup_resume_input(CodingResumeInputLookupQueryV1(
+                        attempt.request_id, coding_resume_input_record_digest(bound),
+                    ))).status == "committed"
                 if evidence is not None:
                     from loushang.harness.session.request_evidence import (
                         RESOURCE_EVIDENCE_METADATA_KEY,

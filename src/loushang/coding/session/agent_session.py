@@ -10,7 +10,7 @@ from loushang.agent import Agent, PrepareModelCallFn
 from loushang.ai import PreparedRequestLimits
 from loushang.ai.api_registry import APIRegistry
 from loushang.ai.options import CallOptions, RetryOptions
-from loushang.ai.types import UserMessage
+from loushang.ai.types import ImagePart, UserMessage
 from loushang.coding._base_plugin import (
     CodingBasePluginAssembly,
     CodingBasePluginAssemblyError,
@@ -79,6 +79,7 @@ from loushang.coding.resume_activation_attempt import (
     CodingActivationAttemptV1,
     CodingResumeRecoveryRequired,
 )
+from loushang.coding.resume_binding import coding_user_input_digest
 from loushang.coding.runtime_capability_admission import (
     CodingExtensionDeclarationPreflight,
     resolve_coding_capability_profile,
@@ -635,6 +636,8 @@ class AgentSession(AgentProductSession):
         self._coding_resume_publication: _CodingResumeRuntimePublication | None = None
         self._coding_resume_dispatch_claimed = False
         self._coding_resume_input_commit_claimed = False
+        self._coding_resume_input_preflight_claimed = False
+        self._coding_resume_preflight_input_digest: str | None = None
         self._coding_composition_had_entries_at_construction = bool(
             session_manager.get_entries()
         )
@@ -1324,6 +1327,60 @@ class AgentSession(AgentProductSession):
             finally:
                 self._coding_resume_graph_attempt_id = None
 
+    async def _prepare_resume_first_user_input(
+        self, text: str, *, attempt_id: str,
+        require_current_admission: Callable[[CodingActivationAttemptV1], None],
+        images: list[ImagePart] | None = None,
+    ) -> UserMessage:
+        """Prepare one current input through original prompt/Resource owners.
+
+        Formal preparation requires the locally committed intent and prepared
+        graph. It does not stage or commit a UserMessage, execute commands,
+        publish a runtime or run a model. The coordinator still owns those steps.
+        """
+
+        from loushang.harness.runtime.turn import TurnInput
+
+        if not isinstance(text, str) or (not text.strip() and not images):
+            raise ValueError("Coding Resume requires nonempty user input")
+        manager = self._coding_session_manager
+        async with self._coding_resume_runtime_preparation_lock:
+            candidate = self._coding_resume_candidate
+            if candidate is None or candidate.attempt.attempt_id != attempt_id:
+                raise CodingResumeRecoveryRequired("runtime.candidate_unverified")
+            if self._coding_resume_input_preflight_claimed or self._coding_resume_input_commit_claimed:
+                raise CodingResumeRecoveryRequired("input.preflight_already_claimed")
+
+            def require_current() -> None:
+                with manager._lifecycle_session.sync_operation_scope():
+                    manager._require_resume_runtime_preparation(attempt_id)
+                    self._require_resume_candidate(candidate)
+                    self._require_candidate_preparation_admission(
+                        lambda: require_current_admission(candidate.attempt),
+                    )
+
+            require_current()
+            commands = self._composition.command_controller
+            if (
+                commands.extract_extension_command_invocation(text) is not None
+                or commands.extract_builtin_command_invocation(text) is not None
+            ):
+                raise CodingResumeRecoveryRequired("input.command_requires_separate_admission")
+            self._coding_resume_input_preflight_claimed = True
+            evidence_owner = object()
+            try:
+                message = await self._composition.session_runtime.prompt_controller.prepare_user_message(
+                    TurnInput(text=text, attachments=None if images is None else list(images), source="resume"),
+                    evidence_owner=evidence_owner,
+                )
+                require_current()
+                self._coding_resume_preflight_input_digest = coding_user_input_digest(message)
+                return message
+            except BaseException:
+                self._request_evidence_runtime.discard_owner(evidence_owner)
+                self._execution_preparation_failed = True
+                raise
+
     async def _commit_resume_first_user_input(
         self, message: UserMessage, *, attempt_id: str,
         require_current_admission: Callable[[CodingActivationAttemptV1], None],
@@ -1344,6 +1401,11 @@ class AgentSession(AgentProductSession):
                 raise CodingResumeRecoveryRequired("runtime.candidate_unverified")
             if self._coding_resume_input_commit_claimed:
                 raise CodingResumeRecoveryRequired("input.commit_already_claimed")
+            if (
+                self._coding_resume_preflight_input_digest is not None
+                and coding_user_input_digest(message) != self._coding_resume_preflight_input_digest
+            ):
+                raise CodingResumeRecoveryRequired("input.preflight_payload_changed")
             with manager._lifecycle_session.sync_operation_scope():
                 manager._require_resume_runtime_preparation(attempt_id)
                 manager._require_resume_staged_input(attempt_id, message)

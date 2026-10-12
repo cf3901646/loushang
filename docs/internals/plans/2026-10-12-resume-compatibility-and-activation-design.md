@@ -1261,3 +1261,35 @@ input-commit/evidence cases then passed, including the previously failing
 unknown-ACK case. The existing eighteen publication/dispatch cases also passed
 with the new input entry. Scoped mypy for all three source modules, Ruff and
 all nine documentation checks passed.
+
+#### Initial input uses native prompt and Skill preparation
+
+Coding's `_prepare_resume_first_user_input` now delegates to the original
+PromptController's preparation entry, which reuses Resource prompt preflight,
+Request Evidence preparation and native UserMessage construction. This entry
+does not queue input, invoke a command, commit history or dispatch a model.
+Recognized builtin and extension commands are rejected through the existing
+command matchers before Resource preparation. Extension command execution
+remains disabled in the original preflight call.
+
+Preparation requires the same locally verified intent, exclusive Writer and
+current candidate as input commit. Current admission is checked before and
+after the Resource await. The preparation is claimed once; cancellation or
+failed post-await admission discards its native evidence owner and fences
+execution preparation. The prepared native message's full input digest is
+retained locally. Input commit rejects a different payload even if that
+different payload was subsequently staged in the Manager.
+
+A real workspace `skills/review/SKILL.md` fixture now exercises the current
+Catalog and Resource owner instead of constructing a loaded-Skill result.
+Its expanded native message and observed source-byte digest are committed
+through the original Request Evidence owner alongside the inline Binding.
+The committed canonical record is independently found by logical input lookup.
+Boundary cases cover revoked admission after reading, cancellation during
+preflight, repeated preparation, command isolation and substituted staged input.
+Admission callbacks remain test validators; these cases do not establish
+production actor-policy admission, approval or epoch settlement.
+
+Validation: eighteen non-live publication/preflight and native PromptController
+cases passed. Scoped mypy for both changed source modules, Ruff and all nine
+documentation checks passed.
