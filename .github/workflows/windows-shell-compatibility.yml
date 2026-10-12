@@ -11,8 +11,49 @@ permissions:
   contents: read
 
 jobs:
+  windows-pr-smoke:
+    if: ${{ fromJSON(inputs.plan).windows.smoke }}
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v5
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+      - name: Build current Loushang Wheel for Windows backend review
+        run: |
+          uv build --sdist --quiet --out-dir .artifacts/windows-backend-source
+          $source = @(Get-ChildItem .artifacts/windows-backend-source/*.tar.gz)
+          if ($source.Count -ne 1) { throw 'Expected one Loushang source archive' }
+          uv build $source[0].FullName --wheel --quiet --out-dir .artifacts/windows-backend-wheel
+      - name: Exercise native shell, ordinary Session, and hosted Worker exit
+        env:
+          LOUSHANG_WINDOWS_BACKEND_REVIEW: "1"
+          PYTEST_ADDOPTS: >-
+            --tb=short
+            --junitxml=.artifacts/windows-pr-smoke.xml
+        run: >-
+          uv run python scripts/dev/run_pytest.py
+          tests/harness/workspace/test_shell.py::test_native_windows_shell_executes_utf8_and_preserves_failure_exit_code
+          tests/coding/test_package_windows_pre_b_snapshot.py::test_windows_public_ordinary_session_enters_fresh_b_product
+          tests/coding/test_package_windows_pre_b_snapshot.py::test_windows_worker_hosted_first_session_reaches_selected_product
+          --maxfail=1 -q
+      - name: Reject empty, skipped, or failing smoke report
+        run: >-
+          uv run python scripts/dev/verify_pytest_xml.py
+          .artifacts/windows-pr-smoke.xml --require-tests-count 3
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-pr-smoke
+          path: .artifacts/windows-pr-smoke.xml
+          if-no-files-found: error
+
   windows-worker:
-    if: ${{ fromJSON(inputs.plan).checks.windows_shell }}
+    if: ${{ fromJSON(inputs.plan).windows.worker_full }}
     runs-on: windows-2022
     timeout-minutes: 120
     steps:
@@ -75,7 +116,7 @@ jobs:
           if-no-files-found: warn
 
   windows-worker-session:
-    if: ${{ fromJSON(inputs.plan).checks.windows_shell }}
+    if: ${{ fromJSON(inputs.plan).windows.worker_full }}
     runs-on: windows-2022
     timeout-minutes: 120
     steps:
@@ -140,7 +181,7 @@ jobs:
           if-no-files-found: warn
 
   windows-worker-gc-normal:
-    if: ${{ fromJSON(inputs.plan).checks.windows_shell }}
+    if: ${{ fromJSON(inputs.plan).windows.worker_full }}
     runs-on: windows-2022
     timeout-minutes: 120
     steps:
@@ -196,7 +237,7 @@ jobs:
           if-no-files-found: warn
 
   windows-worker-gc-crash:
-    if: ${{ fromJSON(inputs.plan).checks.windows_shell }}
+    if: ${{ fromJSON(inputs.plan).windows.worker_full }}
     runs-on: windows-2022
     timeout-minutes: 120
     steps:
@@ -249,7 +290,7 @@ jobs:
           if-no-files-found: warn
 
   windows-shell:
-    if: ${{ fromJSON(inputs.plan).checks.windows_shell }}
+    if: ${{ fromJSON(inputs.plan).windows.shell_full }}
     runs-on: windows-2022
     timeout-minutes: 90
     steps:
@@ -440,7 +481,7 @@ jobs:
   selected-checks:
     name: Selected checks
     if: always()
-    needs: [windows-shell, windows-worker, windows-worker-session, windows-worker-gc-normal, windows-worker-gc-crash]
+    needs: [windows-pr-smoke, windows-shell, windows-worker, windows-worker-session, windows-worker-gc-normal, windows-worker-gc-crash]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -450,4 +491,5 @@ jobs:
           CI_NEEDS: ${{ toJSON(needs) }}
         run: >-
           python scripts/ci/verify_gate.py
-          --jobs '{"windows-shell":"windows_shell","windows-worker":"windows_shell","windows-worker-session":"windows_shell","windows-worker-gc-normal":"windows_shell","windows-worker-gc-crash":"windows_shell"}'
+          --section windows
+          --jobs '{"windows-pr-smoke":"smoke","windows-shell":"shell_full","windows-worker":"worker_full","windows-worker-session":"worker_full","windows-worker-gc-normal":"worker_full","windows-worker-gc-crash":"worker_full"}'
