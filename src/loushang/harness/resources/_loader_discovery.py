@@ -18,6 +18,7 @@ from loushang.harness.resources._loader_package_policy import (
     _package_root_diagnostic,
 )
 from loushang.harness.resources._loader_types import _SOURCE_LABEL, _SourceDiscovery
+from loushang.harness.resources._safe_files import ResourceReadBudgetExceeded
 from loushang.harness.resources.diagnostics import resource_diagnostic
 from loushang.harness.resources.packages.mounts import PackageResourceMount
 from loushang.harness.resources.types import (
@@ -139,7 +140,11 @@ def _discover_project_resources(root: Path) -> _SourceDiscovery:
 def _discover_external_package_resources(
     package_mounts: tuple[PackageResourceMount, ...],
     *, work_probe: Callable[[], None] | None = None,
+    max_text_bytes: int | None = None,
 ) -> _SourceDiscovery:
+    if max_text_bytes is not None and (type(max_text_bytes) is not int or max_text_bytes < 1):
+        raise ValueError("Package discovery text byte limit must be positive")
+    remaining_text_bytes = max_text_bytes
     prompts: list[PromptFragmentDescriptor] = []
     skills: list[SkillDescriptor] = []
     extensions: list[ExtensionDescriptor] = []
@@ -166,13 +171,26 @@ def _discover_external_package_resources(
                 )
             )
             continue
+
+        def read_text(path: Path, *, source_mount: PackageResourceMount = mount) -> str:
+            nonlocal remaining_text_bytes
+            if remaining_text_bytes is None:
+                return source_mount.read_text(path)
+            if remaining_text_bytes < 1:
+                raise ResourceReadBudgetExceeded("Package text exceeds its aggregate byte budget")
+            text, byte_count = source_mount.capture_text(
+                path, max_bytes=remaining_text_bytes, work_probe=work_probe,
+            )
+            remaining_text_bytes -= byte_count
+            return text
+
         package_prompts, prompt_diagnostics = _discover_prompts_from_dir(
             root / "prompts",
             source_kind="external_package",
             source_scope="package",
             source_label=_SOURCE_LABEL["external_package"],
             source_root_order=index,
-            text_reader=mount.read_text,
+            text_reader=read_text,
             work_probe=work_probe,
         )
         package_skills, skill_diagnostics = _discover_skills_from_dir(
@@ -181,7 +199,7 @@ def _discover_external_package_resources(
             source_scope="package",
             source_label=_SOURCE_LABEL["external_package"],
             source_root_order=index,
-            text_reader=mount.read_text,
+            text_reader=read_text,
             work_probe=work_probe,
         )
         package_extensions, extension_diagnostics = _discover_extensions_from_dir(
@@ -198,7 +216,7 @@ def _discover_external_package_resources(
             source_scope="package",
             source_label=_SOURCE_LABEL["external_package"],
             source_root_order=index,
-            text_reader=mount.read_text,
+            text_reader=read_text,
             work_probe=work_probe,
         )
         package_filter = mount.source_filter

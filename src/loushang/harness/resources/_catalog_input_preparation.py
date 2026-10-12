@@ -53,6 +53,7 @@ def prepare_resource_catalog_input_receipt(
     built_in_resource_packages: tuple[str, ...],
     context_file_names: tuple[str, ...],
     work_probe: Callable[[], None] | None = None,
+    package_text_byte_budget: int | None = None,
 ) -> ResourceCatalogInputReceipt:
     """Observe only source facts; never select or publish effective Resources."""
 
@@ -69,7 +70,9 @@ def prepare_resource_catalog_input_receipt(
         work_probe=work_probe,
     )
     external = _apply_resource_switches(
-        _discover_external_package_resources(package_mounts, work_probe=work_probe),
+        _discover_external_package_resources(
+            package_mounts, work_probe=work_probe, max_text_bytes=package_text_byte_budget,
+        ),
         no_prompts=no_prompt_templates,
         no_skills=no_skills,
         no_extensions=no_extensions,

@@ -15,6 +15,7 @@ from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import BinaryIO, Literal, cast
 
+from loushang.harness.resources._safe_files import ResourceReadBudgetExceeded
 from loushang.harness.resources.plugins.locators import (
     canonical_plugin_relative_path,
 )
@@ -191,7 +192,12 @@ class VerifiedRevisionHandle:
                 path=self.root,
             )
 
-    def open_file(self, relative_path: str | PurePosixPath) -> BinaryIO:
+    def open_file(
+        self, relative_path: str | PurePosixPath, *,
+        max_bytes: int | None = None, work_probe: Callable[[], None] | None = None,
+    ) -> BinaryIO:
+        if max_bytes is not None and (type(max_bytes) is not int or max_bytes < 1):
+            raise ValueError("Plugin revision read byte limit must be positive")
         logical_path = _logical_relative_path(relative_path, root=self.root)
         key = logical_path.as_posix()
         expected = self._entries.get(key)
@@ -206,6 +212,7 @@ class VerifiedRevisionHandle:
                 data, executable = _read_relative_file(
                     self._require_root_fd(),
                     logical_path,
+                    max_bytes=max_bytes, work_probe=work_probe,
                 )
             else:
                 self._require_open()
@@ -213,6 +220,7 @@ class VerifiedRevisionHandle:
                     self.root,
                     logical_path,
                     expected_root_identity=self._root_identity,
+                    max_bytes=max_bytes, work_probe=work_probe,
                 )
         except (OSError, PluginRevisionError) as exc:
             raise PluginRevisionError(
@@ -634,6 +642,7 @@ def _read_relative_file_portable(
     relative_path: PurePosixPath,
     *,
     expected_root_identity: tuple[int, int],
+    max_bytes: int | None = None, work_probe: Callable[[], None] | None = None,
 ) -> tuple[bytes, bool]:
     root_metadata = _portable_directory_metadata(root)
     if _stat_identity(root_metadata) != expected_root_identity:
@@ -655,7 +664,9 @@ def _read_relative_file_portable(
             code="plugin_revision_changed",
             path=Path(relative_path.as_posix()),
         )
-    result = _read_file_portable(file_path, expected=metadata)
+    result = _read_file_portable(
+        file_path, expected=metadata, max_bytes=max_bytes, work_probe=work_probe,
+    )
     for path, before in reversed(directory_chain):
         after = _portable_directory_metadata(path)
         if _stable_directory_identity(before) != _stable_directory_identity(after):
@@ -671,15 +682,14 @@ def _read_file_portable(
     path: Path,
     *,
     expected: os.stat_result,
+    max_bytes: int | None = None, work_probe: Callable[[], None] | None = None,
 ) -> tuple[bytes, bool]:
     file_fd, before = _open_regular_file_portable(path, expected=expected)
     try:
-        chunks: list[bytes] = []
-        while chunk := os.read(file_fd, 1024 * 1024):
-            chunks.append(chunk)
+        body = _read_revision_file_body(file_fd, max_bytes=max_bytes, work_probe=work_probe)
         _assert_file_stable(file_fd, before, name=str(path))
         _assert_portable_path_stable(path, expected=expected)
-        return b"".join(chunks), bool(before.st_mode & 0o111)
+        return body, bool(before.st_mode & 0o111)
     finally:
         os.close(file_fd)
 
@@ -910,6 +920,7 @@ def _capture_directory(
 def _read_relative_file(
     root_fd: int,
     relative_path: PurePosixPath,
+    *, max_bytes: int | None = None, work_probe: Callable[[], None] | None = None,
 ) -> tuple[bytes, bool]:
     current_fd = os.dup(root_fd)
     try:
@@ -925,7 +936,9 @@ def _read_relative_file(
                 code="plugin_revision_changed",
                 path=Path(relative_path.as_posix()),
             )
-        return _read_file(current_fd, name, expected=metadata)
+        return _read_file(
+            current_fd, name, expected=metadata, max_bytes=max_bytes, work_probe=work_probe,
+        )
     finally:
         os.close(current_fd)
 
@@ -935,16 +948,38 @@ def _read_file(
     name: str,
     *,
     expected: os.stat_result,
+    max_bytes: int | None = None, work_probe: Callable[[], None] | None = None,
 ) -> tuple[bytes, bool]:
     file_fd, before = _open_regular_file(directory_fd, name, expected=expected)
     try:
-        chunks: list[bytes] = []
-        while chunk := os.read(file_fd, 1024 * 1024):
-            chunks.append(chunk)
+        body = _read_revision_file_body(file_fd, max_bytes=max_bytes, work_probe=work_probe)
         _assert_file_stable(file_fd, before, name=name)
-        return b"".join(chunks), bool(before.st_mode & 0o111)
+        return body, bool(before.st_mode & 0o111)
     finally:
         os.close(file_fd)
+
+
+def _read_revision_file_body(
+    descriptor: int, *, max_bytes: int | None, work_probe: Callable[[], None] | None,
+) -> bytes:
+    if max_bytes is not None and os.fstat(descriptor).st_size > max_bytes:
+        raise ResourceReadBudgetExceeded("Package text exceeds its byte budget")
+    chunks: list[bytes] = []
+    size = 0
+    while True:
+        if work_probe is not None:
+            work_probe()
+        chunk_size = 64 * 1024 if work_probe is not None else 1024 * 1024
+        if max_bytes is not None:
+            chunk_size = min(chunk_size, max_bytes - size + 1)
+        chunk = os.read(descriptor, chunk_size)
+        if not chunk:
+            break
+        size += len(chunk)
+        if max_bytes is not None and size > max_bytes:
+            raise ResourceReadBudgetExceeded("Package text exceeds its byte budget")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _digest_file(

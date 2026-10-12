@@ -181,6 +181,97 @@ def test_verified_revision_cancellation_checks_between_digest_chunks(
         handle.close()
 
 
+@pytest.mark.parametrize("verified", (False, True))
+def test_package_text_capture_obeys_byte_budget_and_keeps_ordinary_reads(
+    tmp_path: Path, verified: bool,
+) -> None:
+    source = _plugin(tmp_path / "source")
+    original_path = source / "resources" / "prompts" / "review.md"
+    original_path.write_bytes(b"first\r\nsecond\r\n")
+    if verified:
+        published = PluginRevisionStore(tmp_path / "revisions").publish(
+            PluginManifestParser().parse(source)
+        )
+        mount = PackageResourceMount(
+            root=published.package_root, content_digest=published.content_digest,
+            revision_handle=published.revision_handle,
+        )
+    else:
+        mount = PackageResourceMount(root=source / "resources")
+    path = mount.root / "prompts" / "review.md"
+    try:
+        text, byte_count = mount.capture_text(path, max_bytes=100)
+        assert text == mount.read_text(path)
+        assert byte_count == len(b"first\r\nsecond\r\n")
+        with pytest.raises(RuntimeError, match="byte budget"):
+            mount.capture_text(path, max_bytes=3)
+        assert mount.read_text(path) == text
+    finally:
+        mount.close()
+
+
+def test_package_discovery_aggregate_budget_counts_raw_bytes_before_newline_conversion(
+    tmp_path: Path,
+) -> None:
+    from loushang.harness.resources._loader_discovery import (
+        _discover_external_package_resources,
+    )
+    from loushang.harness.resources._safe_files import ResourceReadBudgetExceeded
+
+    prompts = tmp_path / "prompts"
+    prompts.mkdir()
+    for name in ("one.md", "two.md"):
+        (prompts / name).write_bytes(b"\r\n" * 4)
+    mount = PackageResourceMount(root=tmp_path)
+    with pytest.raises(ResourceReadBudgetExceeded):
+        _discover_external_package_resources((mount,), max_text_bytes=12)
+    # Ordinary discovery uses the same mount and remains available after a
+    # discarded speculative scan. Twelve bytes cover only one of these files.
+    ordinary = _discover_external_package_resources((mount,))
+    assert len(ordinary.prompts) == 2
+
+
+@pytest.mark.parametrize("mode", ("path", "descriptor", "portable"))
+def test_package_text_capture_cancels_between_byte_chunks_without_closing_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str,
+) -> None:
+    from concurrent.futures import CancelledError
+
+    from loushang.harness.resources.plugins import revisions
+
+    if mode == "portable":
+        monkeypatch.setattr(revisions, "_supports_descriptor_relative_revision_io", lambda: False)
+    source = _plugin(tmp_path / "source")
+    (source / "resources" / "prompts" / "review.md").write_bytes(b"a" * (256 * 1024))
+    if mode == "path":
+        mount = PackageResourceMount(root=source / "resources")
+    else:
+        published = PluginRevisionStore(tmp_path / "revisions").publish(
+            PluginManifestParser().parse(source)
+        )
+        mount = PackageResourceMount(
+            root=published.package_root, content_digest=published.content_digest,
+            revision_handle=published.revision_handle,
+        )
+    calls = 0
+
+    def stop():
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise CancelledError("package text read cancelled")
+
+    path = mount.root / "prompts" / "review.md"
+    try:
+        with pytest.raises(CancelledError, match="package text read cancelled"):
+            mount.capture_text(path, max_bytes=512 * 1024, work_probe=stop)
+        assert calls == 2
+        assert mount.read_text(path) == "a" * (256 * 1024)
+        mount.verify()
+    finally:
+        mount.close()
+
+
 def _plugin(root: Path) -> Path:
     prompt_root = root / "resources" / "prompts"
     prompt_root.mkdir(parents=True)

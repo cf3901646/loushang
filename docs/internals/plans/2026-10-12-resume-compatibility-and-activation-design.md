@@ -37,13 +37,18 @@
 - Planning cancellation: the shared Plan entry and original ResourceLoader
   preview accept a cooperative work probe. Checkpoints cover phase boundaries,
   context candidates, package/revision directory enumeration and Skill recursion,
-  and 64 KiB context-file and revision-digest reads. Descriptor and portable
+  and 64 KiB context-file, package-text, and revision-digest reads. Package text
+  capture uses the original mount/revision owner, preserves ordinary newline
+  semantics, and limits raw bytes to 8 MiB total across mounts. Budget exhaustion
+  discards the speculative receipt with `resource.preview_byte_budget_exceeded`;
+  ordinary on-demand preparation still uses its existing owner path.
+  Descriptor and portable
   revision verification preserve cancellation rather than reporting changed
   content; temporary descriptors close and the original handle remains owned.
   Directory cancellation occurs before collecting
   and sorting all candidates. Cancellation discards the
-  result without selecting authority and permits re-planning. Package text reads
-  still lack inner checkpoints; scan budgets, shared scheduling,
+  result without selecting authority and permits re-planning. Work-unit/time
+  budgets and shared scheduling,
   Session waiting references, priority, and close settlement remain unimplemented.
 - Revision: R2.1, 2026-10-12; R2 independently rechecked, with the requested
   legacy Ack timing and fork-origin clarifications applied.

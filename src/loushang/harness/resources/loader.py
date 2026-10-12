@@ -424,8 +424,9 @@ class ResourceLoader:
         A work probe can enforce a caller's cooperative budget by raising a
         non-OSError exception. Checkpoints cover phase boundaries, context
         candidates, package and revision directory entries, Skill recursion,
-        and 64 KiB context and revision-digest reads. Package text reads still
-        lack inner checkpoints; this hook alone does not make them background-safe.
+        and 64 KiB context, package-text, and revision-digest reads. Package
+        text capture is limited to 8 MiB total across mounts. These limits do
+        not supply a shared scheduler, task priority, or Session close settlement.
         """
 
         if self._legacy_authority_selected:
@@ -434,7 +435,9 @@ class ResourceLoader:
             )
         if work_probe is not None and not callable(work_probe):
             raise TypeError("Catalog preview work probe must be callable")
-        return self._compute_catalog_input_receipt(cwd, work_probe=work_probe)
+        return self._compute_catalog_input_receipt(
+            cwd, work_probe=work_probe, package_text_byte_budget=8 * 1024 * 1024,
+        )
 
     def _catalog_input_state(self) -> _CatalogInputState:
         return _CatalogInputState(
@@ -463,6 +466,7 @@ class ResourceLoader:
 
     def _compute_catalog_input_receipt(
         self, cwd: str | Path, *, work_probe: Callable[[], None] | None = None,
+        package_text_byte_budget: int | None = None,
     ) -> ResourceCatalogInputReceipt:
         state = self._catalog_input_state()
         if work_probe is not None:
@@ -498,6 +502,7 @@ class ResourceLoader:
             built_in_resource_packages=state.built_in_resource_packages,
             context_file_names=state.context_file_names,
             work_probe=work_probe,
+            package_text_byte_budget=package_text_byte_budget,
         )
         if work_probe is not None:
             work_probe()

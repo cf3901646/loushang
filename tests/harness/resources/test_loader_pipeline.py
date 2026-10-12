@@ -457,6 +457,7 @@ def test_catalog_input_preview_stops_package_enumeration_before_reading_text(
 
     with monkeypatch.context() as patch:
         patch.setattr(PackageResourceMount, "read_text", forbidden_read)
+        patch.setattr(PackageResourceMount, "capture_text", forbidden_read)
         with pytest.raises(CancelledError, match="package enumeration cancelled"):
             loader.preview_catalog_input_receipt(tmp_path, work_probe=stop)
     assert calls == 5
@@ -465,6 +466,24 @@ def test_catalog_input_preview_stops_package_enumeration_before_reading_text(
     # The cancelled receipt was not retained or consumed.
     preview = loader.preview_catalog_input_receipt(tmp_path)
     assert preview.input_fingerprint == loader.prepare_catalog_input_receipt(tmp_path).input_fingerprint
+
+
+def test_catalog_input_preview_discards_package_text_beyond_total_byte_budget(tmp_path: Path) -> None:
+    from loushang.harness.resources._safe_files import ResourceReadBudgetExceeded
+
+    prompts = tmp_path / "package" / "prompts"
+    prompts.mkdir(parents=True)
+    for name in ("one.md", "two.md"):
+        (prompts / name).write_bytes(b"a" * (4 * 1024 * 1024 + 1))
+    loader = ResourceLoader(package_roots=(prompts.parent,), user_resource_roots=())
+    with pytest.raises(ResourceReadBudgetExceeded) as caught:
+        loader.preview_catalog_input_receipt(tmp_path)
+    assert caught.value.reason_code == "resource.preview_byte_budget_exceeded"
+    assert loader._catalog_authority_selected is False
+    assert loader._legacy_authority_selected is False
+    assert loader._initial_resource_catalog_input_receipt is None
+    # On-demand preparation still owns its ordinary path and can read the data.
+    assert len(loader.prepare_catalog_input_receipt(tmp_path).package_resource_candidates) == 2
 
 
 def test_catalog_input_preview_checks_cancellation_between_context_chunks(
