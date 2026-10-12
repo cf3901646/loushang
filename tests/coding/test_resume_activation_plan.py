@@ -168,6 +168,8 @@ def test_activation_plan_references_resource_owner_input_without_retaining_recei
     tmp_path: Path,
 ) -> None:
     loader = ResourceLoader(user_resource_roots=())
+    context = tmp_path / "AGENTS.md"
+    context.write_text("AAAA", encoding="utf-8")
     first_receipt = loader.preview_catalog_input_receipt(tmp_path)
     first_ref = ActivationOwnerInputRefV1(
         "resources.catalog", first_receipt.input_fingerprint,
@@ -178,7 +180,7 @@ def test_activation_plan_references_resource_owner_input_without_retaining_recei
         owner_inputs=(first_ref,),
     )
 
-    loader.set_runtime_options(no_skills=True)
+    context.write_text("BBBB", encoding="utf-8")
     next_receipt = loader.preview_catalog_input_receipt(tmp_path)
     next_ref = ActivationOwnerInputRefV1(
         "resources.catalog", next_receipt.input_fingerprint,
@@ -188,6 +190,8 @@ def test_activation_plan_references_resource_owner_input_without_retaining_recei
         owner_inputs=(next_ref,),
     )
     assert first.plan_id != changed.plan_id
+    assert first_receipt.context_content_complete
+    assert next_receipt.context_content_complete
     assert first.owner_inputs == (first_ref,)
     assert "ResourceCatalogInputReceipt" not in repr(first)
     require_current_resume_plan_inputs(first, (first_ref,))

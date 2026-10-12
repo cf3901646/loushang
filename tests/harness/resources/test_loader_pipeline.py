@@ -396,6 +396,43 @@ def test_catalog_input_preview_uses_formal_owner_selection_without_claiming_auth
     assert len(loader.preview_catalog_input_receipt(project).input_fingerprint) == 64
 
 
+def test_catalog_input_preview_tracks_context_bytes_without_following_links(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    context = project / "AGENTS.md"
+    context.write_text("AAAA", encoding="utf-8")
+    loader = ResourceLoader(
+        user_resource_roots=(), project_resource_mode="legacy",
+        context_file_names=("AGENTS.md",),
+    )
+
+    first = loader.preview_catalog_input_receipt(project)
+    first_fact = next(
+        item for item in first.context_file_facts if item.root == project
+    )
+    assert first_fact.status == "file"
+    assert first_fact.content_length == 4
+    context.write_text("BBBB", encoding="utf-8")
+    second = loader.preview_catalog_input_receipt(project)
+    second_fact = next(
+        item for item in second.context_file_facts if item.root == project
+    )
+    assert second_fact.content_digest != first_fact.content_digest
+    assert second.input_fingerprint != first.input_fingerprint
+
+    context.unlink()
+    context.symlink_to(tmp_path / "outside.md")
+    third = loader.preview_catalog_input_receipt(project)
+    third_fact = next(
+        item for item in third.context_file_facts if item.root == project
+    )
+    assert third_fact.status == "unavailable"
+    assert third.context_content_complete is False
+    assert loader._catalog_authority_selected is False
+
+
 def test_catalog_input_preview_rejects_loader_configuration_race(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

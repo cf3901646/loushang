@@ -9,9 +9,10 @@
   historical Binding projection, fixed-ID UserMessage
   commit primitives, composition comparison, and a data-only internal
   `SessionActivationPlanV1` envelope exist. ResourceLoader can calculate
-  Catalog input facts without choosing authority; Plan records only their
-  redacted input fingerprint and rejects reuse when refreshed owner inputs
-  differ. This does not prove mutable Resource content or replace current
+  Catalog input facts and bounded native context content digests without
+  choosing authority; Plan records only their redacted input fingerprint and
+  rejects reuse when refreshed owner inputs differ. Skill and other mutable
+  Resource content is not closed by this receipt, which cannot replace current
   owner selection. Writable admission, owner selection
   completion, background scheduling, Hosted readiness, and release evidence
   are not implemented.
