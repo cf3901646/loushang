@@ -1296,11 +1296,11 @@ def test_agent_session_tracks_multiple_builtin_tool_names(tmp_path) -> None:
     assert session.get_active_tool_names() == ["bash", "read", "grep"]
     assert [tool.name for tool in session.agent.tools] == ["bash", "read", "grep"]
     assert (
-        "read: Read text files and images from the coding workspace."
+        "read: Read text files and images from the workspace."
         in session.agent.system_prompt
     )
     assert (
-        "grep: Search file contents for patterns in the coding workspace."
+        "grep: Search file contents for patterns in the workspace."
         in session.agent.system_prompt
     )
 
@@ -1363,11 +1363,11 @@ def test_agent_session_tracks_mutation_builtin_tool_names(tmp_path) -> None:
     assert session.get_active_tool_names() == ["write", "edit"]
     assert [tool.name for tool in session.agent.tools] == ["write", "edit"]
     assert (
-        "write: Write a text file in the coding workspace."
+        "write: Write a text file in the workspace."
         in session.agent.system_prompt
     )
     assert (
-        "edit: Apply exact text replacements to a file in the coding workspace."
+        "edit: Apply exact text replacements to a file in the workspace."
         in session.agent.system_prompt
     )
 
