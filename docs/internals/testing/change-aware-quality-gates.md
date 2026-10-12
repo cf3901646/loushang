@@ -10,26 +10,31 @@ their results through `quality-gate`. Local development uses the same
 | Change | Required scope |
 | --- | --- |
 | Ordinary Markdown/RST documentation | Existing documentation invariants and changed Markdown links; no product dependency installation |
-| Ordinary package source or classified unit test on a PR | That package's [unit inventory](../../../scripts/ci/unit-tests.json), plus documentation and source dependency facts |
-| Session, conversation, transcript, or hosted application code on a PR | Package units plus a focused create → turn → resume → turn → close E2E smoke |
+| Ordinary package source or classified unit test on a PR or main push | That package's complete offline regression directory and explicitly owned extras, plus documentation and source dependency facts |
+| Session, conversation, transcript, or hosted application code on a PR or main push | Package units plus a focused create → turn → resume → turn → close E2E smoke |
 | Public AI contracts, shared Foundation, plugin SDK, and platform or native code | Existing affected package and consumer gates |
 | Terminal lifecycle/platform code | TUI units, playback, native PTY/ConPTY, and tmux; a PR runs one Windows ConPTY startup/exit case unless it changes native backend ownership |
 | Hosting provider source | Hosting checks and its AppHost/AppService startup and settlement consumers |
 | Hosted native/wheel evidence helpers, supervisors, and PTY/ConPTY fixture drivers | AppService quality plus G16/G17 native and installed matrices; native evidence changes retain full Windows coverage on the PR |
-| PR-only edits to the CI routing table, selector, gate verifier, or their existing contract tests | CI routing regressions and pinned Actions syntax check, plus documentation invariants |
+| Edits to the CI routing table, unit inventory, selector, gate verifier, or their existing contract tests | CI routing regressions, pinned Actions syntax check, one Agent module regression, and the three-platform E2E smoke |
+| Edits to the module regression reusable workflow | CI routing and Actions syntax checks, every eligible package's complete offline regression, and the three-platform E2E smoke |
 | Shared dependencies, gate infrastructure, or unknown non-document paths | All configured checks |
 
-The fast PR route is limited to known package source and exact test files in
-the unit inventory. New or unclassified test files continue through the
-existing selector until they are reviewed and added to the inventory. Package
-source that selects a platform, Worker, installation, LSP, or other high-risk
-gate also keeps the existing route. The unit inventory is intentionally a
-focused suite of isolated tests, not a claim that every test under a package
-directory is a unit test. Each package gets a separate CI matrix job; a change
-touching two packages runs both unit inventories. The E2E smoke reopens a real
-hosted session and sends a second message. PRs that edit the new gate machinery
-run the established full checks and exercise one unit matrix entry plus E2E,
-so the new reusable workflows receive remote validation.
+The fast PR/main-push route is limited to known package source and exact test files in
+the [routing inventory](../../../scripts/ci/unit-tests.json). New or unclassified
+test files continue through the existing selector until reviewed. Each fast
+module job runs every test in its package directory with offline selectors;
+the routing inventory identifies eligible paths, not a smaller test subset.
+Coding excludes its separately owned UI suite, and existing AI, Agent, Coding,
+and Harness example tests retain their package owner. Coding, Harness,
+HarnessTUI, and TUI module jobs use deterministic shards. A change touching
+two packages runs both complete module regressions. Package source that selects
+a platform, Worker, installation, LSP, or other high-risk gate also keeps the
+existing route. The E2E smoke reopens a real hosted session and sends a second
+message. Changes to the five listed routing files exercise CI static checks,
+the Agent module job, and E2E. Changes to the module regression workflow run
+the complete eligible unit inventory instead of unrelated native suites. Other
+gate machinery retains full validation.
 
 The existing routing rules are additive outside this fast PR route. Makefile source/test inventories retain explicitly shared
 support paths, such as the Coding product worker canary owned by Harness
@@ -37,21 +42,21 @@ checks. An unchanged package can still be affected by changed dependencies or
 shared test infrastructure. Package dependency direction does not mean every
 consumer change must rerun all of its providers' suites.
 
-The narrow routing-file exception applies only to pull requests. Main pushes
-and scheduled/manual validation keep their existing scopes. Other CI files,
-workflow definitions, test runners, build dependencies, and new unclassified
-test files still select the complete gate.
+The narrow routing-file exception applies to pull requests and ordinary main
+pushes. Scheduled/manual validation stays full. Other CI files and workflow
+definitions, test runners, build dependencies, and new unclassified test files
+still select the complete gate.
 
 Windows jobs have a second selection within their affected scope. An ordinary
-PR selected for Windows Shell runs three native cases: shell execution, an
+PR or main push selected for Windows Shell runs three native cases: shell execution, an
 ordinary Session, and a hosted Worker query with clean exit evidence.
 AppService runs one authenticated local request and one native console entry
 case; TUI runs one ConPTY startup and
 exit case. Windows Worker recovery and GC changes retain the full Worker jobs;
 private data, ACL, and native package or platform changes retain their affected
-full Windows jobs. Gate infrastructure and unknown paths retain the complete
-Windows matrix. Main pushes and scheduled/manual validation use the full
-Windows suites. The Windows summary verifies each selected full or smoke job,
+full Windows jobs. Other gate infrastructure and unknown paths retain the complete
+Windows matrix. Scheduled/manual validation uses the full Windows suites.
+The Windows summary verifies each selected full or smoke job,
 including expected skips, against the same change plan.
 
 The host-runtime workflow also limits collection to affected package test
@@ -110,16 +115,18 @@ passed suite without relevant changes or an unresolved failure.
 
 ## Actions and branch protection
 
-PRs use the fast package route for ordinary changes. Main pushes keep the
-existing affected-check selection. The daily run at 20:17 UTC and
+PRs and main pushes use the fast package route for ordinary changes. The daily run at 20:17 UTC and
 Actions → **Change-aware Quality** → **Run workflow** select all configured
 checks. Main pushes still validate the merged state, but no longer launch every
 suite unconditionally. Real LSP and native evidence commands retain their
 existing explicit workflows and platform setup.
 
-Every called workflow checks its complete job inventory against the plan:
-selected jobs must succeed and unselected jobs must be skipped. The top-level
-gate also requires the selector to succeed. A selected job that fails, is
+Multi-job reusable workflows check their complete job inventory against the
+plan: selected jobs must succeed and unselected jobs must be skipped. The
+single-owner architecture, module regression, and E2E workflows rely on the
+top-level gate to check their workflow result without starting another runner.
+Each module shard and E2E platform also verifies a nonempty passing JUnit
+report. The top-level gate requires the selector to succeed. A selected job that fails, is
 cancelled, goes missing, or is unexpectedly skipped cannot produce a green gate.
 
 The required `main` status is `quality-gate`. Ordinary documentation-only PRs
@@ -146,6 +153,6 @@ CI infrastructure changes. Platform evidence manifests and their verifiers
 remain in the corresponding reusable workflows.
 
 Broad Harness/AppHost/Hosting suite commands remain available for selected
-high-risk changes, main pushes, and full validation. When changing the unit
-inventory, include tests that have no live provider or native runtime
-dependency, and confirm the exact scope locally before merging.
+high-risk changes, unclassified paths, and scheduled/manual full validation. When changing the routing
+inventory, confirm that the path is eligible for complete offline package
+regression and that live or native tests remain behind their dedicated gates.

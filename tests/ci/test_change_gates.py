@@ -29,6 +29,7 @@ guard = load_script("verify_gate")
 docs = load_script("check_docs")
 runner = load_script("run_checks")
 worker_sessions = load_script("windows_worker_session_cases")
+shard_hash = load_script("shard_hash")
 
 
 class ScopeTests(unittest.TestCase):
@@ -341,6 +342,34 @@ class ScopeTests(unittest.TestCase):
             {"docs", "ci"},
         )
 
+    def test_module_regression_workflow_change_runs_its_complete_inventory(self):
+        for paths in (
+            [selector.MODULE_REGRESSION_WORKFLOW],
+            [selector.MODULE_REGRESSION_WORKFLOW, "scripts/ci/select_checks.py",
+             "scripts/ci/unit-tests.json", "tests/work/test_package_boundaries.py"],
+        ):
+            with self.subTest(paths=paths):
+                plan = selector.select(paths, pr_fast=True)
+                self.assertEqual(
+                    plan["unit_packages"],
+                    ["agent", "ai", "channel", "coding", "harness", "harnesstui",
+                     "harnesswork", "method", "ontology", "resource", "tui", "work"],
+                )
+                self.assertEqual(len(plan["unit_jobs"]), 32)
+                self.assertEqual(
+                    {name for name, enabled in plan["checks"].items() if enabled},
+                    {"docs", "ci"},
+                )
+                self.assertEqual(
+                    {name for name, enabled in plan["workflows"].items() if enabled},
+                    {"units", "e2e"},
+                )
+                self.assertFalse(any(
+                    plan["windows"][scope]
+                    for scope in ("smoke", "worker_pr", "worker_pr_extra",
+                                  "worker_full", "shell_full", "appservice_full", "tui_full")
+                ))
+
     def test_pr_routing_exception_keeps_build_and_other_ci_files_full(self):
         expected = set(selector.select([], full=True)["checks"])
         for path in (
@@ -364,6 +393,38 @@ class ScopeTests(unittest.TestCase):
         )
         self.assertFalse(any(plan["workflows"].values()))
 
+    def test_pr_code_paths_run_resume_turn_e2e_on_all_platforms(self):
+        for path in (
+            "src/loushang/ai/pricing.py",
+            "src/loushang/ai/types.py",
+            "src/loushang/coding/session/agent_session.py",
+            "tests/coding/test_hosted_application.py",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(selector.select([path], pr_fast=True)["e2e"])
+        self.assertTrue(selector.select([], full=True, pr_fast=True)["e2e"])
+        workflow = (ROOT / ".github/workflows/e2e-smoke-quality.yml").read_text()
+        self.assertIn("os: [ubuntu-24.04, macos-15, windows-2022]", workflow)
+        self.assertIn("--require-tests-count 1", workflow)
+        self.assertIn("uv run python scripts/ci/run_checks.py e2e_smoke", workflow)
+
+    def test_sustained_worker_query_runs_for_its_test_and_full_validation(self):
+        ordinary = selector.select(
+            ["src/loushang/coding/session/agent_session.py"], pr_fast=True
+        )
+        worker = selector.select(
+            ["src/loushang/coding/package_product_worker_windows_crash_cleanup.py"],
+            pr_fast=True,
+        )
+        owned_test = selector.select(
+            ["tests/coding/test_package_worker_candidate_wheel.py"], pr_fast=True
+        )
+        full = selector.select([], full=True, pr_fast=True)
+        self.assertFalse(ordinary["checks"]["hosting_sustained"])
+        self.assertFalse(worker["checks"]["hosting_sustained"])
+        self.assertTrue(owned_test["checks"]["hosting_sustained"])
+        self.assertTrue(full["checks"]["hosting_sustained"])
+
     def test_empty_changes_do_not_start_product_checks(self):
         self.assertEqual(self.selected(), {"docs"})
 
@@ -373,12 +434,13 @@ class ScopeTests(unittest.TestCase):
         compact = selector.workflow_plan(plan)
 
         self.assertEqual(
-            set(compact), {"version", "paths", "checks", "workflows", "unit_packages", "e2e", "windows"}
+            set(compact), {"version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "windows"}
         )
         self.assertEqual(compact["paths"], plan["paths"])
         self.assertEqual(compact["checks"], plan["checks"])
         self.assertEqual(compact["workflows"], plan["workflows"])
         self.assertEqual(compact["unit_packages"], plan["unit_packages"])
+        self.assertEqual(compact["unit_jobs"], plan["unit_jobs"])
         self.assertEqual(compact["windows"], plan["windows"])
         self.assertEqual(compact["e2e"], plan["e2e"])
         self.assertNotIn("reasons", compact)
@@ -515,10 +577,15 @@ class ScopeTests(unittest.TestCase):
             ("src/loushang/coding/compaction.py", "coding"),
             ("src/loushang/harness/tools/core.py", "harness"),
             ("tests/coding/test_compaction_core.py", "coding"),
+            ("tests/work/test_package_boundaries.py", "work"),
         ):
             with self.subTest(path=path):
                 plan = selector.select([path], pr_fast=True)
                 self.assertEqual(plan["unit_packages"], [package])
+                self.assertEqual(
+                    len(plan["unit_jobs"]),
+                    selector.UNIT_SHARD_COUNTS.get(package, 1),
+                )
                 self.assertFalse(plan["checks"]["coding"])
                 self.assertFalse(plan["checks"]["host_runtime"])
                 self.assertTrue(plan["workflows"]["units"])
@@ -529,6 +596,15 @@ class ScopeTests(unittest.TestCase):
             pr_fast=True,
         )
         self.assertEqual(plan["unit_packages"], ["ai", "coding"])
+
+    def test_pr_mixed_coding_risk_uses_full_package_once(self):
+        plan = selector.select(
+            ["src/loushang/coding/compaction.py", "src/loushang/coding/lsp/client.py"],
+            pr_fast=True,
+        )
+        self.assertTrue(plan["checks"]["coding"])
+        self.assertEqual(plan["unit_packages"], [])
+        self.assertEqual(plan["unit_jobs"], [])
 
     def test_pr_session_change_adds_resume_turn_e2e(self):
         plan = selector.select(["src/loushang/harness/session/queue.py"], pr_fast=True)
@@ -553,10 +629,21 @@ class ScopeTests(unittest.TestCase):
                 self.assertEqual(plan["checks"], selector.select([path])["checks"])
 
     def test_pr_gate_change_exercises_new_reusable_workflows(self):
-        plan = selector.select([".github/workflows/quality.yml"], pr_fast=True)
-        self.assertEqual(plan["unit_packages"], ["coding"])
-        self.assertTrue(plan["e2e"])
-        self.assertTrue(all(plan["checks"].values()))
+        for path in (
+            ".github/workflows/quality.yml",
+            ".github/workflows/package-quality.yml",
+            ".github/workflows/windows-shell-compatibility.yml",
+            "scripts/ci/windows_worker_session_cases.py",
+        ):
+            with self.subTest(path=path):
+                plan = selector.select([path], pr_fast=True)
+                self.assertEqual(plan["unit_packages"], ["agent"])
+                self.assertEqual(
+                    plan["unit_jobs"],
+                    [{"package": "agent", "shard": 0, "shards": 1}],
+                )
+                self.assertTrue(plan["e2e"])
+                self.assertTrue(all(plan["checks"].values()))
 
     def test_full_validation_disables_fast_route(self):
         plan = selector.select(["src/loushang/ai/pricing.py"], full=True, pr_fast=True)
@@ -575,11 +662,61 @@ class ScopeTests(unittest.TestCase):
                     self.assertTrue(path.startswith("tests/"))
                     self.assertTrue((ROOT / path).is_file(), path)
 
+    def test_fast_unit_jobs_run_complete_offline_package_directories(self):
+        workflow = (ROOT / ".github/workflows/package-unit-quality.yml").read_text()
+        self.assertIn("include: ${{ fromJSON(inputs.plan).unit_jobs }}", workflow)
+        self.assertIn("--shard ${{ matrix.shard }} --shards ${{ matrix.shards }}", workflow)
+        self.assertIn("verify_pytest_xml.py", workflow)
+        for package in ("ai", "agent", "coding", "harness", "harnesstui", "tui"):
+            with self.subTest(package=package):
+                (command,) = runner.commands("unit_" + package)
+                self.assertIn("tests/" + package, command)
+                self.assertIn("not e2e_smoke", command[command.index("-m") + 1])
+                self.assertIn("--skip-host-runtime", command)
+        (coding_shard,) = runner.commands("unit_coding", shard=0, shards=16)
+        self.assertIn("--ci-shard-count", coding_shard)
+        self.assertIn("--ignore=tests/coding/test_screen_coding_tui_app.py", coding_shard)
+        (plugin,) = runner.commands("unit_plugin")
+        self.assertIn("tests/harness/plugin_authoring/test_public_sdk.py", plugin)
+
     def test_schedule_and_manual_dispatch_are_full(self):
         for event in ("schedule", "workflow_dispatch"):
             self.assertEqual(selector.event_paths(event, {}), ([], True))
         with self.assertRaises(ValueError):
             selector.event_paths("unknown", {})
+
+    def test_push_event_uses_pr_route_while_schedule_is_full(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            event_file = root / "event.json"
+            event_file.write_text("{}")
+            for event, paths, event_full in (
+                ("push", ["src/loushang/ai/pricing.py"], False),
+                ("schedule", [], True),
+            ):
+                with self.subTest(event=event):
+                    output = root / "output"
+                    output.write_text("")
+                    with (
+                        patch.object(selector, "event_paths", return_value=(paths, event_full)),
+                        patch.object(sys, "argv", ["select_checks.py", "--event"]),
+                        patch.dict(os.environ, {
+                            "GITHUB_EVENT_NAME": event,
+                            "GITHUB_EVENT_PATH": str(event_file),
+                            "GITHUB_OUTPUT": str(output),
+                            "GITHUB_STEP_SUMMARY": str(root / "summary"),
+                        }),
+                        contextlib.redirect_stdout(io.StringIO()),
+                    ):
+                        selector.main()
+                    plan = json.loads(output.read_text().removeprefix("plan="))
+                    if event == "push":
+                        self.assertEqual(plan["unit_packages"], ["ai"])
+                        self.assertTrue(plan["e2e"])
+                        self.assertFalse(plan["windows"]["worker_full"])
+                    else:
+                        self.assertTrue(all(plan["checks"].values()))
+                        self.assertTrue(plan["windows"]["worker_full"])
 
 
 class GateTests(unittest.TestCase):
@@ -722,6 +859,40 @@ class SuiteSelectionTests(unittest.TestCase):
         self.assertIn(
             "--ignore=tests/coding/test_screen_coding_tui_app.py", host_command
         )
+
+    def test_coding_matrix_partitions_the_complete_existing_offline_suite(self):
+        workflow = (ROOT / ".github/workflows/package-quality.yml").read_text()
+        coding_job = workflow.split("  coding:\n", 1)[1].split("  foundation:\n", 1)[0]
+        self.assertIn(
+            "shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]",
+            coding_job,
+        )
+        self.assertIn("--shard ${{ matrix.shard }} --shards 16", coding_job)
+        self.assertIn("verify_pytest_xml.py", coding_job)
+        self.assertIn("--allow-skipped", coding_job)
+        original, = runner.commands("coding")
+        for index in range(16):
+            with self.subTest(shard=index):
+                sharded, = runner.commands("coding", shard=index, shards=16)
+                self.assertEqual(
+                    sharded[:-6], original
+                )
+                self.assertEqual(
+                    sharded[-6:],
+                    ["-p", "pytest_shard", "--ci-shard-index", str(index),
+                     "--ci-shard-count", "16"],
+                )
+        with self.assertRaises(ValueError):
+            runner.commands("coding", shard=16, shards=16)
+        with self.assertRaises(ValueError):
+            runner.commands("agent", shard=0, shards=16)
+        nodeids = [f"tests/coding/test_example.py::test_case[{index}]" for index in range(100)]
+        groups = [
+            {nodeid for nodeid in nodeids if shard_hash.shard_for_nodeid(nodeid, 16) == index}
+            for index in range(16)
+        ]
+        self.assertEqual(set().union(*groups), set(nodeids))
+        self.assertEqual(sum(map(len, groups)), len(nodeids))
 
     def test_full_host_runtime_keeps_the_original_repository_wide_collection(self):
         (command,) = runner.commands(
@@ -898,28 +1069,30 @@ class WorkflowContractTests(unittest.TestCase):
                     re.M,
                 )
             }
-            mapping = json.loads(re.search(r"--jobs '(.*)'", text)[1])
-            if path.name in {"package-unit-quality.yml", "e2e-smoke-quality.yml"}:
-                self.assertEqual(
-                    mapping,
-                    {"package": "units"}
-                    if path.name == "package-unit-quality.yml"
-                    else {"resume-turn": "e2e"},
-                )
-                self.assertIn("--section workflows", text)
-            else:
-                mapped = {
-                    job: (
-                        "windows." + scope
-                        if "--section windows" in text and "." not in scope
-                        else scope
-                    )
-                    for job, scope in mapping.items()
-                }
-                self.assertEqual(jobs, mapped, path.name)
             all_jobs = set(
                 re.findall(r"^  ([\w-]+):", text.split("\njobs:\n")[1], re.M)
             )
+            single_owner = {
+                "architecture-quality.yml": "source-facts",
+                "package-unit-quality.yml": "package",
+                "e2e-smoke-quality.yml": "resume-turn",
+            }.get(path.name)
+            if single_owner is not None:
+                # The required top-level gate already checks this reusable
+                # workflow's result; a second runner adds only queue latency.
+                self.assertEqual(all_jobs, {single_owner}, path.name)
+                self.assertNotIn("selected-checks:", text)
+                continue
+            mapping = json.loads(re.search(r"--jobs '(.*)'", text)[1])
+            mapped = {
+                job: (
+                    "windows." + scope
+                    if "--section windows" in text and "." not in scope
+                    else scope
+                )
+                for job, scope in mapping.items()
+            }
+            self.assertEqual(jobs, mapped, path.name)
             self.assertEqual(all_jobs, set(mapping) | {"selected-checks"}, path.name)
             summary = text.split("\n  selected-checks:\n")[1]
             needs = re.search(r"    needs: \[(.*)\]", summary)[1]
