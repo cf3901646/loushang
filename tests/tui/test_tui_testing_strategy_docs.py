@@ -145,7 +145,7 @@ def test_required_terminal_workflows_fail_fast_and_publish_stable_gate() -> None
     entrypoint = Path(".github/workflows/quality.yml").read_text(encoding="utf-8")
 
     assert "BlockingPromptController" in strategy
-    assert "`tui-cross-platform-contracts`" in strategy
+    assert "`quality-gate`" in strategy
 
     for workflow in (harnesstui, terminal):
         assert "workflow_call:" in workflow
@@ -160,8 +160,11 @@ def test_required_terminal_workflows_fail_fast_and_publish_stable_gate() -> None
     for report in ("harnesstui-core", "coding-ui"):
         assert f"--junitxml=.artifacts/{report}.xml" in harnesstui
         assert f"verify_pytest_xml.py .artifacts/{report}.xml" in harnesstui
-    assert "tui-cross-platform-contracts:" in entrypoint
-    assert "needs: quality-gate" in entrypoint
+    gate = entrypoint.split("\n  quality-gate:\n", 1)[1]
+    gate_needs = gate.split("needs: [", 1)[1].split("]", 1)[0].split(", ")
+    assert {"tui", "harnesstui"} <= set(gate_needs)
+    assert "    if: always()" in gate
+    assert "tui-cross-platform-contracts:" not in entrypoint
     assert "checks.tui_playback" in terminal
     assert "checks.tui_native" in terminal
 
