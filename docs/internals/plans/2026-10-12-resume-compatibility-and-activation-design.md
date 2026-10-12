@@ -1514,3 +1514,52 @@ after correcting the fixture's native API registry cleanup call. All nine
 non-live prepared-transport scenarios passed, including current Skill/AGENTS
 bytes and exact original Header checks. Scoped mypy, Ruff and nine
 documentation checks passed.
+
+#### Explicit history screen binds the original Resume lifecycle
+
+`build_coding_resume_history_screen` presents the selected native history through
+the existing screen application and transcript projector without creating an
+Agent, acquiring a Writer, or preparing model input. Quit does not activate the
+Session. The first continuation input calls the supplied current-admission
+preparer, consumes the original Root lifecycle operation, installs the persisted
+history, subscribes to the exact delivered Session, and invokes the original
+committed-input transport. It does not echo or append that input again.
+
+The original Root now offers a transient history-view intent scope. Before
+Writer preparation it checks the displayed canonical target, Session identity,
+selected ancestry and source digests against the preparer's plan. Its current
+view callback also fences a closed or cancelled display through native delivery.
+This scope adds an intent restriction; it grants no actor, permission, epoch or
+effect authority. Original current-owner checks and Writer freshness checks
+remain mandatory. After native delivery the original current-Session and actor
+checks govern subsequent inputs.
+
+A regression initially demonstrated that checking the target only after
+preparation allowed a faulty preparer to commit input to another history file.
+The Root restriction rejects that mismatch before either file changes or a
+Product owner is acquired. A preparer that swallows cancellation before entering
+the Root is likewise rejected after the history screen closes. Subscription
+failure disposes the delivered Session through the original Root; cancellation
+and pre-delivery failure abort the original prepared operation. Retained cleanup
+debt remains with its native owner.
+
+The screen retains canonical input lookup data for uncertain commits and refuses
+another preparation or normal prompt after a failed first continuation. This is
+not a recovery or replay grant. Fixtures exercise original native Writers,
+interactive confirmation, Root lifecycle and model transport. Their effect
+callbacks validate orchestration only.
+
+This entry is explicit and requires the caller's original approval surface and
+current-admission preparer. Default CLI/TUI startup and Hosted/LMUX routing,
+production actor/policy comparison, external effect settlement and recovery,
+background invocation/cache/performance, and released-version acceptance remain
+unfinished. Issue #696 and the full Goal remain incomplete.
+
+Validation: the combined run passed 78 history, Root, transport, import and
+transcript regressions; its two failures identified the new module exceeding
+the existing UI manifest and adapter budget. The product interaction entry was
+moved to `coding.interaction`, preserving both gates. All eight history-screen
+scenarios and both previously failing gates then passed (10 tests). Scoped
+mypy, Ruff and nine documentation checks passed. The cancelled-view fixture was
+also corrected after its erroneous branch had left a test waiting without
+issuing cancellation; no Product timeout or sleep was added.

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -78,6 +80,19 @@ class CodingRuntimePreparedResume:
     async def run_first_input(self) -> None:
         """Run the committed input after original lifecycle delivery, once."""
         await self._root._run_resume_first_input(self)
+
+
+@dataclass(frozen=True, slots=True)
+class _ResumeHistoryViewScope:
+    runtime: AgentSessionRuntime
+    target: Path
+    history: CodingResumeHistoryPreview
+    require_current_view: Callable[[], None] | None
+
+
+_RESUME_HISTORY_VIEW_SCOPE: ContextVar[_ResumeHistoryViewScope | None] = ContextVar(
+    "coding_resume_history_view_scope", default=None,
+)
 
 
 def _copy_session_import(
@@ -180,6 +195,30 @@ class AgentSessionRuntime(
             session_index_flush_delay=session_index_flush_delay,
         )
 
+    @contextmanager
+    def resume_history_view_scope(
+        self, session_ref: str | Path, history: CodingResumeHistoryPreview,
+        *, require_current_view: Callable[[], None] | None = None,
+    ) -> Iterator[None]:
+        """Restrict a UI preparer's native entry to its displayed intent.
+
+        This transient data guard grants no authority. Current owner checks and
+        the original Writer still verify fresh inputs/source after this guard.
+        """
+
+        if type(history) is not CodingResumeHistoryPreview:
+            raise TypeError("Coding Resume view requires an original history preview")
+        if require_current_view is not None and (
+            not callable(require_current_view) or inspect.iscoroutinefunction(require_current_view)
+        ):
+            raise TypeError("Coding Resume view check must be synchronous")
+        target = self.resolve_discovered_session_source(session_ref).path
+        token = _RESUME_HISTORY_VIEW_SCOPE.set(_ResumeHistoryViewScope(self, target, history, require_current_view))
+        try:
+            yield
+        finally:
+            _RESUME_HISTORY_VIEW_SCOPE.reset(token)
+
     async def prepare_resume_continuation(
         self, *, session_file: str | Path, plan: SessionActivationPlanV1,
         current_owner_inputs: Sequence[ActivationOwnerInputRefV1],
@@ -202,10 +241,32 @@ class AgentSessionRuntime(
         This entry neither dispatches a model nor resubmits the committed input.
         """
 
+        from ..resume_activation_attempt import CodingResumeRecoveryRequired
         from ..resume_continuation import prepare_coding_resume_continuation
 
         if self._resume_history_closed:
             raise RuntimeError("coding_resume_root_closed")
+        view = _RESUME_HISTORY_VIEW_SCOPE.get()
+        if view is not None and (
+            view.runtime is not self
+            or self.resolve_discovered_session_source(session_file).path != view.target
+            or plan.session_id != view.history.header_preview.header.conversation_id
+            or plan.selected_leaf_id != view.history.selected_leaf_id
+            or plan.ancestry_digest != view.history.selected_ancestry_digest
+            or plan.source_fingerprint != view.history.source_fingerprint
+            or plan.source_content_digest != view.history.source_content_digest
+        ):
+            raise CodingResumeRecoveryRequired("input.history_view_changed")
+
+        def current_view() -> None:
+            if view is not None and view.require_current_view is not None:
+                result = cast(Callable[[], object], view.require_current_view)()
+                if result is not None:
+                    if inspect.iscoroutine(result):
+                        result.close()
+                    raise TypeError("Coding Resume view check must return None")
+
+        current_view()  # A cancelled/closed display cannot begin Writer preparation.
         factory = self._owned_transcript_factory
         selection = self._product_owner_selection
         if factory is None or selection is None:
@@ -229,6 +290,8 @@ class AgentSessionRuntime(
         def admit(observed: CodingActivationAttemptV1) -> None:
             if self._resume_history_closed:
                 raise RuntimeError("coding_resume_root_closed")
+            if operation is None or not operation.consumed:
+                current_view()
             expected = (
                 continuation.session if operation is not None and operation.consumed
                 and continuation is not None else previous
