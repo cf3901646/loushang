@@ -32,6 +32,86 @@ from loushang.harness.transcript.jsonl_file import load_agent_transcript_file
 pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="Linux owned Resume Writer")
 
 
+@pytest.mark.parametrize("mode", ["observe", "mutate", "fence"])
+def test_formal_selection_allows_native_reads_and_refuses_nested_writes(tmp_path, mode):
+    import subprocess
+
+    # A subprocess bounds a real lock regression without abandoning an active
+    # thread/owner in pytest. No provider or Worker is dispatched by this probe.
+    probe = '''
+import asyncio, os, sys
+from pathlib import Path
+from loushang.coding.package_product_runtime import CodingFencedProductApplicationSelection
+from loushang.coding.session_manager import SessionManager
+
+async def main():
+    root, mode = Path(sys.argv[1]), sys.argv[2]
+    os.environ["LOUSHANG_HOME"] = str(root / "home")
+    selection = CodingFencedProductApplicationSelection()
+    manager = (
+        await SessionManager.new(session_dir=root / "sessions", cwd=str(root), persist=False)
+        if mode == "mutate" else None
+    )
+    calls, observations = [], []
+    nested_factory = None
+    def current():
+        nonlocal nested_factory
+        calls.append(True)
+        if mode == "observe":
+            try:
+                observations.append(selection.resume_epoch_fingerprint(root))
+            except RuntimeError as error:
+                assert "unavailable" in str(error)
+        elif mode == "mutate":
+            for operation in ("factory", "prepare", "close"):
+                try:
+                    if operation == "factory":
+                        nested_factory = selection.factory_for_session(manager)
+                    elif operation == "prepare":
+                        selection.prepare_resume_epoch(root, require_current_admission=lambda: None)
+                    else:
+                        selection.close()
+                except RuntimeError as error:
+                    assert "selection is in progress" in str(error)
+                else:
+                    raise AssertionError("nested " + operation + " was admitted")
+        elif len(calls) == 2:
+            selection.fence()
+    try:
+        if mode == "fence":
+            try:
+                selection.prepare_resume_epoch(root, require_current_admission=current)
+            except RuntimeError as error:
+                assert "closing" in str(error)
+            else:
+                raise AssertionError("fenced preparation was admitted")
+            assert not selection._owners
+            assert not (root / "home").exists()
+            assert not (root / ".loushang").exists()
+        else:
+            digest = selection.prepare_resume_epoch(root, require_current_admission=current)
+            assert digest == selection.resume_epoch_fingerprint(root)
+            assert len(calls) > 2
+            if mode == "observe":
+                assert observations and all(value == digest for value in observations)
+            owner = selection._owners[root].epoch_runtime
+            with owner.registry.exclusive_runtime_quiescence(store_id=owner.registry.store_id) as receipt:
+                assert receipt.active_runtime_lease_ids == ()
+    finally:
+        if nested_factory is not None:
+            nested_factory.runtime_lease.release()
+        selection.close()
+        if manager is not None:
+            await manager.dispose_runtime_profile()
+asyncio.run(main())
+'''
+    result = subprocess.run(
+        [sys.executable, "-c", probe, str(tmp_path), mode],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 @pytest.mark.parametrize("mode", ["admitted", "denied", "invalid_check", "revoked_after_selection"])
 def test_first_resume_prepares_original_epoch_without_session_lease(tmp_path, monkeypatch, mode):
     monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))

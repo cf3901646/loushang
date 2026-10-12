@@ -2116,3 +2116,54 @@ lambda. The default Embedded first-input coordinator, native effect settlement,
 Hosted writable route, platform/release/fault/performance matrix and delivery
 remain outstanding. The Coding gate started at `294e225f` is still running;
 it cannot prove a complete gate for these later source changes.
+
+#### Original selection callback reentrancy
+
+The four formal preparation cases passed as the focused baseline (24.84
+seconds). Three subprocess regressions then failed in 146.20 seconds: observing
+the original epoch or fencing from the admitted callback deadlocked on the
+selection's ordinary lock; the first callback also admitted a nested factory
+and its real Session lease before selection began. Subprocess isolation bounds
+those actual synchronous deadlocks without abandoning a thread or adding a
+Product timeout.
+
+The original selection now uses a reentrant lock and a private in-progress
+flag. Native epoch observation can reenter that original owner. Nested factory
+selection, formal preparation and close refuse before changing the owner. The
+initial check, selection and final observation share the same scope; its flag
+is cleared on every exit. Callback fencing is rechecked immediately. Other
+threads still serialize through that same original lock, and the separate
+Session factory's ordinary lock is unchanged.
+
+The first implementation passed nine cases but failed the fencing case
+(123.02 seconds). Removing the unnecessary SessionManager from the observation
+and fencing probes still left the same failure (two passed, one failed,
+74.25 seconds). Source inspection found that fresh SettingsManager construction
+creates its original configuration transaction locks before the cutover check.
+Formal admission is now also checked before that construction in both fresh
+initialization and interrupted-bootstrap retry. The fencing probe requires no
+home or project configuration directory to appear. The ordinary fresh-start,
+interrupted-bootstrap retry and Root first-epoch input paths passed three
+cases in 70.97 seconds before this extra boundary check; final verification
+below includes that check.
+
+An accidentally unscoped mypy invocation followed imported source and reported
+236 errors in eight dependency files; it is not a clean package type gate.
+A concurrent scoped invocation exited with status 139 without a diagnostic.
+The scoped source check (`--follow-imports=silent`) passed with an isolated
+cache: one checked source file, no issues. No Product code was changed to mask
+the imported diagnostics. Ruff passed both changed Python files and all nine
+documentation invariants passed, including the progress supplement. The
+default coordinator, native effect settlement,
+Hosted writable activation and release/performance gates remain outstanding.
+
+The final focused run passed all 13 cases (35 deselected, 151.39 seconds),
+covering native read reentrancy, refusal of nested factory/prepare/close,
+callback fencing before configuration locks appear, denied/invalid/revoked
+formal preparation, original Approval revocation at state/backup boundaries,
+ordinary fresh initialization and interrupted-bootstrap retry, and the Root's
+first-epoch Resume input. Native registry observations confirm no Session lease
+is left by formal preparation. The still-running Coding gate was last observed
+at 26%; it began before these source changes and is not final-tree gate proof.
+After adding an explicit absent project-configuration directory assertion,
+that exact fencing case passed again in 15.68 seconds.

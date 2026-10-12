@@ -7,13 +7,13 @@ import json
 import os
 import secrets
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from hashlib import sha256
 from importlib.metadata import version
 from pathlib import Path
-from threading import Lock
+from threading import Lock, RLock
 from typing import cast
 
 from loushang.harness.config.agent import SettingsManager
@@ -426,8 +426,25 @@ class CodingFencedProductApplicationSelection:
         self._worker_candidates = worker_candidates
         self._owners: dict[Path, CodingFencedProductApplicationOwner] = {}
         self._retained_owners: list[CodingFencedProductApplicationOwner] = []
-        self._lock = Lock()
+        self._lock = RLock()
+        self._selection_in_progress = False
         self._fenced = False
+
+    @contextmanager
+    def _workspace_selection_scope(self) -> Iterator[None]:
+        # Admission callbacks may observe this original owner while selecting.
+        # Reentrant reads are safe; nested selection or disposal would change
+        # the owner underneath the admitted operation.
+        with self._lock:
+            if self._selection_in_progress:
+                raise RuntimeError("Coding Product workspace selection is in progress")
+            if self._fenced:
+                raise RuntimeError("Coding Product application is closing")
+            self._selection_in_progress = True
+            try:
+                yield
+            finally:
+                self._selection_in_progress = False
 
     def factory_for_session(
         self,
@@ -445,7 +462,7 @@ class CodingFencedProductApplicationSelection:
         # canonical workspace identity as its lifecycle layout; a present B
         # fence still requires the Product owner to validate the real root.
         workspace = Path(manager.get_cwd()).resolve(strict=False)
-        with self._lock:
+        with self._workspace_selection_scope():
             owner = self._select_workspace_unlocked(workspace, settings_manager=settings_manager)
             return owner.factory_for_session(manager) if owner is not None else None
 
@@ -473,16 +490,18 @@ class CodingFencedProductApplicationSelection:
                 if inspect.iscoroutine(result):
                     result.close()
                 raise TypeError("Coding Resume owner check must return None")
+            if self._fenced:
+                raise RuntimeError("Coding Product application is closing")
 
-        current()
-        with self._lock:
+        with self._workspace_selection_scope():
+            current()
             owner = self._select_workspace_unlocked(
                 workspace, settings_manager=settings_manager, require_current_admission=current,
             )
             if owner is None:
                 raise RuntimeError("Coding Resume native Product route is not admitted")
-        current()
-        return self.resume_epoch_fingerprint(workspace)
+            current()
+            return self.resume_epoch_fingerprint(workspace)
 
     def _select_workspace_unlocked(
         self, workspace: Path, *, settings_manager: SettingsManager | None,
@@ -709,6 +728,8 @@ class CodingFencedProductApplicationSelection:
 
     def close(self) -> None:
         with self._lock:
+            if self._selection_in_progress:
+                raise RuntimeError("Coding Product workspace selection is in progress")
             self._fenced = True
             failures: list[BaseException] = []
             for workspace, owner in tuple(self._owners.items()):
@@ -1243,6 +1264,7 @@ def _initialize_fresh_coding_product_for_session(
         )
         global_path = settings_manager.global_settings_path or global_path
         project_path = settings_manager.project_settings_path or project_path
+    _require_current_coding_product_admission(require_current_admission)
     cutover_settings = SettingsManager(
         global_settings_path=global_path,
         project_settings_path=project_path,
@@ -1442,6 +1464,7 @@ def _retry_fresh_coding_product_bootstrap_for_session(
     if settings_manager is not None:
         global_path = settings_manager.global_settings_path or global_path
         project_path = settings_manager.project_settings_path or project_path
+    _require_current_coding_product_admission(require_current_admission)
     bootstrap_coding_builtin_product_plugins(
         lifecycle,
         SettingsManager(

@@ -154,6 +154,16 @@ effects for original-owner recovery; it does not turn them into absence or a
 retry grant. Native activation/Worker effect settlement remains a separate
 requirement.
 
+The original Product selection serializes formal preparation and ordinary
+factory selection through one reentrant lock. Admission callbacks may observe
+the original selected epoch; an unselected epoch remains unavailable. The
+original selection records a private in-progress flag to refuse nested factory
+selection, formal preparation and disposal before those operations change any
+owner. Callback fencing remains permitted and is checked before preparation
+continues. The first admission check, selection and final epoch observation
+share that same scope, with the flag released on every exit. This adds no
+authority owner, lease or effect settlement fact.
+
 ### Candidate v1 attempt contract for owner review
 
 The proposed `coding.activation-attempt/v1` intent uses one `extension.data`
