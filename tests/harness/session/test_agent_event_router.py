@@ -135,6 +135,36 @@ def test_agent_event_router_preserves_assistant_message_end_ordering() -> None:
     ]
 
 
+def test_agent_event_router_suppresses_recovery_without_losing_error_observation() -> None:
+    order: list[str] = []
+    allow = False
+    router = AgentEventRouter(
+        append_message=lambda message: _record_async(order, "append"),
+        dispatch_event=lambda event, **kwargs: _record_async(order, "dispatch"),
+        emit_extension_agent_event=lambda event: _record_async(order, "extension"),
+        record_tool_execution_error=lambda event: None,
+        retry_controller=_RetryRecorder(order, retryable=True, did_retry=True),
+        compaction_controller=_CompactionRecorder(order),
+        sync_extension_diagnostics=lambda **kwargs: order.append("sync"),
+        record_assistant_response_error=lambda message: order.append("error"),
+        check_auto_compaction=lambda message: _record_async(order, "compact"),
+        schedule_continue_run=lambda: _record_async(order, "continue"),
+        allow_automatic_recovery=lambda: allow,
+    )
+
+    async def scenario() -> None:
+        nonlocal allow
+        event = {"type": "agent_end", "messages": [_assistant_message(stop_reason="error")]}
+        await router.handle(event, object())
+        assert order == ["dispatch", "extension", "sync", "error"]
+        allow = True
+        await router.handle(event, object())
+        assert "retry_ensure_future" in order
+        assert "retry_continue" in order
+
+    asyncio.run(scenario())
+
+
 def test_agent_event_router_binds_request_evidence_before_dispatch() -> None:
     order: list[str] = []
 

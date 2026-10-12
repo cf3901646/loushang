@@ -65,6 +65,7 @@ class AgentEventRouter:
     prepare_message_metadata: MessageMetadataPreparer | None = None
     complete_queued_message: QueuedMessageCompleter | None = None
     discard_in_flight_messages: InFlightMessageDiscarder | None = None
+    allow_automatic_recovery: Callable[[], bool] = lambda: True
     _committed_messages: dict[int, tuple[object, str]] = field(
         default_factory=dict,
         init=False,
@@ -110,6 +111,8 @@ class AgentEventRouter:
             if last_assistant_message is None:
                 return
             self.record_assistant_response_error(last_assistant_message)
+            if not self.allow_automatic_recovery():
+                return
             if self.retry_controller.should_prepare_retry(last_assistant_message):
                 self.retry_controller.ensure_future()
             if self.retry_controller.is_retryable_error(last_assistant_message):

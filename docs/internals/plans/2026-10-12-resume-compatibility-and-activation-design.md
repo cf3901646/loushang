@@ -171,6 +171,23 @@
   The boundary dispatches no model request and supplies no
   automatic replay or crash-recovery grant. Live policy/epoch settlement owners,
   Worker Resume fault coverage and production continuation callers remain pending.
+  A published local Coding candidate can now consume its committed first input
+  through an internal once-only dispatch entry. The original Host claims the
+  run before Coding installs the selected transcript context; queued inputs,
+  a changed leaf, retry activity or revoked admission reject dispatch. The
+  original Agent continuation runs that already committed UserMessage with
+  purpose `main`, producing no second user append. The standard AI prepared
+  transport and original durable Model Input snapshot owner remain installed.
+  Coding's current-Session predicate rechecks publication admission at the
+  original transport commit barrier, including after snapshot commit.
+  A run-local Harness recovery predicate suppresses automatic retry/compaction
+  for this explicit committed-input run, and the Agent's temporary CallOptions
+  permits one AI transport attempt. Both return to their previous values on
+  exit; persistent settings are not changed. A claimed run is not replayed;
+  error, abort or cancellation fences this Session's execution preparation.
+  This local claim is not a durable model-outcome registry. Production
+  continuation coordinators, restart/outcome lookup, full native permission
+  settlement and Embedded/Hosted submit wiring remain pending.
   ResourceLoader
   can calculate Catalog input facts and bounded native context content digests
   without choosing authority; Plan records only their redacted input fingerprint and
@@ -865,3 +882,30 @@ journal correlation. Production activation and submit owners must still supply
 those checks and consume the single committed input without appending it again.
 Hosted readiness, model outcome recovery, full quality gates, performance and
 released-artifact acceptance remain pending.
+
+## Internal Committed-Input Dispatch Evidence (2026-10-12)
+
+The pre-change Harness router/runtime baseline passed fourteen tests. The
+updated router/runtime run passed fifteen, including a retryable error whose
+observation is retained while retry/compaction are suppressed, and whose normal
+recovery behavior returns when the predicate permits it again.
+
+The final integrated run passed ninety non-live tests across Resume publication,
+Coding's Model Input contract, Binding and Harness router/runtime. Seven new
+dispatch cases cover completion, provider connection failure, an existing queue,
+initial subject revocation, revocation after real snapshot commit, caller
+cancellation during transport and Host abort. The fixtures use a registered
+offline prepared API adapter through the standard AI stream, not a bypassed
+custom stream. Every invoked request creates one original Model Input snapshot
+with purpose `main`, while the original history plus resumed input remain exactly
+two UserMessages. Repeated dispatch is rejected without another request.
+Revocation at the commit barrier retains the snapshot and invokes no transport.
+Provider failure, abort and cancellation invoke at most one transport and retire
+execution preparation. CallOptions and the run-local recovery predicate return
+to their prior values. No network provider is contacted.
+
+Ruff, mypy for the three changed source modules and documentation checks passed.
+This proves internal consumption and the original transport boundary. It does
+not prove production current grants or native effect settlement, Hosted submit
+deduplication/outcome lookup, restart recovery or Embedded/TUI integration.
+These production callers and the full release/performance gates remain pending.

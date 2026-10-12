@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from loushang.agent import Agent, PrepareModelCallFn
 from loushang.ai import PreparedRequestLimits
 from loushang.ai.api_registry import APIRegistry
+from loushang.ai.options import CallOptions, RetryOptions
 from loushang.coding._base_plugin import (
     CodingBasePluginAssembly,
     CodingBasePluginAssemblyError,
@@ -254,6 +255,14 @@ class AgentSession(AgentProductSession):
         publication = getattr(self, "_coding_resume_publication", None)
         if publication is not None:
             self._require_current_resume_publication(publication)
+
+    def _is_current_model_call_session(self) -> bool:
+        if not super()._is_current_model_call_session():
+            return False
+        publication = getattr(self, "_coding_resume_publication", None)
+        if publication is not None:
+            self._require_current_resume_publication(publication)
+        return True
 
     async def _before_bash(self, request: UserBashRequest) -> UserBashHookResult | None:
         self._require_coding_execution_admission()
@@ -623,6 +632,7 @@ class AgentSession(AgentProductSession):
         self._coding_resume_graph_attempt_id: str | None = None
         self._coding_resume_candidate: _CodingResumeRuntimeCandidate | None = None
         self._coding_resume_publication: _CodingResumeRuntimePublication | None = None
+        self._coding_resume_dispatch_claimed = False
         self._coding_composition_had_entries_at_construction = bool(
             session_manager.get_entries()
         )
@@ -1386,6 +1396,59 @@ class AgentSession(AgentProductSession):
                 except BaseException:
                     self._execution_preparation_failed = True
                     raise
+
+    async def _run_published_resume_input(self, *, attempt_id: str, input_record_id: str) -> None:
+        """Consume the published input once through the original Host/Agent loop.
+
+        No prompt submission or user append occurs here. The original Model
+        Input transport barrier remains installed. A claimed run is never
+        automatically replayed after an error, cancellation or unknown outcome.
+        """
+
+        publication = self._coding_resume_publication
+        if (
+            publication is None or publication.candidate.attempt.attempt_id != attempt_id
+            or publication.input_record_id != input_record_id
+        ):
+            raise CodingResumeRecoveryRequired("model.publication_unverified")
+        if self._coding_resume_dispatch_claimed:
+            raise CodingResumeRecoveryRequired("model.dispatch_already_claimed")
+        await self.prepare_model_call_runtime()
+        original_options: CallOptions | None = None
+        claimed_here = False
+
+        def prepare_current_input() -> None:
+            nonlocal original_options, claimed_here
+            self._require_current_resume_publication(publication)
+            if (
+                self._coding_resume_dispatch_claimed or self.session_manager.leaf_id != input_record_id
+                or self.agent.has_queued_messages() or self._composition.retry_runtime.is_retrying
+            ):
+                raise CodingResumeRecoveryRequired("model.input_not_current")
+            self._refresh_agent_messages()
+            if not self.agent.state.messages or getattr(self.agent.state.messages[-1], "role", None) != "user":
+                raise CodingResumeRecoveryRequired("model.input_not_current")
+            original_options = self.agent.call_options
+            self.agent.call_options = replace(original_options, retry=RetryOptions(max_attempts=1))
+            self._coding_resume_dispatch_claimed = claimed_here = True
+
+        try:
+            await self._composition.session_runtime.run_committed_input(prepare_current_input=prepare_current_input)
+            last_assistant = next(
+                (message for message in reversed(self.agent.state.messages)
+                 if getattr(message, "role", None) == "assistant"), None,
+            )
+            if claimed_here and (
+                last_assistant is None or getattr(last_assistant, "stop_reason", None) in {"error", "aborted"}
+            ):
+                self._execution_preparation_failed = True
+        except BaseException:
+            if claimed_here:
+                self._execution_preparation_failed = True
+            raise
+        finally:
+            if original_options is not None:
+                self.agent.call_options = original_options
 
     async def _preflight_worker_preparation(
         self, catalog_snapshot: object | None

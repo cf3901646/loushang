@@ -6,6 +6,10 @@ from datetime import UTC, datetime
 
 import pytest
 
+from loushang.ai.api_registry import get_default_api_registry
+from loushang.ai.json_codec import serialize_message
+from loushang.ai.model import Auth, Capabilities, Model
+from loushang.ai.prepared_request import PreparedModelRequest
 from loushang.ai.types import UserMessage
 from loushang.coding.bootstrap import _create_resume_agent_session
 from loushang.coding.composition_sets import resolve_coding_composition_set
@@ -37,6 +41,9 @@ pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="Linux owned Cod
     "receipt_changed", "graph_missing",
     "durable_lookup_unknown", "revoked_during_lookup",
     "durable_input_changed", "publication_cancelled",
+    "dispatch_completed", "dispatch_error", "dispatch_queued", "dispatch_revoked",
+    "dispatch_revoked_at_barrier", "dispatch_cancelled",
+    "dispatch_aborted",
 ])
 def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks(tmp_path, monkeypatch, mode):
     monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
@@ -64,6 +71,10 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
         )
         revoked = False
         settlements = []
+        requests = []
+        failures = []
+        transport_entered, transport_release = asyncio.Event(), asyncio.Event()
+        registry = None
         session = None
 
         def admit(observed):
@@ -86,6 +97,60 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
                 session_manager=manager, attempt_id=attempt.attempt_id,
                 composition_set=composition, require_current_admission=admit, no_tools=True,
             )
+            if mode.startswith("dispatch_"):
+                handle_failure = session.agent._handle_run_failure
+
+                async def capture_failure(error, *, aborted):
+                    failures.append(repr(error))
+                    await handle_failure(error, aborted=aborted)
+
+                monkeypatch.setattr(session.agent, "_handle_run_failure", capture_failure)
+                session.agent.model = Model(
+                    id="faux-model", name="Faux", provider="faux", endpoint="resume-test",
+                    api="resume-dispatch-test", base_url="https://provider.test/v1", auth=Auth(kind="none"),
+                    capabilities=Capabilities(input=("text",), output=("text",), stream=True,
+                                              context_window=128000, max_tokens=4096),
+                )
+
+                class Adapter:
+                    api = "resume-dispatch-test"
+
+                    def prepare_request(self, request):
+                        return PreparedModelRequest.from_provider_request(request, payload={
+                            "messages": [serialize_message(m) for m in request.context.messages],
+                            "model": request.model.id,
+                        })
+
+                    async def invoke_prepared_raw(self, request, prepared):
+                        prepared.payload_for_transport()
+                        assert request.attempt == 1
+                        requests.append(request.context)
+                        if mode in {"dispatch_cancelled", "dispatch_aborted"}:
+                            transport_entered.set()
+                            await transport_release.wait()
+                        if mode == "dispatch_error":
+                            raise ConnectionError("network outcome unknown")
+                        yield {"type": "response_start", "response_id": "resume-response"}
+                        yield {"type": "text_delta", "text": "reply"}
+                        yield {"type": "stop_reason", "stop_reason": "stop"}
+                        yield {"type": "response_done"}
+
+                    async def invoke_raw(self, request):
+                        pytest.fail("prepared transport barrier was bypassed")
+                        yield {}
+
+                registry = get_default_api_registry()
+                registry.register_api_adapter(Adapter(), source_id="resume-dispatch-test")
+                if mode == "dispatch_revoked_at_barrier":
+                    append_snapshot = manager._transcript.append_model_input_snapshot
+
+                    async def revoke_after_snapshot(*args, **kwargs):
+                        nonlocal revoked
+                        result = await append_snapshot(*args, **kwargs)
+                        revoked = True
+                        return result
+
+                    monkeypatch.setattr(manager._transcript, "append_model_input_snapshot", revoke_after_snapshot)
             if mode != "graph_missing":
                 await session._prepare_resume_runtime_graph(
                     attempt_id=attempt.attempt_id, require_current_admission=admit,
@@ -187,7 +252,7 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
                 assert manager.resume_runtime_publication_pending
                 assert not settlements
                 assert path.read_bytes() == before
-            elif mode == "published":
+            elif mode == "published" or mode.startswith("dispatch_"):
                 await session._publish_resume_runtime(
                     attempt_id=attempt.attempt_id, input_record_id="record-1",
                     require_current_admission=admit, require_current_epoch_settlement=settle_epoch,
@@ -195,6 +260,60 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
                 assert settlements
                 assert session.execution_available
                 assert not manager.resume_runtime_publication_pending
+                if mode.startswith("dispatch_"):
+                    options_before = session.agent.call_options
+                    if mode == "dispatch_queued":
+                        session.agent.follow_up(UserMessage(role="user", content="queued", timestamp=4.0))
+                    if mode == "dispatch_revoked":
+                        revoked = True
+                    if mode in {"dispatch_queued", "dispatch_revoked"}:
+                        with pytest.raises(PermissionError if mode == "dispatch_revoked" else CodingResumeRecoveryRequired):
+                            await session._run_published_resume_input(attempt_id=attempt.attempt_id, input_record_id="record-1")
+                        assert not requests
+                        assert path.read_bytes() == before
+                    else:
+                        if mode in {"dispatch_cancelled", "dispatch_aborted"}:
+                            task = asyncio.create_task(session._run_published_resume_input(
+                                attempt_id=attempt.attempt_id, input_record_id="record-1",
+                            ))
+                            waiting = asyncio.create_task(transport_entered.wait())
+                            try:
+                                await asyncio.wait((task, waiting), return_when=asyncio.FIRST_COMPLETED)
+                                if not transport_entered.is_set():
+                                    await task
+                                    pytest.fail("run returned before transport")
+                                if mode == "dispatch_cancelled":
+                                    assert task.cancel()
+                                    transport_release.set()
+                                    with pytest.raises(asyncio.CancelledError):
+                                        await task
+                                else:
+                                    assert session.abort()
+                                    transport_release.set()
+                                    await task
+                            finally:
+                                transport_release.set()
+                                waiting.cancel()
+                                if not task.done():
+                                    task.cancel()
+                                await asyncio.gather(task, waiting, return_exceptions=True)
+                        else:
+                            await session._run_published_resume_input(attempt_id=attempt.attempt_id, input_record_id="record-1")
+                        assert len(requests) == (0 if mode == "dispatch_revoked_at_barrier" else 1), failures
+                        if requests:
+                            messages = [serialize_message(m) for m in requests[0].messages]
+                            assert [m["content"][0]["text"] for m in messages if m["role"] == "user"] == ["history", "resume once"]
+                        snapshots = [r.payload for r in manager.get_entries() if r.kind == "model.input.prepared"]
+                        assert len(snapshots) == 1
+                        assert manager.rebuild_model_input(snapshots[0].snapshot_id).snapshot.purpose == "main"
+                        assert len([r for r in manager.get_entries() if isinstance(r.payload, UserMessage)]) == 2
+                        with pytest.raises(CodingResumeRecoveryRequired, match="model.dispatch_already_claimed"):
+                            await session._run_published_resume_input(attempt_id=attempt.attempt_id, input_record_id="record-1")
+                        assert len(requests) == (0 if mode == "dispatch_revoked_at_barrier" else 1)
+                        assert session.execution_available == (mode == "dispatch_completed")
+                    assert session.agent.call_options is options_before
+                    assert not session._composition.session_runtime._committed_input_recovery_suppressed
+                    return
                 await session.prepare_model_call_runtime()
                 assert manager.header == header
                 assert path.read_bytes() == before
@@ -229,6 +348,8 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
                 if mode not in {"unsettled"}:
                     assert not settlements
         finally:
+            if registry is not None:
+                registry.unregister_api_adapters("resume-dispatch-test")
             if session is not None:
                 await session.dispose()
             else:
