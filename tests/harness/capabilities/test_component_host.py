@@ -260,14 +260,17 @@ async def _author_guide_provider_runs_through_component_host(tmp_path: Path) -> 
         plugin_runtime.close()
 
 
+@pytest.mark.parametrize("activation_check", [False, True])
 def test_component_host_defers_import_until_the_existing_binder_constructs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    activation_check: bool,
 ) -> None:
     asyncio.run(
         _component_host_defers_import_until_the_existing_binder_constructs(
             tmp_path,
             monkeypatch,
+            activation_check,
         )
     )
 
@@ -275,6 +278,7 @@ def test_component_host_defers_import_until_the_existing_binder_constructs(
 async def _component_host_defers_import_until_the_existing_binder_constructs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    activation_check: bool,
 ) -> None:
     marker = tmp_path / "activation.log"
     monkeypatch.setenv("LOUSHANG_COMPONENT_TEST_MARKER", str(marker))
@@ -298,6 +302,9 @@ async def _component_host_defers_import_until_the_existing_binder_constructs(
 
     assert not marker.exists()
     assert journal.snapshot().activation_uses[0].state == "CONSUMED_NOT_STARTED"
+    if activation_check:
+        with pytest.raises(CapabilityComponentHostError):
+            prepared.require_current_activation()
 
     runtime = RuntimeCapabilityGraphRuntime(
         product_id="coding",
@@ -307,7 +314,12 @@ async def _component_host_defers_import_until_the_existing_binder_constructs(
     binder = RuntimeCapabilityGraphBinder()
     await binder.bind(runtime, fixture.plan, (prepared.binding,))
     assert journal.snapshot().activation_uses[0].state == "STARTED"
+    if activation_check:
+        with pytest.raises(CapabilityComponentHostError):
+            prepared.require_current_activation()
     prepared.commit_after_graph_publication()
+    if activation_check:
+        prepared.require_current_activation()
 
     consumer = runtime.capture(
         CapabilityRequirement(
@@ -334,6 +346,64 @@ async def _component_host_defers_import_until_the_existing_binder_constructs(
         "dispose",
     ]
     assert consumer.is_current is False
+    if activation_check:
+        with pytest.raises(CapabilityComponentHostError):
+            prepared.require_current_activation()
+
+
+@pytest.mark.parametrize("fault", ["recovered", "missing_journal", "revoked_owner", "polluted_realm"])
+def test_current_component_activation_refuses_original_owner_faults(tmp_path, monkeypatch, fault):
+    monkeypatch.setenv("LOUSHANG_COMPONENT_TEST_MARKER", str(tmp_path / "activation.log"))
+    async def scenario():
+        fixture = _fixture(tmp_path, returned_facet="query")
+        journal = _journal(tmp_path)
+        host = _host(journal, fixture)
+        subject = host.activation_subject(
+            fixture.resolved, owner_snapshot=fixture.owner_snapshot,
+            trust_snapshot=fixture.trust_snapshot,
+        )
+        prepared = host.prepare_component(
+            fixture.resolved, package=fixture.package,
+            owner_snapshot=fixture.owner_snapshot, trust_snapshot=fixture.trust_snapshot,
+            decision_id=_approve(journal, subject).decision_id,
+        )
+        runtime = RuntimeCapabilityGraphRuntime(
+            product_id="coding", runtime_id="session:test", profile_fingerprint="f" * 64,
+        )
+        binder = RuntimeCapabilityGraphBinder()
+        try:
+            await binder.bind(runtime, fixture.plan, (prepared.binding,))
+            if fault == "recovered":
+                _host(journal, fixture, host_boot_id="8" * 32, import_realm_id="9" * 32)
+                assert journal.snapshot().activation_uses[0].state == "FAILED"
+            else:
+                prepared.commit_after_graph_publication()
+                prepared.require_current_activation()
+                if fault == "missing_journal":
+                    journal.path.unlink()
+                elif fault == "revoked_owner":
+                    revoked = _authority(
+                        fixture.resolved.definition,
+                        revocation_epoch=fixture.owner_snapshot.revocation_epoch + 1,
+                    ).snapshot()
+                    host._owner_snapshot_reader = lambda _: revoked
+                else:
+                    realm = host._import_realm
+                    lease = realm.reserve(
+                        host_boot_id="3" * 32, execution_use_id="9" * 48,
+                        package_namespace=fixture.package.manifest.name,
+                        dependency_lock=fixture.package.dependency_lock,
+                    )
+                    realm.execute(lease, lambda: None)
+                    realm.pollute(lease)
+            before = journal.path.read_bytes() if journal.path.exists() else None
+            with pytest.raises(CapabilityComponentHostError):
+                prepared.require_current_activation()
+            after = journal.path.read_bytes() if journal.path.exists() else None
+            assert before == after
+        finally:
+            await binder.dispose(runtime)
+    asyncio.run(scenario())
 
 
 def test_component_host_retries_provider_disposer_after_transient_failure(
@@ -385,6 +455,8 @@ async def _component_host_retries_provider_disposer_after_transient_failure(
 
     assert await binder.dispose(runtime) == ("provider_retirement_failed",)
     assert runtime.has_pending_retirements is True
+    with pytest.raises(CapabilityComponentHostError, match="live committed use"):
+        prepared.require_current_activation()
     assert await binder.dispose(runtime) == ()
     assert runtime.has_pending_retirements is False
     assert marker.read_text(encoding="utf-8").splitlines().count("dispose") == 2

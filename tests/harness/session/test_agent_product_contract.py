@@ -2430,7 +2430,24 @@ def test_foundation_plugin_reaches_one_session_graph_and_reverse_owner_unload(
 
             assert events.exists() is False
             assert activation_journal.snapshot().activation_uses == ()
+            with pytest.raises(RuntimeError):
+                session.require_current_capability_component_activations()
             await session.prepare_model_call_runtime()
+            session.require_current_capability_component_activations()
+            assert len(session._published_capability_components) == 1
+            published = session._published_capability_components
+            read_owner = component_host._owner_snapshot_reader
+
+            def replace_publication_while_reading_owner(capability_id):
+                session._published_capability_components = ()
+                return read_owner(capability_id)
+
+            component_host._owner_snapshot_reader = replace_publication_while_reading_owner
+            with pytest.raises(RuntimeError, match="component publication is unavailable"):
+                session.require_current_capability_component_activations()
+            session._published_capability_components = published
+            component_host._owner_snapshot_reader = read_owner
+            session.require_current_capability_component_activations()
 
             snapshot = session._capability_graph_runtime.snapshot
             assert snapshot is not None
@@ -2482,6 +2499,8 @@ def test_foundation_plugin_reaches_one_session_graph_and_reverse_owner_unload(
 
             await session.dispose()
 
+            with pytest.raises(RuntimeError):
+                session.require_current_capability_component_activations()
             assert events.read_text(encoding="utf-8").splitlines() == [
                 "provider-import",
                 "provider-create",

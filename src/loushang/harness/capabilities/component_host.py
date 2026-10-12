@@ -448,6 +448,7 @@ class _PreparedComponentAttempt:
     started: bool = False
     disposer: CapabilityProviderDisposer | None = None
     pending_disposal_value: CapabilityBundleValue | None = None
+    retired: bool = False
 
     async def create(
         self,
@@ -519,9 +520,39 @@ class _PreparedComponentAttempt:
             raise
 
     async def dispose(self, value: CapabilityBundleValue) -> None:
+        # Fence live-use checks before awaiting cleanup. A failed disposer may
+        # have partially retired its value; retaining it permits cleanup retry,
+        # not another activation admission.
+        self.retired = True
         disposer = self.disposer
         await self._dispose_value(value, disposer=disposer)
         self.disposer = None
+
+    def require_current_activation(self) -> None:
+        """Validate this live, committed use; this is not effect settlement."""
+
+        if self.reservation.state != "COMMITTED" or self.retired:
+            _raise_host(
+                "component_activation_not_current",
+                "Component activation is not a live committed use.",
+            )
+        self.validate_current_authorities()
+        self.lifecycle.validate_current(
+            self.reservation, expected_state="COMMITTED",
+            started_at_unix_ms=self.admission_started_at,
+        )
+        realm = self.import_realm.snapshot()
+        if (
+            realm.state != "clean"
+            or realm.import_realm_id != self.reservation.import_realm_id
+            or realm.host_boot_id != self.reservation.host_boot_id
+            or (self.reservation.plugin_id, self.package.content_digest)
+            not in realm.locked_packages
+        ):
+            _raise_host(
+                "component_activation_import_realm_changed",
+                "Component activation import realm is no longer current.",
+            )
 
     def cancel_before_start(self) -> bool:
         if self.reservation.state != "CONSUMED_NOT_STARTED":
@@ -744,6 +775,9 @@ class PreparedCapabilityComponent:
 
     def commit_after_graph_publication(self) -> None:
         self._attempt.commit_after_graph_publication()
+
+    def require_current_activation(self) -> None:
+        self._attempt.require_current_activation()
 
     async def abort_uncommitted(self) -> bool:
         return await self._attempt.abort_uncommitted()

@@ -573,6 +573,10 @@ class AgentProductSession(AgentSessionAdapterMixin):
         self._pending_capability_components: tuple[
             PreparedSessionCapabilityComponent, ...
         ] = ()
+        self._published_capability_components: tuple[
+            PreparedSessionCapabilityComponent, ...
+        ] = ()
+        self._published_capability_component_generation: int | None = None
         if capability_composition_inputs is not None:
             validate_session_capability_owner_generation_bindings(
                 admissions=(
@@ -1600,6 +1604,35 @@ class AgentProductSession(AgentSessionAdapterMixin):
             require_current_admission=self._require_execution_preparation_available,
         )
 
+    def require_current_capability_component_activations(self) -> None:
+        """Check original published component uses, independently of callers.
+
+        This validates live activation ownership only. External effect
+        settlement and current Product admission remain separate requirements.
+        """
+
+        consumer = self._model_call_consumer
+        generation = self._published_capability_component_generation
+        components = self._published_capability_components
+
+        def current() -> None:
+            if (
+                consumer is None or self._model_call_consumer is not consumer
+                or self._capability_graph_runtime.is_closed
+                or self._capability_graph_runtime.generation != generation
+                or self._published_capability_component_generation != generation
+                or self._published_capability_components is not components
+            ):
+                raise RuntimeError("Session Capability component publication is unavailable")
+
+        current()
+        for prepared in components:
+            check = getattr(prepared, "require_current_activation", None)
+            if not callable(check) or inspect.iscoroutinefunction(check):
+                raise RuntimeError("Session Capability component current activation is unavailable")
+            self._require_candidate_preparation_admission(check)
+            current()
+
     def _require_execution_preparation_available(self) -> None:
         if not self.execution_available:
             raise RuntimeError(
@@ -2024,6 +2057,10 @@ class AgentProductSession(AgentSessionAdapterMixin):
             self._transcript_capability_ports.install(transcript_consumer)
             self._transcript_consumer = transcript_consumer
             self._side_question_consumer = side_question
+            # Retain the original prepared owners used by this exact graph.
+            # The graph still owns disposal; these references grant no replay.
+            self._published_capability_components = tuple(prepared_components)
+            self._published_capability_component_generation = self._capability_graph_runtime.generation
             self._model_call_consumer = consumer
             return consumer
 

@@ -173,9 +173,11 @@ async def prepare_coding_resume_continuation(
                 if candidate is None:
                     raise RuntimeError("Coding Resume candidate was not delivered")
                 session._require_resume_candidate(candidate)
+                current()
                 checked(lambda: require_current_epoch_settlement(attempt, receipt))
                 current()
                 session._require_resume_candidate(candidate)
+                current()
 
         settled()  # Unsettled effects cannot proceed to first-input preparation.
         phase = "input_preparation"

@@ -1361,6 +1361,9 @@ class AgentSession(AgentProductSession):
             def require_current() -> None:
                 with manager._lifecycle_session.sync_operation_scope():
                     manager._require_resume_runtime_preparation(attempt_id)
+                    self._require_candidate_preparation_admission(
+                        lambda: require_current_admission(candidate.attempt),
+                    )
                     self._require_resume_candidate(candidate)
                     self._require_candidate_preparation_admission(
                         lambda: require_current_admission(candidate.attempt),
@@ -1416,6 +1419,9 @@ class AgentSession(AgentProductSession):
             with manager._lifecycle_session.sync_operation_scope():
                 manager._require_resume_runtime_preparation(attempt_id)
                 manager._require_resume_staged_input(attempt_id, message)
+                self._require_candidate_preparation_admission(
+                    lambda: require_current_admission(candidate.attempt),
+                )
                 self._require_resume_candidate(candidate)
                 self._require_candidate_preparation_admission(
                     lambda: require_current_admission(candidate.attempt),
@@ -1425,6 +1431,9 @@ class AgentSession(AgentProductSession):
                 record_id = await self._composition.session_runtime.agent_event_router.commit_prepared_user_message(message)
                 with manager._lifecycle_session.sync_operation_scope():
                     manager._require_committed_resume_input(attempt_id, record_id)
+                    self._require_candidate_preparation_admission(
+                        lambda: require_current_admission(candidate.attempt),
+                    )
                     self._require_resume_candidate(candidate)
                     self._require_candidate_preparation_admission(
                         lambda: require_current_admission(candidate.attempt),
@@ -1445,6 +1454,7 @@ class AgentSession(AgentProductSession):
         ):
             raise CodingResumeRecoveryRequired("runtime.candidate_changed")
         self._require_current_coding_runtime_selection()
+        self.require_current_capability_component_activations()
         receipt = self._build_current_coding_composition_receipt()
         if fingerprint_catalog_value("loushang.coding-resume-candidate/v1", receipt) != candidate.receipt_fingerprint:
             raise CodingResumeRecoveryRequired("runtime.candidate_changed")
@@ -1458,12 +1468,15 @@ class AgentSession(AgentProductSession):
             attempt, _ = self._coding_session_manager._require_committed_resume_input(
                 candidate.attempt.attempt_id, publication.input_record_id,
             )
+            self._require_candidate_preparation_admission(lambda: publication.current_admission(attempt))
             receipt = self._require_resume_candidate(candidate)
             self._require_candidate_preparation_admission(lambda: publication.current_admission(attempt))
             self._require_candidate_preparation_admission(
                 lambda: publication.current_epoch_settlement(attempt, receipt),
             )
+            self._require_candidate_preparation_admission(lambda: publication.current_admission(attempt))
             self._require_resume_candidate(candidate)
+            self._require_candidate_preparation_admission(lambda: publication.current_admission(attempt))
 
     async def _publish_resume_runtime(
         self, *, attempt_id: str, input_record_id: str,
@@ -1486,6 +1499,9 @@ class AgentSession(AgentProductSession):
                 raise CodingResumeRecoveryRequired("runtime.already_published")
             with manager._lifecycle_session.sync_operation_scope():
                 manager._require_committed_resume_input(attempt_id, input_record_id)
+                self._require_candidate_preparation_admission(
+                    lambda: require_current_admission(candidate.attempt),
+                )
                 self._require_resume_candidate(candidate)
                 self._require_candidate_preparation_admission(lambda: require_current_admission(candidate.attempt))
             await manager._verify_resume_publication_input(attempt_id, input_record_id)

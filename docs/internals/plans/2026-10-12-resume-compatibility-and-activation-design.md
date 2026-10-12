@@ -2167,3 +2167,84 @@ is left by formal preparation. The still-running Coding gate was last observed
 at 26%; it began before these source changes and is not final-tree gate proof.
 After adding an explicit absent project-configuration directory assertion,
 that exact fencing case passed again in 15.68 seconds.
+
+#### Native published component activation checks
+
+The original Harness Session now retains its exact prepared Capability
+components and the original published graph generation. Coding Resume candidate
+validation independently asks those original components for their current
+activation state before first-input commit and during publication/model use.
+It refuses a missing consumer, closed/changed graph, changed component tuple
+or a missing/invalid synchronous component check. Original graph disposal
+still owns cleanup; these retained references introduce no registry, lease,
+journal or authority issuer. Ordinary graph preparation remains unchanged.
+Custom components without this optional current-use check cannot be used by
+this formal Resume path.
+
+The original in-process Component Host rechecks its exact COMMITTED use through
+its original decision journal, current owner/trust/Product policies and clean,
+matching import realm. The original attempt is fenced when disposal starts,
+before any await. A partially successful/failed disposer retains the original
+value and disposer for cleanup retry but cannot claim live activation. Native
+Worker Providers validate their original visible facet, admitted attempt and
+current owner through the existing facet publication validator. That formal
+check may issue its original owner's ephemeral facet grant, but does not send
+a Worker query, start a process or become a history/background operation.
+The Worker adapter test uses the original supervisor/journal/adapter with
+fixture process/transport; it is not installed-native or Windows evidence.
+
+These native use checks do not settle arbitrary external effects or correlate
+all crashed historical uses with a new Resume attempt. COMMITTED means the
+original activation use published; recovered FAILED remains possibly started.
+The required external settlement callback is retained. The default coordinator,
+unknown-effect reconciliation/disposition, Hosted writable activation,
+released-artifact/platform and performance matrices remain outstanding.
+
+The original Component Host baseline passed 14 cases in 2.89 seconds. The two
+first native-use/Session regressions failed on the missing APIs (one ordinary
+case passed, 48 deselected, 9.01 seconds). The first implementation passed
+51 Component Host/Session cases in 10.98 seconds. Four added fault cases first
+failed because their test plugin lacked its marker environment variable (62
+other cases passed); correcting that setup exposed two more fixture mistakes:
+owner snapshots require their original Authority constructor, and an unstarted
+import lease cannot pollute a realm. The corrected four actual owner/journal/
+realm faults passed in 5.31 seconds. Recovered FAILED, a missing original
+journal, changed owner epoch and a genuinely started/polluted realm all refuse
+without changing activation journal bytes. The final three-module run passed
+66 cases in 12.48 seconds, including an original owner reader replacing the
+Session's component tuple during validation, and Worker current-use validation
+that sends no additional protocol request. Existing 33 deny-all Tool selection
+warnings remain.
+
+The Root first-epoch/first-model smoke passed two cases in 56.08 seconds. The
+expanded actual Root model matrix passed 16 cases in 163.29 seconds. It includes
+loss of the original component publication witness while the graph, receipt
+and external callbacks stay unchanged: no dispatch claim or model transport
+occurs, and the committed input remains exactly one record. Its external
+effect-settlement callback is still explicitly a fixture.
+
+A further actual disposer-failure regression failed in 2.29 seconds: after
+partially retiring the value, the first implementation still accepted its
+COMMITTED use. The original attempt now sets its retirement fence before
+awaiting the disposer. Final Component Host verification includes that failure
+and successful cleanup retry: all 19 cases passed in 1.65 seconds. Caller current
+admission now brackets every formal native-use check in preflight, input commit,
+publication and settlement. Original journal coordination/recovery and Worker
+ephemeral grant validation do not run after denied admission. The local
+retirement fence is not a durable external effect settlement record. A six-case
+Root rerun passed in 40.36 seconds after the first admission-order correction;
+the final rerun passed six cases (ten deselected) in 39.49 seconds, including
+assertions that denied/revoked current admission never calls component validation.
+Final scoped mypy passed all six changed owner sources with an isolated cache;
+Ruff passed all ten changed Python files and nine static documentation
+invariants passed.
+
+The Coding gate started at `294e225f` terminated with 1406 passed, 11 skipped,
+45 deselected and one failure in 2899.11 seconds. The installed legacy family
+timed out waiting for Embedded CLI/TUI to leave its loading screen within the
+existing 35-second limit. The exact failed case passed in 53.63 seconds when
+run independently with the same supported private-cache scratch root, original
+selectors and original timeouts. No installed source-path fallback or timeout
+increase was added. That gate began before later source changes and remains
+failed; neither this focused pass nor its earlier progress proves a full
+final-tree Coding gate.

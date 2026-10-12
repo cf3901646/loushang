@@ -164,6 +164,27 @@ continues. The first admission check, selection and final epoch observation
 share that same scope, with the flag released on every exit. This adds no
 authority owner, lease or effect settlement fact.
 
+Resume candidate validation now independently checks the original published
+Capability components. The original Session retains the exact prepared
+components and graph generation used at publication; checks refuse a missing
+consumer, retired/changed graph, replaced component references or an unsupported
+component check. The in-process Component Host verifies its original committed
+activation reservation, current authorities and import realm, and fences this
+live-use check before awaiting disposal, including failed disposal. The native
+Worker Provider checks its original visible facet/admitted attempt/owner through
+the original facet publication validator without dispatching a query. That
+formal validator may issue the original owner's ephemeral facet grant; it is
+not called by history or background planning. Caller current admission brackets
+these formal checks, including revalidation after the settlement callback;
+denied admission cannot enter native use coordination/grant validation. The
+original journal's formal coordination/recovery policy is retained. The local
+retirement fence is not a durable external effect settlement record. These checks run independently
+of external admission/settlement callbacks before input commit and along the
+publication/model path. They establish current activation ownership only.
+Recovered FAILED uses, lost journals and retirement debts are not completion
+proof. Durable external effect settlement, cross-attempt recovery correlation
+and the default coordinator remain required.
+
 ### Candidate v1 attempt contract for owner review
 
 The proposed `coding.activation-attempt/v1` intent uses one `extension.data`

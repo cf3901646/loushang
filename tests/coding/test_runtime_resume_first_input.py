@@ -43,7 +43,7 @@ from loushang.harness.transcript.jsonl_file import load_agent_transcript_file
 pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="Linux owned Resume Writer")
 
 
-@pytest.mark.parametrize("mode", ["completed", "skill_changed", "agents_changed", "workspace_changed", "epoch_control_changed", "epoch_control_at_barrier", "epoch_selection_fenced", "policy_changed", "policy_at_barrier", "revoked", "revoked_at_barrier", "unknown_transport", "cancelled", "slot_replaced", "root_closed"])
+@pytest.mark.parametrize("mode", ["completed", "skill_changed", "agents_changed", "workspace_changed", "epoch_control_changed", "epoch_control_at_barrier", "epoch_selection_fenced", "component_publication_missing", "policy_changed", "policy_at_barrier", "revoked", "revoked_at_barrier", "unknown_transport", "cancelled", "slot_replaced", "root_closed"])
 def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch, mode):
     monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
 
@@ -204,12 +204,25 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
             assert not candidate._coding_resume_dispatch_claimed
             await prepared.consume()
             assert root.current_session is candidate
+            component_checks = []
+            if mode in {"revoked", "policy_changed"}:
+                current_components = candidate.require_current_capability_component_activations
+
+                def observe_component_check():
+                    component_checks.append(True)
+                    current_components()
+
+                monkeypatch.setattr(candidate, "require_current_capability_component_activations", observe_component_check)
             if mode == "policy_changed":
                 settings.set_permission_profile("full_access", scope="session")
             elif mode == "revoked":
                 issuer.release_confirmation(fact)
             elif mode == "epoch_selection_fenced":
                 selection.fence()
+            elif mode == "component_publication_missing":
+                # Lose the original component publication witness while the
+                # graph, receipt and external callback remain unchanged.
+                candidate._published_capability_component_generation = None
             elif mode == "root_closed":
                 await root.dispose_session_runtime()
             elif mode == "slot_replaced":
@@ -237,8 +250,13 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
             if mode in {"revoked", "policy_changed"}:
                 with pytest.raises(PermissionError):
                     await prepared.run_first_input()
+                assert not component_checks
             elif mode == "epoch_selection_fenced":
                 with pytest.raises(RuntimeError, match="Resume epoch is unavailable"):
+                    await prepared.run_first_input()
+                assert not candidate._coding_resume_dispatch_claimed
+            elif mode == "component_publication_missing":
+                with pytest.raises(RuntimeError, match="component publication is unavailable"):
                     await prepared.run_first_input()
                 assert not candidate._coding_resume_dispatch_claimed
             elif mode in {"workspace_changed", "epoch_control_changed"}:
