@@ -42,6 +42,7 @@ from loushang.appservice.discovery_ports import (
 )
 from loushang.foundation.json import JSONValue
 from loushang.harness.conversation import ConversationHeader
+from loushang.harness.journal._owned_io import settled_io
 from loushang.harness.runtime import ResolvedRuntimeProfile, RuntimeProfileBinding
 from loushang.harness.transcript import (
     AgentTranscriptLifecycle,
@@ -61,6 +62,12 @@ from loushang.harness.transcript.session_catalog import (
 from .composition_provenance import composition_header_metadata
 from .composition_sets import resolve_coding_composition_set
 from .product_plan import CODING_TRANSCRIPT_RUNTIME
+from .resume_history import (
+    CodingResumeHeaderPreview,
+    CodingResumeHistoryPreview,
+    inspect_coding_resume_header,
+    read_coding_resume_snapshot,
+)
 from .session_manager import (
     _LIFECYCLE,
     SessionManager,
@@ -641,6 +648,44 @@ class CodingHostedSessionCatalogV1:
             if record is None:
                 raise CodingHostedCatalogError()
             return await self._open(record)
+
+    async def preview_history_header(
+        self, reference: SessionCandidateRefV1,
+    ) -> CodingResumeHeaderPreview:
+        """Inspect a discovered Header without claiming its writable candidate."""
+
+        self._accepting()
+        async with self._lock:
+            self._accepting()
+            record = self._records.get(reference)
+            if record is None or _revision(record.path) != reference.revision:
+                raise CodingHostedCatalogError()
+            preview = inspect_coding_resume_header(record.header)
+            if _revision(record.path) != reference.revision:
+                raise CodingHostedCatalogError()
+            return preview
+
+    async def preview_history_snapshot(
+        self, reference: SessionCandidateRefV1, *, max_bytes: int,
+    ) -> CodingResumeHistoryPreview:
+        """Read bounded history from a discovered candidate without claiming it."""
+
+        self._accepting()
+        async with self._lock:
+            self._accepting()
+            record = self._records.get(reference)
+            if record is None or _revision(record.path) != reference.revision:
+                raise CodingHostedCatalogError()
+        preview = await settled_io(
+            read_coding_resume_snapshot, record.path, max_bytes=max_bytes,
+        )
+        self._accepting()
+        if (
+            _revision(record.path) != reference.revision
+            or preview.header_preview.header != record.header
+        ):
+            raise CodingHostedCatalogError()
+        return preview
 
     def _scope_for(self, request: SessionCreateRequestV1) -> CodingHostedScopeV1:
         if request.product_id != "coding" or request.requested_continuity_id is None:

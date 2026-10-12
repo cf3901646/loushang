@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from copy import deepcopy
+from dataclasses import dataclass
 from re import fullmatch
 
 from loushang.foundation.json import JSONValue
@@ -12,6 +13,14 @@ from .composition_sets import CodingCompositionSetPlan, resolve_coding_compositi
 
 CODING_COMPOSITION_HEADER_KEY = "codingCompositionSetV1"
 CODING_COMPOSITION_STARTUP_TYPE = "coding.composition-startup/v1"
+
+
+@dataclass(frozen=True, slots=True)
+class CodingCompositionProvenanceV1:
+    """Historical Session evidence, independent of the installed set registry."""
+
+    set_id: str
+    plan_fingerprint: str
 
 
 def composition_header_metadata(plan: CodingCompositionSetPlan) -> dict[str, JSONValue]:
@@ -27,7 +36,11 @@ def composition_header_metadata(plan: CodingCompositionSetPlan) -> dict[str, JSO
     }
 
 
-def pinned_composition_plan(metadata: Mapping[str, object]) -> CodingCompositionSetPlan | None:
+def historical_composition_provenance(
+    metadata: Mapping[str, object],
+) -> CodingCompositionProvenanceV1 | None:
+    """Decode the original Header as evidence without resolving today's plan."""
+
     if CODING_COMPOSITION_HEADER_KEY not in metadata:
         return None
     raw = metadata.get(CODING_COMPOSITION_HEADER_KEY)
@@ -37,15 +50,40 @@ def pinned_composition_plan(metadata: Mapping[str, object]) -> CodingComposition
         raise ValueError("Coding Session composition provenance version is invalid")
     set_id = raw.get("setId")
     fingerprint = raw.get("planFingerprint")
-    if not isinstance(set_id, str) or not isinstance(fingerprint, str):
+    if not isinstance(set_id, str) or not set_id or not _digest(fingerprint):
         raise ValueError("Coding Session composition provenance identity is invalid")
-    plan = resolve_coding_composition_set(set_id)
-    if plan.fingerprint != fingerprint:
+    return CodingCompositionProvenanceV1(set_id, fingerprint)
+
+
+def pinned_composition_plan(metadata: Mapping[str, object]) -> CodingCompositionSetPlan | None:
+    """Resolve an exact current plan for the legacy writable startup gate."""
+
+    evidence = historical_composition_provenance(metadata)
+    if evidence is None:
+        return None
+    plan = resolve_coding_composition_set(evidence.set_id)
+    if plan.fingerprint != evidence.plan_fingerprint:
         raise ValueError("Coding Session composition plan has changed")
     return plan
 
 
 def startup_composition_record(entries: Iterable[object]) -> dict[str, object] | None:
+    """Read a receipt for the existing exact-current writable startup gate."""
+
+    return _read_startup_composition_record(entries, require_current=True)
+
+
+def historical_startup_composition_record(
+    entries: Iterable[object],
+) -> dict[str, object] | None:
+    """Decode a historical receipt without consulting the current set registry."""
+
+    return _read_startup_composition_record(entries, require_current=False)
+
+
+def _read_startup_composition_record(
+    entries: Iterable[object], *, require_current: bool,
+) -> dict[str, object] | None:
     """Read the single Session-owned startup receipt without trusting its shape."""
 
     from loushang.harness.transcript.types import ExtensionData
@@ -57,11 +95,13 @@ def startup_composition_record(entries: Iterable[object]) -> dict[str, object] |
             continue
         if found is not None or not isinstance(payload.data, dict):
             raise ValueError("Coding Session composition startup provenance is malformed")
-        found = _validate_startup_record(payload.data)
+        found = _validate_startup_record(payload.data, require_current=require_current)
     return found
 
 
-def _validate_startup_record(raw: dict[str, JSONValue]) -> dict[str, object]:
+def _validate_startup_record(
+    raw: dict[str, JSONValue], *, require_current: bool,
+) -> dict[str, object]:
     from loushang.harness.resources.plugins.selection import PluginInstanceRevisionRef
 
     keys = {
@@ -70,14 +110,15 @@ def _validate_startup_record(raw: dict[str, JSONValue]) -> dict[str, object]:
     }
     if set(raw) not in (keys, keys | {"workerSelection"}) or type(raw["version"]) is not int or raw["version"] != 1:
         raise ValueError("Coding Session composition startup provenance is malformed")
-    if not isinstance(raw["setId"], str) or not _digest(raw["planFingerprint"]):
+    if not isinstance(raw["setId"], str) or not raw["setId"] or not _digest(raw["planFingerprint"]):
         raise ValueError("Coding Session composition startup identity is malformed")
-    try:
-        canonical = resolve_coding_composition_set(raw["setId"])
-    except ValueError as exc:
-        raise ValueError("Coding Session composition startup set is unknown") from exc
-    if canonical.fingerprint != raw["planFingerprint"]:
-        raise ValueError("Coding Session composition startup plan has changed")
+    if require_current:
+        try:
+            canonical = resolve_coding_composition_set(raw["setId"])
+        except ValueError as exc:
+            raise ValueError("Coding Session composition startup set is unknown") from exc
+        if canonical.fingerprint != raw["planFingerprint"]:
+            raise ValueError("Coding Session composition startup plan has changed")
     policy = raw["productPolicyRevision"]
     if policy is not None and (not isinstance(policy, str) or not policy):
         raise ValueError("Coding Session composition startup policy is malformed")
@@ -164,7 +205,10 @@ def _digest(value: object) -> bool:
 __all__ = [
     "CODING_COMPOSITION_HEADER_KEY",
     "CODING_COMPOSITION_STARTUP_TYPE",
+    "CodingCompositionProvenanceV1",
     "composition_header_metadata",
+    "historical_composition_provenance",
+    "historical_startup_composition_record",
     "pinned_composition_plan",
     "startup_composition_record",
 ]

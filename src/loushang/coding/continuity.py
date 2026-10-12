@@ -77,6 +77,8 @@ from loushang.harness.transcript import (
     session_summary_revision,
 )
 
+from .resume_history import read_coding_resume_header
+
 CODING_CONTINUITY_PROVIDER_ID = "coding.sessions"
 CODING_CONTINUITY_IMPLEMENTATION = "coding.session_continuity"
 CODING_CONTINUITY_IMPLEMENTATION_VERSION = 1
@@ -355,6 +357,7 @@ class CodingContinuityProvider:
     async def preview(self, target: ContinuityTarget) -> ContinuityPreview:
         indexed = self._cached_target(target)
         summary = indexed.projection
+        history_changed = False
         rows = [
             ("Workspace", summary.cwd or "Unknown"),
             (
@@ -382,6 +385,27 @@ class CodingContinuityProvider:
                 rows.append(("Compatible copies", str(len(discovery.aliases))))
             if discovery.conflicts:
                 rows.append(("Conflicting copies", str(len(discovery.conflicts))))
+        if summary.session_file is not None:
+            try:
+                history = await asyncio.to_thread(
+                    read_coding_resume_header, summary.session_file,
+                )
+            except (OSError, ValueError):
+                rows.append(("History identity", "Unavailable"))
+            else:
+                if history.header.conversation_id != summary.session_id:
+                    history_changed = True
+                    rows.append(("History identity", "Changed; refresh"))
+                else:
+                    rows.append((
+                        "History identity",
+                        "Coding" if history.product_identity == "coding" else "Unverified",
+                    ))
+                    rows.append((
+                        "Historical composition",
+                        history.composition.set_id
+                        if history.composition is not None else "Legacy unknown",
+                    ))
         inspect_assets = getattr(
             self._runtime,
             "inspect_discovered_session_assets",
@@ -434,7 +458,7 @@ class CodingContinuityProvider:
             stale=(
                 session_summary_revision(summary, indexed.source_revision)
                 != target.revision
-            ),
+            ) or history_changed,
         )
 
     async def prepare(

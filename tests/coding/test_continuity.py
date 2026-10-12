@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ import pytest
 from loushang.ai.model import Capabilities, Model
 from loushang.ai.types import TextPart, UserMessage
 from loushang.coding.bootstrap import create_agent_session_runtime
+from loushang.coding.composition_provenance import CODING_COMPOSITION_HEADER_KEY
 from loushang.coding.continuity import (
     ConflictedContinuityTargetError,
     StaleContinuityTargetError,
@@ -179,6 +181,43 @@ def test_coding_provider_projects_common_summary_preview_and_activation(
         await shutdown_coding_continuity(runtime)
 
     asyncio.run(scenario())
+
+
+def test_coding_resume_preview_shows_retired_historical_composition_without_activation(
+    tmp_path: Path,
+) -> None:
+    runtime = _Runtime(tmp_path)
+    transcript = tmp_path / "retired.jsonl"
+    header = _header("retired")
+    write_agent_transcript_export(
+        transcript,
+        replace(
+            header,
+            metadata={
+                **header.metadata,
+                CODING_COMPOSITION_HEADER_KEY: {
+                    "version": 1,
+                    "setId": "retired-coding-set",
+                    "planFingerprint": "a" * 64,
+                },
+            },
+        ),
+        [_record("retired-record", "Old conversation")],
+    )
+    runtime.refresh_session_index()
+    before = transcript.read_bytes()
+    composition = bind_coding_continuity(runtime)
+
+    async def scenario() -> None:
+        page = await composition.hub.query(ContinuityQuery(page_size=10))
+        preview = await composition.hub.preview(page.items[0].target)
+        assert ("Historical composition", "retired-coding-set") in preview.sections[1].rows
+        assert ("History identity", "Unverified") in preview.sections[1].rows
+        assert runtime.prepared == []
+        await shutdown_coding_continuity(runtime)
+
+    asyncio.run(scenario())
+    assert transcript.read_bytes() == before
 
 
 def test_coding_resume_discovery_defaults_to_current_cwd(tmp_path: Path) -> None:

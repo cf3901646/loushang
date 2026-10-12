@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from loushang.ai.types import UserMessage
 from loushang.apphost import SessionCreateIntentV1, SessionCreateRequestV1
 from loushang.appserver.protocol import SessionScopeV1
 from loushang.coding.bootstrap import create_agent_session
+from loushang.coding.composition_provenance import CODING_COMPOSITION_HEADER_KEY
 from loushang.coding.hosted_catalog import (
     CODING_HOSTED_COMPATIBILITY_ID,
     CodingHostedCandidateValidatorV1,
@@ -17,7 +19,12 @@ from loushang.coding.hosted_catalog import (
     CodingHostedScopeV1,
     CodingHostedSessionCatalogV1,
 )
+from loushang.coding.product_plan import CODING_CAPABILITY_PROFILE_METADATA_KEY
 from loushang.coding.session_manager import SessionManager
+from loushang.harness.transcript.jsonl_file import (
+    load_agent_transcript_file,
+    write_agent_transcript_export,
+)
 
 
 def _scope(
@@ -111,6 +118,46 @@ def test_G14_RECOVERY_create_identity_is_idempotent_across_catalog_instances(
         assert repeated.projection.envelope == identity
         await repeated.close()
         assert len(tuple(scope.session_dir.glob("*.jsonl"))) == 1
+
+    asyncio.run(scenario())
+
+
+def test_canonical_hosted_history_previews_changed_environment_without_activation(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        scope = _scope(tmp_path)
+        owner = CodingHostedSessionCatalogV1((scope,))
+        candidate = await owner.create_candidate(_intent(scope))
+        await candidate.close()
+        path = next(scope.session_dir.glob("*.jsonl"))
+        header, records = load_agent_transcript_file(path, read_only=True)
+        metadata = deepcopy(dict(header.metadata))
+        metadata[CODING_COMPOSITION_HEADER_KEY] = {
+            "version": 1,
+            "setId": "retired-coding-set",
+            "planFingerprint": "a" * 64,
+        }
+        capability = metadata[CODING_CAPABILITY_PROFILE_METADATA_KEY]
+        assert isinstance(capability, dict)
+        capability["capabilities"] = []
+        write_agent_transcript_export(path, replace(header, metadata=metadata), records)
+        before = path.read_bytes()
+
+        fresh = CodingHostedSessionCatalogV1((scope,))
+        rows = await fresh.list_identities((scope.discovery_scope,), limit=256)
+        preview = await fresh.preview_history_header(rows[0].reference)
+        assert preview.product_identity == "coding"
+        assert preview.composition is not None
+        assert preview.composition.set_id == "retired-coding-set"
+        history = await fresh.preview_history_snapshot(
+            rows[0].reference, max_bytes=1024 * 1024,
+        )
+        assert history.header_preview == preview
+        assert history.records == ()
+        with pytest.raises(ValueError, match="unsupported capability profile"):
+            await fresh.open_candidate(rows[0].reference)
+        assert path.read_bytes() == before
 
     asyncio.run(scenario())
 
@@ -222,6 +269,12 @@ def test_G14_PRODUCT_candidate_revision_is_fenced_before_claim(tmp_path: Path) -
         finally:
             await manager.dispose_runtime_profile()
         try:
+            with pytest.raises(CodingHostedCatalogError):
+                await catalog.preview_history_header(projections[0].reference)
+            with pytest.raises(CodingHostedCatalogError):
+                await catalog.preview_history_snapshot(
+                    projections[0].reference, max_bytes=1024 * 1024,
+                )
             with pytest.raises(CodingHostedCatalogError):
                 await candidate.claim()
         finally:

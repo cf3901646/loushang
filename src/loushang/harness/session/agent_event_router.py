@@ -23,6 +23,7 @@ QueuedMessageConsumer = Callable[[object], bool]
 QueuedMessageCompleter = Callable[[object], None]
 InFlightMessageDiscarder = Callable[[], None]
 ContinueRun = Callable[[], Awaitable[None]]
+MessageMetadataPreparer = Callable[[object], Mapping[str, JSONValue] | None]
 
 
 class RetryRouterPort(Protocol):
@@ -61,6 +62,7 @@ class AgentEventRouter:
     schedule_continue_run: ContinueRun
     consume_queued_message: QueuedMessageConsumer | None = None
     request_evidence: RequestEvidenceRuntimePort | None = None
+    prepare_message_metadata: MessageMetadataPreparer | None = None
     complete_queued_message: QueuedMessageCompleter | None = None
     discard_in_flight_messages: InFlightMessageDiscarder | None = None
     _committed_messages: dict[int, tuple[object, str]] = field(
@@ -126,10 +128,22 @@ class AgentEventRouter:
         existing = self._committed_messages.get(identity)
         if existing is not None and existing[0] is message:
             return existing[1]
-        metadata: Mapping[str, JSONValue] | None = None
+        metadata: dict[str, JSONValue] = {}
         if self.request_evidence is not None:
-            metadata = self.request_evidence.prepare_message_commit(message)
-        if metadata is None:
+            evidence = self.request_evidence.prepare_message_commit(message)
+            if evidence is not None:
+                metadata.update(evidence)
+        if self.prepare_message_metadata is not None:
+            product_metadata = self.prepare_message_metadata(message)
+            if product_metadata is not None:
+                conflicts = metadata.keys() & product_metadata.keys()
+                if conflicts:
+                    raise ValueError(
+                        "Agent message metadata key conflict: "
+                        + ", ".join(sorted(conflicts))
+                    )
+                metadata.update(product_metadata)
+        if not metadata:
             record_id = await self.append_message(message)
         else:
             record_id = await self.append_message(message, metadata=metadata)
