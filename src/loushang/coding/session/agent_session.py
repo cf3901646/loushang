@@ -1240,18 +1240,20 @@ class AgentSession(AgentProductSession):
         async with self._coding_composition_record_lock:
             await self._record_coding_composition_startup_locked()
 
-    async def _record_coding_composition_startup_locked(
+    def _build_current_coding_composition_receipt(
         self,
         *,
-        existing_only: bool = False,
         prepared_catalog_snapshot: object | None = None,
-    ) -> None:
+    ) -> dict[str, object]:
+        """Observe current owner selections without interpreting old receipts.
+
+        This detached data is neither effect settlement nor execution authority.
+        Resume admission must validate live owners separately before publishing.
+        """
+
         plan = self._coding_composition_plan
-        if plan is None or not self.session_manager.persist:
-            return
-        pinned = pinned_composition_plan(self.session_manager.get_header().metadata)
-        if pinned != plan:
-            raise ValueError("Coding Session composition startup changed its pinned plan")
+        if plan is None:
+            raise ValueError("Coding current composition receipt requires a selected plan")
         compilation = self._coding_base_product_compilation
         external_compilation = self._coding_external_data_product_compilation
         capability_assembly = self._coding_capability_plugin_assembly
@@ -1402,6 +1404,35 @@ class AgentSession(AgentProductSession):
             if worker_receipt is not None
             else None
         )
+        startup_data: dict[str, object] = {
+            "version": 1,
+            "setId": plan.set_id,
+            "planFingerprint": plan.fingerprint,
+            "productPolicyRevision": policy_revision,
+            "catalogSelectionFingerprint": catalog_fingerprint,
+            "selectedRevisions": revisions,
+            "ownerGenerations": generations,
+        }
+        if worker_selection is not None:
+            startup_data["workerSelection"] = worker_selection
+        return startup_data
+
+    async def _record_coding_composition_startup_locked(
+        self,
+        *,
+        existing_only: bool = False,
+        prepared_catalog_snapshot: object | None = None,
+    ) -> None:
+        plan = self._coding_composition_plan
+        if plan is None or not self.session_manager.persist:
+            return
+        pinned = pinned_composition_plan(self.session_manager.get_header().metadata)
+        if pinned != plan:
+            raise ValueError("Coding Session composition startup changed its pinned plan")
+        startup_data = self._build_current_coding_composition_receipt(
+            prepared_catalog_snapshot=prepared_catalog_snapshot,
+        )
+        worker_selection = startup_data.get("workerSelection")
         existing = startup_composition_record(self.session_manager.get_entries())
         if existing is not None:
             original_worker = existing.get("workerSelection")
@@ -1411,7 +1442,7 @@ class AgentSession(AgentProductSession):
                     for key, value in worker_selection.items()
                     if key != "receiptFingerprint"
                 }
-                if worker_selection is not None
+                if isinstance(worker_selection, dict)
                 else None
             )
             comparable_original_worker = (
@@ -1434,14 +1465,18 @@ class AgentSession(AgentProductSession):
                     ),
                     (
                         "productPolicyRevision",
-                        existing.get("productPolicyRevision") == policy_revision,
+                        existing.get("productPolicyRevision")
+                        == startup_data["productPolicyRevision"],
                     ),
                     (
                         "catalogSelectionFingerprint",
                         existing.get("catalogSelectionFingerprint")
-                        == catalog_fingerprint,
+                        == startup_data["catalogSelectionFingerprint"],
                     ),
-                    ("selectedRevisions", existing.get("selectedRevisions") == revisions),
+                    (
+                        "selectedRevisions",
+                        existing.get("selectedRevisions") == startup_data["selectedRevisions"],
+                    ),
                     ("workerSelection", comparable_original_worker == comparable_worker),
                 )
                 if not matches
@@ -1461,17 +1496,6 @@ class AgentSession(AgentProductSession):
             )
         if existing_only:
             return
-        startup_data: dict[str, object] = {
-            "version": 1,
-            "setId": plan.set_id,
-            "planFingerprint": plan.fingerprint,
-            "productPolicyRevision": policy_revision,
-            "catalogSelectionFingerprint": catalog_fingerprint,
-            "selectedRevisions": revisions,
-            "ownerGenerations": generations,
-        }
-        if worker_selection is not None:
-            startup_data["workerSelection"] = worker_selection
         await self.session_manager.append_custom_entry(
             CODING_COMPOSITION_STARTUP_TYPE,
             startup_data,

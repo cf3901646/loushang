@@ -464,6 +464,49 @@ def test_historical_startup_receipt_decodes_without_current_registry() -> None:
         startup_composition_record([entry])
 
 
+def test_current_composition_receipt_observes_owners_without_reading_or_writing_history(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    async def journey():
+        manager = await SessionManager.new_with_composition(
+            session_dir=tmp_path / "sessions", cwd=str(workspace), persist=True,
+            composition_set="coding-minimal", defer_materialization=False,
+        )
+        session = create_agent_session(session_manager=manager, composition_set="coding-minimal")
+        try:
+            await session.prepare_model_call_runtime()
+            expected = startup_composition_record(manager.get_entries())
+            assert expected is not None
+            path = manager.session_file
+            assert path is not None
+            before = path.read_bytes()
+            manager._resume_runtime_publication_pending = True
+
+            def forbidden(*args, **kwargs):
+                pytest.fail("current receipt construction accessed historical or executable state")
+
+            with monkeypatch.context() as patch:
+                patch.setattr(manager, "get_header", forbidden)
+                patch.setattr(manager, "get_entries", forbidden)
+                patch.setattr(manager, "append_custom_entry", forbidden)
+                patch.setattr(session, "prepare_model_call_runtime", forbidden)
+                receipt = session._build_current_coding_composition_receipt()
+                assert receipt == expected
+                receipt["ownerGenerations"].append({"unexpected": "caller mutation"})
+                assert session._build_current_coding_composition_receipt() == expected
+            assert path.read_bytes() == before
+            assert manager.resume_runtime_publication_pending
+            assert not session.execution_available
+        finally:
+            await session.dispose()
+
+    asyncio.run(journey())
+
+
 def test_concurrent_prepare_writes_only_one_startup_receipt(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

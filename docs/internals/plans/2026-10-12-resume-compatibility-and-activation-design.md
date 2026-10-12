@@ -109,6 +109,15 @@
   checks do not implement Hosted readiness or continuation admission. The current
   activation owner's publication and reopening path is not implemented; this
   local gate is not a durable publication receipt or a crash-recovery authority.
+  Coding AgentSession now builds detached current composition observations in
+  a separate internal receipt builder. Ordinary startup calls that builder and
+  retains its existing historical Header/startup equality checks. The builder
+  reads current Plugin revisions, Product policy revision, Catalog selection,
+  Worker receipt and owner generation references without reading or appending
+  transcript history or enabling execution. A sentinel verifies this with the
+  local Resume gate closed, including caller mutation of a returned receipt.
+  This is a data seam for the upcoming activation coordinator, not live owner
+  admission, effect settlement or Runtime publication.
   ResourceLoader
   can calculate Catalog input facts and bounded native context content digests
   without choosing authority; Plan records only their redacted input fingerprint and
