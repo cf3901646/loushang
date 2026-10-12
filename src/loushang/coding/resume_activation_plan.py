@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -223,6 +223,7 @@ def plan_coding_resume(
     *,
     workspace_root: Path,
     resource_loader: ResourceLoader,
+    work_probe: Callable[[], None] | None = None,
 ) -> SessionActivationPlanV1:
     """Plan from already displayed history through the original Resource owner.
 
@@ -236,7 +237,9 @@ def plan_coding_resume(
         return build_session_activation_plan(
             history, current_composition, workspace_root=workspace_root,
         )
-    receipt = resource_loader.preview_catalog_input_receipt(workspace_root)
+    receipt = resource_loader.preview_catalog_input_receipt(
+        workspace_root, work_probe=work_probe,
+    )
     return build_session_activation_plan(
         history, current_composition, workspace_root=workspace_root,
         owner_inputs=(ActivationOwnerInputRefV1(

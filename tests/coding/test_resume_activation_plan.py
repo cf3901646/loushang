@@ -342,3 +342,23 @@ def test_unavailable_history_does_not_request_resource_planning(tmp_path, monkey
     )
     assert plan.status == "unavailable"
     assert plan.owner_inputs == ()
+
+
+def test_resume_plan_propagates_cancellation_without_delivering_a_plan(tmp_path) -> None:
+    from concurrent.futures import CancelledError
+
+    loader = ResourceLoader(user_resource_roots=())
+
+    def cancelled():
+        raise CancelledError("Session released its planning reference")
+
+    with pytest.raises(CancelledError):
+        plan_coding_resume(
+            _history(), resolve_coding_composition_set("coding-standard"),
+            workspace_root=tmp_path, resource_loader=loader, work_probe=cancelled,
+        )
+    # Cancellation leaves the original Resource owner usable for re-planning.
+    assert plan_coding_resume(
+        _history(), resolve_coding_composition_set("coding-standard"),
+        workspace_root=tmp_path, resource_loader=loader,
+    ).status == "needs_final_validation"

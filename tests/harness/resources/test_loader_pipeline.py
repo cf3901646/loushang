@@ -433,6 +433,44 @@ def test_catalog_input_preview_tracks_context_bytes_without_following_links(
     assert loader._catalog_authority_selected is False
 
 
+def test_catalog_input_preview_checks_cancellation_between_context_chunks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from concurrent.futures import CancelledError
+
+    from loushang.harness.resources import _catalog_input_preparation as preparation
+
+    context = tmp_path / "AGENTS.md"
+    context.write_bytes(b"a" * (256 * 1024))
+    loader = ResourceLoader(user_resource_roots=(), context_file_names=("AGENTS.md",))
+    original_capture = preparation.capture_contained_regular_file
+    chunks = 0
+
+    def capture(*args, **kwargs):
+        original_probe = kwargs["read_probe"]
+
+        def probe():
+            nonlocal chunks
+            chunks += 1
+            if chunks == 2:
+                raise CancelledError("context read cancelled")
+            original_probe()
+
+        return original_capture(*args, **{**kwargs, "read_probe": probe})
+
+    with monkeypatch.context() as patch:
+        patch.setattr(preparation, "capture_contained_regular_file", capture)
+        with pytest.raises(CancelledError, match="context read cancelled"):
+            loader.preview_catalog_input_receipt(tmp_path, work_probe=lambda: None)
+    assert chunks == 2
+    assert loader._catalog_authority_selected is False
+    assert loader._legacy_authority_selected is False
+    receipt = loader.preview_catalog_input_receipt(tmp_path)
+    fact = next(item for item in receipt.context_file_facts if item.root == tmp_path)
+    assert fact.content_length == 256 * 1024
+    assert context.read_bytes() == b"a" * (256 * 1024)
+
+
 def test_catalog_input_preview_rejects_loader_configuration_race(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

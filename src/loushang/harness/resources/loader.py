@@ -406,7 +406,7 @@ class ResourceLoader:
         return receipt
 
     def preview_catalog_input_receipt(
-        self, cwd: str | Path,
+        self, cwd: str | Path, *, work_probe: Callable[[], None] | None = None,
     ) -> ResourceCatalogInputReceipt:
         """Compute the ordinary Catalog source facts without choosing authority.
 
@@ -414,13 +414,20 @@ class ResourceLoader:
         handles, so it must not be serialized into an activation Plan or used
         as current authority. Formal preparation calls the same computation
         and still owns any retained handles.
+
+        A work probe can enforce a caller's cooperative budget by raising a
+        non-OSError exception. Checkpoints cover phase boundaries, context
+        candidates, and 64 KiB context reads. Package discovery remains one
+        synchronous phase; this hook alone does not make it background-safe.
         """
 
         if self._legacy_authority_selected:
             raise ResourceLoaderCompatibilityError(
                 "legacy_loader_cannot_preview_catalog_inputs"
             )
-        return self._compute_catalog_input_receipt(cwd)
+        if work_probe is not None and not callable(work_probe):
+            raise TypeError("Catalog preview work probe must be callable")
+        return self._compute_catalog_input_receipt(cwd, work_probe=work_probe)
 
     def _catalog_input_state(self) -> _CatalogInputState:
         return _CatalogInputState(
@@ -448,9 +455,11 @@ class ResourceLoader:
         )
 
     def _compute_catalog_input_receipt(
-        self, cwd: str | Path,
+        self, cwd: str | Path, *, work_probe: Callable[[], None] | None = None,
     ) -> ResourceCatalogInputReceipt:
         state = self._catalog_input_state()
+        if work_probe is not None:
+            work_probe()
         _verify_package_mounts(state.package_mounts)
         target = Path(cwd)
         project_resource_root = (
@@ -478,7 +487,10 @@ class ResourceLoader:
             no_context_files=state.no_context_files,
             built_in_resource_packages=state.built_in_resource_packages,
             context_file_names=state.context_file_names,
+            work_probe=work_probe,
         )
+        if work_probe is not None:
+            work_probe()
         _verify_package_mounts(state.package_mounts)
         if self._catalog_input_state() != state:
             raise ResourceLoaderCompatibilityError("catalog_preview_stale")
@@ -865,9 +877,9 @@ class CatalogSessionResourceLoaderView(ResourceLoader):
         return self._source_loader.prepare_catalog_input_receipt(cwd)
 
     def preview_catalog_input_receipt(
-        self, cwd: str | Path,
+        self, cwd: str | Path, *, work_probe: Callable[[], None] | None = None,
     ) -> ResourceCatalogInputReceipt:
-        return self._source_loader.preview_catalog_input_receipt(cwd)
+        return self._source_loader.preview_catalog_input_receipt(cwd, work_probe=work_probe)
 
     def _take_initial_resource_catalog_input_receipt(
         self,

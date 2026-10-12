@@ -34,6 +34,12 @@
   activation. Writable admission, owner selection
   completion, background scheduling, Hosted readiness, and release evidence
   are not implemented.
+- Planning cancellation: the shared Plan entry and original ResourceLoader
+  preview accept a cooperative work probe. Checkpoints cover phase boundaries,
+  context candidates, and 64 KiB context-file reads. Cancellation discards the
+  result without selecting authority and permits re-planning. Package discovery
+  is still one synchronous phase; per-package scan budgets, shared scheduling,
+  Session waiting references, priority, and close settlement remain unimplemented.
 - Revision: R2.1, 2026-10-12; R2 independently rechecked, with the requested
   legacy Ack timing and fork-origin clarifications applied.
 - Owning scope: Coding Session continuity; collaborating scopes: Harness,
