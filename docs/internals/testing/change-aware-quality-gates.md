@@ -10,19 +10,28 @@ their results through `quality-gate`. Local development uses the same
 | Change | Required scope |
 | --- | --- |
 | Ordinary Markdown/RST documentation | Existing documentation invariants and changed Markdown links; no product dependency installation |
-| Coding internals | Coding offline and host-runtime regressions plus source dependency facts; no automatic AI, Agent, or Harness full suite |
-| AI internals | AI checks; public message, stream, and invocation contracts additionally select consumers |
-| Agent runtime | Agent regressions and affected consumer checks; no automatic AI full suite |
-| TUI components | TUI units, deterministic playback, HarnessTUI/Coding UI consumers |
-| HarnessTUI presentation | HarnessTUI core, Coding UI adapters, deterministic playback |
-| Coding UI adapters | Coding UI and deterministic playback, plus Coding checks where applicable |
+| Ordinary package source or classified unit test on a PR | That package's [unit inventory](../../../scripts/ci/unit-tests.json), plus documentation and source dependency facts |
+| Session, conversation, transcript, or hosted application code on a PR | Package units plus a focused create → turn → resume → turn → close E2E smoke |
+| Public AI contracts, shared Foundation, plugin SDK, and platform or native code | Existing affected package and consumer gates |
 | Terminal lifecycle/platform code | TUI units, playback, platform units, native PTY/ConPTY, and tmux |
 | Hosting provider source | Hosting checks and its AppHost/AppService startup and settlement consumers |
 | Hosted native/wheel evidence helpers, supervisors, and PTY/ConPTY fixture drivers | AppService quality plus G16/G17 native and installed matrices |
 | PR-only edits to the CI routing table, selector, gate verifier, or their existing contract tests | CI routing regressions and pinned Actions syntax check, plus documentation invariants |
 | Shared dependencies, gate infrastructure, or unknown non-document paths | All configured checks |
 
-Rules are additive. Makefile source/test inventories retain explicitly shared
+The fast PR route is limited to known package source and exact test files in
+the unit inventory. New or unclassified test files continue through the
+existing selector until they are reviewed and added to the inventory. Package
+source that selects a platform, Worker, installation, LSP, or other high-risk
+gate also keeps the existing route. The unit inventory is intentionally a
+focused suite of isolated tests, not a claim that every test under a package
+directory is a unit test. Each package gets a separate CI matrix job; a change
+touching two packages runs both unit inventories. The E2E smoke reopens a real
+hosted session and sends a second message. PRs that edit the new gate machinery
+run the established full checks and exercise one unit matrix entry plus E2E,
+so the new reusable workflows receive remote validation.
+
+The existing routing rules are additive outside this fast PR route. Makefile source/test inventories retain explicitly shared
 support paths, such as the Coding product worker canary owned by Harness
 checks. An unchanged package can still be affected by changed dependencies or
 shared test infrastructure. Package dependency direction does not mean every
@@ -60,6 +69,10 @@ plan fails instead of silently selecting nothing.
 # Explain the plan without installing dependencies or running tests.
 python3 scripts/ci/check_changed.py --plan-only
 
+# Preview or run the same fast package route used by PRs.
+.venv/bin/python scripts/ci/check_changed.py --pr-fast --plan-only
+.venv/bin/python scripts/ci/check_changed.py --pr-fast
+
 # Run the local portion with the existing virtual environment.
 .venv/bin/python scripts/ci/check_changed.py
 
@@ -85,7 +98,8 @@ passed suite without relevant changes or an unresolved failure.
 
 ## Actions and branch protection
 
-PRs and main pushes select affected checks. The daily run at 20:17 UTC and
+PRs use the fast package route for ordinary changes. Main pushes keep the
+existing affected-check selection. The daily run at 20:17 UTC and
 Actions → **Change-aware Quality** → **Run workflow** select all configured
 checks. Main pushes still validate the merged state, but no longer launch every
 suite unconditionally. Real LSP and native evidence commands retain their
@@ -128,8 +142,7 @@ results. Actions also checks workflow syntax with pinned actionlint 1.7.12 when
 CI infrastructure changes. Platform evidence manifests and their verifiers
 remain in the corresponding reusable workflows.
 
-The first version deliberately keeps existing broad Harness/AppHost/Hosting
-suite commands intact once selected. It splits HarnessTUI core from Coding UI
-tests and separates TUI units/playback from native terminals. Further reduction
-inside an affected suite requires explicit coverage analysis, rather than
-silently dropping existing evidence.
+Broad Harness/AppHost/Hosting suite commands remain available for selected
+high-risk changes, main pushes, and full validation. When changing the unit
+inventory, include tests that have no live provider or native runtime
+dependency, and confirm the exact scope locally before merging.
