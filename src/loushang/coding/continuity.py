@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, TypeVar
 
+from loushang.ai.types import AssistantMessage, UserMessage
 from loushang.foundation.platform_paths import resolve_platform_paths
 from loushang.harness.capabilities.owner_component_host import (
     CapabilityOwnerComponentHost,
@@ -72,12 +73,14 @@ from loushang.harness.transcript import (
     SessionIndexPage,
     SessionQuery,
     SessionSummary,
+    assistant_message_text,
     same_agent_transcript_session_path,
     session_summary_authority_is_current,
     session_summary_revision,
+    user_message_text,
 )
 
-from .resume_history import read_coding_resume_header
+from .resume_history import read_coding_resume_header, read_coding_resume_snapshot
 
 CODING_CONTINUITY_PROVIDER_ID = "coding.sessions"
 CODING_CONTINUITY_IMPLEMENTATION = "coding.session_continuity"
@@ -358,6 +361,7 @@ class CodingContinuityProvider:
         indexed = self._cached_target(target)
         summary = indexed.projection
         history_changed = False
+        history_text: str | None = None
         rows = [
             ("Workspace", summary.cwd or "Unknown"),
             (
@@ -406,6 +410,19 @@ class CodingContinuityProvider:
                         history.composition.set_id
                         if history.composition is not None else "Legacy unknown",
                     ))
+                    try:
+                        snapshot = await asyncio.to_thread(
+                            read_coding_resume_snapshot,
+                            summary.session_file,
+                            max_bytes=1024 * 1024,
+                        )
+                    except (OSError, ValueError):
+                        rows.append(("Recent history", "Bounded preview unavailable"))
+                    else:
+                        if snapshot.header_preview.header != history.header:
+                            history_changed = True
+                        else:
+                            history_text = _readonly_history_text(snapshot.selected_records)
         inspect_assets = getattr(
             self._runtime,
             "inspect_discovered_session_assets",
@@ -426,6 +443,13 @@ class CodingContinuityProvider:
             model_id = summary.model.get("model_id")
             if provider and model_id:
                 rows.append(("Model", f"{provider}/{model_id}"))
+        if summary.authority_fingerprint is not None:
+            history_changed = (
+                not session_summary_authority_is_current(summary)
+                or history_changed
+            )
+        if history_changed:
+            history_text = None
         artifacts = (
             (
                 ContinuityArtifactReference(
@@ -443,7 +467,11 @@ class CodingContinuityProvider:
             sections=(
                 ContinuityPreviewSection(
                     kind="text",
-                    text=summary.last_message_preview or summary.first_message,
+                    text=(
+                        history_text
+                        or summary.last_message_preview
+                        or summary.first_message
+                    ),
                 ),
                 ContinuityPreviewSection(
                     kind="key_value",
@@ -1337,6 +1365,28 @@ def _summary_title(summary: SessionSummary) -> str:
         if isinstance(value, str) and (normalized := " ".join(value.split())):
             return normalized[:512]
     return summary.session_id[:8]
+
+
+def _readonly_history_text(records: Iterable[object]) -> str | None:
+    """Show a few selected-path messages without activating their Session."""
+
+    recent: list[str] = []
+    for record in reversed(tuple(records)):
+        payload = getattr(record, "payload", None)
+        text: str | None
+        if isinstance(payload, UserMessage):
+            label, text = "You", user_message_text(payload)
+        elif isinstance(payload, AssistantMessage):
+            label, text = "Assistant", assistant_message_text(payload)
+        else:
+            continue
+        normalized = " ".join(text.split()) if text else ""
+        if not normalized:
+            continue
+        recent.append(f"{label}: {normalized[:160]}")
+        if len(recent) == 3:
+            break
+    return "\n".join(reversed(recent)) if recent else None
 
 
 def _require_unconflicted_summary(summary: SessionSummary) -> None:

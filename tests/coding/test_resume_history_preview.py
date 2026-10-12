@@ -6,6 +6,7 @@ from dataclasses import replace
 
 import pytest
 
+from loushang.ai.types import UserMessage
 from loushang.coding.composition_provenance import CODING_COMPOSITION_HEADER_KEY
 from loushang.coding.product_plan import (
     CODING_CAPABILITY_PROFILE_METADATA_KEY,
@@ -17,6 +18,8 @@ from loushang.coding.resume_history import (
     read_coding_resume_snapshot,
 )
 from loushang.coding.session_manager import SessionManager
+from loushang.harness.conversation import ConversationHeader, ConversationRecord
+from loushang.harness.transcript import AGENT_MESSAGE_KIND
 from loushang.harness.transcript.jsonl_file import (
     AgentTranscriptFileError,
     load_agent_transcript_file,
@@ -110,4 +113,35 @@ def test_readonly_resume_header_marks_missing_composition_as_legacy_unknown(
     assert path.read_bytes() == before
     with pytest.raises(AgentTranscriptFileError, match="read budget"):
         read_coding_resume_snapshot(path, max_bytes=1)
+    assert path.read_bytes() == before
+
+
+def test_readonly_snapshot_selects_one_parent_linked_history_path(tmp_path) -> None:
+    path = tmp_path / "branches.jsonl"
+    header = ConversationHeader(
+        conversation_id="session-1", version=1, created_at="2026-10-12T00:00:00Z",
+    )
+
+    def message(record_id: str, parent_id: str | None) -> ConversationRecord:
+        return ConversationRecord(
+            record_id=record_id,
+            parent_id=parent_id,
+            kind=AGENT_MESSAGE_KIND,
+            payload_version=1,
+            created_at="2026-10-12T00:00:00Z",
+            payload=UserMessage(role="user", content=record_id, timestamp=1.0),
+        )
+
+    write_agent_transcript_export(path, header, [
+        message("root", None),
+        message("left", "root"),
+        message("right", "root"),
+    ])
+    before = path.read_bytes()
+
+    preview = read_coding_resume_snapshot(path, max_bytes=1024 * 1024)
+
+    assert [record.record_id for record in preview.records] == ["root", "left", "right"]
+    assert [record.record_id for record in preview.selected_records] == ["root", "right"]
+    assert preview.selected_leaf_id == "right"
     assert path.read_bytes() == before

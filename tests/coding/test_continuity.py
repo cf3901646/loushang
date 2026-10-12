@@ -220,6 +220,63 @@ def test_coding_resume_preview_shows_retired_historical_composition_without_acti
     assert transcript.read_bytes() == before
 
 
+def test_coding_resume_preview_displays_only_selected_readonly_history_path(
+    tmp_path: Path,
+) -> None:
+    runtime = _Runtime(tmp_path)
+    transcript = tmp_path / "branched.jsonl"
+    write_agent_transcript_export(
+        transcript,
+        _header("branched"),
+        [
+            _record("root", "Root user message"),
+            _record("left", "Left branch only", parent_id="root"),
+            _record("right", "Right branch selected", parent_id="root"),
+        ],
+    )
+    runtime.refresh_session_index()
+    before = transcript.read_bytes()
+    composition = bind_coding_continuity(runtime)
+
+    async def scenario() -> None:
+        page = await composition.hub.query(ContinuityQuery(page_size=10))
+        preview = await composition.hub.preview(page.items[0].target)
+        text = preview.sections[0].text or ""
+        assert "Root user message" in text
+        assert "Right branch selected" in text
+        assert "Left branch only" not in text
+        assert runtime.prepared == []
+        await shutdown_coding_continuity(runtime)
+
+    asyncio.run(scenario())
+    assert transcript.read_bytes() == before
+
+
+def test_coding_resume_preview_keeps_large_history_on_bounded_fallback(
+    tmp_path: Path,
+) -> None:
+    runtime = _Runtime(tmp_path)
+    transcript = tmp_path / "large.jsonl"
+    write_agent_transcript_export(
+        transcript,
+        _header("large"),
+        [_record("large-record", "x" * (1024 * 1024))],
+    )
+    runtime.refresh_session_index()
+    before = transcript.read_bytes()
+    composition = bind_coding_continuity(runtime)
+
+    async def scenario() -> None:
+        page = await composition.hub.query(ContinuityQuery(page_size=10))
+        preview = await composition.hub.preview(page.items[0].target)
+        assert ("Recent history", "Bounded preview unavailable") in preview.sections[1].rows
+        assert runtime.prepared == []
+        await shutdown_coding_continuity(runtime)
+
+    asyncio.run(scenario())
+    assert transcript.read_bytes() == before
+
+
 def test_coding_resume_discovery_defaults_to_current_cwd(tmp_path: Path) -> None:
     runtime = _Runtime(tmp_path)
     write_agent_transcript_export(
@@ -971,6 +1028,9 @@ def test_coding_prepare_revalidates_bounded_catalog_file_identity(
         with transcript.open("a", encoding="utf-8") as handle:
             handle.write("\n")
 
+        preview = await composition.hub.preview(page.items[0].target)
+        assert preview.stale is True
+        assert runtime.prepared == []
         with pytest.raises(StaleContinuityTargetError, match="changed"):
             await composition.hub.prepare(page.items[0].target)
         assert runtime.prepared == []

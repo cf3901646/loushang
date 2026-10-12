@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from loushang.harness.conversation import ConversationHeader
+from loushang.harness.conversation import ConversationHeader, ConversationRepository
 from loushang.harness.runtime import RuntimeProfileSnapshot
 from loushang.harness.transcript.jsonl_file import (
     load_agent_transcript_file,
@@ -41,6 +41,8 @@ class CodingResumeHistoryPreview:
 
     header_preview: CodingResumeHeaderPreview
     records: tuple[AgentTranscriptRecord, ...]
+    selected_records: tuple[AgentTranscriptRecord, ...]
+    selected_leaf_id: str | None
     startup: dict[str, object] | None
     provenance_conflict: bool
     status: Literal["preview"] = "preview"
@@ -91,11 +93,19 @@ def read_coding_resume_snapshot(
         Path(path), max_bytes=max_bytes, read_only=True,
     )
     header_preview = inspect_coding_resume_header(header)
+    repository = ConversationRepository.create(
+        header=header,
+        records=records,
+        record_id=lambda record: record.record_id,
+        parent_id=lambda record: record.parent_id,
+    )
     startup = historical_startup_composition_record(records)
     composition = header_preview.composition
     return CodingResumeHistoryPreview(
         header_preview=header_preview,
         records=tuple(records),
+        selected_records=repository.active_records(),
+        selected_leaf_id=repository.leaf_id,
         startup=startup,
         provenance_conflict=(
             startup is not None
