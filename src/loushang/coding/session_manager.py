@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 from functools import partial
@@ -26,6 +26,7 @@ from loushang.coding.product_plan import (
 )
 from loushang.foundation.json import JSONValue, require_json_mapping
 from loushang.harness.conversation import ConversationHeader, StoreCommitOutcomeUnknown
+from loushang.harness.journal._owned_io import settled_io
 from loushang.harness.runtime import (
     SIDE_QUESTION_PROVIDER_SLOT,
     ResolvedRuntimeProfile,
@@ -35,6 +36,7 @@ from loushang.harness.runtime import (
 )
 from loushang.harness.transcript import (
     AgentTranscriptLifecycle,
+    AgentTranscriptLifecycleSession,
     AgentTranscriptRecord,
     AgentTranscriptSessionFactory,
     CommitResult,
@@ -56,6 +58,14 @@ from .resume_activation_attempt import (
     require_no_unsettled_coding_activation,
     validate_coding_activation_attempt_record,
 )
+from .resume_activation_plan import (
+    ActivationOwnerInputRefV1,
+    ResumePlanStaleError,
+    SessionActivationPlanV1,
+    build_session_activation_plan,
+    require_current_resume_plan_inputs,
+    require_current_resume_plan_source,
+)
 from .resume_binding import (
     CODING_RUNTIME_BINDING_METADATA_KEY,
     CodingRuntimeBindingV1,
@@ -66,6 +76,7 @@ from .resume_binding import (
     project_coding_runtime_binding_path,
     validate_coding_runtime_binding_record,
 )
+from .resume_history import read_coding_resume_snapshot
 from .resume_input_lookup import (
     CodingResumeInputLookupQueryV1,
     CodingResumeInputLookupResultV1,
@@ -195,6 +206,7 @@ class SessionManager(
 
     _resume_first_input: _PendingResumeFirstInput | None = None
     _resume_runtime_publication_pending: bool = False
+    _resume_writer_plan: SessionActivationPlanV1 | None = None
     _activation_guard_snapshot: tuple[int, str | None] | None = None
 
     @property
@@ -202,6 +214,62 @@ class SessionManager(
         """Local readiness only; historical Binding cannot prove publication."""
 
         return self._resume_runtime_publication_pending
+
+    @classmethod
+    async def _load_resume_writer(
+        cls, session_file: str | Path, *, plan: SessionActivationPlanV1,
+        current_owner_inputs: Sequence[ActivationOwnerInputRefV1],
+    ) -> Self:
+        """Prepare an isolated current Writer while keeping execution fenced.
+
+        Only an application-owned factory can retain this preparation. Matching
+        Plan inputs prove cache freshness, not live execution authorization.
+        The activation coordinator must still admit owners and publish Runtime.
+        """
+
+        factory = cls._factory_for_persistence(True)
+        if not factory.owns_persistent_sessions:
+            raise ValueError("Coding Resume Writer requires its application-owned factory")
+        if not isinstance(plan, SessionActivationPlanV1) or plan.status != "needs_final_validation":
+            raise ValueError("Coding Resume Writer requires an available activation Plan")
+        require_current_resume_plan_inputs(plan, current_owner_inputs)
+        context = factory._discover_owned_context(session_file)
+        history = await settled_io(
+            read_coding_resume_snapshot, context.session_file, max_bytes=8 * 1024 * 1024,
+            selected_leaf_id=plan.selected_leaf_id,
+            expected_source_fingerprint=plan.source_fingerprint,
+        )
+        require_current_resume_plan_source(plan, history)
+        if (
+            context.header != history.header_preview.header
+            or context.cwd != plan.workspace_root
+            or build_session_activation_plan(
+                history, resolve_coding_composition_set(plan.composition_comparison.candidate_set_id),
+                workspace_root=Path(plan.workspace_root), owner_inputs=plan.owner_inputs,
+                owner_selections=plan.owner_selections,
+            ) != plan
+        ):
+            raise ResumePlanStaleError("Coding Resume Writer Plan differs from current history")
+        binding = factory._resolve_binding_input(True)
+        # Historical schemas and Product identity must remain valid. Current
+        # equality belongs to the new epoch, not this immutable original Header.
+        _validate_coding_restored_header(context.header, binding, False)
+        result: list[Self] = []
+
+        def project(session: AgentTranscriptLifecycleSession[RuntimeProfileBinding]) -> None:
+            manager = cls(lifecycle_session=session)
+            if (
+                tuple(manager.get_entries()) != history.records
+                or manager.leaf_id != history.selected_leaf_id
+            ):
+                raise ResumePlanStaleError("Coding Resume Writer history changed during acquisition")
+            manager._resume_runtime_publication_pending = True
+            manager._resume_writer_plan = plan
+            manager._creation_factory = factory
+            result.append(manager)
+
+        await factory._construct_owned(context, binding, restore=True, _projection=project)
+        return result[0]
 
     async def _commit_resume_activation_intent(
         self, record: AgentTranscriptRecord,
@@ -215,8 +283,21 @@ class SessionManager(
 
         if not self.persist or not self._transcript.is_materialized:
             raise ValueError("Coding Resume intent requires a materialized Writer")
-        self.require_no_unsettled_resume_activation()
         attempt = validate_coding_activation_attempt_record(record)
+        writer_plan = self._resume_writer_plan
+        if writer_plan is None:
+            self.require_no_unsettled_resume_activation()
+        else:
+            require_no_unsettled_coding_activation(
+                self._transcript.active_path(), current_session_id=self.get_header().conversation_id,
+            )
+            if (
+                attempt.plan_fingerprint != writer_plan.plan_id
+                or attempt.session_id != writer_plan.session_id
+                or attempt.original_leaf_id != writer_plan.selected_leaf_id
+                or attempt.ancestry_digest != writer_plan.ancestry_digest
+            ):
+                raise ValueError("Coding Resume intent differs from its prepared Writer Plan")
         frozen = prepare_coding_activation_attempt_record(
             attempt, created_at=datetime.fromisoformat(record.created_at.replace("Z", "+00:00")),
         )
@@ -237,6 +318,7 @@ class SessionManager(
         # or cancelled await cannot prove intent/effects absent or reopen live
         # execution; the activation recovery owner must settle that decision.
         self._resume_runtime_publication_pending = True
+        self._resume_writer_plan = None
         return await self.commit_prebuilt_extension_data(frozen)
 
     @classmethod

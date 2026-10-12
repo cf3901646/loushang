@@ -72,6 +72,20 @@
   not enabled this capability; client reconnection/editor integration,
   actor-policy read revocation and the
   full Hosted Resume readiness/admission flow remain pending.
+  The application-owned SessionManager also has an internal isolated Resume
+  Writer preparation route. It rechecks bounded source evidence and owner input
+  references, rebuilds the canonical Plan, retains historical Header validation
+  without current-profile equality, and delegates exclusive acquisition to the
+  original Transcript factory. Before delivery it compares all loaded records
+  and the selected leaf, closing execution readiness for the returned manager.
+  Changed history disposes the original undelivered preparation. JSONL tests
+  prove same-ID legacy preparation with unchanged Header bytes, a changed
+  capability profile, competing Writer rejection, an acquisition-time source
+  change, and intent plus one co-committed UserMessage/Binding. The prepared
+  Plan pins the initial intent's Session, leaf and ancestry and is consumed
+  before commit. Matching these data facts grants no execution permission.
+  This internal route is not yet called by Embedded/Hosted Product bootstrap;
+  live policy/owner admission, effects and Runtime publication remain pending.
   The internal SessionManager initial-intent route now validates current
   Session, selected leaf and ancestry, freezes the canonical intent, and closes
   the local Runtime publication gate before its first await into the original
