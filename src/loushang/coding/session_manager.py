@@ -258,12 +258,19 @@ class SessionManager(
 
         def project(session: AgentTranscriptLifecycleSession[RuntimeProfileBinding]) -> None:
             manager = cls(lifecycle_session=session)
+            manager._resume_runtime_publication_pending = True
+            if tuple(manager.get_entries()) != history.records:
+                raise ResumePlanStaleError("Coding Resume Writer history changed during acquisition")
+            if history.selected_leaf_id is not None:
+                # Original Transcript branch selection is local read state.
+                # Store restore's default last-record leaf is not the user's
+                # verified selection and must not replace it during admission.
+                manager.branch(history.selected_leaf_id)
             if (
-                tuple(manager.get_entries()) != history.records
-                or manager.leaf_id != history.selected_leaf_id
+                manager.leaf_id != history.selected_leaf_id
+                or tuple(manager.get_active_entries()) != history.selected_records
             ):
                 raise ResumePlanStaleError("Coding Resume Writer history changed during acquisition")
-            manager._resume_runtime_publication_pending = True
             manager._resume_writer_plan = plan
             manager._creation_factory = factory
             result.append(manager)

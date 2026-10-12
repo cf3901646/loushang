@@ -76,8 +76,12 @@
   Writer preparation route. It rechecks bounded source evidence and owner input
   references, rebuilds the canonical Plan, retains historical Header validation
   without current-profile equality, and delegates exclusive acquisition to the
-  original Transcript factory. Before delivery it compares all loaded records
-  and the selected leaf, closing execution readiness for the returned manager.
+  original Transcript factory. Before delivery it closes execution readiness,
+  compares all loaded records, selects the verified leaf through the original
+  Transcript's local branch operation, and compares the complete selected path.
+  Store restore's default last-record leaf cannot replace the Plan selection.
+  A branch change after preparation rejects intent commit without changing
+  existing bytes; the initial intent's parent remains the verified selected leaf.
   Changed history disposes the original undelivered preparation. JSONL tests
   prove same-ID legacy preparation with unchanged Header bytes, a changed
   capability profile, competing Writer rejection, an acquisition-time source

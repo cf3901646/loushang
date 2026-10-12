@@ -33,6 +33,62 @@ from loushang.harness.transcript.jsonl_file import write_agent_transcript_export
 from loushang.harness.transcript.writer_lease import TranscriptWriterError
 
 
+def test_resume_writer_uses_the_verified_selected_branch_without_rewriting_history(tmp_path):
+    async def scenario():
+        original = await SessionManager.new(
+            session_dir=tmp_path / "sessions", cwd=str(tmp_path), defer_materialization=False,
+        )
+        first = await original.append_message(UserMessage(role="user", content="selected", timestamp=1.0))
+        sibling = await original.append_message(UserMessage(role="user", content="other branch", timestamp=2.0))
+        path = original.session_file
+        header = original.header
+        await original.dispose_runtime_profile()
+        assert path is not None
+        before = path.read_bytes()
+        history = read_coding_resume_snapshot(path, max_bytes=1024 * 1024, selected_leaf_id=first)
+        assert history.selected_leaf_id != sibling
+        plan = build_session_activation_plan(
+            history, resolve_coding_composition_set("coding-standard"), workspace_root=tmp_path,
+        )
+        factory = _create_owned_session_factory()
+        manager_type = _bind_owned_session_manager(factory)
+        manager = None
+        try:
+            manager = await manager_type._load_resume_writer(path, plan=plan, current_owner_inputs=())
+            assert manager.leaf_id == first
+            assert tuple(manager.get_active_entries()) == history.selected_records
+            assert len(manager.get_entries()) == 2
+            assert path.read_bytes() == before
+            assert manager.header == header
+            assert manager.resume_runtime_publication_pending
+            attempt = CodingActivationAttemptV1(
+                attempt_id="selected-attempt", request_id="input-1",
+                session_id=header.conversation_id, original_leaf_id=first,
+                ancestry_digest=plan.ancestry_digest, plan_fingerprint=plan.plan_id,
+                epoch_fingerprint="a" * 64, subject_digest="b" * 64,
+            )
+            intent = prepare_coding_activation_attempt_record(
+                attempt, created_at=datetime(2026, 10, 12, tzinfo=UTC),
+            )
+            manager.branch(sibling)
+            with pytest.raises(ValueError, match="selected history"):
+                await manager._commit_resume_activation_intent(intent)
+            assert path.read_bytes() == before
+            assert manager.resume_runtime_publication_pending
+            manager.branch(first)
+            await manager._commit_resume_activation_intent(intent)
+            assert manager.get_leaf_entry().parent_id == first
+            assert sibling not in {record.record_id for record in manager.get_active_entries()}
+            assert len(manager.get_entries()) == 3
+            assert path.read_bytes().startswith(before)
+        finally:
+            if manager is not None:
+                await manager.dispose_runtime_profile()
+            await factory.close()
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("capability_changed", [False, True])
 def test_resume_writer_retains_legacy_id_header_and_original_exclusive_owner(tmp_path, capability_changed):
     async def scenario():
