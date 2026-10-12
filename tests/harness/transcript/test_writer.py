@@ -22,6 +22,7 @@ from loushang.harness.transcript import (
     PrebuiltUserMessageIdentityConflictError,
     TranscriptCommitter,
 )
+from loushang.harness.transcript.unit_of_work import AgentTranscriptCommit
 
 
 def _ids(*values: str):
@@ -230,5 +231,30 @@ def test_prebuilt_user_record_reconciles_lost_ack_by_fixed_record_id() -> None:
         assert result.disposition == "already_committed"
         assert loaded.records == (record,)
         assert loaded.revision == 1
+
+    asyncio.run(scenario())
+
+
+def test_prebuilt_user_record_without_durable_receipt_requires_reload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        store = await _store(ids=_ids("unused"))
+        record = _prebuilt_user_record()
+        committer = TranscriptCommitter(store)
+        calls = 0
+
+        async def missing_receipt(_record):
+            nonlocal calls
+            calls += 1
+            return AgentTranscriptCommit(record=record, receipt=None)
+
+        monkeypatch.setattr(store, "commit", missing_receipt)
+        with pytest.raises(StoreCommitOutcomeUnknown, match="durable receipt"):
+            await committer.commit_prebuilt_user_message(record)
+        with pytest.raises(StoreCommitOutcomeUnknown, match="authoritative reload"):
+            await committer.commit_prebuilt_user_message(record)
+        assert calls == 1
+        assert store.records == ()
 
     asyncio.run(scenario())

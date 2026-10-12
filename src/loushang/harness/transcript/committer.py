@@ -95,6 +95,7 @@ class TranscriptCommitter:
                 self._uncertain_prebuilt_user_ids.add(record.record_id)
                 raise
             if commit.receipt is None:
+                self._uncertain_prebuilt_user_ids.add(record.record_id)
                 raise StoreCommitOutcomeUnknown(
                     "prebuilt user commit did not return a durable receipt"
                 )
