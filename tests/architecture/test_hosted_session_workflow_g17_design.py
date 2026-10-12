@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 import sys
 import tomllib
 from pathlib import Path
@@ -76,13 +77,16 @@ def test_G17_WINDOWS_native_supplement_is_not_full_wheel_acceptance() -> None:
     assert "architecture: x64" in workflow
 
 
-def test_G17_WHEEL_ci_composes_all_three_platforms_without_smoke():
+def test_G17_WHEEL_ci_retains_full_matrix_and_pr_windows_smoke():
     workflow = Path(".github/workflows/appservice-quality.yml").read_text()
     job = workflow.split("  g17-wheel-evidence:\n", 1)[1].split("\n  g17-windows-native:", 1)[0]
-    assert "- os: ubuntu-24.04\n            platform: linux" in job
-    assert "- os: windows-latest\n            platform: win32" in job
-    assert "- os: macos-15\n            platform: darwin" in job
-    assert job.count("- os:") == 3
+    assert "windows.appservice_full" in job
+    full, pr = [json.loads(value) for value in re.findall(r"fromJSON\('([^']+)'\)", job)]
+    linux = {"os": "ubuntu-24.04", "platform": "linux"}
+    darwin = {"os": "macos-15", "platform": "darwin"}
+    windows = {"os": "windows-latest", "platform": "win32"}
+    assert full == [linux, darwin, windows]
+    assert pr == [linux, darwin]
     assert "run_g17_installed_evidence.py" in job and "--smoke" not in job
     assert "--locked" in job and "build --wheel" in job
     assert "if: always()" in job and "if-no-files-found: error" in job
