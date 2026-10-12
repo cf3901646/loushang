@@ -505,7 +505,8 @@ CLI route below is not encoded in its value. RPC and Screen do not offer a
 Worker selection switch.
 
 The P4 ordinary-turn route adds `--worker-query-plugin PLUGIN_ID` for a new,
-persisted `coding-standard` Session on Linux or Windows x86-64. Its Linux opt-in scope was
+persisted `coding-standard` print- or text-mode Session on Linux or Windows
+x86-64. Its Linux opt-in scope was
 approved after [PR #653](https://github.com/zhnt/loushang/pull/653) passed native,
 ordinary-turn, lifecycle, and cross-platform checks and independent security,
 platform, and lifecycle reviews. This approval is not general Worker admission;
@@ -522,6 +523,9 @@ loushang --mode print --cwd PATH --composition-set coding-standard \
   --worker-query-plugin reviewworker \
   "Use worker_query_symbol to query the review symbol."
 ```
+
+The same explicit selection is available with `--mode text` for a new
+persisted Session; Worker selection remains absent by default.
 
 The four checks are separate: builder/validator proves inert Wheel bytes;
 native `review`/`approve`/`install` proves the exact H6 release; Product

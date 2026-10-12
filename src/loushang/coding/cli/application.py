@@ -415,7 +415,7 @@ def default_runtime_builder(
             invocation_product_profile is not None
             or sys.platform not in {"linux", "win32"}
             or platform.machine().lower() not in {"x86_64", "amd64"}
-            or args.mode != "print"
+            or args.mode not in {"print", "text"}
             or args.no_session
             or getattr(args, "no_tools", False)
             or getattr(args, "no_builtin_tools", False)
@@ -424,7 +424,7 @@ def default_runtime_builder(
         ):
             raise ValueError(
                 "Worker query requires a persisted Linux or Windows x86-64 Coding "
-                "standard print-mode Session with Tools enabled"
+                "standard print or text Session with Tools enabled"
             )
         runtime_options["worker_candidate_plugin_id"] = worker_query_plugin
         runtime_options["worker_query_turn_tool"] = True
