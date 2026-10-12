@@ -657,7 +657,6 @@
   },
   "workflows": {
     "architecture": [
-      "docs",
       "architecture"
     ],
     "ai": [

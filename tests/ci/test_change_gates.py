@@ -351,12 +351,17 @@ class ScopeTests(unittest.TestCase):
                 self.assertEqual({name for name, enabled in actual.items() if enabled}, expected)
 
     def test_generated_document_rechecks_source_facts(self):
+        path = "docs/internals/architecture/generated/current-package-dependencies.md"
+        self.assertEqual(self.selected(path), {"docs", "architecture"})
+        self.assertTrue(selector.select([path], pr_fast=True)["workflows"]["architecture"])
+
+    def test_ordinary_docs_only_pr_needs_no_reusable_workflow(self):
+        plan = selector.select(["docs/guide.md", "README.md"], pr_fast=True)
         self.assertEqual(
-            self.selected(
-                "docs/internals/architecture/generated/current-package-dependencies.md"
-            ),
-            {"docs", "architecture"},
+            {name for name, enabled in plan["checks"].items() if enabled},
+            {"docs"},
         )
+        self.assertFalse(any(plan["workflows"].values()))
 
     def test_empty_changes_do_not_start_product_checks(self):
         self.assertEqual(self.selected(), {"docs"})
@@ -853,8 +858,11 @@ class WorkflowContractTests(unittest.TestCase):
                         needs, mapping,
                     )
 
-    def test_compatibility_contexts_require_the_unified_gate(self):
+    def test_documentation_runs_in_selector_before_the_unified_gate(self):
         text = (ROOT / ".github/workflows/quality.yml").read_text()
+        changes = text.split("\n  changes:\n", 1)[1].split("\n  architecture:\n", 1)[0]
+        self.assertIn("python scripts/ci/check_docs.py --plan-env", changes)
+        self.assertIn("CI_PLAN: ${{ steps.select.outputs.plan }}", changes)
         for name in (
             "Architecture documentation",
             "ai-quality",
@@ -862,9 +870,8 @@ class WorkflowContractTests(unittest.TestCase):
             "harnesstui-quality",
             "tui-cross-platform-contracts",
         ):
-            self.assertIn(
-                f"    name: {name}\n    if: always()\n    needs: quality-gate", text
-            )
+            self.assertNotIn(f"    name: {name}\n", text)
+        self.assertIn("    name: quality-gate\n    if: always()", text)
         mapping = json.loads(re.search(r"--jobs '(.*)'", text)[1])
         self.assertEqual(set(mapping), set(selector.select([])["workflows"]))
         summary = text.split("\n  quality-gate:\n")[1]

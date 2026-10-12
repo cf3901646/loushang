@@ -11,20 +11,6 @@ permissions:
   contents: read
 
 jobs:
-  docs:
-    if: ${{ fromJSON(inputs.plan).checks.docs }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Save change plan
-        env:
-          CI_PLAN: ${{ inputs.plan }}
-        run: |
-          mkdir -p .artifacts
-          python -c "import os, pathlib; pathlib.Path('.artifacts/check-plan.json').write_text(os.environ['CI_PLAN'])"
-      - name: Lightweight documentation invariants and changed links
-        run: python scripts/ci/check_docs.py --plan .artifacts/check-plan.json
-
   source-facts:
     if: ${{ fromJSON(inputs.plan).checks.architecture }}
     runs-on: ubuntu-latest
@@ -43,7 +29,7 @@ jobs:
   selected-checks:
     name: Selected checks
     if: always()
-    needs: [docs, source-facts]
+    needs: [source-facts]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -53,4 +39,4 @@ jobs:
           CI_NEEDS: ${{ toJSON(needs) }}
         run: >-
           python scripts/ci/verify_gate.py
-          --jobs '{"docs":"docs","source-facts":"architecture"}'
+          --jobs '{"source-facts":"architecture"}'
