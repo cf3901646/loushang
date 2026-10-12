@@ -25,6 +25,12 @@ jobs:
         with:
           python-version: "3.11"
       - uses: astral-sh/setup-uv@v5
+      - name: Install Harness Linux sandbox dependency
+        if: ${{ matrix.package == 'harness' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: uv sync --locked --extra dev
       - run: mkdir -p .artifacts
       - name: Complete offline module regression
