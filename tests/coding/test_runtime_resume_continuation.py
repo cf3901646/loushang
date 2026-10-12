@@ -40,7 +40,7 @@ def test_first_resume_prepares_original_epoch_without_session_lease(tmp_path, mo
 
     def admission():
         calls.append(True)
-        if mode == "denied" or (mode == "revoked_after_selection" and len(calls) == 2):
+        if mode == "denied" or (mode == "revoked_after_selection" and selection._owners):
             raise PermissionError("current caller revoked")
         if mode == "invalid_check":
             return True
@@ -62,7 +62,7 @@ def test_first_resume_prepares_original_epoch_without_session_lease(tmp_path, mo
             else:
                 fingerprint = selection.prepare_resume_epoch(tmp_path, require_current_admission=admission)
                 assert fingerprint == selection.resume_epoch_fingerprint(tmp_path)
-            assert len(calls) == 2
+            assert len(calls) >= 2
             assert len(selection._owners) == 1
             owner = selection._owners[tmp_path].epoch_runtime
             # The original native registry, rather than a local mock lease
@@ -142,6 +142,93 @@ def test_selected_resume_epoch_is_native_readonly_and_never_repairs_tail(tmp_pat
             await manager.dispose_runtime_profile()
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("existing_epoch", [False, True])
+def test_formal_epoch_rechecks_original_approval_before_native_state_recovery(tmp_path, monkeypatch, existing_epoch):
+    from loushang.coding import package_product_runtime as product
+    from loushang.harness.plugin_management.service import PluginManagementService
+
+    monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
+    approval = InteractiveApprovalResolver(fallback=DenyApprovalResolver())
+    if existing_epoch:
+        startup = CodingFencedProductApplicationSelection()
+        try:
+            startup.prepare_resume_epoch(tmp_path, require_current_admission=approval.require_current_root_subject)
+        finally:
+            startup.close()
+    selection = CodingFencedProductApplicationSelection()
+    open_state = product.open_coding_package_product_state
+    recover = PluginManagementService.recover
+    recover_calls = []
+    snapshots = []
+
+    def observe_recovery(self, *args, **kwargs):
+        recover_calls.append(True)
+        return recover(self, *args, **kwargs)
+
+    def revoke_before_state(lifecycle, epoch_runtime, **kwargs):
+        state = epoch_runtime.control_root / "product-state"
+
+        def snapshot():
+            return {str(path.relative_to(state)): path.read_bytes() for path in state.rglob("*") if path.is_file()}
+
+        before = snapshot()
+        existed = state.exists()
+        approval.dispose()
+        try:
+            return open_state(lifecycle, epoch_runtime, **kwargs)
+        finally:
+            snapshots.append((existed, before, state.exists(), snapshot()))
+
+    monkeypatch.setattr(PluginManagementService, "recover", observe_recovery)
+    monkeypatch.setattr(product, "open_coding_package_product_state", revoke_before_state)
+    try:
+        with pytest.raises(PermissionError, match="Root approval subject"):
+            selection.prepare_resume_epoch(tmp_path, require_current_admission=approval.require_current_root_subject)
+        assert snapshots
+        assert not recover_calls
+        assert all(before_exists == after_exists and before == after for before_exists, before, after_exists, after in snapshots)
+        assert not selection._owners
+    finally:
+        selection.close()
+        approval.dispose()
+
+
+def test_formal_epoch_rechecks_after_backup_gc_gate_before_publication(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+
+    from loushang.harness.plugin_management.package_gc_reservation import (
+        PluginPackageGcReservationJournal,
+    )
+
+    monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
+    approval = InteractiveApprovalResolver(fallback=DenyApprovalResolver())
+    selection = CodingFencedProductApplicationSelection()
+    guard = PluginPackageGcReservationJournal.guard
+    observed = []
+
+    @contextmanager
+    def revoke_after_native_gate(self, *args, **kwargs):
+        with guard(self, *args, **kwargs) as active:
+            root = self._path.parent
+            before = {str(path.relative_to(root)): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+            approval.dispose()
+            try:
+                yield active
+            finally:
+                after = {str(path.relative_to(root)): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+                observed.append((before, after))
+
+    monkeypatch.setattr(PluginPackageGcReservationJournal, "guard", revoke_after_native_gate)
+    try:
+        with pytest.raises(PermissionError, match="Root approval subject"):
+            selection.prepare_resume_epoch(tmp_path, require_current_admission=approval.require_current_root_subject)
+        assert observed
+        assert all(before == after for before, after in observed)
+    finally:
+        selection.close()
+        approval.dispose()
 
 
 @pytest.mark.parametrize("mode", ["consume", "first_epoch_prepared", "delivered_close_failed", "abort", "stale", "root_close", "cancel_prepare", "cancel_delivery", "delivery_revoked", "abort_failed", "host_bind_failed", "cleanup_debt", "epoch_mismatch", "epoch_unselected", "epoch_fenced"])

@@ -141,6 +141,19 @@ owner in the original selection's close lifecycle. This entry does not prove
 actor/Policy authority, effect settlement or default CLI/Hosted activation;
 those production inputs and routes still require implementation.
 
+Formal epoch preparation now propagates its current admission check through
+the original fresh cutover/builtin bootstrap and existing-epoch reopening
+paths. Product state checks it before state creation and backup publication;
+the original management service checks it before coordination, after acquiring
+the GC gate, before journal replay and before each pending operation. This is
+a separate `require_current_admission` input. Existing `before_recovery` and
+`before_replay` checks retain their existing-store/lock-creation policy; they
+cannot be reused as permission to initialize fresh state. Formal checks must
+be synchronous and return None. Refusal preserves already accepted durable
+effects for original-owner recovery; it does not turn them into absence or a
+retry grant. Native activation/Worker effect settlement remains a separate
+requirement.
+
 ### Candidate v1 attempt contract for owner review
 
 The proposed `coding.activation-attempt/v1` intent uses one `extension.data`

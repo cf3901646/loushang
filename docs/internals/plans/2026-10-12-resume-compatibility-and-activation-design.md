@@ -2066,3 +2066,53 @@ mode 0700 and the filesystem had 5.7 GiB available. The exact focused case
 then passed (one passed, 88 deselected, 52.28 seconds). The next final-tree
 Coding gate must use that managed scratch root; previous runs do not prove
 a full final-tree green gate.
+
+#### Current admission at native Product recovery boundaries
+
+Formal epoch preparation now carries its original caller check through fresh
+cutover/builtin bootstrap, existing-epoch retry/open and replacement selection.
+The original Product state owner checks before creating its state root and
+publishing backup topology. The original management service independently
+checks before coordination, after the GC gate and before the management lock,
+before loading/replaying its journal and before each pending operation.
+Synchronous checks must return None; invalid/asynchronous callbacks cannot
+serve as admission. Ordinary callers that supply no new check retain their
+existing preparation path. No new Saga/authority journal, lease or owner was
+introduced.
+
+An initial implementation incorrectly passed the formal check through the
+existing `before_recovery`/`before_replay` input. Those inputs also forbid
+creating new coordination files and backup topology. That trial failed four
+cases on a missing fresh GC lock (five passed). The corrected implementation
+uses a separate `require_current_admission`, preserving the original
+existing-store creation policy. The callback checks current owner state; it
+does not prove content closure or settle external activation/Worker effects.
+
+The four original formal preparation cases passed as baseline. Two new native
+fault cases first failed: closing the actual Approval owner immediately before
+state opening still allowed two original management recoveries, in both fresh
+and existing B routes. With the corrected checks those cases refuse before
+state creation/recovery, preserving the existing state-root presence and exact
+file bytes. The nine-case preparation/bootstrap/Root-input run passed in
+101.02 seconds. The strict-check rerun passed the same nine cases in
+84.57 seconds. A further actual native GC-gate fault then exposed a second
+window: revoking the original Approval owner after acquiring the backup GC
+gate still changed backup state bytes. The original backup owner now rechecks
+formal admission inside that same gate immediately before reading/publishing
+topology, while retaining `before_load`'s original creation policy. Its final
+ten-case preparation/bootstrap rerun passed in 92.68 seconds. Four changed
+owner sources passed scoped mypy and all six changed Python files passed Ruff.
+All nine static documentation invariants passed.
+
+The original management crash-after-desired-state-commit regression now covers
+ordinary recovery, admitted recovery, revocation after loading the pending
+operation, and an invalid check return. A refused recovery preserves exact
+desired-state and operation bytes, leaves the original operation running, and
+appends no fabricated terminal fact. All 16 management service cases passed;
+the final management-lock boundary rerun also passed all 16 in 2.90 seconds.
+Three changed owner sources passed scoped mypy, and five changed Python files
+passed Ruff after sorting one local test import and replacing an assigned
+lambda. The default Embedded first-input coordinator, native effect settlement,
+Hosted writable route, platform/release/fault/performance matrix and delivery
+remain outstanding. The Coding gate started at `294e225f` is still running;
+it cannot prove a complete gate for these later source changes.
