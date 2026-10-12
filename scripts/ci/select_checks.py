@@ -43,17 +43,21 @@ WINDOWS_GATE_INFRA = (
     "uv.lock", "tests/conftest.py", "scripts/dev/run_pytest.py",
     "scripts/dev/verify_pytest_xml.py",
 )
-WINDOWS_WORKER_FULL_PARTS = (
+WINDOWS_WORKER_NATIVE_PARTS = (
     "recovery", "crash", "gc", "cleanup", "retire", "lease", "settlement",
     "activation_state",
 )
-WINDOWS_WORKER_FULL_PREFIXES = (
-    "src/loushang/coding/package_product_worker_windows_",
-    "tests/coding/test_package_product_worker_windows_",
+WINDOWS_WORKER_NATIVE_PREFIXES = (
+    "src/loushang/coding/package_product_worker_",
+    "tests/coding/test_package_product_worker_",
     "src/loushang/coding/package_external_worker_wheel.py",
     "src/loushang/coding/package_product_runtime.py",
+    "src/loushang/coding/cli/package_worker_native.py",
+    "src/loushang/plugin/_coding_local_worker_wheel.py",
     "src/loushang/harness/worker/", "tests/harness/worker/",
     "src/loushang/hosting/", "tests/hosting/",
+    "tests/coding/test_package_worker_candidate_wheel.py",
+    "tests/coding/test_package_worker_native_cli.py",
     "tests/coding/test_package_windows_pre_b_snapshot.py",
 )
 WINDOWS_SHELL_FULL_PARTS = (
@@ -83,6 +87,21 @@ WINDOWS_APPSERVICE_FULL_PREFIXES = (
 WINDOWS_TUI_FULL_PARTS = (
     "terminal_backends/", "windows_conpty", "terminal_process_support/",
 )
+
+
+def windows_worker_pr_scenarios(path: str) -> set[str]:
+    name = Path(path).name
+    tokens = set(Path(path).stem.split("_"))
+    scenarios: set[str] = set()
+    if tokens & {"crash", "recovery", "settlement", "orphan", "lease"}:
+        scenarios.add("crash")
+    if tokens & {"gc", "retire", "retirement", "history", "stage"}:
+        scenarios.add("gc_normal")
+    if tokens & {"policy", "selection", "desired", "fence"} or "opt_in" in name:
+        scenarios.add("fence")
+    if any(part in name for part in ("activation_state", "cleanup_evidence")):
+        scenarios.add("c5")
+    return scenarios
 
 
 def git(*args: str, root: Path = ROOT) -> bytes:
@@ -238,6 +257,9 @@ def select(
     workflows["e2e"] = e2e
     windows = {
         "smoke": False,
+        "worker_pr": False,
+        "worker_pr_extra": False,
+        "worker_pr_scenario": "none",
         "worker_full": False,
         "shell_full": False,
         "appservice_full": False,
@@ -252,6 +274,7 @@ def select(
         })
     else:
         windows["smoke"] = checks["windows_shell"]
+        worker_scenarios: set[str] = set()
         for path in paths:
             # Unknown and gate-infrastructure paths retain the complete native
             # matrix. New Windows owners must be classified before fast routing.
@@ -276,12 +299,18 @@ def select(
                 })
                 continue
             if checks["windows_shell"]:
-                windows["worker_full"] |= (
-                    path.startswith(WINDOWS_WORKER_FULL_PREFIXES)
+                worker_native = (
+                    path.startswith(WINDOWS_WORKER_NATIVE_PREFIXES)
                     or ("worker" in path and any(
-                        part in path for part in WINDOWS_WORKER_FULL_PARTS
+                        part in path for part in WINDOWS_WORKER_NATIVE_PARTS
                     ))
                 )
+                if worker_native:
+                    if path == "tests/coding/test_package_windows_pre_b_snapshot.py":
+                        windows["worker_full"] = True
+                    else:
+                        windows["worker_pr"] = True
+                        worker_scenarios.update(windows_worker_pr_scenarios(path))
                 windows["shell_full"] |= (
                     path.startswith(WINDOWS_SHELL_FULL_PREFIXES)
                     or any(part in path for part in WINDOWS_SHELL_FULL_PARTS)
@@ -295,6 +324,13 @@ def select(
                 windows["tui_full"] |= any(
                     part in path for part in WINDOWS_TUI_FULL_PARTS
                 )
+        if len(worker_scenarios) > 1:
+            windows["worker_full"] = True
+        if windows["worker_full"]:
+            windows["worker_pr"] = False
+        elif windows["worker_pr"] and worker_scenarios:
+            windows["worker_pr_extra"] = True
+            windows["worker_pr_scenario"] = next(iter(worker_scenarios))
     return {
         "version": 1,
         "paths": sorted(set(paths)),

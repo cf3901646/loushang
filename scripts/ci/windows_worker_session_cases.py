@@ -32,17 +32,36 @@ CASE_GROUPS = {
         PRE_B + "test_windows_worker_native_normal_exit_c5_cleanup_evidence",
     ),
 }
+PR_CASES = {
+    "query": (
+        PRE_B + "test_windows_worker_hosted_first_session_reaches_selected_product",
+    ),
+    "crash": (
+        PRE_B + "test_windows_worker_public_session_crash_reopens_and_retires_product_attempt[hosted]",
+    ),
+    "gc_normal": (
+        PRE_B + "test_windows_worker_clean_retirement_allows_fresh_product_launch",
+    ),
+    "fence": (
+        PRE_B + "test_windows_worker_public_session_disable_fences_pinned_product",
+    ),
+    "c5": (
+        PRE_B + "test_windows_worker_native_normal_exit_c5_cleanup_evidence",
+    ),
+}
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("group", choices=CASE_GROUPS)
+    parser.add_argument("group", choices=(*CASE_GROUPS, *PR_CASES))
     group = parser.parse_args().group
+    cases = CASE_GROUPS.get(group, PR_CASES.get(group))
+    assert cases is not None
     return subprocess.run(
         [
             sys.executable,
             "scripts/dev/run_pytest.py",
-            *CASE_GROUPS[group],
+            *cases,
             "--maxfail=1",
             "--durations=20",
             "-vv",
