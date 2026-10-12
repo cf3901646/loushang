@@ -122,26 +122,17 @@ selected jobs must succeed and unselected jobs must be skipped. The top-level
 gate also requires the selector to succeed. A selected job that fails, is
 cancelled, goes missing, or is unexpectedly skipped cannot produce a green gate.
 
-The first migration stage retains these existing required context names:
+The required `main` status is `quality-gate`. Ordinary documentation-only PRs
+run the lightweight documentation invariants and changed-link check inside the
+existing `changes` job. They select no reusable workflows, so their only
+runner jobs are `changes` and `quality-gate`. The generated source dependency
+document still selects the architecture source-facts workflow; mixed changes
+retain every affected product check. A failure in documentation validation
+fails `changes`, which in turn fails `quality-gate`.
 
-- `Architecture documentation`
-- `ai-quality`
-- `harness-quality`
-- `harnesstui-quality`
-- `tui-cross-platform-contracts`
-
-They all depend on `quality-gate`, so branch protection can remain unchanged
-while the new workflow is verified. These five compatibility jobs are cheap,
-but do still allocate runners. After successful remote validation:
-
-1. Add `quality-gate` to the required checks for `main`.
-2. Confirm it is reported by GitHub Actions and protects the expected branch.
-3. Remove the old contexts from both the ruleset and classic branch protection.
-4. Remove the five compatibility jobs in a subsequent PR.
-
-Do not remove the old requirements before the replacement is reporting. A
-whole workflow skipped by a path filter can leave required checks pending;
-this design keeps an unconditional entrypoint and validates job-level skips.
+The entrypoint always runs: skipping the whole workflow with a path filter can
+leave a required check pending. The gate validates job-level skips and selected
+results.
 See GitHub's [workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax)
 and [reusable workflows](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows).
 
