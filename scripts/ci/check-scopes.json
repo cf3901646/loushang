@@ -232,6 +232,24 @@
     },
     {
       "paths": [
+        "src/loushang/plugin/__init__.py",
+        "src/loushang/plugin/__main__.py",
+        "src/loushang/plugin/_authoring.py",
+        "src/loushang/plugin/_coding_data_scaffold.py",
+        "src/loushang/plugin/_coding_data_skill_wheel.py",
+        "src/loushang/plugin/_coding_data_wheel_validation.py",
+        "src/loushang/plugin/_coding_local_worker_wheel.py",
+        "src/loushang/plugin/_conformance.py",
+        "src/loushang/plugin/_package.py",
+        "src/loushang/plugin/_validation.py",
+        "src/loushang/plugin/_writer.py",
+        "src/loushang/plugin/provider_runtime.py"
+      ],
+      "checks": ["harness", "coding"],
+      "reason": "public Plugin SDK and its Harness and Coding consumers"
+    },
+    {
+      "paths": [
         "src/loushang/coding/package_legacy_*",
         "src/loushang/coding/package_pre_b_snapshot.py",
         "src/loushang/coding/package_installation_private_data.py",

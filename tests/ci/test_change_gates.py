@@ -244,6 +244,21 @@ class ScopeTests(unittest.TestCase):
                 self.assertTrue(plan["checks"]["windows_shell"])
                 self.assertTrue(plan["workflows"]["windows-shell"])
 
+    def test_plugin_sdk_sources_select_owners_without_full_validation(self):
+        expected = {"docs", "architecture", "coding", "harness", "host_runtime"}
+        native = {"__init__.py", "__main__.py", "_coding_local_worker_wheel.py"}
+        for path in sorted((ROOT / "src/loushang/plugin").glob("*.py")):
+            with self.subTest(path=path.name):
+                actual = self.selected(path.relative_to(ROOT).as_posix())
+                if path.name in native:
+                    self.assertEqual(actual, expected | {"hosting", "windows_shell"})
+                else:
+                    self.assertEqual(actual, expected)
+        self.assertEqual(
+            self.selected("src/loushang/plugin/new_native_entry.py"),
+            set(selector.select([], full=True)["checks"]),
+        )
+
     def test_registered_worker_recovery_changes_select_real_reboot_gate(self):
         for path in (
             ".github/workflows/worker-registered-reboot-drill.yml",
