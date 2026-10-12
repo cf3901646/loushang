@@ -414,12 +414,17 @@ class ScopeTests(unittest.TestCase):
             "src/loushang/coding/schemas/session.json",
             "tests/coding/test_hosted_application.py",
             "tests/coding/test_new_unclassified.py",
-            ".github/workflows/quality.yml",
         ):
             with self.subTest(path=path):
                 plan = selector.select([path], pr_fast=True)
                 self.assertEqual(plan["unit_packages"], [])
                 self.assertEqual(plan["checks"], selector.select([path])["checks"])
+
+    def test_pr_gate_change_exercises_new_reusable_workflows(self):
+        plan = selector.select([".github/workflows/quality.yml"], pr_fast=True)
+        self.assertEqual(plan["unit_packages"], ["coding"])
+        self.assertTrue(plan["e2e"])
+        self.assertTrue(all(plan["checks"].values()))
 
     def test_full_validation_disables_fast_route(self):
         plan = selector.select(["src/loushang/ai/pricing.py"], full=True, pr_fast=True)

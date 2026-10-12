@@ -30,6 +30,14 @@ FAST_RISK_CHECKS = {
 }
 E2E_PATH_PARTS = ("/session/", "/conversation/", "/transcript/")
 FAST_RISK_RULE_REASONS = {"AI consumer contracts"}
+FAST_GATE_INFRA = {
+    ".github/workflows/quality.yml",
+    ".github/workflows/package-unit-quality.yml",
+    ".github/workflows/e2e-smoke-quality.yml",
+    "scripts/ci/select_checks.py",
+    "scripts/ci/run_checks.py",
+    "scripts/ci/unit-tests.json",
+}
 
 
 def git(*args: str, root: Path = ROOT) -> bytes:
@@ -177,6 +185,10 @@ def select(
         name: any(checks[check] for check in scopes)
         for name, scopes in rules["workflows"].items()
     }
+    if pr_fast and not full and FAST_GATE_INFRA.intersection(paths):
+        # Gate changes retain full checks and exercise both new workflows.
+        unit_packages.add("coding")
+        e2e = True
     workflows["units"] = bool(unit_packages)
     workflows["e2e"] = e2e
     return {

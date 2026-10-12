@@ -27,7 +27,9 @@ gate also keeps the existing route. The unit inventory is intentionally a
 focused suite of isolated tests, not a claim that every test under a package
 directory is a unit test. Each package gets a separate CI matrix job; a change
 touching two packages runs both unit inventories. The E2E smoke reopens a real
-hosted session and sends a second message.
+hosted session and sends a second message. PRs that edit the new gate machinery
+run the established full checks and exercise one unit matrix entry plus E2E,
+so the new reusable workflows receive remote validation.
 
 The existing routing rules are additive outside this fast PR route. Makefile source/test inventories retain explicitly shared
 support paths, such as the Coding product worker canary owned by Harness
