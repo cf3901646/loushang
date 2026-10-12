@@ -1937,3 +1937,38 @@ epoch/lease path. All nine static documentation checks passed. The broader
 Coding offline gate started at `c81953e2` remains running; these changes still
 require the final tree's broader delivery/platform gates. They do not establish
 default writable Resume or effect settlement.
+
+#### Original Root enforces its selected native epoch
+
+The original Root's Resume admission now compares the attempt epoch with
+its original Product selection's read-only native observation. The existing
+admission callback path carries this check through Writer preparation,
+input commit, runtime publication, delivery and model transport. A missing
+or fenced selection refuses before acquiring the Writer. An unequal epoch
+raises `input.epoch_changed`; caller permission and effect settlement remain
+independent mandatory checks. The check cannot create a selection or lease.
+
+Regression fixtures now explicitly select a real native owner during their
+startup setup and release that setup Session's original runtime lease before
+display. They obtain the attempt digest from that owner instead of `a` repeated
+64 times. The display preserves the selected owner mapping. First Resume with
+no selected owner remains unavailable until the production application input
+route is implemented; this does not establish default CLI/Hosted wiring.
+
+The original model/UI completed baseline passed two cases. The new three-case
+red run demonstrated that unequal and unselected epochs were accepted, and a
+fenced selection was rejected only after intent commit. The corrected Root
+refuses those cases before Writer work. Two latest native model cases passed:
+the committed Binding contains the observed epoch and fencing the original
+selection after delivery prevents dispatch claim and transport. Scoped Root
+mypy, four-file Ruff and nine static documentation checks passed. The combined
+Resume/UI run finished with 29 passed and ten UI failures in 476.84 seconds.
+All ten stopped at an obsolete fixture assertion requiring an empty selection,
+after startup had explicitly selected the real native owner. That assertion
+now requires equality with the startup owner mapping, including wrong-target
+rejection. The entire ten-case UI rerun passed in 120.95 seconds. Together
+with the 29 passing lifecycle/model cases and the latest two model cases
+(one repeats completed), this covers 40 distinct affected Resume cases.
+The earlier broad Coding run remains pending and cannot establish a final-tree
+green gate. Native Windows, default Embedded/Hosted activation, actual effect
+settlement and release/performance acceptance remain outstanding.

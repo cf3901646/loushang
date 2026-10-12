@@ -22,6 +22,7 @@ from loushang.coding.resume_activation_attempt import (
     CodingResumeRecoveryRequired,
 )
 from loushang.coding.resume_activation_plan import build_session_activation_plan
+from loushang.coding.resume_binding import inspect_coding_runtime_binding
 from loushang.coding.resume_history import read_coding_resume_snapshot
 from loushang.coding.resume_input_lookup import coding_resume_input_record_digest
 from loushang.coding.resume_model_outcome import observe_coding_resume_model_outcome
@@ -42,7 +43,7 @@ from loushang.harness.transcript.jsonl_file import load_agent_transcript_file
 pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="Linux owned Resume Writer")
 
 
-@pytest.mark.parametrize("mode", ["completed", "skill_changed", "agents_changed", "workspace_changed", "epoch_control_changed", "epoch_control_at_barrier", "policy_changed", "policy_at_barrier", "revoked", "revoked_at_barrier", "unknown_transport", "cancelled", "slot_replaced", "root_closed"])
+@pytest.mark.parametrize("mode", ["completed", "skill_changed", "agents_changed", "workspace_changed", "epoch_control_changed", "epoch_control_at_barrier", "epoch_selection_fenced", "policy_changed", "policy_at_barrier", "revoked", "revoked_at_barrier", "unknown_transport", "cancelled", "slot_replaced", "root_closed"])
 def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch, mode):
     monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
 
@@ -56,6 +57,10 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
         await original.append_message(UserMessage(role="user", content="history", timestamp=1.0))
         path = original.session_file
         header = original.header
+        selection = CodingFencedProductApplicationSelection()
+        factory = selection.factory_for_session(original)
+        assert factory is not None
+        factory.runtime_lease.release()
         await original.dispose_runtime_profile()
         assert path is not None
         composition_id = "coding-standard" if mode in {"skill_changed", "agents_changed"} else "coding-minimal"
@@ -72,7 +77,6 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
             capabilities=Capabilities(input=("text",), output=("text",), stream=True,
                                       context_window=128000, max_tokens=4096),
         )
-        selection = CodingFencedProductApplicationSelection()
         settings = SettingsManager(
             global_settings_path=tmp_path / "user.json", project_settings_path=tmp_path / "project.json",
         )
@@ -144,7 +148,8 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
             attempt = CodingActivationAttemptV1(
                 attempt_id="root-attempt", request_id="root-input", session_id=header.conversation_id,
                 original_leaf_id=plan.selected_leaf_id, ancestry_digest=plan.ancestry_digest,
-                plan_fingerprint=plan.plan_id, epoch_fingerprint="a" * 64, subject_digest="b" * 64,
+                plan_fingerprint=plan.plan_id, epoch_fingerprint=selection.resume_epoch_fingerprint(workspace),
+                subject_digest="b" * 64,
             )
 
             async def confirm(payload):
@@ -198,6 +203,8 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
                 settings.set_permission_profile("full_access", scope="session")
             elif mode == "revoked":
                 issuer.release_confirmation(fact)
+            elif mode == "epoch_selection_fenced":
+                selection.fence()
             elif mode == "root_closed":
                 await root.dispose_session_runtime()
             elif mode == "slot_replaced":
@@ -225,6 +232,10 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
             if mode in {"revoked", "policy_changed"}:
                 with pytest.raises(PermissionError):
                     await prepared.run_first_input()
+            elif mode == "epoch_selection_fenced":
+                with pytest.raises(RuntimeError, match="Resume epoch is unavailable"):
+                    await prepared.run_first_input()
+                assert not candidate._coding_resume_dispatch_claimed
             elif mode in {"workspace_changed", "epoch_control_changed"}:
                 # Replace an original owner's real directory, then restore it
                 # before native cleanup. Paths do not preserve its authority.
@@ -272,6 +283,11 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
             assert durable_header == header
             assert len([record for record in records if isinstance(record.payload, UserMessage)]) == 2
             committed_input = next(record for record in records if record.record_id == "root-input-record")
+            binding = inspect_coding_runtime_binding(committed_input.metadata).binding
+            assert binding is not None
+            assert binding.actual_fingerprint == attempt.epoch_fingerprint
+            if mode != "epoch_selection_fenced" and mode != "root_closed":
+                assert binding.actual_fingerprint == selection.resume_epoch_fingerprint(workspace)
             assert coding_resume_input_record_digest(committed_input) == prepared.continuation.input_lookup_query.record_digest
             expected_calls = int(mode in {"completed", "skill_changed", "agents_changed", "unknown_transport", "cancelled"})
             assert len(requests) == expected_calls

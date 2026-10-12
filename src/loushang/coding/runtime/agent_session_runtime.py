@@ -238,6 +238,8 @@ class AgentSessionRuntime(
         """Retain native Resume preparation until original consume or abort.
 
         Live actor/policy and effect settlement remain mandatory owner inputs.
+        An already selected native Product epoch must match the attempt before
+        Writer acquisition and at every subsequent original admission check.
         This entry neither dispatches a model nor resubmits the committed input.
         """
 
@@ -303,6 +305,11 @@ class AgentSessionRuntime(
                 if inspect.iscoroutine(result):
                     result.close()
                 raise TypeError("Coding Resume owner check must return None")
+            # Borrow the original selected native epoch, including before the
+            # first Writer acquisition. This read cannot select/create an owner.
+            # The caller's effect settlement remains an independent gate.
+            if selection.resume_epoch_fingerprint(Path(plan.workspace_root)) != observed.epoch_fingerprint:
+                raise CodingResumeRecoveryRequired("input.epoch_changed")
 
         async def build(current: AgentSession | None) -> AgentSession:
             nonlocal continuation

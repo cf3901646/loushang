@@ -84,6 +84,18 @@ def test_native_screen_history_then_one_original_resume_input(tmp_path, monkeypa
                                       context_window=128000, max_tokens=4096),
         )
         selection = CodingFencedProductApplicationSelection()
+        # Original application startup selects the native owner before history;
+        # the display and its epoch observations must not select one themselves.
+        startup = await SessionManager.new(
+            session_dir=tmp_path / "sessions", cwd=str(tmp_path), persist=False,
+        )
+        try:
+            factory = selection.factory_for_session(startup)
+            assert factory is not None
+            factory.runtime_lease.release()
+        finally:
+            await startup.dispose_runtime_profile()
+        selected_owners = dict(selection._owners)
 
         def ordinary(manager, **kwargs):
             return bootstrap.create_agent_session(
@@ -133,7 +145,8 @@ def test_native_screen_history_then_one_original_resume_input(tmp_path, monkeypa
             attempt = CodingActivationAttemptV1(
                 attempt_id="ui-attempt", request_id="ui-input", session_id=plan.session_id,
                 original_leaf_id=plan.selected_leaf_id, ancestry_digest=plan.ancestry_digest,
-                plan_fingerprint=plan.plan_id, epoch_fingerprint="a" * 64, subject_digest="b" * 64,
+                plan_fingerprint=plan.plan_id, epoch_fingerprint=selection.resume_epoch_fingerprint(tmp_path),
+                subject_digest="b" * 64,
             )
             app = ScreenCodingTuiApp(model_label=None, cwd=str(tmp_path), branch=None, session_label=history.header_preview.header.conversation_id)
             before = path.read_bytes()
@@ -208,7 +221,7 @@ def test_native_screen_history_then_one_original_resume_input(tmp_path, monkeypa
                 prepare_input=prepare_input, surface=_TerminalSurface(), stderr=StringIO(),
             )
             assert root.current_session is None
-            assert not selection._owners
+            assert selection._owners == selected_owners
             assert path.read_bytes() == before
 
             async def screen_runner(**kwargs):
@@ -277,7 +290,7 @@ def test_native_screen_history_then_one_original_resume_input(tmp_path, monkeypa
                 assert path.read_bytes() == before
             if mode == "wrong_target":
                 assert other_path.read_bytes() == other_before
-                assert not selection._owners
+                assert selection._owners == selected_owners
         finally:
             if task is not None and not task.done():
                 task.cancel()

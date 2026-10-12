@@ -122,6 +122,14 @@ The bounded digest is an epoch input dependency. Subject, Policy, content
 closure, activation/effect settlement and default Resume wiring remain
 separate requirements; the digest cannot satisfy those checks.
 
+The original Coding Root's Resume admission now also compares that selected
+native epoch with the attempt, before Writer acquisition and on the existing
+commit, delivery and model admission path. A missing/fenced selection is
+unavailable; an unequal digest requires explicit recovery. The Root does not
+create a Product owner to satisfy the check. First Resume startup must still
+obtain its owner through the production application route. Caller admission
+and effect settlement remain independently required.
+
 ### Candidate v1 attempt contract for owner review
 
 The proposed `coding.activation-attempt/v1` intent uses one `extension.data`

@@ -12,7 +12,10 @@ from loushang.coding.composition_sets import resolve_coding_composition_set
 from loushang.coding.package_product_runtime import (
     CodingFencedProductApplicationSelection,
 )
-from loushang.coding.resume_activation_attempt import CodingActivationAttemptV1
+from loushang.coding.resume_activation_attempt import (
+    CodingActivationAttemptV1,
+    CodingResumeRecoveryRequired,
+)
 from loushang.coding.resume_activation_plan import build_session_activation_plan
 from loushang.coding.resume_continuation import CodingResumeContinuationCleanupFailure
 from loushang.coding.resume_permission_confirmation import (
@@ -99,7 +102,7 @@ def test_selected_resume_epoch_is_native_readonly_and_never_repairs_tail(tmp_pat
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("mode", ["consume", "delivered_close_failed", "abort", "stale", "root_close", "cancel_prepare", "cancel_delivery", "delivery_revoked", "abort_failed", "host_bind_failed", "cleanup_debt"])
+@pytest.mark.parametrize("mode", ["consume", "delivered_close_failed", "abort", "stale", "root_close", "cancel_prepare", "cancel_delivery", "delivery_revoked", "abort_failed", "host_bind_failed", "cleanup_debt", "epoch_mismatch", "epoch_unselected", "epoch_fenced"])
 def test_root_owns_native_resume_preparation_and_delivery(tmp_path, monkeypatch, mode):
     monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
 
@@ -110,9 +113,13 @@ def test_root_owns_native_resume_preparation_and_delivery(tmp_path, monkeypatch,
         await manager.append_message(UserMessage(role="user", content="history", timestamp=1.0))
         path = manager.session_file
         header = manager.header
+        selection = CodingFencedProductApplicationSelection()
+        if mode != "epoch_unselected":
+            factory = selection.factory_for_session(manager)
+            assert factory is not None
+            factory.runtime_lease.release()
         await manager.dispose_runtime_profile()
         assert path is not None
-        selection = CodingFencedProductApplicationSelection()
 
         def ordinary_factory(manager, **kwargs):
             return bootstrap.create_agent_session(
@@ -131,9 +138,10 @@ def test_root_owns_native_resume_preparation_and_delivery(tmp_path, monkeypatch,
         native_sessions = []
         try:
             before = path.read_bytes()
+            selected_owners = dict(selection._owners)
             history = await root.preview_resume_history(path)
             assert path.read_bytes() == before
-            assert not selection._owners
+            assert selection._owners == selected_owners
             assert root.current_session is None
             plan = build_session_activation_plan(
                 history, resolve_coding_composition_set("coding-minimal"), workspace_root=tmp_path,
@@ -141,7 +149,10 @@ def test_root_owns_native_resume_preparation_and_delivery(tmp_path, monkeypatch,
             attempt = CodingActivationAttemptV1(
                 attempt_id="root-attempt", request_id="root-input", session_id=header.conversation_id,
                 original_leaf_id=plan.selected_leaf_id, ancestry_digest=plan.ancestry_digest,
-                plan_fingerprint=plan.plan_id, epoch_fingerprint="a" * 64, subject_digest="b" * 64,
+                plan_fingerprint=plan.plan_id,
+                epoch_fingerprint=("a" * 64 if mode in {"epoch_mismatch", "epoch_unselected"}
+                                   else selection.resume_epoch_fingerprint(tmp_path)),
+                subject_digest="b" * 64,
             )
 
             async def confirm(payload):
@@ -203,6 +214,17 @@ def test_root_owns_native_resume_preparation_and_delivery(tmp_path, monkeypatch,
                 require_current_admission=permission.require_current,
                 require_current_epoch_settlement=epoch,
             )
+            if mode in {"epoch_mismatch", "epoch_unselected", "epoch_fenced"}:
+                if mode == "epoch_fenced":
+                    selection.fence()
+                expected = CodingResumeRecoveryRequired if mode == "epoch_mismatch" else RuntimeError
+                with pytest.raises(expected, match="epoch"):
+                    await operation
+                assert path.read_bytes() == before
+                assert not native_sessions
+                assert not root._owned_transcript_factory.pending_preparations
+                assert root.current_session is None
+                return
             if mode in {"root_close", "cancel_prepare"}:
                 task = asyncio.create_task(operation)
                 waiter = asyncio.create_task(entered.wait())
