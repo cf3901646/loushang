@@ -188,6 +188,16 @@ class ProductTranscriptSession(
                     )
             return await super().commit_prebuilt_user_message(record)
 
+    async def commit_prebuilt_extension_data(
+        self, record: AgentTranscriptRecord,
+    ) -> CommitResult:
+        """Keep a fixed-ID extension commit within the Product operation scope."""
+
+        if not self.persist:
+            raise ValueError("prebuilt extension commit requires a persistent Product session")
+        async with self._lifecycle_session.operation_scope():
+            return await super().commit_prebuilt_extension_data(record)
+
     async def commit_prebuilt_user_message_from_message(
         self,
         message: UserMessage,

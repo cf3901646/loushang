@@ -14,8 +14,13 @@ from loushang.harness.transcript.codecs import (
 from loushang.harness.transcript.kinds import (
     AGENT_MESSAGE_KIND,
     APPLICATION_MESSAGE_KIND,
+    EXTENSION_DATA_KIND,
 )
-from loushang.harness.transcript.types import AgentTranscriptRecord, ApplicationMessage
+from loushang.harness.transcript.types import (
+    AgentTranscriptRecord,
+    ApplicationMessage,
+    ExtensionData,
+)
 from loushang.harness.transcript.unit_of_work import AgentTranscriptUnitOfWork
 
 
@@ -25,6 +30,10 @@ class ApplicationMessageIdentityConflictError(ValueError):
 
 class PrebuiltUserMessageIdentityConflictError(ValueError):
     """A fixed record ID names different facts or a different selected branch."""
+
+
+class PrebuiltExtensionDataIdentityConflictError(ValueError):
+    """A fixed extension record ID names different facts or another branch."""
 
 
 @dataclass(frozen=True)
@@ -41,12 +50,12 @@ class _CommittedApplicationMessage:
 
 
 class TranscriptCommitter:
-    """Own the process-local idempotent commit of application messages."""
+    """Own process-local idempotent commits of app and fixed-ID records."""
 
     def __init__(self, store: AgentTranscriptUnitOfWork) -> None:
         self._store = store
         self._committed: dict[str, _CommittedApplicationMessage] = {}
-        self._uncertain_prebuilt_user_ids: set[str] = set()
+        self._uncertain_prebuilt_ids: set[str] = set()
         self._payload_codecs = create_agent_transcript_payload_registry()
         self._commit_lock = asyncio.Lock()
         self._index_committed_messages()
@@ -70,34 +79,64 @@ class TranscriptCommitter:
             isinstance(part, ImagePart) for part in content
         ):
             raise ValueError("prebuilt user images must be externalized first")
+        return await self._commit_prebuilt_record(
+            record, kind_label="user",
+            conflict_error=PrebuiltUserMessageIdentityConflictError,
+        )
+
+    async def commit_prebuilt_extension_data(
+        self, record: AgentTranscriptRecord,
+    ) -> CommitResult:
+        """Commit or reconcile one fixed-ID extension fact through Transcript."""
+
+        if record.kind != EXTENSION_DATA_KIND or not isinstance(
+            record.payload, ExtensionData,
+        ):
+            raise TypeError("prebuilt extension commit requires extension data")
+        return await self._commit_prebuilt_record(
+            record, kind_label="extension",
+            conflict_error=PrebuiltExtensionDataIdentityConflictError,
+        )
+
+    async def _commit_prebuilt_record(
+        self,
+        record: AgentTranscriptRecord,
+        *,
+        kind_label: str,
+        conflict_error: type[ValueError],
+    ) -> CommitResult:
         async with self._commit_lock:
             if not self._store.is_materialized:
-                raise ValueError("prebuilt user commit requires a materialized transcript")
+                raise ValueError(
+                    f"prebuilt {kind_label} commit requires a materialized transcript"
+                )
             existing = self._store.get(record.record_id)
             if existing is not None:
                 if existing != record or existing not in self._store.active_path():
-                    raise PrebuiltUserMessageIdentityConflictError(
-                        "fixed user record ID conflicts with stored input or selected branch"
+                    raise conflict_error(
+                        f"fixed {kind_label} record ID conflicts with stored input "
+                        "or selected branch"
                     )
-                self._uncertain_prebuilt_user_ids.discard(record.record_id)
+                self._uncertain_prebuilt_ids.discard(record.record_id)
                 return CommitResult(record.record_id, "already_committed", None)
-            if record.record_id in self._uncertain_prebuilt_user_ids:
+            if record.record_id in self._uncertain_prebuilt_ids:
                 raise StoreCommitOutcomeUnknown(
-                    "fixed user record outcome requires authoritative reload"
+                    f"fixed {kind_label} record outcome requires authoritative reload"
                 )
             if self._store.diagnostics:
                 raise StoreCommitOutcomeUnknown(
-                    "incomplete transcript evidence cannot prove fixed user record absent"
+                    "incomplete transcript evidence cannot prove fixed "
+                    f"{kind_label} record absent"
                 )
             try:
                 commit = await self._store.commit(record)
             except StoreCommitOutcomeUnknown:
-                self._uncertain_prebuilt_user_ids.add(record.record_id)
+                self._uncertain_prebuilt_ids.add(record.record_id)
                 raise
             if commit.receipt is None:
-                self._uncertain_prebuilt_user_ids.add(record.record_id)
+                self._uncertain_prebuilt_ids.add(record.record_id)
                 raise StoreCommitOutcomeUnknown(
-                    "prebuilt user commit did not return a durable receipt"
+                    f"prebuilt {kind_label} commit did not return a durable receipt"
                 )
             return CommitResult(record.record_id, "committed", commit.receipt)
 
@@ -177,6 +216,7 @@ class TranscriptCommitter:
 __all__ = [
     "ApplicationMessageIdentityConflictError",
     "CommitResult",
+    "PrebuiltExtensionDataIdentityConflictError",
     "PrebuiltUserMessageIdentityConflictError",
     "TranscriptCommitter",
 ]

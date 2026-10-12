@@ -17,9 +17,10 @@
   ancestry projection preserves an epoch through compaction, excludes bindings
   copied from a source Session fork, and treats unknown later schema as
   unavailable. Coding also has an internal bounded activation-attempt v1 record
-  builder and selected-path validator. A test helper commits this candidate
-  intent directly; the production Transcript owner commit, activation admission,
-  full recovery, and runtime wiring are not implemented
+  builder and selected-path validator. The Transcript owner can commit a
+  fixed-ID extension fact and reconcile it after an authoritative reload; a
+  Coding test helper uses that path for the candidate intent. Current activation
+  admission, complete recovery, and runtime wiring are not implemented
 - Owner: Loushang architecture, Coding continuity, and Harness transcript
 - Tracking: [Issue #696](https://github.com/zhnt/loushang/issues/696)
 
@@ -112,9 +113,9 @@ current Session. The Binding on the single user record must then match the
 intent's attempt, request, Plan, epoch, subject, original leaf, and ancestry.
 Its actual record parent is the intent record ID. The record contains no
 approval grant, mutable lease, resource secret, or assertion that effects
-settled. Fixed-ID intent commit, restart lookup, and unknown-result handling
-must remain with the Transcript owner; a test-only direct commit does not
-establish a production owner path.
+settled. The Transcript owner has a fixed-ID extension commit and same-record
+reload reconciliation path. Coding still lacks the admitted activation owner
+that would call it and correlate it with effect settlement.
 
 The candidate writer capability name is `coding.resume-continuation/v1`.
 Its first shipping build is still undecided. The capability is a release

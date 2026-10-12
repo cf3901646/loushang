@@ -75,7 +75,8 @@ async def _append_test_activation_attempt(
     record = prepare_coding_activation_attempt_record(
         attempt, created_at=datetime(2026, 10, 12, tzinfo=UTC),
     )
-    await manager._transcript.commit(record)
+    result = await manager.commit_prebuilt_extension_data(record)
+    assert result.disposition == "committed"
     return record.record_id, original_leaf_id, ancestry
 
 

@@ -15,10 +15,13 @@ from loushang.harness.conversation import (
 from loushang.harness.transcript import (
     AGENT_MESSAGE_KIND,
     APPLICATION_MESSAGE_KIND,
+    EXTENSION_DATA_KIND,
     AgentTranscriptRecordFactory,
     AgentTranscriptUnitOfWork,
     ApplicationMessage,
     ApplicationMessageIdentityConflictError,
+    ExtensionData,
+    PrebuiltExtensionDataIdentityConflictError,
     PrebuiltUserMessageIdentityConflictError,
     TranscriptCommitter,
 )
@@ -158,6 +161,88 @@ def _prebuilt_user_record(*, content: str = "continue"):
             "harness.resourceEvidenceV1": {"version": 1},
         },
     )
+
+
+def _prebuilt_extension_record(*, request_id: str = "request-1"):
+    return AgentTranscriptRecordFactory(
+        clock=lambda: datetime(2026, 7, 16, tzinfo=UTC),
+        id_factory=lambda: "stable-attempt-record",
+    ).create(
+        EXTENSION_DATA_KIND,
+        ExtensionData(
+            "coding.activation-attempt/v1",
+            {"version": 1, "requestId": request_id},
+        ),
+        parent_id=None,
+    )
+
+
+def test_prebuilt_extension_record_reconciles_same_id_after_reload() -> None:
+    async def scenario() -> None:
+        store = await _store(ids=_ids("unused"))
+        record = _prebuilt_extension_record()
+        committer = TranscriptCommitter(store)
+
+        first = await committer.commit_prebuilt_extension_data(record)
+        duplicate = await committer.commit_prebuilt_extension_data(record)
+        loaded = await AgentTranscriptUnitOfWork.load(store.backend, store.key)
+        after_restart = await TranscriptCommitter(loaded).commit_prebuilt_extension_data(
+            record
+        )
+
+        assert first.disposition == "committed"
+        assert duplicate.disposition == "already_committed"
+        assert after_restart.disposition == "already_committed"
+        assert loaded.records == (record,)
+        with pytest.raises(PrebuiltExtensionDataIdentityConflictError):
+            await TranscriptCommitter(loaded).commit_prebuilt_extension_data(
+                _prebuilt_extension_record(request_id="different")
+            )
+        loaded.reset_branch()
+        with pytest.raises(
+            PrebuiltExtensionDataIdentityConflictError, match="selected branch",
+        ):
+            await TranscriptCommitter(loaded).commit_prebuilt_extension_data(record)
+
+    asyncio.run(scenario())
+
+
+def test_prebuilt_extension_record_reconciles_lost_ack_only_after_reload() -> None:
+    class LostAckStore(MemoryConversationStore):
+        append_calls = 0
+
+        async def append(self, key, record, *, expected_revision, operation_id):
+            self.append_calls += 1
+            await super().append(
+                key, record, expected_revision=expected_revision,
+                operation_id=operation_id,
+            )
+            raise StoreCommitOutcomeUnknown("ack lost after durable append")
+
+    async def scenario() -> None:
+        backend = LostAckStore(record_id=lambda record: record.record_id)
+        key = ConversationKey("test", "conversation-1")
+        store = await AgentTranscriptUnitOfWork.create(
+            backend, key,
+            ConversationHeader(
+                conversation_id="conversation-1", version=1,
+                created_at="2026-07-16T00:00:00Z",
+            ),
+        )
+        record = _prebuilt_extension_record()
+        committer = TranscriptCommitter(store)
+        with pytest.raises(StoreCommitOutcomeUnknown):
+            await committer.commit_prebuilt_extension_data(record)
+        with pytest.raises(StoreCommitOutcomeUnknown, match="authoritative reload"):
+            await committer.commit_prebuilt_extension_data(record)
+        assert backend.append_calls == 2
+
+        loaded = await AgentTranscriptUnitOfWork.load(backend, key)
+        result = await TranscriptCommitter(loaded).commit_prebuilt_extension_data(record)
+        assert result.disposition == "already_committed"
+        assert loaded.records == (record,)
+
+    asyncio.run(scenario())
 
 
 def test_prebuilt_user_record_is_committed_once_across_reload() -> None:

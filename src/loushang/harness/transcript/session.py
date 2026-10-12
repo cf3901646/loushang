@@ -254,6 +254,16 @@ class AgentTranscriptSession:
             self._notify_commit(result)
         return result
 
+    async def commit_prebuilt_extension_data(
+        self, record: AgentTranscriptRecord,
+    ) -> CommitResult:
+        """Commit or reconcile one fixed-ID extension fact through Transcript."""
+
+        result = await self._committer.commit_prebuilt_extension_data(record)
+        if result.disposition == "committed":
+            self._notify_commit(result)
+        return result
+
     async def commit_application_message(
         self,
         message: ApplicationMessage,
