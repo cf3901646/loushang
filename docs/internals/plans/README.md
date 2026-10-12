@@ -9,6 +9,11 @@ This directory contains implementation plans for documentation and development w
 
 ## Current Plans
 
+- [Resume Compatibility And Background Activation Design](./2026-10-12-resume-compatibility-and-activation-design.md)
+  proposes ordinary resume under the current environment, background pure
+  planning, reuse of existing prepare owners, and shared Embedded/LMUX
+  continuation semantics. Independent GPT-6 Astra review evidence is recorded
+  in [Resume Compatibility And Activation Review](./2026-10-12-resume-compatibility-and-activation-review.md).
 - [Model Input Persistence And Capacity Recovery Tracking Draft](./2026-08-15-model-input-persistence-capacity-recovery.md)
   is the local umbrella-issue draft for the PR #451 persistence, failure,
   selection, and bounded-recovery follow-up.
