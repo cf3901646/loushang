@@ -107,6 +107,30 @@ def test_product_fixed_user_input_rejects_inline_image_before_transcript_commit(
     asyncio.run(scenario())
 
 
+def test_product_prebuilt_user_preparation_failure_rolls_back_new_image(
+    session_root,
+) -> None:
+    async def scenario():
+        runtime = _runtime("coding")
+        owner, _ = prepare(session_root, runtime, runtime.bind_lifecycle_owned)
+        session = ProductTranscriptSession(lifecycle_session=await owner.create())
+        path = session_root / "session.jsonl"
+        before = path.read_bytes()
+
+        def reject(_persisted):
+            raise ValueError("binding preparation failed")
+
+        with pytest.raises(ValueError, match="binding preparation failed"):
+            await session.commit_prebuilt_user_message_from_message(
+                message(), prepare_record=reject,
+            )
+        assert path.read_bytes() == before
+        assert not (session_root.parent / "session-assets" / "conversation-1").exists()
+        await owner.dispose()
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("entry", ["user", "application", "forwarded"])
 def test_closed_session_rejects_before_blob_store_construction(session_root, monkeypatch, entry):
     tmp_path = session_root

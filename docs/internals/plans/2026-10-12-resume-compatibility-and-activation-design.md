@@ -6,8 +6,9 @@
 - Design status: proposed; design acceptance is separate from review completion.
 - Implementation status: partial — read-only Header, bounded selected-path and
   unverified tail previews, exact-byte digest for bounded historical snapshots,
-  historical Binding projection, fixed-ID UserMessage
-  commit primitives, composition comparison, and a data-only internal
+  historical Binding projection, fixed-ID UserMessage commit primitives with
+  image externalization inside the existing Transcript owner, composition
+  comparison, and a data-only internal
   `SessionActivationPlanV1` envelope exist. ResourceLoader can calculate
   Catalog input facts and bounded native context content digests without
   choosing authority; Plan records only their redacted input fingerprint and

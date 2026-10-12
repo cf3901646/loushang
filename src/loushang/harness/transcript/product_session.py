@@ -29,6 +29,7 @@ from loushang.harness.artifacts import (
     SessionBlobStore,
     resolve_session_blob_data_root,
 )
+from loushang.harness.conversation import ConversationRecord
 from loushang.harness.journal._owned_io import settled_io
 from loushang.harness.runtime import RuntimeProfileSnapshot
 from loushang.harness.transcript.capability_candidate import (
@@ -186,6 +187,43 @@ class ProductTranscriptSession(
                         ),
                     )
             return await super().commit_prebuilt_user_message(record)
+
+    async def commit_prebuilt_user_message_from_message(
+        self,
+        message: UserMessage,
+        *,
+        prepare_record: Callable[[UserMessage], AgentTranscriptRecord],
+    ) -> CommitResult:
+        """Externalize images before freezing and committing one fixed-ID input.
+
+        Product preparation receives only the final persisted payload. This
+        keeps its Binding digest and request evidence on the same record.
+        """
+
+        if not self.persist:
+            raise ValueError("prebuilt user commit requires a persistent Product session")
+        if not isinstance(message, UserMessage) or not callable(prepare_record):
+            raise TypeError("prebuilt user commit requires a message and preparer")
+        async with self._lifecycle_session.operation_scope():
+            externalized = externalize_session_message_images(
+                message,
+                self._session_blob_store(file_io=self._lifecycle_session.blob_file_io),
+            )
+            revision = self._transcript.revision
+            try:
+                persisted = externalized.message
+                if not isinstance(persisted, UserMessage):
+                    raise TypeError("externalized user message has an invalid type")
+                record = prepare_record(persisted)
+                if not isinstance(record, ConversationRecord) or record.payload != persisted:
+                    raise ValueError("prebuilt user record changed the persisted payload")
+                return await super().commit_prebuilt_user_message(record)
+            except BaseException as error:
+                rollback_externalized_session_images(
+                    externalized, error,
+                    transcript_changed=self._transcript.revision != revision,
+                )
+                raise
 
     async def commit_application_message(
         self,

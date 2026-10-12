@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
 
-from loushang.ai.types import UserMessage
+from loushang.ai.types import ImagePart, UserMessage
 from loushang.coding.composition_provenance import CodingCompositionProvenanceV1
 from loushang.coding.resume_binding import (
     CODING_RUNTIME_BINDING_METADATA_KEY,
@@ -21,7 +22,10 @@ from loushang.coding.session_manager import SessionManager
 from loushang.harness.conversation.repository import ConversationRepository
 from loushang.harness.transcript.jsonl_file import load_agent_transcript_file
 from loushang.harness.transcript.kinds import CONTEXT_COMPACTION_CHECKPOINT_KIND
-from loushang.harness.transcript.types import ContextCompactionCheckpoint
+from loushang.harness.transcript.types import (
+    ContextCompactionCheckpoint,
+    SessionImagePart,
+)
 from loushang.harness.transcript.writer import AgentTranscriptRecordFactory
 
 
@@ -174,6 +178,65 @@ def test_runtime_binding_and_resource_evidence_survive_one_jsonl_commit(tmp_path
         assert validate_coding_runtime_binding_record(
             records[0], expected_session_id=binding.session_id,
         ) == binding
+
+    asyncio.run(scenario())
+
+
+def test_resume_user_commit_externalizes_image_before_binding_payload_digest(
+    tmp_path,
+) -> None:
+    async def scenario() -> None:
+        manager = await SessionManager.new(
+            session_dir=tmp_path,
+            cwd=str(tmp_path),
+            defer_materialization=False,
+        )
+        message = UserMessage(
+            role="user",
+            content=[ImagePart(
+                type="image", mime_type="image/png",
+                data=base64.b64encode(b"resume-image").decode("ascii"),
+            )],
+            timestamp=1.0,
+        )
+        try:
+            def prepare(persisted: UserMessage):
+                assert isinstance(persisted.content, list)
+                assert isinstance(persisted.content[0], SessionImagePart)
+                binding = replace(
+                    _binding(),
+                    session_id=manager.header.conversation_id,
+                    original_leaf_id=manager.leaf_id,
+                    payload_digest=coding_user_payload_digest(persisted),
+                )
+                return prepare_coding_resume_user_record(
+                    binding, persisted,
+                    commit_parent_id=manager.leaf_id,
+                    created_at=datetime(2026, 10, 12, tzinfo=UTC),
+                    resource_metadata={"loushang.request.resource_evidence": {
+                        "schemaVersion": 1,
+                    }},
+                )
+
+            result = await manager.commit_prebuilt_user_message_from_message(
+                message, prepare_record=prepare,
+            )
+            assert result.disposition == "committed"
+            path = manager.session_file
+            assert path is not None
+        finally:
+            await manager.dispose_runtime_profile()
+
+        _, records = load_agent_transcript_file(path, read_only=True)
+        assert len(records) == 1
+        assert isinstance(records[0].payload.content, list)
+        assert isinstance(records[0].payload.content[0], SessionImagePart)
+        assert validate_coding_runtime_binding_record(
+            records[0], expected_session_id=manager.header.conversation_id,
+        ).payload_digest == coding_user_payload_digest(records[0].payload)
+        assert records[0].metadata["loushang.request.resource_evidence"] == {
+            "schemaVersion": 1,
+        }
 
     asyncio.run(scenario())
 
