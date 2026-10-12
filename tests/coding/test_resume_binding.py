@@ -101,6 +101,60 @@ def test_activation_attempt_is_a_bounded_fixed_id_historical_fact() -> None:
         ))
 
 
+def test_activation_attempt_lost_ack_reconciles_from_jsonl_after_restart(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        manager = await SessionManager.new(
+            session_dir=tmp_path, cwd=str(tmp_path), session_id="session-1",
+            defer_materialization=False,
+        )
+        ancestry = project_coding_runtime_binding_path(
+            manager._transcript.active_path(), current_session_id="session-1",
+        ).ancestry_digest
+        binding = _binding()
+        attempt = CodingActivationAttemptV1(
+            attempt_id=binding.attempt_id, request_id=binding.input_id,
+            session_id="session-1", original_leaf_id=None,
+            ancestry_digest=ancestry,
+            plan_fingerprint=binding.planned_fingerprint,
+            epoch_fingerprint=binding.actual_fingerprint,
+            subject_digest=binding.subject_digest,
+        )
+        record = prepare_coding_activation_attempt_record(
+            attempt, created_at=datetime(2026, 10, 12, tzinfo=UTC),
+        )
+        path = manager.session_file
+        assert path is not None
+        store = manager._lifecycle_session.runtime_binding.store
+        original_append = store.append
+
+        async def lost_ack(*args, **kwargs):
+            await original_append(*args, **kwargs)
+            raise StoreCommitOutcomeUnknown("ack lost after durable append")
+
+        try:
+            monkeypatch.setattr(store, "append", lost_ack)
+            with pytest.raises(StoreCommitOutcomeUnknown):
+                await manager.commit_prebuilt_extension_data(record)
+            with pytest.raises(StoreCommitOutcomeUnknown, match="authoritative reload"):
+                await manager.commit_prebuilt_extension_data(record)
+        finally:
+            await manager.dispose_runtime_profile()
+
+        restored = await SessionManager.load(path)
+        try:
+            result = await restored.commit_prebuilt_extension_data(record)
+            assert result.disposition == "already_committed"
+            assert restored.leaf_id == record.record_id
+        finally:
+            await restored.dispose_runtime_profile()
+        _, records = load_agent_transcript_file(path, read_only=True)
+        assert records == [record]
+
+    asyncio.run(scenario())
+
+
 def test_runtime_binding_round_trip_keeps_historical_origin_and_bounded_metadata() -> None:
     binding = _binding()
     metadata = binding.to_message_metadata()
