@@ -16,10 +16,19 @@
   persistent bootstrap, Product factory selection, model preparation, and
   message write paths also stop at an unresolved attempt; a normal
   commit advances its checked transcript revision without rescanning history.
-  ResourceLoader
+  The original Transcript committer also offers a read-only fixed-record
+  lookup under the Product operation fence. It reloads the authority store,
+  compares the frozen payload and full metadata, and reports committed,
+  not_committed_verified, unknown, or conflict without appending or moving the
+  leaf. Verified absence requires complete evidence and an unchanged target;
+  an unavailable store, partial tail, or uncertain receipt remains unknown.
+  This lookup uses a full authority reload and is not yet the Hosted logical-ID
+  or model-outcome facade. ResourceLoader
   can calculate Catalog input facts and bounded native context content digests
   without choosing authority; Plan records only their redacted input fingerprint and
-  rejects reuse when refreshed owner inputs differ. Skill and other mutable
+  rejects reuse when refreshed owner inputs differ. The synchronous
+  `plan_coding_resume` entry reuses displayed history and calls this original
+  Resource owner; unavailable history skips resource scanning. Skill and other mutable
   Resource content is not closed by this receipt, which cannot replace current
   owner selection. The staged first-input path is not yet armed by live Resume
   activation. Writable admission, owner selection

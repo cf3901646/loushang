@@ -24,7 +24,12 @@
   unavailable while keeping history viewable. Ordinary Coding bootstrap,
   Product factory selection, model preparation, and message writes reject an
   unresolved current-Session intent before preparing further runtime effects.
-  Current activation admission,
+  The original Transcript committer now exposes a read-only exact-record
+  lookup through the Product operation fence. It reloads the authority store
+  and compares frozen payload, complete metadata, and selected branch, with
+  committed, not_committed_verified, unknown, and conflict results. Complete
+  evidence and an unchanged target are required to prove absence; this is
+  not yet the Hosted logical-ID/model-outcome port. Current activation admission,
   complete recovery, and runtime wiring are not implemented
 - Owner: Loushang architecture, Coding continuity, and Harness transcript
 - Tracking: [Issue #696](https://github.com/zhnt/loushang/issues/696)

@@ -75,11 +75,20 @@ def test_product_fixed_user_input_keeps_binding_and_evidence_in_one_record(
                 "harness.resourceEvidenceV1": {"version": 1},
             },
         )
+        path = session_root / "session.jsonl"
+        before = path.read_bytes()
+        assert (await session.lookup_prebuilt_user_message(record)).status == "not_committed_verified"
+        assert path.read_bytes() == before
         first = await session.commit_prebuilt_user_message(record)
         duplicate = await session.commit_prebuilt_user_message(record)
         assert first.disposition == "committed"
         assert duplicate.disposition == "already_committed"
+        before = path.read_bytes()
+        assert (await session.lookup_prebuilt_user_message(record)).status == "committed"
+        assert path.read_bytes() == before
         await owner.dispose()
+        with pytest.raises(TranscriptWriterError):
+            await session.lookup_prebuilt_user_message(record)
 
         _, records = load_agent_transcript_file(session_root / "session.jsonl", read_only=True)
         assert records == [record]

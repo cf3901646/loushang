@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -9,6 +10,8 @@ from loushang.ai.types import UserMessage
 from loushang.harness.conversation import (
     ConversationHeader,
     ConversationKey,
+    ConversationLoadResult,
+    ConversationSourceDiagnostic,
     MemoryConversationStore,
     StoreCommitOutcomeUnknown,
 )
@@ -278,6 +281,103 @@ def test_prebuilt_user_record_is_committed_once_across_reload() -> None:
     asyncio.run(scenario())
 
 
+def test_prebuilt_user_lookup_reads_authority_without_committing() -> None:
+    async def scenario() -> None:
+        store = await _store(ids=_ids("unused"))
+        record = _prebuilt_user_record()
+        committer = TranscriptCommitter(store)
+        assert (await committer.lookup_prebuilt_user_message(record)).status == "not_committed_verified"
+        assert store.records == ()
+        await committer.commit_prebuilt_user_message(record)
+        assert (await committer.lookup_prebuilt_user_message(record)).status == "committed"
+        assert (await committer.lookup_prebuilt_user_message(
+            _prebuilt_user_record(content="changed"),
+        )).status == "conflict"
+        assert (await committer.lookup_prebuilt_user_message(
+            replace(record, metadata={"harness.resourceEvidenceV1": {"version": 2}}),
+        )).status == "conflict"
+        store.reset_branch()
+        assert (await committer.lookup_prebuilt_user_message(record)).status == "conflict"
+        assert store.records == (record,)
+
+    asyncio.run(scenario())
+
+
+def test_prebuilt_user_lookup_does_not_use_stale_memory_as_absence() -> None:
+    async def scenario() -> None:
+        store = await _store(ids=_ids("unused"))
+        record = _prebuilt_user_record()
+        stale = await AgentTranscriptUnitOfWork.load(store.backend, store.key)
+        await TranscriptCommitter(store).commit_prebuilt_user_message(record)
+        # The authority result wins over an empty process-local submission ledger.
+        assert (await TranscriptCommitter(stale).lookup_prebuilt_user_message(record)).status == "committed"
+        other = AgentTranscriptRecordFactory(id_factory=lambda: "other-input").create(
+            AGENT_MESSAGE_KIND, UserMessage(role="user", content="other", timestamp=2.0),
+            parent_id=None,
+        )
+        assert (await TranscriptCommitter(stale).lookup_prebuilt_user_message(other)).status == "unknown"
+        assert stale.records == ()
+
+    asyncio.run(scenario())
+
+
+def test_prebuilt_user_lookup_authority_failure_is_unknown(monkeypatch) -> None:
+    async def scenario() -> None:
+        store = await _store(ids=_ids("unused"))
+
+        async def unavailable(key):
+            raise FileNotFoundError("authority unavailable")
+
+        monkeypatch.setattr(store.backend, "load", unavailable)
+        assert (await TranscriptCommitter(store).lookup_prebuilt_user_message(
+            _prebuilt_user_record(),
+        )).status == "unknown"
+        assert store.records == ()
+
+    asyncio.run(scenario())
+
+
+def test_prebuilt_user_lookup_incomplete_source_cannot_prove_absence(monkeypatch) -> None:
+    async def scenario() -> None:
+        store = await _store(ids=_ids("unused"))
+        original_load = store.backend.load
+
+        async def incomplete(key):
+            loaded = await original_load(key)
+            return ConversationLoadResult(
+                snapshot=loaded.snapshot,
+                diagnostics=(ConversationSourceDiagnostic("partial_tail", "incomplete tail"),),
+            )
+
+        monkeypatch.setattr(store.backend, "load", incomplete)
+        assert (await TranscriptCommitter(store).lookup_prebuilt_user_message(
+            _prebuilt_user_record(),
+        )).status == "unknown"
+        assert store.records == ()
+
+    asyncio.run(scenario())
+
+
+def test_prebuilt_user_lookup_freezes_metadata_before_async_read(monkeypatch) -> None:
+    async def scenario() -> None:
+        store = await _store(ids=_ids("unused"))
+        stored = _prebuilt_user_record()
+        committer = TranscriptCommitter(store)
+        await committer.commit_prebuilt_user_message(stored)
+        expected = _prebuilt_user_record()
+        original_load = store.backend.load
+
+        async def change_caller_input(key):
+            expected.metadata["harness.resourceEvidenceV1"]["version"] = 2
+            return await original_load(key)
+
+        monkeypatch.setattr(store.backend, "load", change_caller_input)
+        assert (await committer.lookup_prebuilt_user_message(expected)).status == "committed"
+        assert store.records == (stored,)
+
+    asyncio.run(scenario())
+
+
 def test_prebuilt_user_record_reconciles_lost_ack_by_fixed_record_id() -> None:
     class LostAckStore(MemoryConversationStore):
         append_calls = 0
@@ -311,6 +411,9 @@ def test_prebuilt_user_record_reconciles_lost_ack_by_fixed_record_id() -> None:
             await committer.commit_prebuilt_user_message(record)
         assert backend.append_calls == 2
 
+        assert (await committer.lookup_prebuilt_user_message(record)).status == "committed"
+        assert backend.append_calls == 2
+
         loaded = await AgentTranscriptUnitOfWork.load(backend, key)
         result = await TranscriptCommitter(loaded).commit_prebuilt_user_message(record)
         assert result.disposition == "already_committed"
@@ -341,5 +444,7 @@ def test_prebuilt_user_record_without_durable_receipt_requires_reload(
             await committer.commit_prebuilt_user_message(record)
         assert calls == 1
         assert store.records == ()
+        assert (await committer.lookup_prebuilt_user_message(record)).status == "unknown"
+        assert calls == 1
 
     asyncio.run(scenario())

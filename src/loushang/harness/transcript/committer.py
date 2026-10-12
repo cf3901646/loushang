@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from loushang.ai.types import ImagePart, UserMessage
-from loushang.foundation.json import dump_json_value
+from loushang.foundation.json import dump_json_value, require_json_mapping
 from loushang.harness.conversation import CommitReceipt, StoreCommitOutcomeUnknown
 from loushang.harness.transcript.codecs import (
     STANDARD_PAYLOAD_VERSION,
@@ -44,6 +44,14 @@ class CommitResult:
 
 
 @dataclass(frozen=True)
+class PrebuiltUserMessageLookupResult:
+    """Durable input observation; it grants no retry or execution authority."""
+
+    record_id: str
+    status: Literal["committed", "not_committed_verified", "unknown", "conflict"]
+
+
+@dataclass(frozen=True)
 class _CommittedApplicationMessage:
     record_id: str
     fingerprint: str
@@ -59,6 +67,71 @@ class TranscriptCommitter:
         self._payload_codecs = create_agent_transcript_payload_registry()
         self._commit_lock = asyncio.Lock()
         self._index_committed_messages()
+
+    async def lookup_prebuilt_user_message(
+        self, record: AgentTranscriptRecord,
+    ) -> PrebuiltUserMessageLookupResult:
+        """Read the original authority store without appending or changing leaf.
+
+        The expected record includes its frozen payload and complete metadata.
+        Absence requires a complete authority load and unchanged local target.
+        A returned observation still needs ordinary owner admission before use.
+        """
+
+        if record.kind != AGENT_MESSAGE_KIND or not isinstance(record.payload, UserMessage):
+            raise TypeError("prebuilt user lookup requires an agent UserMessage")
+        payload = self._payload_codecs.decode(
+            AGENT_MESSAGE_KIND, STANDARD_PAYLOAD_VERSION,
+            self._payload_codecs.encode(
+                AGENT_MESSAGE_KIND, STANDARD_PAYLOAD_VERSION, record.payload,
+            ),
+        )
+        if not isinstance(payload, UserMessage):
+            raise TypeError("prebuilt user lookup codec did not preserve UserMessage")
+        record = replace(
+            record, payload=payload,
+            metadata=require_json_mapping(dict(record.metadata), name="prebuilt user lookup metadata"),
+        )
+        async with self._commit_lock:
+            def result(
+                status: Literal["committed", "not_committed_verified", "unknown", "conflict"],
+            ) -> PrebuiltUserMessageLookupResult:
+                return PrebuiltUserMessageLookupResult(record.record_id, status)
+            if not self._store.is_materialized:
+                return result("unknown")
+            revision, leaf_id = self._store.revision, self._store.leaf_id
+            try:
+                observed = await AgentTranscriptUnitOfWork.load(
+                    self._store.backend, self._store.key,
+                )
+            except Exception:
+                # Missing, unreadable, or unavailable authority is never absence.
+                return result("unknown")
+            if (
+                observed.header != self._store.header
+                or observed.diagnostics or self._store.diagnostics
+                or (revision, leaf_id) != (self._store.revision, self._store.leaf_id)
+            ):
+                return result("unknown")
+            existing = observed.get(record.record_id)
+            if existing is not None:
+                local = self._store.get(record.record_id)
+                if (
+                    existing != record or existing not in observed.active_path()
+                    or (local is not None and local not in self._store.active_path())
+                    or (local is None and record.parent_id != leaf_id)
+                ):
+                    return result("conflict")
+                return result("committed")
+            if (
+                record.record_id in self._uncertain_prebuilt_ids
+                or observed.revision != revision
+                or observed.records != self._store.records
+            ):
+                return result("unknown")
+            if record.parent_id != leaf_id:
+                return result("conflict")
+            return result("not_committed_verified")
 
     async def commit_prebuilt_user_message(
         self, record: AgentTranscriptRecord,

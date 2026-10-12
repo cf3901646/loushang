@@ -35,7 +35,10 @@ from loushang.harness.runtime import RuntimeProfileSnapshot
 from loushang.harness.transcript.capability_candidate import (
     AgentTranscriptCapabilityCandidate,
 )
-from loushang.harness.transcript.committer import CommitResult
+from loushang.harness.transcript.committer import (
+    CommitResult,
+    PrebuiltUserMessageLookupResult,
+)
 from loushang.harness.transcript.compaction import (
     TURN_AWARE_SUMMARY_IMPLEMENTATION,
     TURN_AWARE_SUMMARY_VERSION,
@@ -164,6 +167,16 @@ class ProductTranscriptSession(
                     transcript_changed=self._transcript.revision != revision,
                 )
                 raise
+
+    async def lookup_prebuilt_user_message(
+        self, record: AgentTranscriptRecord,
+    ) -> PrebuiltUserMessageLookupResult:
+        """Keep durable lookup under the existing Product ownership fence."""
+
+        if not self.persist:
+            raise ValueError("prebuilt user lookup requires a persistent Product session")
+        async with self._lifecycle_session.operation_scope():
+            return await super().lookup_prebuilt_user_message(record)
 
     async def commit_prebuilt_user_message(
         self, record: AgentTranscriptRecord,

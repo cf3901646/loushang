@@ -19,6 +19,7 @@ if TYPE_CHECKING:
         CommitResult,
         PrebuiltExtensionDataIdentityConflictError,
         PrebuiltUserMessageIdentityConflictError,
+        PrebuiltUserMessageLookupResult,
         TranscriptCommitter,
     )
     from loushang.harness.transcript.compaction import (
@@ -406,6 +407,7 @@ _EXPORT_MODULES = {
     "BindingInputResolver": "loushang.harness.transcript.session_factory",
     "Clock": "loushang.harness.transcript.writer",
     "CommitResult": "loushang.harness.transcript.committer",
+    "PrebuiltUserMessageLookupResult": "loushang.harness.transcript.committer",
     "CommitObserver": "loushang.harness.transcript.session",
     "CompactionDecision": "loushang.harness.transcript.maintenance",
     "CompactionHookDecision": "loushang.harness.transcript.maintenance",
