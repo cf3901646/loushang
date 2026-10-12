@@ -154,6 +154,16 @@ def test_readonly_snapshot_selects_one_parent_linked_history_path(tmp_path) -> N
     assert preview.binding_status == "none"
     assert path.read_bytes() == before
 
+    left = read_coding_resume_snapshot(
+        path, max_bytes=1024 * 1024, selected_leaf_id="left",
+    )
+    assert [record.record_id for record in left.selected_records] == ["root", "left"]
+    assert left.selected_leaf_id == "left"
+    with pytest.raises(ValueError):
+        read_coding_resume_snapshot(
+            path, max_bytes=1024 * 1024, selected_leaf_id="missing",
+        )
+
 
 def test_readonly_snapshot_reports_selected_binding_without_blocking_corrupt_history(
     tmp_path,
@@ -192,3 +202,13 @@ def test_readonly_snapshot_reports_selected_binding_without_blocking_corrupt_his
     assert preview.binding_status == "invalid"
     assert preview.binding is None
     assert preview.selected_records == (corrupt,)
+
+    future = replace(
+        bound,
+        metadata={CODING_RUNTIME_BINDING_METADATA_KEY: {"version": 2}},
+    )
+    write_agent_transcript_export(path, header, [future])
+    preview = read_coding_resume_snapshot(path, max_bytes=1024 * 1024)
+    assert preview.binding_status == "unknown_version"
+    assert preview.binding is None
+    assert preview.selected_records == (future,)

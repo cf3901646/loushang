@@ -89,7 +89,7 @@ def read_coding_resume_header(path: str | Path) -> CodingResumeHeaderPreview:
 
 
 def read_coding_resume_snapshot(
-    path: str | Path, *, max_bytes: int,
+    path: str | Path, *, max_bytes: int, selected_leaf_id: str | None = None,
 ) -> CodingResumeHistoryPreview:
     """Read a bounded historical snapshot without acquiring transcript authority."""
 
@@ -104,6 +104,7 @@ def read_coding_resume_snapshot(
         records=records,
         record_id=lambda record: record.record_id,
         parent_id=lambda record: record.parent_id,
+        leaf_id=selected_leaf_id,
     )
     startup = historical_startup_composition_record(records)
     composition = header_preview.composition

@@ -667,6 +667,7 @@ class CodingHostedSessionCatalogV1:
 
     async def preview_history_snapshot(
         self, reference: SessionCandidateRefV1, *, max_bytes: int,
+        selected_leaf_id: str | None = None,
     ) -> CodingResumeHistoryPreview:
         """Read bounded history from a discovered candidate without claiming it."""
 
@@ -678,6 +679,7 @@ class CodingHostedSessionCatalogV1:
                 raise CodingHostedCatalogError()
         preview = await settled_io(
             read_coding_resume_snapshot, record.path, max_bytes=max_bytes,
+            selected_leaf_id=selected_leaf_id,
         )
         self._accepting()
         if (
