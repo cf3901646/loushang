@@ -1337,3 +1337,60 @@ Both final cancellation/close delivery cases also passed with explicit rejection
 of action-ID reuse before the original waiter settles. Invalidated reservations
 remain bounded until that waiter releases them, so its cleanup cannot erase a
 new confirmation. All nine documentation checks passed.
+
+#### Initial continuation has one Coding coordinator
+
+`prepare_coding_resume_continuation` now sequences the original owned Writer,
+fixed intent, current bootstrap, candidate graph, native prompt/Skill
+preparation, inline Binding and Request Evidence commit, and local Runtime
+publication. It returns the original AgentSession and canonical input record
+for the Product's existing slot/binding owner to adopt. It does not replace a
+Product slot, invoke normal prompt, dispatch a model or retry any stage.
+Current admission is required before Writer acquisition and is rechecked after
+acquisition and throughout the existing owner entries. Current epoch/effect
+settlement is required after graph preparation, after input preparation and by
+the original publication owner. Its callback cannot return a truthy receipt or
+an unawaited coroutine as admission.
+
+Before intent or Runtime effects, the admitted Writer rejects an existing
+physical record identity and a known logical input ID on the selected Session
+ancestry. A regression first demonstrated that a new Plan and new physical
+record ID could otherwise duplicate an already saved logical input. The new
+fence requires recovery lookup instead; the second attempt leaves bytes
+unchanged and prepares no graph. This does not implement the Hosted client
+registry or absence proof for an input from another branch or service restart.
+
+After definite commit, the coordinator delivers the original full-record
+digest as a native input lookup query. The same identity is available from the
+original staged record on an unknown commit outcome, and from the original
+committed record after a post-commit failure. This data is not permission,
+Runtime readiness or model-outcome evidence. A receiver failure does not cause
+redelivery, input replay or publication. A fresh bounded native history read
+and original model-outcome observer recognize the exact persisted input while
+conservatively leaving its model outcome unknown.
+
+Failure disposes the undelivered original Session/Manager, retaining committed
+history and cancellation semantics. If that cleanup fails, the coordinator
+fences the original Transcript factory and raises a cleanup-debt exception
+that retains the original owner and both failures. Its retry entry calls that
+same owner's disposal; it does not create another Writer or reopen the factory.
+The Product root must retain this debt and close/restart its affected owner.
+Pending draft display, adoption, event delivery and retry disposition remain
+with the upcoming Embedded/Hosted callers.
+
+The coordinator fixtures use a real native interactive permission confirmation,
+owned persistent Writer, current standard composition and actual Skill bytes.
+They cover pre-Writer denial, graph/read revocation, cancellation, unsettled
+effects, fixed-ID native UOW verification on unknown ACK, post-commit publication
+revocation, identity receiver failure and cleanup debt. Current epoch settlement
+is still a test validator. Default Embedded/Hosted callers, actual live actor
+and Policy/epoch owners, background scheduling/cache/performance, release
+compatibility and final delivery remain required; Goal and Issue #696 remain
+incomplete.
+
+Validation: twenty non-live coordinator and native permission-binding cases
+passed. Initial entry absence, unretained cleanup failure and duplicate logical
+input cases were demonstrated before their fixes. The duplicate fixture's
+initial Writer assertion was corrected to recognize the already closed prior
+Writer before confirming the new candidate. Scoped mypy, Ruff and all nine
+documentation checks passed.
