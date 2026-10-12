@@ -2437,3 +2437,50 @@ gate. Control `main` remains `f7d18114`; no new synchronization was required.
 ARD-007 r2 is awaiting explicit common-parent acceptance for its new native
 protocol and writer boundary. Independent baselines and existing gates may
 continue, while dependent v2 mutation/default activation remains unimplemented.
+
+#### Large-history Python allocation baseline
+
+The benchmark now accepts `--measure-memory`. After each uninstrumented latency
+case, a separate fresh-Root batch traces Python allocations through data
+delivery and Root disposal. Imports and fixture construction occur before
+tracing. This records neither process RSS nor allocations outside Python's
+tracer, and cannot establish the complete R2.1 memory acceptance criterion.
+Existing tracing is rejected instead of resetting another observer's session.
+
+```sh
+env PYTHONPATH=src .venv/bin/python scripts/benchmarks/benchmark_resume_history.py \
+  --scratch-root /home/dev/.cache/loushang-resume696-bench --measure-memory \
+  --output /tmp/loushang-resume696-history-memory-6aff2628.json
+```
+
+All six cases completed on Linux/Python 3.11.15 with the same actual last record,
+52 delivered records, 131072 head/tail bytes and unchanged source identity,
+size and mtime. Each viewer owns its own Root; these are not Hosted clients
+sharing one binding.
+
+| Fixture records | Parallel viewers | Traced Python allocation peak (bytes) |
+| --- | --- | --- |
+| 10,000 | 1 | 518,747 |
+| 10,000 | 2 | 1,008,104 |
+| 10,000 | 8 | 2,348,257 |
+| 100,000 | 1 | 516,622 |
+| 100,000 | 2 | 985,786 |
+| 100,000 | 8 | 2,331,288 |
+
+These observations are consistent with bounded recent-page allocation at these
+two fixture sizes; they are not a general memory bound. Architecture checks ran
+concurrently, so this report's latency samples must not be used as a speedup or
+regression comparison against the preceding baseline. The raw report retains
+the measurements and their scope. Ruff and scoped mypy with `MYPYPATH=src`
+passed the changed benchmark script. Production code, activation authority and
+history verification status were unchanged by this measurement extension.
+
+The relevant current-tree architecture run completed with 176 passed in
+429.84 seconds (`test_import_boundaries.py` and
+`test_hosted_product_runtime_v1_baseline.py`, `not live`, host runtime skipped).
+Its saved terminal report is
+`/tmp/loushang-resume696-root-boundaries-6aff2628.log`. No runtime source changed
+during this run; only the benchmark and this evidence note changed. This
+establishes the affected boundary checks, not the outstanding full release,
+installed-version, Hosted activation or performance gates. All nine static
+documentation checks and `git diff --check` passed for this evidence update.

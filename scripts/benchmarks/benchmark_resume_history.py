@@ -13,6 +13,7 @@ import gc
 import json
 import platform
 import tempfile
+import tracemalloc
 from pathlib import Path
 from statistics import median
 from time import perf_counter
@@ -102,6 +103,20 @@ async def _measure(path: Path, count: int, parallelism: int, samples: int) -> di
     }
 
 
+async def _measure_python_peak(path: Path, count: int, parallelism: int) -> int:
+    """Trace a separate fresh-root batch without perturbing latency samples."""
+
+    if tracemalloc.is_tracing():
+        raise RuntimeError("memory benchmark requires its own tracing session")
+    gc.collect()
+    tracemalloc.start(1)
+    try:
+        await _measure(path, count, parallelism, samples=1)
+        return tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+
 async def _run(args: argparse.Namespace) -> dict[str, object]:
     results = []
     scratch_root = args.scratch_root
@@ -115,7 +130,12 @@ async def _run(args: argparse.Namespace) -> dict[str, object]:
             path = _fixture(root, count, args.payload_bytes)
             gc.collect()
             for parallelism in args.parallelism:
-                results.append(await _measure(path, count, parallelism, args.samples))
+                result = await _measure(path, count, parallelism, args.samples)
+                result["python_traced_peak_bytes"] = (
+                    await _measure_python_peak(path, count, parallelism)
+                    if args.measure_memory else None
+                )
+                results.append(result)
     return {
         "schema_version": 1,
         "measurement": "coding_root_bounded_recent_history_data_delivery",
@@ -126,7 +146,12 @@ async def _run(args: argparse.Namespace) -> dict[str, object]:
         "viewer_scope": "one original Root per viewer; not one Root with eight waiters",
         "os_cache": "fixture creation warms OS cache; no OS-cold claim",
         "first_read": "first data read on each newly created Root; imports and fixture setup excluded",
-        "excluded": ["terminal_paint", "planning", "activation", "model_transport", "memory_peak"],
+        "bytes_measurement": "bounded head/tail bytes; discovery and metadata IO excluded",
+        "python_memory_scope": (
+            "separate fresh-root single batch plus disposal; imports/fixtures/untracked native allocations/RSS excluded"
+            if args.measure_memory else "not measured"
+        ),
+        "excluded": ["terminal_paint", "planning", "activation", "model_transport", "process_memory_peak"],
         "acceptance": "baseline only; not full R2.1 performance acceptance",
         "results": results,
     }
@@ -137,6 +162,7 @@ def main() -> int:
     parser.add_argument("--sizes", nargs="+", type=int, default=[10000, 100000])
     parser.add_argument("--parallelism", nargs="+", type=int, default=[1, 2, 8])
     parser.add_argument("--samples", type=int, default=3)
+    parser.add_argument("--measure-memory", action="store_true", help="Trace Python allocation peak in separate batches, excluding RSS.")
     parser.add_argument("--payload-bytes", type=int, default=1024)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--scratch-root", type=Path, help="Private fixture scratch on a filesystem with sufficient capacity.")
