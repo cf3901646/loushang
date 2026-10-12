@@ -21,6 +21,7 @@ from loushang.coding.resume_activation_plan import (
     ActivationOwnerSelectionRefV1,
     ResumePlanStaleError,
     build_session_activation_plan,
+    plan_coding_resume,
     require_current_resume_plan_inputs,
     require_current_resume_plan_source,
 )
@@ -278,6 +279,7 @@ def test_readonly_snapshot_and_pure_plan_have_no_authority_effects(
             await manager.dispose_runtime_profile()
 
     path = asyncio.run(create())
+    loader = ResourceLoader(user_resource_roots=())
     before = {item.name: item.read_bytes() for item in tmp_path.iterdir() if item.is_file()}
     original_open = os.open
 
@@ -297,10 +299,46 @@ def test_readonly_snapshot_and_pure_plan_have_no_authority_effects(
         context.setattr(Path, "write_bytes", deny_effect)
         context.setattr(Path, "write_text", deny_effect)
         history = read_coding_resume_snapshot(path, max_bytes=1024 * 1024)
-        plan = build_session_activation_plan(
+        plan = plan_coding_resume(
             history, resolve_coding_composition_set("coding-standard"),
-            workspace_root=tmp_path,
+            workspace_root=tmp_path, resource_loader=loader,
         )
 
     assert plan.status == "needs_final_validation"
+    assert tuple(item.owner_id for item in plan.owner_inputs) == ("resources.catalog",)
     assert {item.name: item.read_bytes() for item in tmp_path.iterdir() if item.is_file()} == before
+
+
+def test_resume_plan_entry_tracks_resource_edits_and_drops_borrowed_receipts(tmp_path) -> None:
+    loader = ResourceLoader(user_resource_roots=())
+    context = tmp_path / "AGENTS.md"
+    context.write_text("before", encoding="utf-8")
+    current = resolve_coding_composition_set("coding-standard")
+    first = plan_coding_resume(
+        _history(), current, workspace_root=tmp_path, resource_loader=loader,
+    )
+    context.write_text("after", encoding="utf-8")
+    second = plan_coding_resume(
+        _history(), current, workspace_root=tmp_path, resource_loader=loader,
+    )
+    assert first.plan_id != second.plan_id
+    assert first.owner_inputs != second.owner_inputs
+    assert "ResourceCatalogInputReceipt" not in repr(second)
+    with pytest.raises(ResumePlanStaleError, match="owner inputs changed"):
+        require_current_resume_plan_inputs(first, second.owner_inputs)
+
+
+def test_unavailable_history_does_not_request_resource_planning(tmp_path, monkeypatch) -> None:
+    loader = ResourceLoader(user_resource_roots=())
+
+    def forbidden_preview(*args, **kwargs):
+        pytest.fail("unavailable Resume requested resource planning")
+
+    monkeypatch.setattr(loader, "preview_catalog_input_receipt", forbidden_preview)
+    plan = plan_coding_resume(
+        replace(_history(), activation_status="unknown_version"),
+        resolve_coding_composition_set("coding-standard"),
+        workspace_root=tmp_path, resource_loader=loader,
+    )
+    assert plan.status == "unavailable"
+    assert plan.owner_inputs == ()

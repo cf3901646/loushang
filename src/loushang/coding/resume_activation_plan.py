@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Literal
 
 from loushang.foundation.json import dump_json_value
+from loushang.harness.resources.loader import ResourceLoader
 
 from .composition_sets import CodingCompositionSetPlan, resolve_coding_composition_set
 from .resume_activation_attempt import project_coding_activation_attempt_path
@@ -95,12 +96,7 @@ def build_session_activation_plan(
 ) -> SessionActivationPlanV1:
     """Aggregate historical facts and existing owner choices without effects."""
 
-    if not isinstance(workspace_root, Path) or not workspace_root.is_absolute():
-        raise ValueError("activation Plan requires a canonical absolute workspace root")
-    if str(workspace_root) != os.path.normpath(str(workspace_root)):
-        raise ValueError("activation Plan requires a canonical absolute workspace root")
-    if len(str(workspace_root).encode("utf-8")) > 4096:
-        raise ValueError("activation Plan workspace root exceeds its budget")
+    _require_plan_workspace_root(workspace_root)
     inputs = tuple(owner_inputs)
     if len(inputs) > 64:
         raise ValueError("activation Plan owner inputs exceed their budget")
@@ -221,6 +217,43 @@ def build_session_activation_plan(
     )
 
 
+def plan_coding_resume(
+    history: CodingResumeHistoryPreview,
+    current_composition: CodingCompositionSetPlan,
+    *,
+    workspace_root: Path,
+    resource_loader: ResourceLoader,
+) -> SessionActivationPlanV1:
+    """Plan from already displayed history through the original Resource owner.
+
+    This synchronous entry is shared by foreground and future background
+    callers. It retains a redacted input fingerprint, never a borrowed Package
+    handle, Resource receipt, selected Runtime, or execution authority.
+    """
+
+    _require_plan_workspace_root(workspace_root)
+    if compare_coding_resume_composition(history, current_composition).status == "unavailable":
+        return build_session_activation_plan(
+            history, current_composition, workspace_root=workspace_root,
+        )
+    receipt = resource_loader.preview_catalog_input_receipt(workspace_root)
+    return build_session_activation_plan(
+        history, current_composition, workspace_root=workspace_root,
+        owner_inputs=(ActivationOwnerInputRefV1(
+            owner_id="resources.catalog", fingerprint=receipt.input_fingerprint,
+        ),),
+    )
+
+
+def _require_plan_workspace_root(workspace_root: Path) -> None:
+    if not isinstance(workspace_root, Path) or not workspace_root.is_absolute():
+        raise ValueError("activation Plan requires a canonical absolute workspace root")
+    if str(workspace_root) != os.path.normpath(str(workspace_root)):
+        raise ValueError("activation Plan requires a canonical absolute workspace root")
+    if len(str(workspace_root).encode("utf-8")) > 4096:
+        raise ValueError("activation Plan workspace root exceeds its budget")
+
+
 def require_current_resume_plan_source(
     plan: SessionActivationPlanV1, history: CodingResumeHistoryPreview,
 ) -> None:
@@ -272,6 +305,7 @@ __all__ = [
     "ResumePlanStaleError",
     "SessionActivationPlanV1",
     "build_session_activation_plan",
+    "plan_coding_resume",
     "require_current_resume_plan_inputs",
     "require_current_resume_plan_source",
 ]
