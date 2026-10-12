@@ -8,7 +8,8 @@
   unverified tail previews, exact-byte digest for bounded historical snapshots,
   historical Binding projection, fixed-ID UserMessage commit primitives with
   image externalization inside the existing Transcript owner, composition
-  comparison, a staged first-input path in Coding's SessionManager, and a
+  comparison, an internal fixed-ID activation-attempt record and Transcript
+  commit path, a staged first-input path in Coding's SessionManager, and a
   data-only internal `SessionActivationPlanV1` envelope exist. ResourceLoader
   can calculate
   Catalog input facts and bounded native context content digests without
@@ -530,3 +531,22 @@ Hosted readiness/admission 的精确协议及旧版本回滚行为。
 具体 revision，区分 demonstrated source facts、设计歧义和需 spike 的假设。
 修文关闭的是设计歧义；运行时保证需实现与测试。跨视角矛盾在综合记录中处理，
 语义修改需受影响评审者复核，不能将旧评审结论泛化到新 revision。
+
+## Local Implementation Baseline (2026-10-12)
+
+The offline command `env PYTHONPATH=src .venv/bin/python
+scripts/dev/verify_resume_scale.py --sessions 2 --logical-size-mib 1 --json`
+passed on both `main` at `574f24bc` and the #696 task branch at `0198ef86`.
+The script creates two sparse catalog candidates and one valid 40.008 MiB
+transcript, then resumes it in a fresh process with a deterministic model.
+
+| Observed phase | `main` | #696 branch |
+| --- | ---: | ---: |
+| Cold bounded catalog listing | 7.402 s | 8.181 s |
+| Fresh-process Resume through completed turn | 11.512 s | 11.833 s |
+| Resume to first model request | 3.958 s | 4.206 s |
+
+These two local runs establish a pre-background baseline, not a speedup claim
+or a stable latency budget. The script does not yet measure first frame, input
+acceptance, Plan readiness, durable input, CPU/RSS/FD, or 1/2/8 concurrent
+Sessions and 10k/100k record scenarios required for R2.1 acceptance.
