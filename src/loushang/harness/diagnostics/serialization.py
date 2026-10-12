@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+# CI verification probe for issue 704 Harness module setup.
+
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
