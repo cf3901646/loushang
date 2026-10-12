@@ -720,3 +720,14 @@ Ruff passed for the touched code and tests. Mypy with
 These checks establish the internal historical guard; they do not establish
 live activation admission, effect settlement, Hosted continuation, released
 N/N+1 compatibility, or the complete R2.1 quality and performance gates.
+
+## Latest Main Integration Evidence
+
+The task branch incorporated fetched `origin/main` at `197a9008` through
+merge `f915f5f0`, including the Windows history-source inventory and conditional
+Windows PR smoke selection. The merge had no conflicts. After integration,
+212 non-live tests passed across `tests/ci`, Resume Writer/Binding/Plan, framed
+execution connections, authenticated local execution, local records, and
+connection profiles. Documentation validation passed nine checks. This proves
+the listed local integration checks, not Windows runtime execution or completed
+Resume admission/publication, release, and performance acceptance.
