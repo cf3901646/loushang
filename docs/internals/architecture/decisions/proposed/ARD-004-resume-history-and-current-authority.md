@@ -15,7 +15,10 @@
   a specific leaf and classify that path's RuntimeBinding evidence without
   granting execution authority. A large transcript can show a bounded tail
   explicitly marked as an unverified branch preview. Full UI history opening,
-  verified large-history paging, and activation separation are not implemented
+  verified large-history paging, and activation separation are not implemented.
+  A focused snapshot-and-Plan sentinel rejects process launch, dynamic
+  `import_module`, and filesystem writes on that narrow path; it does not
+  cover the full UI or Hosted lifecycle
 - Owner: Loushang architecture, with the affected scope owners
 - Tracking: [Issue #696](https://github.com/zhnt/loushang/issues/696)
 
@@ -128,8 +131,10 @@ The existing focused baseline passed 37 tests on 2026-10-12, using
 `tests/coding/test_plugin_p3_composition_choice.py`,
 `tests/coding/test_ui_resume.py`, and
 `tests/harnesstui/conversation/test_resume.py` on `e0878dfa`; it verifies
-current behavior only. No R2.1 implementation or fault-injection proof is
-claimed. Reconsider this choice if a supported historical schema cannot be
+the pre-implementation behavior only. Focused R2.1 tests now cover Header and
+selected-path read-only projections, pure Plan freshness, and one zero-effect
+sentinel. They do not prove full UI/Hosted opening or crash recovery.
+Reconsider this choice if a supported historical schema cannot be
 decoded without executing current extension code, or if Product identity
 cannot be established independently of a mutable registry.
 

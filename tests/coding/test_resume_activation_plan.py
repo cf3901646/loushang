@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
+import os
+import subprocess
 from dataclasses import replace
 from pathlib import Path
 
@@ -201,3 +204,46 @@ def test_activation_plan_references_resource_owner_input_without_retaining_recei
         require_current_resume_plan_inputs(first, ())
     with pytest.raises(ResumePlanStaleError, match="owner inputs changed"):
         require_current_resume_plan_inputs(changed, (first_ref,))
+
+
+def test_readonly_snapshot_and_pure_plan_have_no_authority_effects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def create() -> Path:
+        manager = await SessionManager.new_with_composition(
+            session_dir=tmp_path, cwd=str(tmp_path),
+            composition_set="coding-standard", defer_materialization=False,
+        )
+        try:
+            assert manager.session_file is not None
+            return manager.session_file
+        finally:
+            await manager.dispose_runtime_profile()
+
+    path = asyncio.run(create())
+    before = {item.name: item.read_bytes() for item in tmp_path.iterdir() if item.is_file()}
+    original_open = os.open
+
+    def deny_effect(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("read-only Resume attempted an authority effect")
+
+    def guarded_os_open(path: object, flags: int, *args: object, **kwargs: object) -> int:
+        if flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND):
+            deny_effect()
+        return original_open(path, flags, *args, **kwargs)
+
+    with monkeypatch.context() as context:
+        context.setattr(importlib, "import_module", deny_effect)
+        context.setattr(subprocess, "Popen", deny_effect)
+        context.setattr(asyncio, "create_subprocess_exec", deny_effect)
+        context.setattr(os, "open", guarded_os_open)
+        context.setattr(Path, "write_bytes", deny_effect)
+        context.setattr(Path, "write_text", deny_effect)
+        history = read_coding_resume_snapshot(path, max_bytes=1024 * 1024)
+        plan = build_session_activation_plan(
+            history, resolve_coding_composition_set("coding-standard"),
+            workspace_root=tmp_path,
+        )
+
+    assert plan.status == "needs_final_validation"
+    assert {item.name: item.read_bytes() for item in tmp_path.iterdir() if item.is_file()} == before
