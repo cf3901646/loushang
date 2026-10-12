@@ -217,11 +217,14 @@ def test_runtime_binding_projection_tracks_selected_branch_across_compaction() -
     assert projected.status == "bound"
     assert projected.binding == binding
     assert projected.record_id == bound.record_id
+    assert len(projected.ancestry_digest) == 64
 
     repository.branch(alternate.record_id)
-    assert project_coding_runtime_binding_path(
+    alternate_projection = project_coding_runtime_binding_path(
         repository.active_records(), current_session_id=binding.session_id,
-    ).status == "none"
+    )
+    assert alternate_projection.status == "none"
+    assert alternate_projection.ancestry_digest != projected.ancestry_digest
 
 
 def test_runtime_binding_projection_does_not_inherit_fork_origin() -> None:
@@ -270,6 +273,7 @@ def test_runtime_binding_projection_fails_closed_on_unknown_or_corrupt_path() ->
     assert projected.status == "unknown_version"
     assert projected.binding is None
     assert projected.record_id == unknown.record_id
+    assert len(projected.ancestry_digest) == 64
 
     later_binding = replace(
         binding, record_id="later", original_leaf_id=unknown.record_id,

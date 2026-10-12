@@ -51,6 +51,7 @@ class CodingResumeHistoryPreview:
     provenance_conflict: bool
     binding_status: Literal["none", "bound", "unknown_version", "invalid"]
     binding: CodingRuntimeBindingV1 | None
+    selected_ancestry_digest: str | None
     status: Literal["preview"] = "preview"
 
 
@@ -117,10 +118,12 @@ def read_coding_resume_snapshot(
             binding_projection.status
         )
         binding = binding_projection.binding
+        ancestry_digest = binding_projection.ancestry_digest
     except ValueError:
         # Historical viewing remains possible when binding evidence is unusable.
         binding_status = "invalid"
         binding = None
+        ancestry_digest = None
     return CodingResumeHistoryPreview(
         header_preview=header_preview,
         records=tuple(records),
@@ -137,6 +140,7 @@ def read_coding_resume_snapshot(
         ),
         binding_status=binding_status,
         binding=binding,
+        selected_ancestry_digest=ancestry_digest,
     )
 
 

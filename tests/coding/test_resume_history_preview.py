@@ -152,6 +152,7 @@ def test_readonly_snapshot_selects_one_parent_linked_history_path(tmp_path) -> N
     assert [record.record_id for record in preview.selected_records] == ["root", "right"]
     assert preview.selected_leaf_id == "right"
     assert preview.binding_status == "none"
+    assert len(preview.selected_ancestry_digest) == 64
     assert path.read_bytes() == before
 
     left = read_coding_resume_snapshot(
@@ -159,6 +160,7 @@ def test_readonly_snapshot_selects_one_parent_linked_history_path(tmp_path) -> N
     )
     assert [record.record_id for record in left.selected_records] == ["root", "left"]
     assert left.selected_leaf_id == "left"
+    assert left.selected_ancestry_digest != preview.selected_ancestry_digest
     with pytest.raises(ValueError):
         read_coding_resume_snapshot(
             path, max_bytes=1024 * 1024, selected_leaf_id="missing",
@@ -201,6 +203,7 @@ def test_readonly_snapshot_reports_selected_binding_without_blocking_corrupt_his
     preview = read_coding_resume_snapshot(path, max_bytes=1024 * 1024)
     assert preview.binding_status == "invalid"
     assert preview.binding is None
+    assert preview.selected_ancestry_digest is None
     assert preview.selected_records == (corrupt,)
 
     future = replace(

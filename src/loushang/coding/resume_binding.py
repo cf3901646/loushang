@@ -123,9 +123,14 @@ class CodingRuntimeBindingObservation:
 
 @dataclass(frozen=True, slots=True)
 class CodingRuntimeBindingPathProjection:
-    """Last relevant Binding on one complete selected ancestry path."""
+    """Last relevant Binding and structural digest of one selected path.
+
+    The digest covers record and parent IDs only. Callers must separately
+    validate the source revision and record content before execution.
+    """
 
     status: Literal["none", "bound", "unknown_version"]
+    ancestry_digest: str
     binding: CodingRuntimeBindingV1 | None = None
     record_id: str | None = None
 
@@ -141,7 +146,10 @@ def project_coding_runtime_binding_path(
     """
 
     _require_identifier(current_session_id, name="current Session id")
-    projection = CodingRuntimeBindingPathProjection("none")
+    status: Literal["none", "bound", "unknown_version"] = "none"
+    selected_binding: CodingRuntimeBindingV1 | None = None
+    selected_record_id: str | None = None
+    ancestry = hashlib.sha256(b"loushang.coding.resume-ancestry/v1\0")
     previous_id: str | None = None
     seen: set[str] = set()
     for record in records:
@@ -149,15 +157,20 @@ def project_coding_runtime_binding_path(
             raise ValueError("RuntimeBinding projection requires a complete parent-linked path")
         seen.add(record.record_id)
         previous_id = record.record_id
+        identity = _canonical_bytes({
+            "recordId": record.record_id, "parentId": record.parent_id,
+        })
+        ancestry.update(len(identity).to_bytes(4, "big"))
+        ancestry.update(identity)
         observation = inspect_coding_runtime_binding(record.metadata)
         if observation.status == "absent":
             continue
         if record.kind != AGENT_MESSAGE_KIND or not isinstance(record.payload, UserMessage):
             raise ValueError("RuntimeBinding requires an agent UserMessage record")
         if observation.status == "unknown_version":
-            projection = CodingRuntimeBindingPathProjection(
-                "unknown_version", record_id=record.record_id,
-            )
+            status = "unknown_version"
+            selected_binding = None
+            selected_record_id = record.record_id
             continue
         observed_binding = observation.binding
         if observed_binding is None:
@@ -166,10 +179,13 @@ def project_coding_runtime_binding_path(
             record, expected_session_id=observed_binding.session_id,
         )
         if binding.session_id == current_session_id:
-            projection = CodingRuntimeBindingPathProjection(
-                "bound", binding=binding, record_id=record.record_id,
-            )
-    return projection
+            status = "bound"
+            selected_binding = binding
+            selected_record_id = record.record_id
+    return CodingRuntimeBindingPathProjection(
+        status, ancestry.hexdigest(),
+        binding=selected_binding, record_id=selected_record_id,
+    )
 
 
 def inspect_coding_runtime_binding(
