@@ -30,11 +30,16 @@ from loushang.coding.resume_input_lookup import (
     CodingResumeInputLookupQueryV1,
     coding_resume_input_record_digest,
 )
+from loushang.coding.resume_permission_confirmation import (
+    CodingResumePermissionConfirmation,
+    coding_resume_permission_request,
+)
 from loushang.coding.session_manager import (
     SessionManager,
     _bind_owned_session_manager,
     _create_owned_session_factory,
 )
+from loushang.harness.approval import DenyApprovalResolver, InteractiveApprovalResolver
 from loushang.harness.conversation import StoreCommitOutcomeUnknown
 from loushang.harness.session.bash import UserBashRequest
 from loushang.harness.transcript import user_message_text
@@ -44,7 +49,8 @@ pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="Linux owned Cod
 
 
 @pytest.mark.parametrize("mode", [
-    "published", "published_evidence", "published_preflight",
+    "published", "published_evidence", "published_preflight", "published_preflight_native_confirmation",
+    "preflight_native_revoked",
     "preflight_revoked", "preflight_cancelled", "preflight_repeated", "preflight_changed_input", "preflight_command",
     "input_commit_unknown", "input_commit_revoked",
     "input_commit_mismatch", "input_commit_revoked_after",
@@ -60,7 +66,7 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
     monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
 
     async def scenario():
-        if mode == "published_preflight" or mode.startswith("preflight_"):
+        if mode.startswith("published_preflight") or mode.startswith("preflight_"):
             skill = tmp_path / "skills" / "review" / "SKILL.md"
             skill.parent.mkdir(parents=True)
             skill.write_text("---\nname: review\ndescription: Review changes\n---\nReview actual source bytes.\n")
@@ -73,14 +79,14 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
         await original.dispose_runtime_profile()
         assert path is not None
         composition = resolve_coding_composition_set(
-            "coding-standard" if mode == "published_preflight" or mode.startswith("preflight_") else "coding-minimal",
+            "coding-standard" if mode.startswith("published_preflight") or mode.startswith("preflight_") else "coding-minimal",
         )
         plan = build_session_activation_plan(
             read_coding_resume_snapshot(path, max_bytes=1024 * 1024), composition, workspace_root=tmp_path,
         )
         factory = _create_owned_session_factory()
         manager_type = _bind_owned_session_manager(factory)
-        manager = await manager_type._load_resume_writer(path, plan=plan, current_owner_inputs=())
+        manager = None
         attempt = CodingActivationAttemptV1(
             attempt_id="attempt-1", request_id="input-1", session_id=header.conversation_id,
             original_leaf_id=plan.selected_leaf_id, ancestry_digest=plan.ancestry_digest,
@@ -93,9 +99,13 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
         transport_entered, transport_release = asyncio.Event(), asyncio.Event()
         registry = None
         session = None
+        approval_owner = None
+        permission_confirmation = None
 
         def admit(observed):
             assert observed == attempt
+            if permission_confirmation is not None:
+                permission_confirmation.require_current(observed)
             if revoked:
                 raise PermissionError("current subject revoked")
 
@@ -107,6 +117,26 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
                 raise StoreCommitOutcomeUnknown("native effect is unsettled")
 
         try:
+            if mode in {"published_preflight_native_confirmation", "preflight_native_revoked"}:
+                approval_owner = InteractiveApprovalResolver(fallback=DenyApprovalResolver())
+                permission_request = coding_resume_permission_request(
+                    attempt, actor_id="root", expansion_codes=("authority.unknown", "workspace.write"),
+                )
+                history_bytes = path.read_bytes()
+
+                async def confirm_permissions(payload):
+                    assert manager is None  # No Resume Writer while awaiting confirmation.
+                    assert path.read_bytes() == history_bytes
+                    assert await approval_owner.handle_result(payload["action_id"], outcome="allow_once")
+
+                approval_owner.set_request_presenter(confirm_permissions)
+                confirmation = await approval_owner.confirm(permission_request)
+                assert confirmation is not None
+                permission_confirmation = CodingResumePermissionConfirmation(
+                    attempt, "root", ("authority.unknown", "workspace.write"), approval_owner, confirmation,
+                )
+                permission_confirmation.require_current(attempt)
+            manager = await manager_type._load_resume_writer(path, plan=plan, current_owner_inputs=())
             await manager._commit_resume_activation_intent(prepare_coding_activation_attempt_record(
                 attempt, created_at=datetime(2026, 10, 12, tzinfo=UTC),
             ))
@@ -174,7 +204,7 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
                 )
             message = UserMessage(role="user", content="resume once", timestamp=2.0)
             evidence = None
-            if mode == "published_preflight" or mode.startswith("preflight_"):
+            if mode.startswith("published_preflight") or mode.startswith("preflight_"):
                 prompt = session._composition.session_runtime.prompt_controller
                 preflight = prompt.preflight_user_input_async
                 entered, release = asyncio.Event(), asyncio.Event()
@@ -189,6 +219,8 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
                     assert "Review actual source bytes." in result.text
                     if mode == "preflight_revoked":
                         revoked = True
+                    if mode == "preflight_native_revoked":
+                        assert approval_owner.release_confirmation(permission_confirmation.confirmation)
                     if mode == "preflight_cancelled":
                         entered.set()
                         await release.wait()
@@ -231,7 +263,7 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
                     assert len(manager.get_entries()) == 2
                     assert not session.execution_available
                     return
-                if mode == "preflight_revoked":
+                if mode in {"preflight_revoked", "preflight_native_revoked"}:
                     with pytest.raises(PermissionError):
                         await task
                     assert len(manager.get_entries()) == 2
@@ -441,7 +473,7 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
                 )
                 assert settlements
                 assert session.execution_available
-                if mode == "published_preflight":
+                if mode.startswith("published_preflight"):
                     from loushang.harness.session.request_evidence import (
                         RESOURCE_EVIDENCE_METADATA_KEY,
                     )
@@ -544,7 +576,10 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
                 assert path.read_bytes() == before
                 await manager.append_message(UserMessage(role="user", content="next", timestamp=3.0))
                 await session.prepare_model_call_runtime()
-                revoked = True
+                if mode == "published_preflight_native_confirmation":
+                    assert approval_owner.release_confirmation(permission_confirmation.confirmation)
+                else:
+                    revoked = True
                 with pytest.raises(PermissionError):
                     await session.prepare_model_call_runtime()
                 with pytest.raises(PermissionError):
@@ -577,8 +612,10 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
                 registry.unregister_api_adapters("resume-dispatch-test")
             if session is not None:
                 await session.dispose()
-            else:
+            elif manager is not None:
                 await manager.dispose_runtime_profile()
+            if approval_owner is not None:
+                approval_owner.dispose()
             await factory.close()
 
     asyncio.run(scenario())

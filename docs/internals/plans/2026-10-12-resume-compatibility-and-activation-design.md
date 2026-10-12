@@ -1293,3 +1293,47 @@ production actor-policy admission, approval or epoch settlement.
 Validation: eighteen non-live publication/preflight and native PromptController
 cases passed. Scoped mypy for both changed source modules, Ruff and all nine
 documentation checks passed.
+
+#### Permission expansion borrows native Approval confirmation
+
+The original InteractiveApprovalResolver now issues and validates bounded,
+ephemeral exact-action confirmation facts. A current matching native grant or
+retained Policy rule may satisfy a request; otherwise an accepted interactive
+response is required. Headless fallback's plain allow does not issue a fact.
+Once-only approval remains bound to that one action and is not generalized
+into Tool authority. Native grant/rule revocation is rechecked at each borrow.
+Copied facts, another owner, changed requests, released facts and reopened
+closed Sessions cannot validate the original confirmation. Cancellation and
+denial remove reservations without retaining confirmation. The owner admits
+at most sixty-four outstanding confirmation actions.
+
+Coding's permission confirmation request binds the immutable activation
+attempt's target Session/leaf, ancestry, Plan, candidate epoch and subject,
+together with bounded owner-observed expansion codes. The optional native
+session-grant proposal includes a fingerprint of all these fields. Coding's
+borrower re-creates that exact request and validates it through the issuing
+Approval owner. No new approval store or durable confirmation journal is
+introduced. This is a permission-expansion prerequisite, not a computation of
+current subject/Policy authority or native epoch/effect settlement.
+
+The real native Skill/Resume fixture now obtains interactive confirmation
+before acquiring its Resume Writer. It checks unchanged history bytes during
+confirmation, then uses the original owner's current validation through
+bootstrap, graph preparation, Skill preflight, input/evidence commit and
+publication. Revocation after Skill reading prevents input commit and removes
+pending evidence. Revocation after publication rejects native model preparation,
+compaction, shell and extension execution entries. Epoch settlement in these
+fixtures remains a test validator; the default Embedded/Hosted continuation
+coordinator and actual current actor/Policy owner wiring remain pending.
+
+Validation: one hundred twelve non-live cases passed across native Approval,
+multi-agent approval lifecycle, Hosted approval presentation, Coding request
+binding and both real Resume integration cases. This includes once/session
+confirmation, safe grant reuse, coalesced-request distinction, capacity,
+changed actor/candidate/scope/leaf/subject and owner closure. Scoped mypy for
+the three changed source modules and Ruff passed.
+
+Both final cancellation/close delivery cases also passed with explicit rejection
+of action-ID reuse before the original waiter settles. Invalidated reservations
+remain bounded until that waiter releases them, so its cleanup cannot erase a
+new confirmation. All nine documentation checks passed.

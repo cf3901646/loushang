@@ -884,6 +884,37 @@ delete a request already transferred to a durable Work owner. Persistence is
 therefore an explicit ownership transfer, not an accidental consequence of
 writing a request to disk.
 
+### 10.6 Exact action confirmation across awaits
+
+`InteractiveApprovalResolver.confirm(request)` provides an ephemeral
+`ApprovalConfirmation` for a coordinated Product action. It can reuse a
+currently matching native session grant or retained Policy rule. Without such
+a fact, issuance requires an accepted interactive `handle_result` response;
+a plain allow decision from headless fallback does not issue confirmation.
+Ordinary `resolve` and Tool authorization retain their existing behavior.
+
+`require_current_confirmation(confirmation, request=...)` validates the
+issuing resolver's object identity, the exact frozen request and its current
+grant/rule, when applicable. Copying fields or replaying a serialized value
+does not create authority. `allow_once` confirmation remains local to that
+exact coordinated action; it does not become a Tool grant or a reusable
+capability matcher. Products continue to check current actor, Policy and
+execution ceiling separately at each effect boundary.
+
+The resolver admits at most sixty-four outstanding confirmation actions.
+`release_confirmation` releases or revokes a delivered fact. Actor cancellation
+and actor grant revocation invalidate that actor's delivered facts. Session
+close/dispose invalidates all confirmation facts, including when the same
+resolver is reopened. Existing session-grant retention across presentation
+close remains unchanged. Cancelled/denied waiters leave no confirmation fact.
+Coalesced requests can reuse an accepted session grant; an `allow_once`
+response for one action does not confirm another action.
+
+Coding's Resume permission request binds the exact target Session/leaf,
+ancestry, Plan, subject, candidate epoch and owner-observed permission expansion
+to this original owner. This confirmation prerequisite does not compute live
+Policy, settle activation effects or make Resume ready by itself.
+
 ## 11. Mandatory Enforcement Gateway
 
 Every effectful tool or Product operation uses one gateway:
