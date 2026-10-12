@@ -2381,3 +2381,59 @@ behavior. It retains readable history/export and supported capability-aware
 rollback refusal as separate requirements. Nine static documentation checks
 and `git diff --check` passed for the revision. No native v2 event has been
 written or default writable Resume enabled by this design work.
+
+
+#### Large-history data delivery baseline
+
+The reproducible `scripts/benchmarks/benchmark_resume_history.py` benchmark
+uses original Coding Roots and canonical synthetic transcript exports. One
+Root represents each viewer; it does not model eight waiters on one Root or
+Hosted's single Product binding. Each case measures a first data read and two
+repeated reads after imports and fixture creation. Fixture creation warms the
+OS cache. Terminal paint, background planning, writable activation, model
+transport and memory peak are excluded, so these are neither OS-cold results
+nor complete R2.1 performance acceptance.
+
+The first run failed with `OSError: [Errno 122] Disk quota exceeded` while
+creating a fixture under `/tmp`. It produced no complete report. The same
+10000/100000 record geometry and 1024-byte payloads succeeded with explicit
+private disk scratch; no Product byte budget was raised. Command:
+
+```sh
+env PYTHONPATH=src .venv/bin/python scripts/benchmarks/benchmark_resume_history.py \
+  --scratch-root /home/dev/.cache/loushang-resume696-bench \
+  --output /tmp/loushang-resume696-history-baseline-fe23e000.json
+```
+
+Linux/Python 3.11.15 produced six cases. Files were 12,578,266 and 125,978,266
+bytes. Every returned page was explicitly unverified, included the actual last
+record, read 131072 head/tail bytes and delivered 52 recent records. Source
+identity, size and mtime remained unchanged. No Product Session was constructed.
+
+| Fixture records | Parallel viewers | First batch ms | Repeated batch median ms (two samples) |
+| --- | --- | --- | --- |
+| 10,000 | 1 | 16.94 | 14.98 |
+| 10,000 | 2 | 29.58 | 27.59 |
+| 10,000 | 8 | 193.63 | 143.68 |
+| 100,000 | 1 | 21.64 | 21.48 |
+| 100,000 | 2 | 51.84 | 31.36 |
+| 100,000 | 8 | 108.67 | 105.11 |
+
+The raw JSON remains in the command's temporary output path. Three samples per
+case do not establish a tail-latency distribution. Repeated eight-viewer batches
+were above 100 ms; this is data delivery, not the first-input hot-path metric.
+These results establish the bounded-read baseline and do not remove the cold
+first-screen, actual UI paint, native planning, memory, Hosted and input
+activation performance gates. Ruff and scoped mypy with `MYPYPATH=src` passed
+the benchmark. Its first mypy invocation had two local type errors and resolved
+the installed control-lane Root instead of the task Root; the corrected run
+uses the task source explicitly.
+
+The architecture run started at `e072a764` terminated with 654 passed in
+1710.32 seconds. Its original terminal report is preserved at
+`/tmp/loushang-resume696-architecture-e072a764.log`. Root/Continuity/transcript
+source changed while it ran, so this result is not a full final-tree architecture
+gate. Control `main` remains `f7d18114`; no new synchronization was required.
+ARD-007 r2 is awaiting explicit common-parent acceptance for its new native
+protocol and writer boundary. Independent baselines and existing gates may
+continue, while dependent v2 mutation/default activation remains unimplemented.
