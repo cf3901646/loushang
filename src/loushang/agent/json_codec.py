@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# CI timing probe for issue 704 after module routing changes.
+
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any

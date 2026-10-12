@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+# CI timing probe for issue 704 after module routing changes.
+
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
