@@ -600,11 +600,21 @@ class ScopeTests(unittest.TestCase):
                 self.assertEqual(plan["checks"], selector.select([path])["checks"])
 
     def test_pr_gate_change_exercises_new_reusable_workflows(self):
-        plan = selector.select([".github/workflows/quality.yml"], pr_fast=True)
-        self.assertEqual(plan["unit_packages"], ["agent"])
-        self.assertEqual(plan["unit_jobs"], [{"package": "agent", "shard": 0, "shards": 1}])
-        self.assertTrue(plan["e2e"])
-        self.assertTrue(all(plan["checks"].values()))
+        for path in (
+            ".github/workflows/quality.yml",
+            ".github/workflows/package-quality.yml",
+            ".github/workflows/windows-shell-compatibility.yml",
+            "scripts/ci/windows_worker_session_cases.py",
+        ):
+            with self.subTest(path=path):
+                plan = selector.select([path], pr_fast=True)
+                self.assertEqual(plan["unit_packages"], ["agent"])
+                self.assertEqual(
+                    plan["unit_jobs"],
+                    [{"package": "agent", "shard": 0, "shards": 1}],
+                )
+                self.assertTrue(plan["e2e"])
+                self.assertTrue(all(plan["checks"].values()))
 
     def test_full_validation_disables_fast_route(self):
         plan = selector.select(["src/loushang/ai/pricing.py"], full=True, pr_fast=True)

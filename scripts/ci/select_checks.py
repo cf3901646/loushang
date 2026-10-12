@@ -31,14 +31,6 @@ FAST_RISK_CHECKS = {
 E2E_PATH_PARTS = ("/session/", "/conversation/", "/transcript/")
 FAST_RISK_RULE_REASONS = {"AI consumer contracts"}
 UNIT_SHARD_COUNTS = {"coding": 16, "harness": 4, "harnesstui": 2, "tui": 2}
-FAST_GATE_INFRA = {
-    ".github/workflows/quality.yml",
-    ".github/workflows/package-unit-quality.yml",
-    ".github/workflows/e2e-smoke-quality.yml",
-    "scripts/ci/select_checks.py",
-    "scripts/ci/run_checks.py",
-    "scripts/ci/unit-tests.json",
-}
 WINDOWS_GATE_INFRA = (
     ".github/", "scripts/ci/", "tests/ci/", "Makefile", "pyproject.toml",
     "uv.lock", "tests/conftest.py", "scripts/dev/run_pytest.py",
@@ -257,7 +249,11 @@ def select(
             package for package in unit_packages
             if not checks.get("tui_unit" if package == "tui" else package, False)
         }
-    if pr_fast and not full and FAST_GATE_INFRA.intersection(paths):
+    gate_infra = any(
+        path.startswith((".github/workflows/", "scripts/ci/"))
+        for path in paths
+    )
+    if pr_fast and not full and gate_infra:
         # Gate changes retain full checks and exercise both new workflows.
         unit_packages.add("agent")
         e2e = True
