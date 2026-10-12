@@ -1059,11 +1059,47 @@ def test_coding_prepare_revalidates_bounded_catalog_file_identity(
 
         preview = await composition.hub.preview(page.items[0].target)
         assert preview.stale is True
+        assert preview.sections[0].text == "History changed; refresh"
         assert runtime.prepared == []
         with pytest.raises(StaleContinuityTargetError, match="changed"):
             await composition.hub.prepare(page.items[0].target)
         assert runtime.prepared == []
         await runtime.drain_session_index_flush()
+        await shutdown_coding_continuity(runtime)
+
+    asyncio.run(scenario())
+
+
+def test_coding_preview_rejects_a_snapshot_from_another_source_revision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from loushang.coding import continuity as continuity_module
+
+    runtime = _Runtime(tmp_path)
+    write_agent_transcript_export(
+        tmp_path / "session-1.jsonl",
+        _header("session-1"),
+        [_record("record-1", "Current history")],
+    )
+    composition = bind_coding_continuity(runtime)
+    original = continuity_module.read_coding_resume_snapshot
+
+    def stale_snapshot(*args, **kwargs):
+        return replace(
+            original(*args, **kwargs),
+            source_fingerprint="stat-v1:1:2:3:4:5",
+        )
+
+    monkeypatch.setattr(
+        continuity_module, "read_coding_resume_snapshot", stale_snapshot,
+    )
+
+    async def scenario() -> None:
+        page = await composition.hub.query(ContinuityQuery(page_size=10))
+        preview = await composition.hub.preview(page.items[0].target)
+        assert preview.stale is True
+        assert preview.sections[0].text == "History changed; refresh"
+        assert runtime.prepared == []
         await shutdown_coding_continuity(runtime)
 
     asyncio.run(scenario())

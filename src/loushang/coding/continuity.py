@@ -450,7 +450,14 @@ class CodingContinuityProvider:
                     except (OSError, ValueError):
                         rows.append(("Recent history", "Bounded preview unavailable"))
                     else:
-                        if snapshot.header_preview.header != history.header:
+                        if (
+                            snapshot.header_preview.header != history.header
+                            or (
+                                summary.authority_fingerprint is not None
+                                and snapshot.source_fingerprint
+                                != summary.authority_fingerprint
+                            )
+                        ):
                             history_changed = True
                         else:
                             history_text = _readonly_history_text(snapshot.selected_records)
@@ -499,7 +506,9 @@ class CodingContinuityProvider:
                 ContinuityPreviewSection(
                     kind="text",
                     text=(
-                        history_text
+                        "History changed; refresh"
+                        if history_changed
+                        else history_text
                         or summary.last_message_preview
                         or summary.first_message
                     ),
