@@ -496,6 +496,32 @@ class CodingFencedProductApplicationSelection:
                 self._owners[workspace] = owner
             return owner.factory_for_session(manager)
 
+    def resume_epoch_fingerprint(self, workspace: Path) -> str:
+        """Observe an already selected native epoch; never select or activate it.
+
+        This is a data dependency, not content proof or effect settlement. An
+        unselected workspace remains unavailable rather than opening a factory.
+        """
+
+        if not isinstance(workspace, Path) or not workspace.is_absolute():
+            raise ValueError("Coding Resume epoch workspace must be canonical")
+        if workspace != workspace.resolve(strict=True):
+            raise ValueError("Coding Resume epoch workspace must be canonical")
+        with self._lock:
+            owner = self._owners.get(workspace)
+            if self._fenced or owner is None:
+                raise RuntimeError("Coding Resume epoch is unavailable")
+            fence = owner.epoch_runtime.observe_current_epoch_fence()
+            encoded = json.dumps({
+                "workspace": str(workspace),
+                "fence": fence.to_dict(),
+            }, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
+            if len(encoded) > 8192:
+                raise ValueError("Coding Resume epoch dependency exceeds its byte budget")
+            if owner.epoch_runtime.observe_current_epoch_fence() != fence:
+                raise RuntimeError("Coding Resume epoch changed")
+            return sha256(b"loushang.coding.resume-epoch/v1\0" + encoded).hexdigest()
+
     def product_owner_for_factory(
         self,
         factory: (

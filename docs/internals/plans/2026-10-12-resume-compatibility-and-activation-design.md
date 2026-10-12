@@ -1900,3 +1900,40 @@ evidence still requires a wheel and rejects source imports. All 39 G17 runner
 and Hosted catalog cases then passed, including both failed collection cases.
 Ruff and whitespace checks passed. The original full run is recorded as
 failed with those focused repairs verified, not as a new full green run.
+
+#### Original selected Product epoch read-only dependency
+
+The original POSIX and Windows Package Product epoch owners now observe
+their current native fence through their existing pinned-root validation.
+The observation explicitly disables journal repair and creates no runtime
+lease. Existing `assert_current` and formal admission keep their prior behavior.
+Coding's original application selection hashes that existing observation and
+canonical workspace into bounded dependency data (8 KiB encoded ceiling).
+It rechecks the same native fence after encoding. Missing selection and an
+application fence are unavailable; no factory is selected to answer a read.
+No new owner, registry, planning queue or authority journal was added.
+
+This supplies an actual selected-epoch input instead of a fixture constant.
+It supplies neither content closure nor subject/Policy/effect settlement.
+First Resume in an application with no selected Product epoch still needs
+its production owner input route. Default Embedded/Hosted activation and the
+remaining release/performance gates remain required; Goal and #696 stay active.
+
+The original Resume/epoch guard baseline passed 13 cases. The new regression
+first failed on the missing original selection entry. Its initial write
+sentinel replaced `os.open` without preserving the real `dir_fd` capability
+declaration, so native capability detection correctly refused execution.
+The forwarding sentinel now retains that declared capability while forbidding
+write/create/truncate/append opens. The real selected Linux epoch observation
+then passed: stable data, unchanged file set/mtimes, unavailable foreign
+workspace and fenced selection, and corrupt tail rejection without repair.
+Native Windows execution remains a platform validation requirement. Scoped
+mypy passed the three changed sources; Ruff and whitespace checks passed.
+
+Final Resume/epoch guard validation passed all 14 cases, including the added
+native-owner close rejection. Two real POSIX Product Session composition
+cases passed with and without a dependency, verifying the original formal
+epoch/lease path. All nine static documentation checks passed. The broader
+Coding offline gate started at `c81953e2` remains running; these changes still
+require the final tree's broader delivery/platform gates. They do not establish
+default writable Resume or effect settlement.

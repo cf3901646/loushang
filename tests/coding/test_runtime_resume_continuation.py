@@ -29,6 +29,76 @@ from loushang.harness.transcript.jsonl_file import load_agent_transcript_file
 pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="Linux owned Resume Writer")
 
 
+def test_selected_resume_epoch_is_native_readonly_and_never_repairs_tail(tmp_path, monkeypatch):
+    import os
+
+    from loushang.harness.resources.packages.plugin_lifecycle.epoch_fence import (
+        PackageEpochFenceError,
+    )
+
+    async def scenario():
+        selection = CodingFencedProductApplicationSelection()
+        with pytest.raises(RuntimeError, match="unavailable"):
+            selection.resume_epoch_fingerprint(tmp_path)
+        assert not selection._owners
+        manager = await SessionManager.new(session_dir=tmp_path / "sessions", cwd=str(tmp_path), persist=False)
+        factory = None
+        try:
+            factory = selection.factory_for_session(manager)
+            assert factory is not None
+            owner = selection._owners[tmp_path].epoch_runtime
+            journal = owner.control_root / "epoch.jsonl"
+            original = journal.read_bytes()
+            before = {path: path.stat().st_mtime_ns for path in tmp_path.rglob("*")}
+            opened = os.open
+
+            def readonly_open(path, flags, *args, **kwargs):
+                assert not flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND)
+                return opened(path, flags, *args, **kwargs)
+
+            with monkeypatch.context() as guard:
+                # This forwarding wrapper preserves the real dir_fd support;
+                # keep capability detection accurate while forbidding writes.
+                assert opened in os.supports_dir_fd
+                guard.setattr(os, "supports_dir_fd", os.supports_dir_fd | {readonly_open})
+                guard.setattr(os, "open", readonly_open)
+                first = selection.resume_epoch_fingerprint(tmp_path)
+                assert len(first) == 64
+                assert selection.resume_epoch_fingerprint(tmp_path) == first
+            assert journal.read_bytes() == original
+            assert {path: path.stat().st_mtime_ns for path in tmp_path.rglob("*")} == before
+            assert len(selection._owners) == 1
+            foreign = tmp_path / "foreign"
+            foreign.mkdir()
+            with pytest.raises(RuntimeError, match="unavailable"):
+                selection.resume_epoch_fingerprint(foreign)
+            journal.write_bytes(original + b'{"incomplete":')
+            try:
+                with monkeypatch.context() as guard:
+                    guard.setattr(os, "supports_dir_fd", os.supports_dir_fd | {readonly_open})
+                    guard.setattr(os, "open", readonly_open)
+                    with pytest.raises(PackageEpochFenceError):
+                        selection.resume_epoch_fingerprint(tmp_path)
+                assert journal.read_bytes() == original + b'{"incomplete":'
+            finally:
+                journal.write_bytes(original)
+            factory.runtime_lease.release()
+            factory = None
+            owner.close()
+            with pytest.raises(ValueError, match="closed"):
+                selection.resume_epoch_fingerprint(tmp_path)
+            selection.fence()
+            with pytest.raises(RuntimeError, match="unavailable"):
+                selection.resume_epoch_fingerprint(tmp_path)
+        finally:
+            if factory is not None:
+                factory.runtime_lease.release()
+            selection.close()
+            await manager.dispose_runtime_profile()
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("mode", ["consume", "delivered_close_failed", "abort", "stale", "root_close", "cancel_prepare", "cancel_delivery", "delivery_revoked", "abort_failed", "host_bind_failed", "cleanup_debt"])
 def test_root_owns_native_resume_preparation_and_delivery(tmp_path, monkeypatch, mode):
     monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))

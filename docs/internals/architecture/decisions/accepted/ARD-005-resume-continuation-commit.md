@@ -112,6 +112,16 @@ external outcome is marked unknown and is not automatically replayed. The
 first writable slice does not cover automatic Continue, compaction, or other
 effectful commands without a UserMessage.
 
+The original Package Product epoch owners expose a read-only observation of
+their current native fence. They revalidate the existing pinned control and
+child roots and load the journal with partial-tail repair disabled. Observation
+does not issue a lease or invoke a Product factory. Coding's original
+application selection can hash this observation for an already selected
+canonical workspace; an unselected or closing selection is unavailable.
+The bounded digest is an epoch input dependency. Subject, Policy, content
+closure, activation/effect settlement and default Resume wiring remain
+separate requirements; the digest cannot satisfy those checks.
+
 ### Candidate v1 attempt contract for owner review
 
 The proposed `coding.activation-attempt/v1` intent uses one `extension.data`
