@@ -34,9 +34,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--jobs", required=True, help="JSON map of job IDs to scopes")
     parser.add_argument("--section", choices=("checks", "workflows"), default="checks")
+    parser.add_argument("--require-changes", action="store_true")
     args = parser.parse_args()
     needs = json.loads(os.environ["CI_NEEDS"])
-    if args.section == "workflows":
+    if args.require_changes:
+        if args.section != "workflows":
+            raise ValueError("selector dependency requires workflow aggregation")
         changes = needs.pop("changes", {})
         if changes.get("result") != "success":
             raise ValueError("change selection failed or did not run")

@@ -32,6 +32,25 @@ def commands(
         }
     )
     coding_ignores = [f"--ignore={path}" for path in coding_ui_paths]
+    if scope.startswith("unit_"):
+        package = scope.removeprefix("unit_")
+        unit_paths = json.loads((root / "scripts/ci/unit-tests.json").read_text())
+        if package not in unit_paths:
+            raise ValueError(f"unknown unit package {package!r}")
+        return [
+            pytest
+            + unit_paths[package]
+            + ["-m", OFFLINE_MARKERS, "--skip-host-runtime", "--strict-markers", "-q"]
+        ]
+    if scope == "e2e_smoke":
+        return [
+            pytest
+            + [
+                "tests/coding/test_hosted_application.py::"
+                "test_G12_VERTICAL_CANARY_crosses_real_composition_create_turn_resume_close",
+                "-m", "e2e_smoke and not live", "--strict-markers", "-q",
+            ]
+        ]
     if scope == "host_runtime" and plan is not None:
         packages = (
             "coding",
