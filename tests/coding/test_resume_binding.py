@@ -12,6 +12,7 @@ from loushang.coding.composition_provenance import CodingCompositionProvenanceV1
 from loushang.coding.resume_activation_attempt import (
     CodingActivationAttemptV1,
     prepare_coding_activation_attempt_record,
+    project_coding_activation_attempt_path,
     validate_coding_activation_attempt_record,
 )
 from loushang.coding.resume_binding import (
@@ -27,9 +28,13 @@ from loushang.coding.session_manager import SessionManager
 from loushang.harness.conversation import StoreCommitOutcomeUnknown
 from loushang.harness.conversation.repository import ConversationRepository
 from loushang.harness.transcript.jsonl_file import load_agent_transcript_file
-from loushang.harness.transcript.kinds import CONTEXT_COMPACTION_CHECKPOINT_KIND
+from loushang.harness.transcript.kinds import (
+    CONTEXT_COMPACTION_CHECKPOINT_KIND,
+    EXTENSION_DATA_KIND,
+)
 from loushang.harness.transcript.types import (
     ContextCompactionCheckpoint,
+    ExtensionData,
     SessionImagePart,
 )
 from loushang.harness.transcript.writer import AgentTranscriptRecordFactory
@@ -153,6 +158,113 @@ def test_activation_attempt_lost_ack_reconciles_from_jsonl_after_restart(
         assert records == [record]
 
     asyncio.run(scenario())
+
+
+def test_selected_path_keeps_unbound_activation_attempt_pending(tmp_path) -> None:
+    async def scenario() -> None:
+        manager = await SessionManager.new(
+            session_dir=tmp_path, cwd=str(tmp_path), session_id="session-1",
+            defer_materialization=False,
+        )
+        message = UserMessage(role="user", content="continue", timestamp=1.0)
+        try:
+            intent_id, original_leaf_id, ancestry = await _append_test_activation_attempt(
+                manager
+            )
+            selected = manager._transcript.active_path()
+            pending = project_coding_activation_attempt_path(
+                selected, current_session_id="session-1",
+            )
+            assert pending.status == "pending"
+            assert pending.record_id == intent_id
+            assert pending.attempt is not None
+            assert pending.attempt.request_id == "input-1"
+            assert project_coding_activation_attempt_path(
+                selected, current_session_id="fork-session",
+            ).status == "none"
+
+            binding = replace(
+                _binding(), original_leaf_id=original_leaf_id,
+                ancestry_digest=ancestry,
+                payload_digest=coding_user_payload_digest(message),
+            )
+            record = prepare_coding_resume_user_record(
+                binding, message, commit_parent_id=intent_id,
+                created_at=datetime(2026, 10, 12, tzinfo=UTC),
+            )
+            with pytest.raises(ValueError, match="does not match intent"):
+                project_coding_activation_attempt_path(
+                    (*selected, replace(record, metadata={
+                        **record.metadata,
+                        **replace(
+                            binding, planned_fingerprint="1" * 64,
+                        ).to_message_metadata(),
+                    })),
+                    current_session_id="session-1",
+                )
+            await manager.commit_prebuilt_user_message(record)
+            completed = project_coding_activation_attempt_path(
+                manager._transcript.active_path(), current_session_id="session-1",
+            )
+            assert completed.status == "none"
+            assert completed.attempt is None
+        finally:
+            await manager.dispose_runtime_profile()
+
+    asyncio.run(scenario())
+
+
+def test_staged_resume_cannot_skip_an_earlier_unbound_attempt(tmp_path) -> None:
+    async def scenario() -> None:
+        manager = await SessionManager.new(
+            session_dir=tmp_path, cwd=str(tmp_path), session_id="session-1",
+            defer_materialization=False,
+        )
+        try:
+            first_id, _, _ = await _append_test_activation_attempt(manager)
+            ancestry = project_coding_runtime_binding_path(
+                manager._transcript.active_path(), current_session_id="session-1",
+            ).ancestry_digest
+            second = CodingActivationAttemptV1(
+                attempt_id="attempt-2", request_id="input-2", session_id="session-1",
+                original_leaf_id=first_id, ancestry_digest=ancestry,
+                plan_fingerprint="d" * 64, epoch_fingerprint="e" * 64,
+                subject_digest="b" * 64,
+            )
+            await manager.commit_prebuilt_extension_data(
+                prepare_coding_activation_attempt_record(
+                    second, created_at=datetime(2026, 10, 12, tzinfo=UTC),
+                )
+            )
+            with pytest.raises(ValueError, match="unresolved attempt"):
+                manager._stage_resume_first_user_input(
+                    UserMessage(role="user", content="continue", timestamp=1.0),
+                    prepare_binding=lambda _message: _binding(),
+                    created_at=datetime(2026, 10, 12, tzinfo=UTC),
+                    original_leaf_id=first_id,
+                    ancestry_digest=ancestry,
+                    attempt_id="attempt-2",
+                )
+        finally:
+            await manager.dispose_runtime_profile()
+
+    asyncio.run(scenario())
+
+
+def test_unknown_activation_attempt_version_is_inert_but_blocks_new_plan() -> None:
+    future = AgentTranscriptRecordFactory(
+        clock=lambda: datetime(2026, 10, 12, tzinfo=UTC),
+        id_factory=lambda: "future-attempt",
+    ).create(
+        EXTENSION_DATA_KIND,
+        ExtensionData("coding.activation-attempt/v2", {"version": 2}),
+        parent_id=None,
+    )
+    projection = project_coding_activation_attempt_path(
+        (future,), current_session_id="session-1",
+    )
+    assert projection.status == "unknown_version"
+    assert projection.attempt is None
 
 
 def test_runtime_binding_round_trip_keeps_historical_origin_and_bounded_metadata() -> None:

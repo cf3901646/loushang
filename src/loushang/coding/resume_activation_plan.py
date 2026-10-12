@@ -17,6 +17,7 @@ from typing import Literal
 from loushang.foundation.json import dump_json_value
 
 from .composition_sets import CodingCompositionSetPlan, resolve_coding_composition_set
+from .resume_activation_attempt import project_coding_activation_attempt_path
 from .resume_binding import project_coding_runtime_binding_path
 from .resume_composition_comparison import (
     CodingResumeCompositionComparisonV1,
@@ -152,10 +153,16 @@ def build_session_activation_plan(
         projection = project_coding_runtime_binding_path(
             history.selected_records, current_session_id=session_id,
         )
+        attempt_projection = project_coding_activation_attempt_path(
+            history.selected_records, current_session_id=session_id,
+        )
         if (
             projection.ancestry_digest != history.selected_ancestry_digest
             or projection.status != history.binding_status
             or projection.binding != history.binding
+            or attempt_projection.status != history.activation_status
+            or attempt_projection.attempt != history.pending_activation_attempt
+            or attempt_projection.record_id != history.pending_activation_record_id
             or (history.selected_records[-1].record_id
                 if history.selected_records else None) != history.selected_leaf_id
         ):

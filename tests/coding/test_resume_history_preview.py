@@ -134,6 +134,33 @@ def test_readonly_resume_header_marks_missing_composition_as_legacy_unknown(
     assert path.read_bytes() == before
 
 
+@pytest.mark.parametrize(("extension_type", "data", "expected_status"), [
+    ("coding.activation-attempt/v1", {"version": 1}, "invalid"),
+    ("coding.activation-attempt/v2", {"version": 2}, "unknown_version"),
+])
+def test_readonly_history_keeps_unrecognized_activation_intent_viewable(
+    tmp_path, extension_type, data, expected_status,
+) -> None:
+    async def create() -> object:
+        manager = await SessionManager.new(
+            session_dir=tmp_path, cwd=str(tmp_path),
+            defer_materialization=False,
+        )
+        try:
+            await manager.append_custom_entry(extension_type, data)
+            return manager.session_file
+        finally:
+            await manager.dispose_runtime_profile()
+
+    path = asyncio.run(create())
+    assert path is not None
+    before = path.read_bytes()
+    history = read_coding_resume_snapshot(path, max_bytes=1024 * 1024)
+    assert history.activation_status == expected_status
+    assert len(history.selected_records) == 1
+    assert path.read_bytes() == before
+
+
 def test_readonly_snapshot_selects_one_parent_linked_history_path(
     tmp_path, monkeypatch,
 ) -> None:

@@ -47,6 +47,7 @@ from loushang.harness.transcript.jsonl_file import (
 
 from .resume_activation_attempt import (
     CodingActivationAttemptV1,
+    project_coding_activation_attempt_path,
     validate_coding_activation_attempt_record,
 )
 from .resume_binding import (
@@ -267,6 +268,10 @@ class SessionManager(
         )
         if projection.status == "unknown_version" or projection.ancestry_digest != ancestry_digest:
             raise ValueError("Coding Resume original ancestry changed")
+        if project_coding_activation_attempt_path(
+            original_path, current_session_id=self.get_header().conversation_id,
+        ).status != "none":
+            raise ValueError("Coding Resume original history has an unresolved attempt")
         tail = active[original_length:]
         if len(tail) != 1:
             raise ValueError("Coding Resume requires one selected activation attempt")

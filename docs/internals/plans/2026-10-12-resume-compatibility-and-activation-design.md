@@ -10,10 +10,11 @@
   image externalization inside the existing Transcript owner, composition
   comparison, an internal fixed-ID activation-attempt record and Transcript
   commit path, a staged first-input path in Coding's SessionManager, and a
-  data-only internal `SessionActivationPlanV1` envelope exist. ResourceLoader
-  can calculate
-  Catalog input facts and bounded native context content digests without
-  choosing authority; Plan records only their redacted input fingerprint and
+  data-only internal `SessionActivationPlanV1` envelope exist. Selected-path
+  history projection classifies an unbound attempt as pending and keeps its
+  pure Plan unavailable while still allowing read-only viewing. ResourceLoader
+  can calculate Catalog input facts and bounded native context content digests
+  without choosing authority; Plan records only their redacted input fingerprint and
   rejects reuse when refreshed owner inputs differ. Skill and other mutable
   Resource content is not closed by this receipt, which cannot replace current
   owner selection. The staged first-input path is not yet armed by live Resume

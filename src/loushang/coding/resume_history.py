@@ -28,6 +28,10 @@ from .product_plan import (
     CODING_PRODUCT_ID,
     CODING_TRANSCRIPT_RUNTIME,
 )
+from .resume_activation_attempt import (
+    CodingActivationAttemptV1,
+    project_coding_activation_attempt_path,
+)
 from .resume_binding import (
     CodingRuntimeBindingV1,
     project_coding_runtime_binding_path,
@@ -58,6 +62,9 @@ class CodingResumeHistoryPreview:
     selected_ancestry_digest: str | None
     source_fingerprint: str
     source_content_digest: str
+    activation_status: Literal["none", "pending", "unknown_version", "invalid"] = "none"
+    pending_activation_attempt: CodingActivationAttemptV1 | None = None
+    pending_activation_record_id: str | None = None
     status: Literal["preview"] = "preview"
 
 
@@ -155,6 +162,19 @@ def read_coding_resume_snapshot(
         binding_status = "invalid"
         binding = None
         ancestry_digest = None
+    try:
+        attempt_projection = project_coding_activation_attempt_path(
+            selected_records, current_session_id=header.conversation_id,
+        )
+        activation_status: Literal[
+            "none", "pending", "unknown_version", "invalid"
+        ] = attempt_projection.status
+        pending_attempt = attempt_projection.attempt
+        pending_record_id = attempt_projection.record_id
+    except ValueError:
+        activation_status = "invalid"
+        pending_attempt = None
+        pending_record_id = None
     return CodingResumeHistoryPreview(
         header_preview=header_preview,
         records=tuple(records),
@@ -174,6 +194,9 @@ def read_coding_resume_snapshot(
         selected_ancestry_digest=ancestry_digest,
         source_fingerprint=source_fingerprint,
         source_content_digest=source_content_digest,
+        activation_status=activation_status,
+        pending_activation_attempt=pending_attempt,
+        pending_activation_record_id=pending_record_id,
     )
 
 

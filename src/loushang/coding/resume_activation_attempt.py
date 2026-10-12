@@ -6,15 +6,23 @@ current authority nor evidence that an effect or user input completed.
 
 from __future__ import annotations
 
+import hashlib
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import cast
+from typing import Literal, cast
 
+from loushang.ai.types import UserMessage
 from loushang.foundation.json import JSONValue, dump_json_value, require_json_mapping
-from loushang.harness.transcript.kinds import EXTENSION_DATA_KIND
+from loushang.harness.transcript.kinds import AGENT_MESSAGE_KIND, EXTENSION_DATA_KIND
 from loushang.harness.transcript.types import AgentTranscriptRecord, ExtensionData
 from loushang.harness.transcript.writer import AgentTranscriptRecordFactory
+
+from .resume_binding import (
+    inspect_coding_runtime_binding,
+    validate_coding_runtime_binding_record,
+)
 
 CODING_ACTIVATION_ATTEMPT_EXTENSION_TYPE = "coding.activation-attempt/v1"
 CODING_ACTIVATION_ATTEMPT_MAX_BYTES = 4096
@@ -86,6 +94,97 @@ class CodingActivationAttemptV1:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class CodingActivationAttemptPathProjection:
+    """Selected-path attempt state; absence is not a durable lookup receipt."""
+
+    status: Literal["none", "pending", "unknown_version"]
+    attempt: CodingActivationAttemptV1 | None = None
+    record_id: str | None = None
+
+
+def project_coding_activation_attempt_path(
+    records: Iterable[AgentTranscriptRecord], *, current_session_id: str,
+) -> CodingActivationAttemptPathProjection:
+    """Detect an unbound attempt without interpreting it as settled authority.
+
+    The caller supplies a complete selected root-to-leaf path. A source Session
+    attempt copied by a fork remains historical origin, not target pending work.
+    Any unknown attempt version on the path conservatively blocks planning.
+    """
+
+    if type(current_session_id) is not str or _IDENTIFIER.fullmatch(current_session_id) is None:
+        raise ValueError("activation attempt current Session id is invalid")
+    ancestry = hashlib.sha256(b"loushang.coding.resume-ancestry/v1\0")
+    previous_id: str | None = None
+    seen: set[str] = set()
+    pending: CodingActivationAttemptV1 | None = None
+    pending_record_id: str | None = None
+    unknown_version = False
+    for record in records:
+        if record.parent_id != previous_id or record.record_id in seen:
+            raise ValueError("activation attempt projection requires a complete path")
+        seen.add(record.record_id)
+        prefix_digest = ancestry.hexdigest()
+        payload = record.payload
+        if isinstance(payload, ExtensionData) and payload.extension_type.startswith(
+            "coding.activation-attempt/"
+        ):
+            if payload.extension_type != CODING_ACTIVATION_ATTEMPT_EXTENSION_TYPE:
+                unknown_version = True
+            else:
+                attempt = validate_coding_activation_attempt_record(record)
+                if attempt.ancestry_digest != prefix_digest:
+                    raise ValueError("activation attempt ancestry does not match history")
+                if attempt.session_id == current_session_id:
+                    if pending is not None:
+                        raise ValueError("activation attempt precedes unresolved intent")
+                    pending = attempt
+                    pending_record_id = record.record_id
+        observation = inspect_coding_runtime_binding(record.metadata)
+        if observation.status != "absent":
+            if record.kind != AGENT_MESSAGE_KIND or not isinstance(
+                record.payload, UserMessage,
+            ):
+                raise ValueError("activation Binding requires a user message")
+            if observation.status == "unknown_version":
+                unknown_version = True
+            else:
+                observed_binding = observation.binding
+                if observed_binding is None:
+                    raise ValueError("activation Binding known schema is missing")
+                binding = validate_coding_runtime_binding_record(
+                    record, expected_session_id=observed_binding.session_id,
+                )
+                if binding.session_id == current_session_id and pending is not None:
+                    if (
+                        record.parent_id != pending_record_id
+                        or binding.attempt_id != pending.attempt_id
+                        or binding.input_id != pending.request_id
+                        or binding.original_leaf_id != pending.original_leaf_id
+                        or binding.ancestry_digest != pending.ancestry_digest
+                        or binding.planned_fingerprint != pending.plan_fingerprint
+                        or binding.actual_fingerprint != pending.epoch_fingerprint
+                        or binding.subject_digest != pending.subject_digest
+                    ):
+                        raise ValueError("activation Binding does not match intent")
+                    pending = None
+                    pending_record_id = None
+        identity = _encoded({
+            "recordId": record.record_id, "parentId": record.parent_id,
+        })
+        ancestry.update(len(identity).to_bytes(4, "big"))
+        ancestry.update(identity)
+        previous_id = record.record_id
+    if unknown_version:
+        return CodingActivationAttemptPathProjection("unknown_version")
+    if pending is not None:
+        return CodingActivationAttemptPathProjection(
+            "pending", attempt=pending, record_id=pending_record_id,
+        )
+    return CodingActivationAttemptPathProjection("none")
+
+
 def prepare_coding_activation_attempt_record(
     attempt: CodingActivationAttemptV1, *, created_at: datetime,
 ) -> AgentTranscriptRecord:
@@ -149,7 +248,9 @@ def _encoded(value: object) -> bytes:
 __all__ = [
     "CODING_ACTIVATION_ATTEMPT_EXTENSION_TYPE",
     "CODING_ACTIVATION_ATTEMPT_MAX_BYTES",
+    "CodingActivationAttemptPathProjection",
     "CodingActivationAttemptV1",
     "prepare_coding_activation_attempt_record",
+    "project_coding_activation_attempt_path",
     "validate_coding_activation_attempt_record",
 ]

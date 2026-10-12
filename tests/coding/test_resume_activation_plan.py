@@ -5,12 +5,17 @@ import importlib
 import os
 import subprocess
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from loushang.coding.composition_provenance import CodingCompositionProvenanceV1
 from loushang.coding.composition_sets import resolve_coding_composition_set
+from loushang.coding.resume_activation_attempt import (
+    CodingActivationAttemptV1,
+    prepare_coding_activation_attempt_record,
+)
 from loushang.coding.resume_activation_plan import (
     ActivationOwnerInputRefV1,
     ActivationOwnerSelectionRefV1,
@@ -102,6 +107,58 @@ def test_activation_plan_cannot_treat_unknown_history_as_ready() -> None:
     assert plan.status == "unavailable"
     assert plan.composition_comparison.reason_codes == (
         "history.binding_unknown_version",
+    )
+    future_attempt = build_session_activation_plan(
+        replace(_history(), activation_status="unknown_version"),
+        resolve_coding_composition_set("coding-standard"),
+        workspace_root=Path("/workspace"),
+    )
+    assert future_attempt.status == "unavailable"
+    assert future_attempt.composition_comparison.reason_codes == (
+        "history.activation_unknown_version",
+    )
+
+
+def test_unbound_durable_attempt_remains_readable_but_plan_is_unavailable(
+    tmp_path: Path,
+) -> None:
+    async def create() -> Path:
+        manager = await SessionManager.new_with_composition(
+            session_dir=tmp_path, cwd=str(tmp_path),
+            composition_set="coding-standard", defer_materialization=False,
+        )
+        try:
+            ancestry = project_coding_runtime_binding_path(
+                manager._transcript.active_path(),
+                current_session_id=manager.header.conversation_id,
+            ).ancestry_digest
+            attempt = CodingActivationAttemptV1(
+                attempt_id="attempt-1", request_id="input-1",
+                session_id=manager.header.conversation_id,
+                original_leaf_id=None, ancestry_digest=ancestry,
+                plan_fingerprint="a" * 64, epoch_fingerprint="b" * 64,
+                subject_digest="c" * 64,
+            )
+            record = prepare_coding_activation_attempt_record(
+                attempt, created_at=datetime(2026, 10, 12, tzinfo=UTC),
+            )
+            await manager.commit_prebuilt_extension_data(record)
+            assert manager.session_file is not None
+            return manager.session_file
+        finally:
+            await manager.dispose_runtime_profile()
+
+    path = asyncio.run(create())
+    history = read_coding_resume_snapshot(path, max_bytes=1024 * 1024)
+    assert history.activation_status == "pending"
+    assert history.pending_activation_record_id == "attempt-1"
+    plan = build_session_activation_plan(
+        history, resolve_coding_composition_set("coding-standard"),
+        workspace_root=tmp_path,
+    )
+    assert plan.status == "unavailable"
+    assert plan.composition_comparison.reason_codes == (
+        "history.activation_pending",
     )
 
 

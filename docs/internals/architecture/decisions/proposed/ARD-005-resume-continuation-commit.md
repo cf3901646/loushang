@@ -19,8 +19,10 @@
   unavailable. Coding also has an internal bounded activation-attempt v1 record
   builder and selected-path validator. The Transcript owner can commit a
   fixed-ID extension fact and reconcile it after an authoritative reload; a
-  Coding test helper uses that path for the candidate intent. Current activation
-  admission, complete recovery, and runtime wiring are not implemented
+  Coding test helper uses that path for the candidate intent. Selected-path
+  projection now marks an unbound intent pending or an unknown version
+  unavailable while keeping history viewable. Current activation admission,
+  complete recovery, and runtime wiring are not implemented
 - Owner: Loushang architecture, Coding continuity, and Harness transcript
 - Tracking: [Issue #696](https://github.com/zhnt/loushang/issues/696)
 
@@ -116,6 +118,13 @@ approval grant, mutable lease, resource secret, or assertion that effects
 settled. The Transcript owner has a fixed-ID extension commit and same-record
 reload reconciliation path. Coding still lacks the admitted activation owner
 that would call it and correlate it with effect settlement.
+
+The selected-path read projection reports an unbound current-Session intent as
+pending. A matching first UserMessage clears that pending input fact only when
+its Binding and parent record agree with the intent. Unknown attempt versions
+or malformed known facts keep historical viewing available but make the pure
+Plan unavailable. Clearing the pending input fact does not settle plugin,
+Worker, Tool, or model effects.
 
 The candidate writer capability name is `coding.resume-continuation/v1`.
 Its first shipping build is still undecided. The capability is a release

@@ -55,6 +55,9 @@ def compare_coding_resume_composition(
     elif history.binding_status in {"unknown_version", "invalid"}:
         status = "unavailable"
         reason_codes = (f"history.binding_{history.binding_status}",)
+    elif history.activation_status != "none":
+        status = "unavailable"
+        reason_codes = (f"history.activation_{history.activation_status}",)
     elif origin is None:
         status, difference_codes = "legacy_unknown", ("composition.origin_unknown",)
     elif origin.set_id != current.set_id:
