@@ -26,6 +26,7 @@ from ._resume_cleanup import (
 )
 from .bootstrap import BootstrapServices, _create_resume_agent_session
 from .composition_sets import resolve_coding_composition_set
+from .package_product_runtime import CodingFencedProductApplicationSelection
 from .resume_activation_attempt import (
     CodingActivationAttemptV1,
     CodingResumeRecoveryRequired,
@@ -77,6 +78,8 @@ async def prepare_coding_resume_continuation(
     approval_resolver: InteractiveApprovalResolver | None = None,
     tool_policy_evaluator: PolicyEvaluator | None = None,
     observe_input_identity: Callable[[CodingResumeInputLookupQueryV1], None] | None = None,
+    product_owner_selection: CodingFencedProductApplicationSelection | None = None,
+    worker_candidates: bool = False,
 ) -> CodingResumePreparedContinuation:
     """Prepare one initial input, commit it once, then publish original owners.
 
@@ -87,6 +90,12 @@ async def prepare_coding_resume_continuation(
 
     if not isinstance(manager_type, type) or not issubclass(manager_type, SessionManager):
         raise TypeError("Coding Resume requires its original SessionManager type")
+    if product_owner_selection is not None and not isinstance(
+        product_owner_selection, CodingFencedProductApplicationSelection,
+    ):
+        raise TypeError("Coding Resume Product application owner is invalid")
+    if type(worker_candidates) is not bool or (worker_candidates and product_owner_selection is None):
+        raise ValueError("Coding Resume Worker requires its application Product owner")
     if (
         not isinstance(plan, SessionActivationPlanV1)
         or not isinstance(attempt, CodingActivationAttemptV1)
@@ -151,6 +160,7 @@ async def prepare_coding_resume_continuation(
             require_current_admission=require_current_admission,
             services=services, model=model, no_tools=no_tools,
             approval_resolver=approval_resolver, tool_policy_evaluator=tool_policy_evaluator,
+            product_owner_selection=product_owner_selection, worker_candidates=worker_candidates,
         )
         receipt = await session._prepare_resume_runtime_graph(
             attempt_id=attempt.attempt_id, require_current_admission=require_current_admission,

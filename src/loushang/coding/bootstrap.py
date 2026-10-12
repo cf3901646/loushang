@@ -2571,6 +2571,8 @@ async def _create_resume_agent_session(
     agent_factory: AgentFactory = Agent,
     approval_resolver: InteractiveApprovalResolver | None = None,
     tool_policy_evaluator: PolicyEvaluator | None = None,
+    product_owner_selection: CodingFencedProductApplicationSelection | None = None,
+    worker_candidates: bool = False,
 ) -> AgentSession:
     """Construct a fenced current candidate for a locally committed Resume Plan.
 
@@ -2579,13 +2581,24 @@ async def _create_resume_agent_session(
     It must not be used for recovery of an uncertain or historical-only intent.
     """
 
+    if product_owner_selection is not None and not isinstance(
+        product_owner_selection, CodingFencedProductApplicationSelection,
+    ):
+        raise TypeError("Coding Resume Product application owner is invalid")
+    if type(worker_candidates) is not bool or (worker_candidates and product_owner_selection is None):
+        raise ValueError("Coding Resume Worker requires its application Product owner")
     composition = _canonical_coding_composition_set(composition_set)
     admission = _CodingResumeBootstrapAdmission(
         session_manager, attempt_id, composition, require_current_admission,
     )
     admission.require(session_manager, composition)
-    selected_factory = _select_direct_coding_product_factory(
-        session_manager, services=services, windows_candidate=sys.platform == "win32",
+    selected_factory = (
+        _borrow_application_coding_product_factory(
+            product_owner_selection, session_manager, services=services,
+            worker_candidates=worker_candidates,
+        ) if product_owner_selection is not None else _select_direct_coding_product_factory(
+            session_manager, services=services, windows_candidate=sys.platform == "win32",
+        )
     )
     session: AgentSession | None = None
     try:
@@ -2914,16 +2927,15 @@ _CODING_AGENT_PRODUCT_CONSTRUCTION = AgentProductConstructionBinding[
 )
 
 
-def _build_with_package_product_selection(
+def _borrow_application_coding_product_factory(
     selection: CodingFencedProductApplicationSelection,
     manager: SessionManager,
-    services: BootstrapServices,
-    build: Callable[[PackageProductRuntimeFactoryPort | None], AgentSession],
+    *,
+    services: BootstrapServices | None,
     worker_candidates: bool = False,
-) -> AgentSession:
-    manager.require_no_unsettled_resume_activation()
+) -> PackageProductRuntimeFactoryPort | None:
     factory = selection.factory_for_session(
-        manager, settings_manager=services.settings_manager
+        manager, settings_manager=None if services is None else services.settings_manager,
     )
     selected_factory: PackageProductRuntimeFactoryPort | None = factory
     if worker_candidates:
@@ -2934,11 +2946,27 @@ def _build_with_package_product_selection(
                 WindowsLocalWheelProductRuntimeFactory,
             ),
         ):
-            raise TypeError("Coding Worker requires Product selection")
+            error = TypeError("Coding Worker requires Product selection")
+            _dispose_unbound_package_product_runtime(factory, error)
+            raise error
         selected_factory = CodingApplicationWorkerProductRuntimeFactory(
             factory=factory,
             selection=selection,
         )
+    return selected_factory
+
+
+def _build_with_package_product_selection(
+    selection: CodingFencedProductApplicationSelection,
+    manager: SessionManager,
+    services: BootstrapServices,
+    build: Callable[[PackageProductRuntimeFactoryPort | None], AgentSession],
+    worker_candidates: bool = False,
+) -> AgentSession:
+    manager.require_no_unsettled_resume_activation()
+    selected_factory = _borrow_application_coding_product_factory(
+        selection, manager, services=services, worker_candidates=worker_candidates,
+    )
     try:
         return build(selected_factory)
     except BaseException as error:

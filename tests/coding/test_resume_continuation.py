@@ -11,6 +11,9 @@ import pytest
 from loushang.ai.types import UserMessage
 from loushang.coding import bootstrap
 from loushang.coding.composition_sets import resolve_coding_composition_set
+from loushang.coding.package_product_runtime import (
+    CodingFencedProductApplicationSelection,
+)
 from loushang.coding.resume_activation_attempt import (
     CodingActivationAttemptV1,
     CodingResumeRecoveryRequired,
@@ -40,7 +43,7 @@ from loushang.harness.transcript.jsonl_file import load_agent_transcript_file
 pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="Linux owned Resume Writer")
 
 
-@pytest.mark.parametrize("mode", ["published", "published_duplicate", "denied", "graph_revoked", "preflight_revoked", "preflight_cancelled", "unsettled", "commit_unknown", "publication_revoked", "cleanup_failed", "bootstrap_cleanup_failed", "identity_delivery_failed"])
+@pytest.mark.parametrize("mode", ["published", "published_application_owner", "application_owner_revoked", "published_duplicate", "denied", "graph_revoked", "preflight_revoked", "preflight_cancelled", "unsettled", "commit_unknown", "publication_revoked", "cleanup_failed", "bootstrap_cleanup_failed", "identity_delivery_failed"])
 def test_canonical_resume_continuation_uses_original_owners_in_order(tmp_path, monkeypatch, mode):
     monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
 
@@ -62,6 +65,28 @@ def test_canonical_resume_continuation_uses_original_owners_in_order(tmp_path, m
         )
         factory = _create_owned_session_factory()
         manager_type = _bind_owned_session_manager(factory)
+        application_selection = CodingFencedProductApplicationSelection() if mode in {
+            "published_application_owner", "application_owner_revoked",
+        } else None
+        selected_factories = []
+        if application_selection is not None:
+            select = application_selection.factory_for_session
+
+            def borrow(manager, **kwargs):
+                assert manager is managers[0]
+                assert manager._require_resume_runtime_preparation(attempt.attempt_id) == attempt
+                selected = select(manager, **kwargs)
+                selected_factories.append(selected)
+                if mode == "application_owner_revoked":
+                    owner.release_confirmation(fact)
+                return selected
+
+            monkeypatch.setattr(application_selection, "factory_for_session", borrow)
+
+            def reject_second_selection(*args, **kwargs):
+                pytest.fail("Resume must borrow the application's original Product owner")
+
+            monkeypatch.setattr(bootstrap, "_select_direct_coding_product_factory", reject_second_selection)
         owner = InteractiveApprovalResolver(fallback=DenyApprovalResolver())
         prepared = None
         second_prepared = None
@@ -186,8 +211,9 @@ def test_canonical_resume_continuation_uses_original_owners_in_order(tmp_path, m
                 require_current_epoch_settlement=epoch, no_tools=True,
                 created_at=datetime(2026, 10, 12, tzinfo=UTC),
                 observe_input_identity=observe_input_identity,
+                **({"product_owner_selection": application_selection} if application_selection is not None else {}),
             )
-            if mode in {"published", "published_duplicate"}:
+            if mode in {"published", "published_application_owner", "published_duplicate"}:
                 prepared = await operation
                 assert prepared.input_record_id == "input-record"
                 assert prepared.session.execution_available
@@ -224,7 +250,7 @@ def test_canonical_resume_continuation_uses_original_owners_in_order(tmp_path, m
             durable_header, records = load_agent_transcript_file(path, read_only=True)
             assert durable_header == header
             inputs = [record for record in records if record.record_id == "input-record"]
-            if mode in {"published", "published_duplicate", "commit_unknown", "publication_revoked", "cleanup_failed", "identity_delivery_failed"}:
+            if mode in {"published", "published_application_owner", "published_duplicate", "commit_unknown", "publication_revoked", "cleanup_failed", "identity_delivery_failed"}:
                 assert len(inputs) == 1
                 record = inputs[0]
                 assert len(input_identities) == 1
@@ -247,7 +273,7 @@ def test_canonical_resume_continuation_uses_original_owners_in_order(tmp_path, m
             if mode == "denied":
                 assert path.read_bytes() == before
                 assert stages == ["confirm"]
-            elif mode == "bootstrap_cleanup_failed":
+            elif mode in {"bootstrap_cleanup_failed", "application_owner_revoked"}:
                 assert stages == ["confirm", "writer"]
             else:
                 assert stages[:3] == ["confirm", "writer", "graph"]
@@ -256,7 +282,7 @@ def test_canonical_resume_continuation_uses_original_owners_in_order(tmp_path, m
             if mode == "commit_unknown":
                 assert len(appends) == 2  # Original UOW fixed-ID verification.
                 assert appends[0] == appends[1]
-            if mode not in {"published", "published_duplicate"} and managers:
+            if mode not in {"published", "published_application_owner", "published_duplicate"} and managers:
                 assert managers[0]._lifecycle_session._writer_owner.closing
             if mode == "published_duplicate":
                 await prepared.session.dispose()
@@ -291,5 +317,12 @@ def test_canonical_resume_continuation_uses_original_owners_in_order(tmp_path, m
                 await dispose_session(native_sessions[0])
             owner.dispose()
             await factory.close()
+            if application_selection is not None:
+                assert len(selected_factories) == 1
+                assert len(application_selection._owners) == 1
+                assert not application_selection._fenced
+                for application_owner in application_selection._owners.values():
+                    application_owner.epoch_runtime.assert_current()
+                application_selection.close()
 
     asyncio.run(scenario())

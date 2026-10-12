@@ -1418,3 +1418,58 @@ Validation: the new bootstrap failure was reproduced before the fix. Nineteen
 non-live bootstrap/coordinator regressions passed, followed by both nested
 bootstrap and later-publication cleanup-debt cases. Scoped mypy for all three
 source modules and Ruff passed.
+
+#### Native application Root retains preparation and delivery
+
+`AgentSessionRuntime.prepare_resume_continuation` now uses the original Root's
+owned Transcript factory and Product application selection. Product borrowing
+occurs after the current admission and definite intent commit. Resume Bootstrap
+rechecks admission after borrowing and retains the original unbound factory or
+complete Session cleanup route on failure. Session disposal releases its native
+Product runtime lease without closing the application's epoch owner. Ordinary
+Session construction shares the same borrowing helper and retains its existing
+unsettled-Resume rejection.
+
+The Root prepares an original `PreparedSessionLifecycleOperation` through its
+existing lifecycle runtime. The returned `CodingRuntimePreparedResume` exposes
+Root-owned `consume` and `abort` operations alongside the canonical committed
+input lookup identity. It does not submit a normal prompt or dispatch a model.
+Its candidate is bound to the original runtime host before delivery to the
+caller, so the native model transport's current-Session predicate rejects it
+before the original lifecycle installs that exact Session in the Root slot.
+Current admission also checks the previous slot until the native operation's
+delivery marker, and the exact candidate slot after that marker. A changed slot
+invalidates preparation or delivery.
+
+Preparation and delivery tasks remain Root-owned through cancellation. Root
+close first fences admission, cancels and joins those tasks, then aborts native
+undelivered operations and retries retained complete-candidate cleanup debts.
+Failure to settle a candidate prevents closing its dependent Transcript and
+Product factories; the same original operation or debt remains available to a
+later Root close. Native lifecycle disposal uses its original post-shutdown
+entry, while coordinator cleanup retains the original Session disposal entry.
+The native lifecycle still owns current Session replacement and retirement.
+If retirement of an already delivered Session fails, Root close also stops
+before dependent factory close. The original lifecycle retains that retirement
+for the next close attempt; Product epoch guards remain defense in depth.
+
+Regression fixtures use real owned Writers, native lifecycle operations and
+interactive permission facts. They cover exact Session delivery, pre-delivery
+model ownership, committed input identity, abort, changed current slot,
+cancellation during preparation and delivery, confirmation revocation before
+delivery, failed Host binding, failed native abort, delivered retirement failure
+and retained cleanup debt.
+Effect-settlement callbacks in these fixtures validate orchestration only.
+
+This is an explicit Root entry. Default CLI/TUI and Hosted callers have not yet
+been switched to it; actual current actor/policy comparison and external effect
+settlement remain mandatory production work. Caller-supplied construction
+options, Worker support and released-version provenance still need their full
+delivery acceptance evidence. Issue #696 and the full Goal remain incomplete.
+
+Validation: missing Root preparation was demonstrated before implementation;
+the delivered-retirement fault demonstrated a dependent Product close attempt
+before the ordering fix. Forty-three non-live Root, continuation, bootstrap,
+history and Product revision regressions passed. After the retirement fix,
+all eleven Root scenarios and four existing owned-runtime cleanup cases passed
+(15 tests). Scoped mypy, Ruff and nine documentation checks passed.

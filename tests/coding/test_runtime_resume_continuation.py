@@ -1,0 +1,269 @@
+from __future__ import annotations
+
+import asyncio
+import sys
+from datetime import UTC, datetime
+
+import pytest
+
+from loushang.ai.types import UserMessage
+from loushang.coding import bootstrap
+from loushang.coding.composition_sets import resolve_coding_composition_set
+from loushang.coding.package_product_runtime import (
+    CodingFencedProductApplicationSelection,
+)
+from loushang.coding.resume_activation_attempt import CodingActivationAttemptV1
+from loushang.coding.resume_activation_plan import build_session_activation_plan
+from loushang.coding.resume_continuation import CodingResumeContinuationCleanupFailure
+from loushang.coding.resume_permission_confirmation import (
+    CodingResumePermissionConfirmation,
+    coding_resume_permission_request,
+)
+from loushang.coding.runtime.agent_session_runtime import AgentSessionRuntime
+from loushang.coding.session.agent_session import AgentSession
+from loushang.coding.session_manager import SessionManager
+from loushang.harness.approval import DenyApprovalResolver, InteractiveApprovalResolver
+from loushang.harness.session.lifecycle import PreparedSessionOperationStateError
+from loushang.harness.transcript.jsonl_file import load_agent_transcript_file
+
+pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="Linux owned Resume Writer")
+
+
+@pytest.mark.parametrize("mode", ["consume", "delivered_close_failed", "abort", "stale", "root_close", "cancel_prepare", "cancel_delivery", "delivery_revoked", "abort_failed", "host_bind_failed", "cleanup_debt"])
+def test_root_owns_native_resume_preparation_and_delivery(tmp_path, monkeypatch, mode):
+    monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
+
+    async def scenario():
+        manager = await SessionManager.new(
+            session_dir=tmp_path / "sessions", cwd=str(tmp_path), defer_materialization=False,
+        )
+        await manager.append_message(UserMessage(role="user", content="history", timestamp=1.0))
+        path = manager.session_file
+        header = manager.header
+        await manager.dispose_runtime_profile()
+        assert path is not None
+        selection = CodingFencedProductApplicationSelection()
+
+        def ordinary_factory(manager, **kwargs):
+            return bootstrap.create_agent_session(
+                session_manager=manager, composition_set="coding-minimal", no_tools=True,
+                package_product_runtime_factory=selection.factory_for_session(manager), **kwargs,
+            )
+
+        root = AgentSessionRuntime(
+            session_dir=tmp_path / "sessions", session_factory=ordinary_factory,
+            owned_transcripts=True, product_owner_selection=selection,
+        )
+        issuer = InteractiveApprovalResolver(fallback=DenyApprovalResolver())
+        prepared = None
+        task = None
+        entered = asyncio.Event()
+        native_sessions = []
+        try:
+            before = path.read_bytes()
+            history = await root.preview_resume_history(path)
+            assert path.read_bytes() == before
+            assert not selection._owners
+            assert root.current_session is None
+            plan = build_session_activation_plan(
+                history, resolve_coding_composition_set("coding-minimal"), workspace_root=tmp_path,
+            )
+            attempt = CodingActivationAttemptV1(
+                attempt_id="root-attempt", request_id="root-input", session_id=header.conversation_id,
+                original_leaf_id=plan.selected_leaf_id, ancestry_digest=plan.ancestry_digest,
+                plan_fingerprint=plan.plan_id, epoch_fingerprint="a" * 64, subject_digest="b" * 64,
+            )
+
+            async def confirm(payload):
+                assert root.current_session is None
+                assert await issuer.handle_result(payload["action_id"], outcome="allow_once")
+
+            issuer.set_request_presenter(confirm)
+            fact = await issuer.confirm(coding_resume_permission_request(
+                attempt, actor_id="root", expansion_codes=("authority.unknown",),
+            ))
+            assert fact is not None
+            permission = CodingResumePermissionConfirmation(
+                attempt, "root", ("authority.unknown",), issuer, fact,
+            )
+
+            def epoch(observed, receipt):
+                # This fixture validates orchestration, not production effect settlement.
+                assert observed == attempt
+                assert receipt["setId"] == "coding-minimal"
+
+            native_graph = AgentSession._prepare_resume_runtime_graph
+
+            async def observe_graph(session, **kwargs):
+                native_sessions.append(session)
+                receipt = await native_graph(session, **kwargs)
+                if mode in {"root_close", "cancel_prepare"}:
+                    entered.set()
+                    await asyncio.Event().wait()
+                if mode == "cleanup_debt":
+                    issuer.release_confirmation(fact)
+                return receipt
+
+            monkeypatch.setattr(AgentSession, "_prepare_resume_runtime_graph", observe_graph)
+            if mode == "host_bind_failed":
+                bind_host = AgentSession.set_extension_runtime_host
+
+                def fail_host_binding(session, host):
+                    bind_host(session, host)
+                    if host is root:
+                        raise OSError("original host binding failed")
+
+                monkeypatch.setattr(AgentSession, "set_extension_runtime_host", fail_host_binding)
+            if mode in {"cleanup_debt", "abort_failed"}:
+                failures = []
+                cleanup_method = "_dispose_after_session_shutdown" if mode == "abort_failed" else "dispose"
+                native_cleanup = getattr(AgentSession, cleanup_method)
+
+                async def fail_once(session, *args, **kwargs):
+                    if not failures:
+                        failures.append(session)
+                        raise OSError("candidate cleanup failed")
+                    await native_cleanup(session, *args, **kwargs)
+
+                monkeypatch.setattr(AgentSession, cleanup_method, fail_once)
+            operation = root.prepare_resume_continuation(
+                session_file=path, plan=plan, current_owner_inputs=(), attempt=attempt,
+                input_record_id="root-input-record", text="continue", no_tools=True,
+                created_at=datetime(2026, 10, 12, tzinfo=UTC),
+                require_current_admission=permission.require_current,
+                require_current_epoch_settlement=epoch,
+            )
+            if mode in {"root_close", "cancel_prepare"}:
+                task = asyncio.create_task(operation)
+                waiter = asyncio.create_task(entered.wait())
+                try:
+                    await asyncio.wait((task, waiter), return_when=asyncio.FIRST_COMPLETED)
+                    if not entered.is_set():
+                        await task
+                    if mode == "root_close":
+                        await root.dispose_session_runtime()
+                    else:
+                        task.cancel()
+                    with pytest.raises(asyncio.CancelledError):
+                        await task
+                finally:
+                    waiter.cancel()
+                    await asyncio.gather(waiter, return_exceptions=True)
+                assert native_sessions[0].session_manager._lifecycle_session._disposed
+            elif mode == "cleanup_debt":
+                with pytest.raises(CodingResumeContinuationCleanupFailure) as failed:
+                    await operation
+                assert failed.value.original_owner is native_sessions[0]
+                assert not native_sessions[0].session_manager._lifecycle_session._disposed
+                assert root._resume_cleanup_debts == [failed.value]
+                await root.dispose_session_runtime()
+                assert native_sessions[0].session_manager._lifecycle_session._disposed
+                assert not root._resume_cleanup_debts
+            elif mode == "host_bind_failed":
+                with pytest.raises(OSError, match="original host binding failed"):
+                    await operation
+                assert native_sessions[0].session_manager._lifecycle_session._disposed
+                assert not root._resume_prepared_operations
+            else:
+                prepared = await operation
+                candidate = prepared.continuation.session
+                assert candidate is native_sessions[0]
+                assert root.current_session is None
+                assert not candidate._is_current_model_call_session()
+                assert not prepared.consumed
+                assert candidate.session_manager.header == header
+                if mode in {"consume", "delivered_close_failed"}:
+                    result = await prepared.consume()
+                    assert result.current is candidate
+                    assert root.current_session is candidate
+                    assert prepared.consumed
+                    assert candidate._is_current_model_call_session()
+                    assert not candidate.agent.is_streaming
+                    if mode == "delivered_close_failed":
+                        retire = AgentSession._dispose_after_session_shutdown
+                        failures = []
+
+                        async def fail_retirement_once(session):
+                            if not failures:
+                                failures.append(session)
+                                raise OSError("delivered Session retirement failed")
+                            await retire(session)
+
+                        monkeypatch.setattr(AgentSession, "_dispose_after_session_shutdown", fail_retirement_once)
+                        application_owners = tuple(selection._owners.values())
+                        assert application_owners
+                        close_product = selection.close
+                        product_closes = []
+
+                        def observe_product_close():
+                            product_closes.append(True)
+                            close_product()
+
+                        monkeypatch.setattr(selection, "close", observe_product_close)
+                        with pytest.raises(OSError, match="delivered Session retirement failed"):
+                            await root.dispose_session_runtime()
+                        assert not product_closes
+                        assert not candidate.session_manager._lifecycle_session._disposed
+                        for application_owner in application_owners:
+                            application_owner.epoch_runtime.assert_current()
+                        await root.dispose_session_runtime()
+                        assert candidate.session_manager._lifecycle_session._disposed
+                elif mode == "stale":
+                    await root.new_session(cwd=str(tmp_path))
+                    with pytest.raises(PreparedSessionOperationStateError):
+                        await prepared.consume()
+                    assert root.current_session is not candidate
+                    assert candidate.session_manager._lifecycle_session._disposed
+                elif mode == "delivery_revoked":
+                    issuer.release_confirmation(fact)
+                    with pytest.raises(PermissionError):
+                        await prepared.consume()
+                    assert root.current_session is None
+                    assert candidate.session_manager._lifecycle_session._disposed
+                elif mode == "cancel_delivery":
+                    native_prepare_runtime = AgentSession.prepare_model_call_runtime
+
+                    async def pause_delivery(session):
+                        await native_prepare_runtime(session)
+                        entered.set()
+                        await asyncio.Event().wait()
+
+                    monkeypatch.setattr(AgentSession, "prepare_model_call_runtime", pause_delivery)
+                    task = asyncio.create_task(prepared.consume())
+                    waiter = asyncio.create_task(entered.wait())
+                    try:
+                        await asyncio.wait((task, waiter), return_when=asyncio.FIRST_COMPLETED)
+                        if not entered.is_set():
+                            await task
+                        await root.dispose_session_runtime()
+                        with pytest.raises(asyncio.CancelledError):
+                            await task
+                    finally:
+                        waiter.cancel()
+                        await asyncio.gather(waiter, return_exceptions=True)
+                    assert candidate.session_manager._lifecycle_session._disposed
+                elif mode == "abort_failed":
+                    with pytest.raises(OSError, match="candidate cleanup failed"):
+                        await prepared.abort()
+                    assert prepared._operation in root._resume_prepared_operations
+                    assert not candidate.session_manager._lifecycle_session._disposed
+                    await root.dispose_session_runtime()
+                    assert candidate.session_manager._lifecycle_session._disposed
+                else:
+                    await prepared.abort()
+                    assert candidate.session_manager._lifecycle_session._disposed
+            _, records = load_agent_transcript_file(path, read_only=True)
+            inputs = [record for record in records if record.record_id == "root-input-record"]
+            assert len(inputs) == (0 if mode in {"root_close", "cancel_prepare", "cleanup_debt"} else 1)
+        finally:
+            if task is not None and not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+            await root.dispose_session_runtime()
+            issuer.dispose()
+        assert root.current_session is None
+        assert not root._resume_activation_tasks
+        assert not root._resume_delivery_tasks
+        assert not root._resume_prepared_operations
+
+    asyncio.run(scenario())
