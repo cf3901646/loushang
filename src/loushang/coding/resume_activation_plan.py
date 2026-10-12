@@ -257,6 +257,47 @@ def _require_plan_workspace_root(workspace_root: Path) -> None:
         raise ValueError("activation Plan workspace root exceeds its budget")
 
 
+async def plan_coding_resume_async(
+    history: CodingResumeHistoryPreview,
+    current_composition: CodingCompositionSetPlan,
+    *,
+    workspace_root: Path,
+    resource_loader: ResourceLoader,
+    subject_digest: str,
+    policy_digest: str,
+    max_work_units: int,
+    time_budget_seconds: float,
+) -> SessionActivationPlanV1:
+    """Build the same Plan envelope using bounded Resource-owned native work.
+
+    Subject and policy digests are caller-observed input dependencies, not
+    permission evidence. The awaiting Product owns its reference and cancels
+    that Task when it no longer needs the result. Resource owns native work
+    settlement; no Runtime, Writer, or selected Package escapes this entry.
+    """
+
+    _require_plan_workspace_root(workspace_root)
+    domain_inputs = (
+        ActivationOwnerInputRefV1("coding.policy", policy_digest),
+        ActivationOwnerInputRefV1("coding.subject", subject_digest),
+    )
+    if compare_coding_resume_composition(history, current_composition).status == "unavailable":
+        return build_session_activation_plan(
+            history, current_composition, workspace_root=workspace_root,
+            owner_inputs=domain_inputs,
+        )
+    fingerprint = await resource_loader.preview_catalog_input_fingerprint(
+        workspace_root, subject_digest=subject_digest, policy_digest=policy_digest,
+        max_work_units=max_work_units, time_budget_seconds=time_budget_seconds,
+    )
+    return build_session_activation_plan(
+        history, current_composition, workspace_root=workspace_root,
+        owner_inputs=(*domain_inputs, ActivationOwnerInputRefV1(
+            "resources.catalog", fingerprint,
+        )),
+    )
+
+
 def require_current_resume_plan_source(
     plan: SessionActivationPlanV1, history: CodingResumeHistoryPreview,
 ) -> None:
@@ -309,6 +350,7 @@ __all__ = [
     "SessionActivationPlanV1",
     "build_session_activation_plan",
     "plan_coding_resume",
+    "plan_coding_resume_async",
     "require_current_resume_plan_inputs",
     "require_current_resume_plan_source",
 ]

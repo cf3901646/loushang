@@ -4,6 +4,7 @@ import asyncio
 import importlib
 import os
 import subprocess
+import threading
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,6 +23,7 @@ from loushang.coding.resume_activation_plan import (
     ResumePlanStaleError,
     build_session_activation_plan,
     plan_coding_resume,
+    plan_coding_resume_async,
     require_current_resume_plan_inputs,
     require_current_resume_plan_source,
 )
@@ -362,3 +364,116 @@ def test_resume_plan_propagates_cancellation_without_delivering_a_plan(tmp_path)
         _history(), resolve_coding_composition_set("coding-standard"),
         workspace_root=tmp_path, resource_loader=loader,
     ).status == "needs_final_validation"
+
+
+def _async_plan(loader, root, *, history=None, subject="a" * 64, policy="b" * 64):
+    return plan_coding_resume_async(
+        _history() if history is None else history,
+        resolve_coding_composition_set("coding-standard"),
+        workspace_root=root, resource_loader=loader,
+        subject_digest=subject, policy_digest=policy,
+        max_work_units=4096, time_budget_seconds=30,
+    )
+
+
+def test_async_resume_plan_uses_original_facts_and_tracks_security_inputs(tmp_path) -> None:
+    loader = ResourceLoader(user_resource_roots=())
+    (tmp_path / "AGENTS.md").write_text("current context", encoding="utf-8")
+    sync_plan = plan_coding_resume(
+        _history(), resolve_coding_composition_set("coding-standard"),
+        workspace_root=tmp_path, resource_loader=loader,
+    )
+
+    async def scenario():
+        try:
+            first = await _async_plan(loader, tmp_path)
+            expected = build_session_activation_plan(
+                _history(), resolve_coding_composition_set("coding-standard"),
+                workspace_root=tmp_path,
+                owner_inputs=(
+                    ActivationOwnerInputRefV1("coding.policy", "b" * 64),
+                    ActivationOwnerInputRefV1("coding.subject", "a" * 64),
+                    *sync_plan.owner_inputs,
+                ),
+            )
+            assert first == expected
+            assert first.owner_selections == ()
+            changed_policy = await _async_plan(loader, tmp_path, policy="c" * 64)
+            changed_subject = await _async_plan(loader, tmp_path, subject="c" * 64)
+            for changed in (changed_policy, changed_subject):
+                assert changed.plan_id != first.plan_id
+                with pytest.raises(ResumePlanStaleError, match="owner inputs changed"):
+                    require_current_resume_plan_inputs(first, changed.owner_inputs)
+            assert loader._catalog_authority_selected is False
+            assert loader._legacy_authority_selected is False
+        finally:
+            await loader.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_unavailable_async_resume_does_not_start_native_work(tmp_path, monkeypatch) -> None:
+    loader = ResourceLoader(user_resource_roots=())
+
+    async def forbidden(*args, **kwargs):
+        pytest.fail("unavailable history started native Resource work")
+
+    monkeypatch.setattr(loader, "preview_catalog_input_fingerprint", forbidden)
+    plan = asyncio.run(_async_plan(
+        loader, tmp_path, history=replace(_history(), activation_status="pending"),
+    ))
+    assert plan.status == "unavailable"
+    assert tuple(item.owner_id for item in plan.owner_inputs) == ("coding.policy", "coding.subject")
+    assert loader._catalog_preview_tasks is None
+
+
+def test_async_resume_cancelled_view_does_not_fence_peer_planning(tmp_path, monkeypatch) -> None:
+    loader = ResourceLoader(user_resource_roots=())
+    first_view = loader.create_catalog_session_view()
+    peer_view = loader.create_catalog_session_view()
+    original = ResourceLoader._compute_catalog_input_receipt_from_state
+    entered, released = threading.Event(), threading.Event()
+    calls = 0
+
+    def compute(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        entered.set()
+        assert released.wait(5)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(ResourceLoader, "_compute_catalog_input_receipt_from_state", staticmethod(compute))
+
+    async def scenario():
+        first = asyncio.create_task(_async_plan(first_view, tmp_path))
+        peer = asyncio.create_task(_async_plan(peer_view, tmp_path))
+        try:
+            async with asyncio.timeout(5):
+                while not entered.is_set():
+                    await asyncio.sleep(0.001)
+            first.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await first
+            await first_view.aclose()
+            assert not peer.done()
+            assert calls == 1
+            released.set()
+            assert (await peer).status == "needs_final_validation"
+            # Closing one projection must not close the shared task scope.
+            assert (await _async_plan(peer_view, tmp_path)).status == "needs_final_validation"
+        finally:
+            released.set()
+            first.cancel()
+            peer.cancel()
+            await loader.aclose()
+            await asyncio.gather(first, peer, return_exceptions=True)
+
+    asyncio.run(scenario())
+
+
+def test_async_resume_validates_inputs_before_native_work(tmp_path) -> None:
+    loader = ResourceLoader(user_resource_roots=())
+    for root, subject in ((Path("relative"), "a" * 64), (tmp_path, "raw-subject")):
+        with pytest.raises(ValueError):
+            asyncio.run(_async_plan(loader, root, subject=subject))
+    assert loader._catalog_preview_tasks is None

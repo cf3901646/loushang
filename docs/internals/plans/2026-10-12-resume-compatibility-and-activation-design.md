@@ -28,7 +28,15 @@
   without choosing authority; Plan records only their redacted input fingerprint and
   rejects reuse when refreshed owner inputs differ. The synchronous
   `plan_coding_resume` entry reuses displayed history and calls this original
-  Resource owner; unavailable history skips resource scanning. Skill and other mutable
+  Resource owner; unavailable history skips resource scanning. The internal
+  `plan_coding_resume_async` entry builds the same envelope through bounded
+  Resource-owned work and additionally records caller-observed subject and
+  policy input digests. These digests identify dependencies, not permissions;
+  refreshed domain inputs invalidate a stale Plan. Catalog Session views
+  delegate computation to their shared source owner, and closing one view
+  leaves peer computations available. Product callers must cancel their own
+  awaiting Tasks before closing the view; production close wiring is still
+  pending. Skill and other mutable
   Resource content is not closed by this receipt, which cannot replace current
   owner selection. The staged first-input path is not yet armed by live Resume
   activation. Writable admission, owner selection

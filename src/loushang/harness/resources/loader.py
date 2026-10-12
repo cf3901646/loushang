@@ -1029,6 +1029,25 @@ class CatalogSessionResourceLoaderView(ResourceLoader):
     ) -> ResourceCatalogInputReceipt:
         return self._source_loader._take_initial_resource_catalog_input_receipt()
 
+    async def preview_catalog_input_fingerprint(
+        self, cwd: Path, *, subject_digest: str, policy_digest: str,
+        max_work_units: int, time_budget_seconds: float,
+    ) -> str:
+        """Borrow the shared owner's computation through the caller's Task."""
+
+        return await self._source_loader.preview_catalog_input_fingerprint(
+            cwd, subject_digest=subject_digest, policy_digest=policy_digest,
+            max_work_units=max_work_units, time_budget_seconds=time_budget_seconds,
+        )
+
+    async def close_catalog_preview_tasks(self) -> None:
+        """The view owns no native tasks; callers release their own waiters."""
+
+    async def aclose(self) -> None:
+        """Close the local projection without fencing the shared source owner."""
+
+        self.close()
+
     @property
     def _package_roots(self) -> tuple[Path, ...]:
         return self._source_loader._package_roots
