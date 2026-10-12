@@ -4,6 +4,8 @@ This review never carries a native spec or grants a cleanup effect. A writer
 must repeat every observation while holding its Package and Product locks.
 """
 
+# CI timing probe for issue 704; this comment has no runtime effect.
+
 from __future__ import annotations
 
 import os
