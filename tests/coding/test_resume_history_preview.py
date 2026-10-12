@@ -36,6 +36,9 @@ from loushang.harness.transcript.jsonl_file import (
     load_agent_transcript_file,
     write_agent_transcript_export,
 )
+from loushang.harness.transcript.session_catalog import (
+    session_file_authority_fingerprint,
+)
 
 
 def test_readonly_resume_header_survives_retired_composition_and_profile_change(
@@ -130,7 +133,9 @@ def test_readonly_resume_header_marks_missing_composition_as_legacy_unknown(
     assert path.read_bytes() == before
 
 
-def test_readonly_snapshot_selects_one_parent_linked_history_path(tmp_path) -> None:
+def test_readonly_snapshot_selects_one_parent_linked_history_path(
+    tmp_path, monkeypatch,
+) -> None:
     path = tmp_path / "branches.jsonl"
     header = ConversationHeader(
         conversation_id="session-1", version=1, created_at="2026-10-12T00:00:00Z",
@@ -160,6 +165,7 @@ def test_readonly_snapshot_selects_one_parent_linked_history_path(tmp_path) -> N
     assert preview.selected_leaf_id == "right"
     assert preview.binding_status == "none"
     assert len(preview.selected_ancestry_digest) == 64
+    assert preview.source_fingerprint == session_file_authority_fingerprint(path)
     assert path.read_bytes() == before
 
     left = read_coding_resume_snapshot(
@@ -168,10 +174,31 @@ def test_readonly_snapshot_selects_one_parent_linked_history_path(tmp_path) -> N
     assert [record.record_id for record in left.selected_records] == ["root", "left"]
     assert left.selected_leaf_id == "left"
     assert left.selected_ancestry_digest != preview.selected_ancestry_digest
+    assert left.source_fingerprint == preview.source_fingerprint
+    with pytest.raises(ValueError, match="source changed"):
+        read_coding_resume_snapshot(
+            path, max_bytes=1024 * 1024,
+            expected_source_fingerprint="stale",
+        )
     with pytest.raises(ValueError):
         read_coding_resume_snapshot(
             path, max_bytes=1024 * 1024, selected_leaf_id="missing",
         )
+
+    original_load = load_agent_transcript_file
+
+    def change_after_read(*args, **kwargs):
+        result = original_load(*args, **kwargs)
+        with path.open("ab") as stream:
+            stream.write(b"\n")
+        return result
+
+    monkeypatch.setattr(
+        "loushang.coding.resume_history.load_agent_transcript_file",
+        change_after_read,
+    )
+    with pytest.raises(ValueError, match="source changed"):
+        read_coding_resume_snapshot(path, max_bytes=1024 * 1024)
 
 
 def test_readonly_snapshot_reports_selected_binding_without_blocking_corrupt_history(

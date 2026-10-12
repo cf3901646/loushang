@@ -12,6 +12,9 @@ from loushang.harness.transcript.jsonl_file import (
     load_agent_transcript_file,
     load_agent_transcript_header,
 )
+from loushang.harness.transcript.session_catalog import (
+    session_file_authority_fingerprint,
+)
 from loushang.harness.transcript.types import AgentTranscriptRecord
 
 from .composition_provenance import (
@@ -52,6 +55,7 @@ class CodingResumeHistoryPreview:
     binding_status: Literal["none", "bound", "unknown_version", "invalid"]
     binding: CodingRuntimeBindingV1 | None
     selected_ancestry_digest: str | None
+    source_fingerprint: str
     status: Literal["preview"] = "preview"
 
 
@@ -91,14 +95,24 @@ def read_coding_resume_header(path: str | Path) -> CodingResumeHeaderPreview:
 
 def read_coding_resume_snapshot(
     path: str | Path, *, max_bytes: int, selected_leaf_id: str | None = None,
+    expected_source_fingerprint: str | None = None,
 ) -> CodingResumeHistoryPreview:
     """Read a bounded historical snapshot without acquiring transcript authority."""
 
     if type(max_bytes) is not int or not 1 <= max_bytes <= 8 * 1024 * 1024:
         raise ValueError("Coding Resume snapshot budget must be within 1 to 8 MiB")
+    source_path = Path(path)
+    source_fingerprint = session_file_authority_fingerprint(source_path)
+    if (
+        expected_source_fingerprint is not None
+        and source_fingerprint != expected_source_fingerprint
+    ):
+        raise ValueError("Coding Resume source changed before snapshot")
     header, records = load_agent_transcript_file(
-        Path(path), max_bytes=max_bytes, read_only=True,
+        source_path, max_bytes=max_bytes, read_only=True,
     )
+    if session_file_authority_fingerprint(source_path) != source_fingerprint:
+        raise ValueError("Coding Resume source changed during snapshot")
     header_preview = inspect_coding_resume_header(header)
     repository = ConversationRepository.create(
         header=header,
@@ -141,6 +155,7 @@ def read_coding_resume_snapshot(
         binding_status=binding_status,
         binding=binding,
         selected_ancestry_digest=ancestry_digest,
+        source_fingerprint=source_fingerprint,
     )
 
 

@@ -684,6 +684,8 @@ class CodingHostedSessionCatalogV1:
         self._accepting()
         if (
             _revision(record.path) != reference.revision
+            or hashlib.sha256(preview.source_fingerprint.encode()).hexdigest()
+            != reference.revision
             or preview.header_preview.header != record.header
         ):
             raise CodingHostedCatalogError()

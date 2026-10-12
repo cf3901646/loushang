@@ -33,6 +33,7 @@ def _history() -> CodingResumeHistoryPreview:
         startup=None, provenance_conflict=False,
         binding_status="none", binding=None,
         selected_ancestry_digest="a" * 64,
+        source_fingerprint="stat-v1:fixture",
     )
 
 
