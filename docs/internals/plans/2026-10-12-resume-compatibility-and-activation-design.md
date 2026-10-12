@@ -13,7 +13,8 @@
   data-only internal `SessionActivationPlanV1` envelope exist. Selected-path
   history projection classifies an unbound attempt as pending and keeps its
   pure Plan unavailable while still allowing read-only viewing. The ordinary
-  persistent Session write path also stops at an unresolved attempt; a normal
+  persistent bootstrap, Product factory selection, model preparation, and
+  message write paths also stop at an unresolved attempt; a normal
   commit advances its checked transcript revision without rescanning history.
   ResourceLoader
   can calculate Catalog input facts and bounded native context content digests

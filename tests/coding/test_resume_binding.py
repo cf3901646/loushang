@@ -4,10 +4,11 @@ import asyncio
 import base64
 from dataclasses import replace
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 
-from loushang.ai.types import ImagePart, UserMessage
+from loushang.ai.types import AssistantMessage, ImagePart, Usage, UserMessage
 from loushang.coding.composition_provenance import CodingCompositionProvenanceV1
 from loushang.coding.composition_sets import resolve_coding_composition_set
 from loushang.coding.resume_activation_attempt import (
@@ -274,6 +275,96 @@ def test_ordinary_writable_resume_cannot_cross_an_unbound_attempt(tmp_path) -> N
                     UserMessage(role="user", content="continue", timestamp=1.0)
                 )
             assert len(manager.get_entries()) == 1
+        finally:
+            await manager.dispose_runtime_profile()
+
+    asyncio.run(scenario())
+
+
+def test_unbound_attempt_stops_bootstrap_before_product_factory_selection(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from loushang.coding import bootstrap
+
+    def forbidden_factory(*args, **kwargs):
+        pytest.fail("unresolved Resume reached Product runtime factory selection")
+
+    monkeypatch.setattr(
+        bootstrap, "_select_direct_coding_product_factory", forbidden_factory,
+    )
+
+    async def scenario() -> None:
+        manager = await SessionManager.new_with_composition(
+            session_dir=tmp_path, cwd=str(tmp_path), session_id="session-1",
+            composition_set="coding-standard", defer_materialization=False,
+        )
+        try:
+            await _append_test_activation_attempt(manager)
+            with pytest.raises(CodingResumeRecoveryRequired):
+                bootstrap.create_agent_session(session_manager=manager)
+            with pytest.raises(CodingResumeRecoveryRequired):
+                bootstrap._build_with_package_product_selection(
+                    SimpleNamespace(factory_for_session=forbidden_factory),
+                    manager,
+                    SimpleNamespace(),
+                    forbidden_factory,
+                )
+            assert len(manager.get_entries()) == 1
+        finally:
+            await manager.dispose_runtime_profile()
+
+    asyncio.run(scenario())
+
+
+def test_unbound_attempt_stops_model_preparation_before_runtime_effects(tmp_path) -> None:
+    from loushang.coding.session.agent_session import AgentSession
+
+    class PreparationSentinel:
+        def __init__(self, manager: SessionManager) -> None:
+            self._coding_session_manager = manager
+
+        def __getattr__(self, name: str):
+            pytest.fail(f"unresolved Resume reached runtime preparation: {name}")
+
+    async def scenario() -> None:
+        manager = await SessionManager.new_with_composition(
+            session_dir=tmp_path, cwd=str(tmp_path), session_id="session-1",
+            composition_set="coding-standard", defer_materialization=False,
+        )
+        try:
+            await _append_test_activation_attempt(manager)
+            with pytest.raises(CodingResumeRecoveryRequired):
+                await AgentSession.prepare_model_call_runtime(PreparationSentinel(manager))
+            assert len(manager.get_entries()) == 1
+        finally:
+            await manager.dispose_runtime_profile()
+
+    asyncio.run(scenario())
+
+
+def test_binding_metadata_on_ordinary_commit_invalidates_the_history_guard(tmp_path) -> None:
+    async def scenario() -> None:
+        manager = await SessionManager.new_with_composition(
+            session_dir=tmp_path, cwd=str(tmp_path), session_id="session-1",
+            composition_set="coding-standard", defer_materialization=False,
+        )
+        try:
+            await manager.append_message(
+                AssistantMessage(
+                    role="assistant", content=[], api="anthropic-messages",
+                    provider="offline", model="offline", endpoint="offline",
+                    response_id=None, stop_reason="stop", error_message=None,
+                    usage=Usage(
+                        input=0, output=0, cache_read=0, cache_write=0,
+                        total_tokens=0, cost={},
+                    ),
+                    timestamp=0.0,
+                ),
+                metadata={"coding.runtimeBindingV1": {"version": 2}},
+            )
+            with pytest.raises(CodingResumeRecoveryRequired) as error:
+                manager.require_no_unsettled_resume_activation()
+            assert error.value.reason_code == "history.activation_invalid"
         finally:
             await manager.dispose_runtime_profile()
 

@@ -52,6 +52,7 @@ from .resume_activation_attempt import (
     validate_coding_activation_attempt_record,
 )
 from .resume_binding import (
+    CODING_RUNTIME_BINDING_METADATA_KEY,
     CodingRuntimeBindingV1,
     prepare_coding_resume_user_record,
     project_coding_runtime_binding_path,
@@ -218,7 +219,7 @@ class SessionManager(
                 pending, message, metadata=metadata,
             )
         if self.persist:
-            self._require_no_unsettled_resume_activation()
+            self.require_no_unsettled_resume_activation()
         if (
             self.persist
             and isinstance(message, UserMessage)
@@ -235,9 +236,13 @@ class SessionManager(
             self.persist
             and self._transcript.revision == guarded_revision + 1
             and self._transcript.leaf_id == record_id
+            and (
+                metadata is None
+                or CODING_RUNTIME_BINDING_METADATA_KEY not in metadata
+            )
         ):
-            # This ordinary commit cannot create an activation intent. Retain
-            # the successful guard so subsequent messages avoid a full replay.
+            # A commit without Binding cannot change activation classification.
+            # Retain the guard so subsequent messages avoid a full replay.
             self._activation_guard_snapshot = (
                 self._transcript.revision, self._transcript.leaf_id,
             )
@@ -406,7 +411,7 @@ class SessionManager(
 
         self._coding_composition_ready = False
         if self.persist:
-            self._require_no_unsettled_resume_activation()
+            self.require_no_unsettled_resume_activation()
         pinned = pinned_composition_plan(self.get_header().metadata)
         if pinned is not None:
             return pinned
@@ -424,7 +429,7 @@ class SessionManager(
 
     def mark_composition_startup_prepared(self) -> None:
         if self.persist:
-            self._require_no_unsettled_resume_activation()
+            self.require_no_unsettled_resume_activation()
         pinned = pinned_composition_plan(self.get_header().metadata)
         if pinned is None:
             raise ValueError("Coding Session has no pinned composition plan")
@@ -438,7 +443,14 @@ class SessionManager(
             raise ValueError("Coding Session startup receipt differs from its header")
         self._coding_composition_ready = True
 
-    def _require_no_unsettled_resume_activation(self) -> None:
+    def require_no_unsettled_resume_activation(self) -> None:
+        """Fence ordinary bootstrap before Product runtime selection.
+
+        A successful historical check grants no current execution authority.
+        """
+
+        if not self.persist:
+            return
         snapshot = (self._transcript.revision, self._transcript.leaf_id)
         if self._activation_guard_snapshot == snapshot:
             return

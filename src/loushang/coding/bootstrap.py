@@ -577,6 +577,7 @@ def _create_agent_session(
     ),
     invocation_product_profile: CodingAgentInvocationProductProfile | None = None,
 ) -> AgentSession:
+    session_manager.require_no_unsettled_resume_activation()
     if (
         initial_resource_catalog_product_composition_assembly is not None
         and not isinstance(
@@ -2557,6 +2558,7 @@ def create_agent_session(
     lsp_baseline_environment: Mapping[str, str] | None = None,
     lsp_read_text: WorkspaceTextReader | None = None,
 ) -> AgentSession:
+    session_manager.require_no_unsettled_resume_activation()
     if worker_candidate_plugin_id is not None and (
         not isinstance(worker_candidate_plugin_id, str)
         or not worker_candidate_plugin_id
@@ -2830,6 +2832,7 @@ def _build_with_package_product_selection(
     build: Callable[[PackageProductRuntimeFactoryPort | None], AgentSession],
     worker_candidates: bool = False,
 ) -> AgentSession:
+    manager.require_no_unsettled_resume_activation()
     factory = selection.factory_for_session(
         manager, settings_manager=services.settings_manager
     )

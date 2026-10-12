@@ -1060,6 +1060,7 @@ class AgentSession(AgentProductSession):
         super()._prepare_resource_refresh()
 
     async def prepare_model_call_runtime(self) -> None:
+        self._coding_session_manager.require_no_unsettled_resume_activation()
         product_runtime = self._coding_base_product_runtime_binding
         product_compilation = self._coding_base_product_compilation
         worker_binding = self._coding_product_worker_ordinary_binding

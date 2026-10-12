@@ -21,7 +21,10 @@
   fixed-ID extension fact and reconcile it after an authoritative reload; a
   Coding test helper uses that path for the candidate intent. Selected-path
   projection now marks an unbound intent pending or an unknown version
-  unavailable while keeping history viewable. Current activation admission,
+  unavailable while keeping history viewable. Ordinary Coding bootstrap,
+  Product factory selection, model preparation, and message writes reject an
+  unresolved current-Session intent before preparing further runtime effects.
+  Current activation admission,
   complete recovery, and runtime wiring are not implemented
 - Owner: Loushang architecture, Coding continuity, and Harness transcript
 - Tracking: [Issue #696](https://github.com/zhnt/loushang/issues/696)
