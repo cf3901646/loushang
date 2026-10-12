@@ -9,6 +9,7 @@ import pytest
 
 from loushang.ai.types import UserMessage
 from loushang.coding.composition_provenance import CODING_COMPOSITION_HEADER_KEY
+from loushang.coding.composition_sets import resolve_coding_composition_set
 from loushang.coding.product_plan import (
     CODING_CAPABILITY_PROFILE_METADATA_KEY,
     CODING_RUNTIME_PROFILE_METADATA_KEY,
@@ -18,6 +19,9 @@ from loushang.coding.resume_binding import (
     CodingRuntimeBindingV1,
     coding_user_payload_digest,
     prepare_coding_resume_user_record,
+)
+from loushang.coding.resume_composition_comparison import (
+    compare_coding_resume_composition,
 )
 from loushang.coding.resume_history import (
     inspect_coding_resume_header,
@@ -117,6 +121,9 @@ def test_readonly_resume_header_marks_missing_composition_as_legacy_unknown(
     history = read_coding_resume_snapshot(path, max_bytes=1024 * 1024)
     assert history.status == "preview"
     assert history.records == ()
+    assert compare_coding_resume_composition(
+        history, resolve_coding_composition_set("coding-standard"),
+    ).status == "legacy_unknown"
     assert path.read_bytes() == before
     with pytest.raises(AgentTranscriptFileError, match="read budget"):
         read_coding_resume_snapshot(path, max_bytes=1)

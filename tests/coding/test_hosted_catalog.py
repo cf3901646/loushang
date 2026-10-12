@@ -12,6 +12,7 @@ from loushang.apphost import SessionCreateIntentV1, SessionCreateRequestV1
 from loushang.appserver.protocol import SessionScopeV1
 from loushang.coding.bootstrap import create_agent_session
 from loushang.coding.composition_provenance import CODING_COMPOSITION_HEADER_KEY
+from loushang.coding.composition_sets import resolve_coding_composition_set
 from loushang.coding.hosted_catalog import (
     CODING_HOSTED_COMPATIBILITY_ID,
     CodingHostedCandidateValidatorV1,
@@ -20,6 +21,9 @@ from loushang.coding.hosted_catalog import (
     CodingHostedSessionCatalogV1,
 )
 from loushang.coding.product_plan import CODING_CAPABILITY_PROFILE_METADATA_KEY
+from loushang.coding.resume_composition_comparison import (
+    compare_coding_resume_composition,
+)
 from loushang.coding.session_manager import SessionManager
 from loushang.harness.transcript.jsonl_file import (
     load_agent_transcript_file,
@@ -155,6 +159,11 @@ def test_canonical_hosted_history_previews_changed_environment_without_activatio
         )
         assert history.header_preview == preview
         assert history.records == ()
+        comparison = compare_coding_resume_composition(
+            history, resolve_coding_composition_set("coding-standard"),
+        )
+        assert comparison.status == "changed"
+        assert comparison.difference_codes == ("composition.set_changed",)
         with pytest.raises(ValueError, match="unsupported capability profile"):
             await fresh.open_candidate(rows[0].reference)
         assert path.read_bytes() == before
