@@ -1142,6 +1142,13 @@ class AgentSession(AgentProductSession):
         super()._prepare_resource_refresh()
 
     def _require_current_coding_runtime_selection(self) -> None:
+        # The original factory witness retains both Workspace identity and its
+        # native epoch owner. Recheck even when the composition has no selected
+        # Plugin manifest; construction-time admission cannot authorize a later
+        # preparation, publication or model transport after root replacement.
+        witness = self.coding_product_workspace_witness
+        if witness is not None:
+            witness.assert_current()
         product_runtime = self._coding_base_product_runtime_binding
         product_compilation = self._coding_base_product_compilation
         worker_binding = self._coding_product_worker_ordinary_binding

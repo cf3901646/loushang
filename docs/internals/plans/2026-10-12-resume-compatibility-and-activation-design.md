@@ -1592,3 +1592,33 @@ isolation. All 34 Resource scheduler and Coding Plan regressions passed. Scoped
 mypy, Ruff and documentation checks validate this increment. Production
 background invocation, completed-value freshness/cache design, broader package
 deduplication and cold/hot performance acceptance remain unfinished.
+
+#### Runtime selection rechecks the original Product Workspace/epoch witness
+
+`AgentSession._require_current_coding_runtime_selection` now rechecks its
+original factory-issued Workspace witness before inspecting Plugin selections.
+The witness calls the original factory's Workspace identity check and retained
+native Product epoch owner's current-root/cutover checks. It runs for minimal
+composition too, where there may be no selected Plugin manifest to trigger a
+Product check. No detached composition receipt or historical Binding replaces
+this live owner check.
+
+Fault injection first demonstrated that replacing the actual Workspace inode,
+with Transcript storage outside that Workspace, still allowed first-input
+transport. Replacing the actual native epoch control root also allowed
+transport. Both now fail before a dispatch claim or Model Input snapshot. The
+fixture restores the original directory before native cleanup, preserving the
+same original owners and testing their real filesystem checks.
+
+A further case replaces the epoch control root immediately after the native
+Model Input snapshot commit. The original transport barrier rejects the new
+root before provider invocation, retains the committed snapshot and blocks a
+second first-input dispatch. It grants no replay after restoration. Nineteen
+Root first-input/history-screen cases and this additional transport-barrier
+case passed. Scoped mypy, Ruff and documentation checks passed.
+
+This closes a live Product identity gate; it does not compute current actor or
+permission differences, prove Plugin/Worker external effect settlement, or
+derive the activation attempt's production epoch fingerprint. Those owner
+producers, default CLI/TUI and Hosted routing, recovery and the remaining
+background/release/performance acceptance are still required by Issue #696.

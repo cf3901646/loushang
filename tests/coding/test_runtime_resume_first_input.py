@@ -38,13 +38,16 @@ from loushang.harness.transcript.jsonl_file import load_agent_transcript_file
 pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="Linux owned Resume Writer")
 
 
-@pytest.mark.parametrize("mode", ["completed", "skill_changed", "agents_changed", "revoked", "revoked_at_barrier", "unknown_transport", "cancelled", "slot_replaced", "root_closed"])
+@pytest.mark.parametrize("mode", ["completed", "skill_changed", "agents_changed", "workspace_changed", "epoch_control_changed", "epoch_control_at_barrier", "revoked", "revoked_at_barrier", "unknown_transport", "cancelled", "slot_replaced", "root_closed"])
 def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch, mode):
     monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
 
     async def scenario():
+        workspace = tmp_path / "workspace" if mode in {"workspace_changed", "epoch_control_changed", "epoch_control_at_barrier"} else tmp_path
+        if workspace != tmp_path:
+            workspace.mkdir()
         original = await SessionManager.new(
-            session_dir=tmp_path / "sessions", cwd=str(tmp_path), defer_materialization=False,
+            session_dir=tmp_path / "sessions", cwd=str(workspace), defer_materialization=False,
         )
         await original.append_message(UserMessage(role="user", content="history", timestamp=1.0))
         path = original.session_file
@@ -83,6 +86,14 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
         requests = []
         entered, release = asyncio.Event(), asyncio.Event()
         task = None
+        barrier_target = None
+        barrier_retained = None
+
+        def restore_barrier_root():
+            if barrier_retained is not None and barrier_retained.exists():
+                assert barrier_target is not None
+                barrier_target.rmdir()
+                barrier_retained.rename(barrier_target)
 
         class Adapter:
             api = "root-resume-test"
@@ -115,7 +126,7 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
         try:
             history = await root.preview_resume_history(path)
             plan = build_session_activation_plan(
-                history, resolve_coding_composition_set(composition_id), workspace_root=tmp_path,
+                history, resolve_coding_composition_set(composition_id), workspace_root=workspace,
             )
             if mode == "skill_changed":
                 skill.write_text("---\nname: review\ndescription: Review\n---\nReview CURRENT source bytes.\n")
@@ -165,19 +176,42 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
                 await root.dispose_session_runtime()
             elif mode == "slot_replaced":
                 await root.new_session(cwd=str(tmp_path))
-            elif mode == "revoked_at_barrier":
+            elif mode in {"revoked_at_barrier", "epoch_control_at_barrier"}:
                 transcript = candidate.session_manager._transcript
                 append_snapshot = transcript.append_model_input_snapshot
+                if mode == "epoch_control_at_barrier":
+                    barrier_target = selection._owners[workspace].epoch_runtime.control_root
+                    barrier_retained = barrier_target.with_name(barrier_target.name + "-retained")
 
                 async def revoke_after_snapshot(*args, **kwargs):
                     result = await append_snapshot(*args, **kwargs)
-                    issuer.release_confirmation(fact)
+                    if mode == "revoked_at_barrier":
+                        issuer.release_confirmation(fact)
+                    else:
+                        assert barrier_target is not None and barrier_retained is not None
+                        barrier_target.rename(barrier_retained)
+                        barrier_target.mkdir(mode=0o700)
                     return result
 
                 monkeypatch.setattr(transcript, "append_model_input_snapshot", revoke_after_snapshot)
             if mode == "revoked":
                 with pytest.raises(PermissionError):
                     await prepared.run_first_input()
+            elif mode in {"workspace_changed", "epoch_control_changed"}:
+                # Replace an original owner's real directory, then restore it
+                # before native cleanup. Paths do not preserve its authority.
+                target = workspace if mode == "workspace_changed" else selection._owners[workspace].epoch_runtime.control_root
+                expected = "workspace identity changed" if mode == "workspace_changed" else "control root changed"
+                retained = target.with_name(target.name + "-retained")
+                target.rename(retained)
+                target.mkdir(mode=0o700)
+                try:
+                    with pytest.raises(ValueError, match=expected):
+                        await prepared.run_first_input()
+                    assert not candidate._coding_resume_dispatch_claimed
+                finally:
+                    target.rmdir()
+                    retained.rename(target)
             elif mode in {"root_closed", "slot_replaced"}:
                 with pytest.raises(CodingResumeRecoveryRequired):
                     await prepared.run_first_input()
@@ -197,9 +231,12 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
                     release.set()
                     await asyncio.gather(waiter, return_exceptions=True)
             else:
-                await prepared.run_first_input()
+                try:
+                    await prepared.run_first_input()
+                finally:
+                    restore_barrier_root()
             saved = path.read_bytes()
-            if mode in {"completed", "skill_changed", "agents_changed", "unknown_transport", "cancelled", "revoked_at_barrier"}:
+            if mode in {"completed", "skill_changed", "agents_changed", "unknown_transport", "cancelled", "revoked_at_barrier", "epoch_control_at_barrier"}:
                 with pytest.raises(CodingResumeRecoveryRequired, match="model.dispatch_already_claimed"):
                     await prepared.run_first_input()
                 assert path.read_bytes() == saved
@@ -225,7 +262,7 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
                         assert "Use CURRENT workspace instruction." in requests[0].system_prompt
                         assert "OLD workspace instruction." not in requests[0].system_prompt
             snapshots = [record for record in records if record.kind == "model.input.prepared"]
-            assert len(snapshots) == int(mode in {"completed", "skill_changed", "agents_changed", "unknown_transport", "cancelled", "revoked_at_barrier"})
+            assert len(snapshots) == int(mode in {"completed", "skill_changed", "agents_changed", "unknown_transport", "cancelled", "revoked_at_barrier", "epoch_control_at_barrier"})
             outcome = observe_coding_resume_model_outcome(
                 read_coding_resume_snapshot(path, max_bytes=1024 * 1024),
                 prepared.continuation.input_lookup_query,
@@ -236,6 +273,7 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
             }.get(mode, "unknown")
         finally:
             release.set()
+            restore_barrier_root()
             if task is not None and not task.done():
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
