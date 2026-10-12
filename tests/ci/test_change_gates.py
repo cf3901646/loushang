@@ -656,6 +656,39 @@ class ScopeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             selector.event_paths("unknown", {})
 
+    def test_push_event_uses_pr_route_while_schedule_is_full(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            event_file = root / "event.json"
+            event_file.write_text("{}")
+            for event, paths, event_full in (
+                ("push", ["src/loushang/ai/pricing.py"], False),
+                ("schedule", [], True),
+            ):
+                with self.subTest(event=event):
+                    output = root / "output"
+                    output.write_text("")
+                    with (
+                        patch.object(selector, "event_paths", return_value=(paths, event_full)),
+                        patch.object(sys, "argv", ["select_checks.py", "--event"]),
+                        patch.dict(os.environ, {
+                            "GITHUB_EVENT_NAME": event,
+                            "GITHUB_EVENT_PATH": str(event_file),
+                            "GITHUB_OUTPUT": str(output),
+                            "GITHUB_STEP_SUMMARY": str(root / "summary"),
+                        }),
+                        contextlib.redirect_stdout(io.StringIO()),
+                    ):
+                        selector.main()
+                    plan = json.loads(output.read_text().removeprefix("plan="))
+                    if event == "push":
+                        self.assertEqual(plan["unit_packages"], ["ai"])
+                        self.assertTrue(plan["e2e"])
+                        self.assertFalse(plan["windows"]["worker_full"])
+                    else:
+                        self.assertTrue(all(plan["checks"].values()))
+                        self.assertTrue(plan["windows"]["worker_full"])
+
 
 class GateTests(unittest.TestCase):
     def verify(self, selected, result):
@@ -1007,28 +1040,30 @@ class WorkflowContractTests(unittest.TestCase):
                     re.M,
                 )
             }
-            mapping = json.loads(re.search(r"--jobs '(.*)'", text)[1])
-            if path.name in {"package-unit-quality.yml", "e2e-smoke-quality.yml"}:
-                self.assertEqual(
-                    mapping,
-                    {"package": "units"}
-                    if path.name == "package-unit-quality.yml"
-                    else {"resume-turn": "e2e"},
-                )
-                self.assertIn("--section workflows", text)
-            else:
-                mapped = {
-                    job: (
-                        "windows." + scope
-                        if "--section windows" in text and "." not in scope
-                        else scope
-                    )
-                    for job, scope in mapping.items()
-                }
-                self.assertEqual(jobs, mapped, path.name)
             all_jobs = set(
                 re.findall(r"^  ([\w-]+):", text.split("\njobs:\n")[1], re.M)
             )
+            single_owner = {
+                "architecture-quality.yml": "source-facts",
+                "package-unit-quality.yml": "package",
+                "e2e-smoke-quality.yml": "resume-turn",
+            }.get(path.name)
+            if single_owner is not None:
+                # The required top-level gate already checks this reusable
+                # workflow's result; a second runner adds only queue latency.
+                self.assertEqual(all_jobs, {single_owner}, path.name)
+                self.assertNotIn("selected-checks:", text)
+                continue
+            mapping = json.loads(re.search(r"--jobs '(.*)'", text)[1])
+            mapped = {
+                job: (
+                    "windows." + scope
+                    if "--section windows" in text and "." not in scope
+                    else scope
+                )
+                for job, scope in mapping.items()
+            }
+            self.assertEqual(jobs, mapped, path.name)
             self.assertEqual(all_jobs, set(mapping) | {"selected-checks"}, path.name)
             summary = text.split("\n  selected-checks:\n")[1]
             needs = re.search(r"    needs: \[(.*)\]", summary)[1]

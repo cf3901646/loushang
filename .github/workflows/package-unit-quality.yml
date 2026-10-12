@@ -46,18 +46,3 @@ jobs:
           name: module-${{ matrix.package }}-${{ matrix.shard }}-pytest-report
           path: .artifacts/module-${{ matrix.package }}-${{ matrix.shard }}.xml
           if-no-files-found: warn
-
-  selected-checks:
-    name: Selected checks
-    if: always()
-    needs: [package]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Verify selected job
-        env:
-          CI_PLAN: ${{ inputs.plan }}
-          CI_NEEDS: ${{ toJSON(needs) }}
-        run: >-
-          python scripts/ci/verify_gate.py --section workflows
-          --jobs '{"package":"units"}'

@@ -423,7 +423,9 @@ def main() -> None:
     plan = select(
         paths, full=full,
         pr_fast=args.pr_fast or (
-            args.event and os.environ["GITHUB_EVENT_NAME"] == "pull_request"
+            # Post-merge pushes reuse the checked PR route. Scheduled and
+            # manual runs retain the complete native and package matrix.
+            args.event and os.environ["GITHUB_EVENT_NAME"] in {"pull_request", "push"}
         ),
     )
     if args.output:
