@@ -13,6 +13,7 @@ from loushang.coding.resume_activation_plan import (
     ActivationOwnerSelectionRefV1,
     ResumePlanStaleError,
     build_session_activation_plan,
+    require_current_resume_plan_inputs,
     require_current_resume_plan_source,
 )
 from loushang.coding.resume_binding import project_coding_runtime_binding_path
@@ -172,3 +173,10 @@ def test_activation_plan_references_resource_owner_input_without_retaining_recei
     assert first.plan_id != changed.plan_id
     assert first.owner_inputs == (first_ref,)
     assert "ResourceCatalogInputReceipt" not in repr(first)
+    require_current_resume_plan_inputs(first, (first_ref,))
+    with pytest.raises(ResumePlanStaleError, match="owner inputs changed"):
+        require_current_resume_plan_inputs(first, (next_ref,))
+    with pytest.raises(ResumePlanStaleError, match="owner inputs changed"):
+        require_current_resume_plan_inputs(first, ())
+    with pytest.raises(ResumePlanStaleError, match="owner inputs changed"):
+        require_current_resume_plan_inputs(changed, (first_ref,))

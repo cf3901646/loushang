@@ -227,11 +227,35 @@ def require_current_resume_plan_source(
         raise ResumePlanStaleError("Coding activation Plan source changed")
 
 
+def require_current_resume_plan_inputs(
+    plan: SessionActivationPlanV1,
+    current_owner_inputs: Sequence[ActivationOwnerInputRefV1],
+) -> None:
+    """Reject a Plan whose owner-observed input dependencies have changed.
+
+    The caller must obtain fresh references from each original owner. Matching
+    references are only a cache-validity check; they do not admit execution.
+    """
+
+    if not isinstance(plan, SessionActivationPlanV1):
+        raise TypeError("invalid Coding activation Plan")
+    inputs = tuple(current_owner_inputs)
+    if any(not isinstance(item, ActivationOwnerInputRefV1) for item in inputs):
+        raise TypeError("Coding activation Plan owner inputs are invalid")
+    if inputs != tuple(sorted(inputs, key=lambda item: item.owner_id)) or len({
+        item.owner_id for item in inputs
+    }) != len(inputs):
+        raise ValueError("Coding activation Plan owner inputs must be sorted and unique")
+    if inputs != plan.owner_inputs:
+        raise ResumePlanStaleError("Coding activation Plan owner inputs changed")
+
+
 __all__ = [
     "ActivationOwnerInputRefV1",
     "ActivationOwnerSelectionRefV1",
     "ResumePlanStaleError",
     "SessionActivationPlanV1",
     "build_session_activation_plan",
+    "require_current_resume_plan_inputs",
     "require_current_resume_plan_source",
 ]
