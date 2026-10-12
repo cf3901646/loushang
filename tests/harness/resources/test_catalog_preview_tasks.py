@@ -54,11 +54,84 @@ def test_last_view_close_releases_waiter_before_native_settlement(tmp_path, monk
     asyncio.run(scenario())
 
 
-def _request(loader, root, *, subject="a" * 64, policy="b" * 64, units=4096):
+def _request(loader, root, *, subject="a" * 64, policy="b" * 64, units=4096, priority="background"):
     return loader.preview_catalog_input_fingerprint(
         root, subject_digest=subject, policy_digest=policy,
-        max_work_units=units, time_budget_seconds=30,
+        max_work_units=units, time_budget_seconds=30, priority=priority,
     )
+
+
+@pytest.mark.parametrize("reuse_background_job", [False, True])
+def test_foreground_preview_precedes_queued_background_without_replaying_shared_work(
+    tmp_path, monkeypatch, reuse_background_job,
+) -> None:
+    loader = ResourceLoader(user_resource_roots=())
+    foreground_view = loader.create_catalog_session_view()
+    initial_catalog_state = (
+        loader._catalog_authority_selected, loader._catalog_inputs_pending,
+        loader._catalog_projection,
+    )
+    original = ResourceLoader._compute_catalog_input_receipt_from_state
+    entered = [threading.Event(), threading.Event()]
+    release = [threading.Event(), threading.Event()]
+    order: list[str] = []
+    roots = {name: tmp_path / name for name in (
+        "blocker0", "blocker1", "background0", "background1", "foreground",
+    )}
+    for root in roots.values():
+        root.mkdir()
+
+    def compute(state, cwd, **kwargs):
+        order.append(cwd.name)
+        if cwd.name.startswith("blocker"):
+            index = int(cwd.name[-1])
+            entered[index].set()
+            assert release[index].wait(5)
+        return original(state, cwd, **kwargs)
+
+    monkeypatch.setattr(ResourceLoader, "_compute_catalog_input_receipt_from_state", staticmethod(compute))
+
+    async def scenario():
+        waiters = [asyncio.create_task(_request(loader, roots[f"blocker{i}"])) for i in range(2)]
+        try:
+            await _entered(entered[0])
+            await _entered(entered[1])
+            background = [asyncio.create_task(_request(loader, roots[f"background{i}"])) for i in range(2)]
+            waiters.extend(background)
+            await asyncio.sleep(0)
+            foreground_root = roots["background1" if reuse_background_job else "foreground"]
+            foreground = asyncio.create_task(_request(foreground_view, foreground_root, priority="foreground"))
+            waiters.append(foreground)
+            # Session views own a child waiter. Observe original-scope admission
+            # rather than assuming one event-loop yield has submitted that child.
+            async with asyncio.timeout(5):
+                while not any(
+                    job.key[0] == foreground_root
+                    and job.references == (2 if reuse_background_job else 1)
+                    for job in loader._catalog_preview_tasks._jobs
+                ):
+                    await asyncio.sleep(0)
+            assert len(loader._catalog_preview_tasks._jobs) == (4 if reuse_background_job else 5)
+            release[0].set()
+            result = await foreground
+            background_results = await asyncio.gather(*background)
+            assert [name for name in order if not name.startswith("blocker")][0] == foreground_root.name
+            if reuse_background_job:
+                assert result == background_results[1]
+                assert order.count("background1") == 1
+            assert (
+                loader._catalog_authority_selected, loader._catalog_inputs_pending,
+                loader._catalog_projection,
+            ) == initial_catalog_state
+            assert foreground_view._catalog_projection is None
+        finally:
+            for event in release:
+                event.set()
+            await foreground_view.aclose()
+            await loader.aclose()
+            await asyncio.gather(*waiters, return_exceptions=True)
+
+    asyncio.run(scenario())
 
 
 def test_resource_waiters_share_scan_and_cancel_only_their_own_reference(tmp_path, monkeypatch) -> None:
@@ -96,6 +169,61 @@ def test_resource_waiters_share_scan_and_cancel_only_their_own_reference(tmp_pat
             released.set()
             await loader.aclose()
             await asyncio.gather(first, second, return_exceptions=True)
+
+    asyncio.run(scenario())
+
+
+def test_closing_background_owner_settles_before_blocked_foreground_peer(tmp_path, monkeypatch) -> None:
+    background = ResourceLoader(user_resource_roots=())
+    peer = ResourceLoader(user_resource_roots=())
+    original = ResourceLoader._compute_catalog_input_receipt_from_state
+    entered = [threading.Event(), threading.Event()]
+    release = [threading.Event(), threading.Event()]
+    foreground_entered, foreground_release = threading.Event(), threading.Event()
+    roots = {name: tmp_path / name for name in ("blocker0", "blocker1", "cancelled", "foreground")}
+    for root in roots.values():
+        root.mkdir()
+
+    def compute(state, cwd, **kwargs):
+        if cwd.name == "cancelled":
+            pytest.fail("cancelled preview read source content")
+        if cwd.name.startswith("blocker"):
+            index = int(cwd.name[-1])
+            entered[index].set()
+            assert release[index].wait(5)
+        elif cwd.name == "foreground":
+            foreground_entered.set()
+            assert foreground_release.wait(5)
+        return original(state, cwd, **kwargs)
+
+    monkeypatch.setattr(ResourceLoader, "_compute_catalog_input_receipt_from_state", staticmethod(compute))
+
+    async def scenario():
+        waiters = [asyncio.create_task(_request(peer, roots[f"blocker{i}"])) for i in range(2)]
+        closing = None
+        try:
+            for event in entered:
+                await _entered(event)
+            waiters.append(asyncio.create_task(_request(background, roots["cancelled"])))
+            await asyncio.sleep(0)
+            waiters.append(asyncio.create_task(_request(peer, roots["foreground"], priority="foreground")))
+            await asyncio.sleep(0)
+            closing = asyncio.create_task(background.aclose())
+            await asyncio.sleep(0)
+            release[0].set()
+            await _entered(foreground_entered)
+            async with asyncio.timeout(1):
+                await closing
+            assert not foreground_release.is_set()
+            assert not background._catalog_preview_tasks._jobs
+        finally:
+            for event in (*release, foreground_release):
+                event.set()
+            await background.aclose()
+            await peer.aclose()
+            await asyncio.gather(*waiters, return_exceptions=True)
+            if closing is not None:
+                await asyncio.gather(closing, return_exceptions=True)
 
     asyncio.run(scenario())
 
@@ -226,8 +354,8 @@ def test_failed_native_submission_does_not_admit_queued_source_reads(tmp_path, m
     monkeypatch.setattr(tasks, "_SUBMISSION_FENCED", threading.Event())
 
     class LostSubmissionReceipt:
-        def submit(self, operation):
-            accepted.append(original_executor.submit(operation))
+        def submit(self, operation, **kwargs):
+            accepted.append(original_executor.submit(operation, **kwargs))
             raise RuntimeError("receipt lost after enqueue")
 
     def forbidden_read(*args, **kwargs):
@@ -250,6 +378,70 @@ def test_failed_native_submission_does_not_admit_queued_source_reads(tmp_path, m
     assert accepted[0].result(timeout=5) is None
 
 
+def test_priority_dispatch_unknown_submission_preserves_an_admitted_peer(tmp_path, monkeypatch) -> None:
+    from loushang.harness.resources import _catalog_preview_tasks as tasks
+    from loushang.harness.resources._catalog_preview_scheduler import (
+        CatalogPreviewExecutor,
+    )
+
+    scheduler = CatalogPreviewExecutor()
+    executor = scheduler._executor
+    accepted = []
+    entered = [threading.Event(), threading.Event()]
+    released = threading.Event()
+    loader = ResourceLoader(user_resource_roots=())
+    original = ResourceLoader._compute_catalog_input_receipt_from_state
+    roots = {name: tmp_path / name for name in ("blocker0", "blocker1", "peer", "unknown")}
+    for root in roots.values():
+        root.mkdir()
+
+    class LostFourthDispatchReceipt:
+        def submit(self, operation):
+            future = executor.submit(operation)
+            accepted.append(future)
+            if len(accepted) == 4:
+                raise RuntimeError("dispatch receipt lost after enqueue")
+            return future
+
+    def compute(state, cwd, **kwargs):
+        if cwd.name == "unknown":
+            pytest.fail("unknown submission admitted source reads")
+        if cwd.name.startswith("blocker"):
+            entered[int(cwd.name[-1])].set()
+            assert released.wait(5)
+        return original(state, cwd, **kwargs)
+
+    monkeypatch.setattr(scheduler, "_executor", LostFourthDispatchReceipt())
+    monkeypatch.setattr(tasks, "_EXECUTOR", scheduler)
+    monkeypatch.setattr(tasks, "_SUBMISSION_FENCED", threading.Event())
+    monkeypatch.setattr(ResourceLoader, "_compute_catalog_input_receipt_from_state", staticmethod(compute))
+
+    async def scenario():
+        waiters = [asyncio.create_task(_request(loader, roots[f"blocker{i}"])) for i in range(2)]
+        try:
+            for event in entered:
+                await _entered(event)
+            peer = asyncio.create_task(_request(loader, roots["peer"]))
+            waiters.append(peer)
+            await asyncio.sleep(0)
+            with pytest.raises(RuntimeError, match="dispatch receipt lost"):
+                await _request(loader, roots["unknown"], priority="foreground")
+            assert len(loader._catalog_preview_tasks._jobs) == 3
+            released.set()
+            assert len(await peer) == 64
+        finally:
+            released.set()
+            await loader.aclose()
+            await asyncio.gather(*waiters, return_exceptions=True)
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        executor.shutdown(wait=True)
+    assert len(accepted) == 4
+    assert all(future.result(timeout=5) is None for future in accepted)
+
+
 def test_process_preview_capacity_rejects_extra_work_without_changing_peers(tmp_path, monkeypatch) -> None:
     loader = ResourceLoader(user_resource_roots=())
     original = ResourceLoader._compute_catalog_input_receipt_from_state
@@ -263,11 +455,18 @@ def test_process_preview_capacity_rejects_extra_work_without_changing_peers(tmp_
     monkeypatch.setattr(ResourceLoader, "_compute_catalog_input_receipt_from_state", staticmethod(compute))
 
     async def scenario():
-        waiters = [asyncio.create_task(_request(loader, tmp_path, policy=f"{index:064x}")) for index in range(8)]
+        waiters = [asyncio.create_task(_request(loader, tmp_path, policy=f"{index:064x}")) for index in range(6)]
         try:
             await _entered(entered)
-            with pytest.raises(CatalogPreviewTaskError, match="capacity_exceeded"):
+            with pytest.raises(CatalogPreviewTaskError, match="background_capacity_exceeded"):
                 await _request(loader, tmp_path, policy=f"{8:064x}")
+            waiters.extend(asyncio.create_task(_request(
+                loader, tmp_path, policy=f"{index:064x}", priority="foreground",
+            )) for index in (6, 7))
+            await asyncio.sleep(0)
+            assert len(loader._catalog_preview_tasks._jobs) == 8
+            with pytest.raises(CatalogPreviewTaskError, match="capacity_exceeded"):
+                await _request(loader, tmp_path, policy=f"{8:064x}", priority="foreground")
             released.set()
             fingerprints = await asyncio.gather(*waiters)
             assert len(set(fingerprints)) == 1

@@ -369,13 +369,14 @@ def test_resume_plan_propagates_cancellation_without_delivering_a_plan(tmp_path)
     ).status == "needs_final_validation"
 
 
-def _async_plan(loader, root, *, history=None, subject="a" * 64, policy="b" * 64):
+def _async_plan(loader, root, *, history=None, subject="a" * 64, policy="b" * 64, priority="background"):
     return plan_coding_resume_async(
         _history() if history is None else history,
         resolve_coding_composition_set("coding-standard"),
         workspace_root=root, resource_loader=loader,
         subject_digest=subject, policy_digest=policy,
         max_work_units=4096, time_budget_seconds=30,
+        priority=priority,
     )
 
 
@@ -400,6 +401,7 @@ def test_async_resume_plan_uses_original_facts_and_tracks_security_inputs(tmp_pa
                 ),
             )
             assert first == expected
+            assert await _async_plan(loader, tmp_path, priority="foreground") == first
             assert first.owner_selections == ()
             changed_policy = await _async_plan(loader, tmp_path, policy="c" * 64)
             changed_subject = await _async_plan(loader, tmp_path, subject="c" * 64)

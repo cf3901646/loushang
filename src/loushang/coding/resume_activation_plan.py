@@ -267,6 +267,7 @@ async def plan_coding_resume_async(
     policy_digest: str,
     max_work_units: int,
     time_budget_seconds: float,
+    priority: Literal["foreground", "background"] = "background",
 ) -> SessionActivationPlanV1:
     """Build the same Plan envelope using bounded Resource-owned native work.
 
@@ -289,6 +290,7 @@ async def plan_coding_resume_async(
     fingerprint = await resource_loader.preview_catalog_input_fingerprint(
         workspace_root, subject_digest=subject_digest, policy_digest=policy_digest,
         max_work_units=max_work_units, time_budget_seconds=time_budget_seconds,
+        priority=priority,
     )
     return build_session_activation_plan(
         history, current_composition, workspace_root=workspace_root,

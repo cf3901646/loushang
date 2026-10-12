@@ -447,13 +447,15 @@ class ResourceLoader:
     async def preview_catalog_input_fingerprint(
         self, cwd: Path, *, subject_digest: str, policy_digest: str,
         max_work_units: int, time_budget_seconds: float,
+        priority: Literal["foreground", "background"] = "background",
     ) -> str:
         """Share bounded native pure computation inside this Resource owner.
 
         A waiter owns only its reference. The owner retains temporary read pins
         through actual native completion. No receipt or live handle is returned.
-        Separate subject/policy domains never share a job. This API does not yet
-        provide priority or reuse across distinct ResourceLoader instances.
+        Separate subject/policy domains never share a job. Foreground references
+        promote queued shared work. Distinct ResourceLoader instances do not yet
+        share computation.
         """
 
         if not isinstance(cwd, Path) or not cwd.is_absolute():
@@ -463,6 +465,8 @@ class ResourceLoader:
                 raise ValueError("Catalog background preview isolation digest is invalid")
         if type(max_work_units) is not int or not 1 <= max_work_units <= 65536:
             raise ValueError("Catalog background preview work budget is invalid")
+        if priority not in ("foreground", "background"):
+            raise ValueError("Catalog background preview priority is invalid")
         if (
             type(time_budget_seconds) not in (int, float)
             or not isfinite(time_budget_seconds) or not 0 < time_budget_seconds <= 60
@@ -490,6 +494,7 @@ class ResourceLoader:
         fingerprint = await self._catalog_preview_tasks.run(
             (cwd, subject_digest, policy_digest, state, max_work_units, time_budget_seconds),
             prepare, max_work_units=max_work_units, time_budget_seconds=time_budget_seconds,
+            priority=priority,
         )
         if self._catalog_input_state() != state or self._legacy_authority_selected:
             raise ResourceLoaderCompatibilityError("catalog_preview_stale")
@@ -1035,6 +1040,7 @@ class CatalogSessionResourceLoaderView(ResourceLoader):
     async def preview_catalog_input_fingerprint(
         self, cwd: Path, *, subject_digest: str, policy_digest: str,
         max_work_units: int, time_budget_seconds: float,
+        priority: Literal["foreground", "background"] = "background",
     ) -> str:
         """Own one cancellable reference to the shared source computation."""
 
@@ -1045,6 +1051,7 @@ class CatalogSessionResourceLoaderView(ResourceLoader):
         waiter = asyncio.create_task(self._source_loader.preview_catalog_input_fingerprint(
             cwd, subject_digest=subject_digest, policy_digest=policy_digest,
             max_work_units=max_work_units, time_budget_seconds=time_budget_seconds,
+            priority=priority,
         ))
         self._catalog_preview_waiters.add(waiter)
         try:

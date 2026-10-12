@@ -236,7 +236,8 @@
   budgets are explicit caller inputs to an internal Resource-owned background
   entry. This entry shares one computation for identical input state, workspace,
   subject and policy within one ResourceLoader; separate domains do not share.
-  The process limits admitted jobs to eight and native workers to two, with
+  The process limits admitted jobs to eight, background jobs to six so two
+  admission slots remain for foreground preparation, and native workers to two, with
   at most 64 references per job. These provisional bounds are not release
   performance evidence. Cancellation releases one waiter reference; only the
   last reference cancels computation. Original revision owners supply temporary
@@ -247,8 +248,9 @@
   reads when native submission loses its receipt and fences further background
   submission; the ordinary on-demand path remains available. Only a redacted
   fingerprint leaves the Resource owner. Catalog Session views now own their
-  local waiting references; Product Resume invocation,
-  priority, cross-ResourceLoader Workspace deduplication, caches, and production
+  local waiting references. Foreground requests promote queued shared work,
+  and cancelled work is promoted for cleanup. Product Resume invocation,
+  cross-ResourceLoader Workspace deduplication, caches, and production
   close wiring remain unimplemented.
 - Revision: R2.1, 2026-10-12; R2 independently rechecked, with the requested
   legacy Ack timing and fork-origin clarifications applied.
@@ -996,3 +998,50 @@ deferred Resume composition; selecting it in default LMUX/AppHost, retaining
 first-input identity, admitting current authority and effects, and publishing
 the activated runtime still remain required. These tests do not establish a
 full scoped multi-client or default launcher Resume flow.
+
+### Resource preview foreground priority and cleanup
+
+The original Resource preview task scope now dispatches through a priority queue
+on its existing two native workers. Foreground requests run before queued
+background work. A foreground reference to the same workspace, owner state,
+subject, policy and budget promotes the existing job; it does not repeat its
+scan or produce new selection evidence. ResourceLoader Session views and
+`plan_coding_resume_async` forward this scheduling input without including it
+in Plan identity or current authority.
+
+The process remains bounded to eight admitted jobs. At most six may be
+background jobs, preserving two admission slots for foreground preparation.
+Promotion releases a background reservation while retaining the total-job
+reservation until actual native completion. Already running work is never
+interrupted or restarted. Caller work-unit and wall-time budgets are unchanged.
+
+Cancelled jobs and fenced owner work are promoted for cleanup so sustained
+foreground requests cannot indefinitely delay temporary read-pin disposal.
+Cleanup still runs in the original native callback, and `aclose` waits for its
+actual completion. Priority does not replace the existing cancellation flag,
+submission publication gate, reference limits or source validation.
+
+Queue submission can throw after native dispatch admission. The scheduler
+removes only that submission's still-pending operation; an unknown queued
+dispatch callback may service an already admitted peer. The original scope
+publication gate prevents the failed submission from reading source content,
+disposes its pins and fences new work. Existing accepted peers keep their
+completion callbacks and total reservations.
+
+The pre-change preview/Plan baseline passed twenty-five non-live cases. New
+regressions fill both native workers, queue background work, and verify a
+foreground Session view runs first or promotes one shared scan. They also fill
+six background slots, admit two foreground jobs, reject a ninth job, preserve
+an admitted peer across a lost native submission receipt, and close a cancelled
+background owner while a foreground peer remains blocked. Foreground and
+background Plan envelopes have the same identity for unchanged input data.
+
+The final integrated preview-task, Coding Plan and ResourceLoader run passed
+sixty-four non-live cases. Scoped mypy for all four source modules, Ruff and all
+nine documentation checks passed. These are scheduling and regression results,
+not release startup latency measurements.
+
+This proves Resource-owned scheduling and lifecycle behavior, not production
+Resume invocation, current subject or policy grants, cross-loader Workspace
+deduplication, completed Plan caching or first-message performance acceptance.
+Embedded/TUI, default Hosted activation and release evidence remain pending.
