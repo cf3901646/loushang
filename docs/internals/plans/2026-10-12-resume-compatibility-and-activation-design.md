@@ -235,7 +235,9 @@
   result without selecting authority and permits re-planning. Work-unit/time
   budgets are explicit caller inputs to an internal Resource-owned background
   entry. This entry shares one computation for identical input state, workspace,
-  subject and policy within one ResourceLoader; separate domains do not share.
+  subject and policy across matching ResourceLoaders on one event loop; separate
+  domains do not share. Captured Resource input state and work budgets must also
+  match; distinct live revision handles are conservatively separate.
   The process limits admitted jobs to eight, background jobs to six so two
   admission slots remain for foreground preparation, and native workers to two, with
   at most 64 references per job. These provisional bounds are not release
@@ -250,8 +252,8 @@
   fingerprint leaves the Resource owner. Catalog Session views now own their
   local waiting references. Foreground requests promote queued shared work,
   and cancelled work is promoted for cleanup. Product Resume invocation,
-  cross-ResourceLoader Workspace deduplication, caches, and production
-  close wiring remain unimplemented.
+  completed-value caches, broader Workspace deduplication across distinct
+  revision handles, and production close wiring remain unimplemented.
 - Revision: R2.1, 2026-10-12; R2 independently rechecked, with the requested
   legacy Ack timing and fork-origin clarifications applied.
 - Owning scope: Coding Session continuity; collaborating scopes: Harness,
@@ -1563,3 +1565,30 @@ scenarios and both previously failing gates then passed (10 tests). Scoped
 mypy, Ruff and nine documentation checks passed. The cancelled-view fixture was
 also corrected after its erroneous branch had left a test waiting without
 issuing cancellation; no Product timeout or sleep was added.
+
+#### Resource owners share matching in-flight Workspace scans
+
+The existing Resource preview task scope now finds matching running computation
+across loader scopes on the same event loop. The key retains Workspace, subject,
+policy, exact captured Resource input state and work budgets. It shares no
+Future across event loops and caches no completed value. Distinct package read
+handle identities remain separate rather than assuming equal authority from
+equal paths or digests.
+
+Each original scope retains its own references and native completion route.
+Closing one scope fences that scope and joins actual computation/pin settlement;
+an open peer's reference prevents cancellation of the shared job. Cancelling
+one waiter releases only its reference. Foreground peers promote the same
+native job. The process-wide admission bounds remain eight jobs, six background
+jobs and two native workers; all shared scopes together have at most 64 waiting
+references per job. Registry entries disappear on actual native completion;
+they are neither a second lifecycle owner nor an authority cache.
+
+Regression-first tests reproduced duplicate computation by distinct loaders.
+The fixtures also corrected a scan counter that had counted their independent
+synchronous verification read. Five cross-loader cases now cover shared work,
+creator close, single-waiter cancellation, policy isolation and subject
+isolation. All 34 Resource scheduler and Coding Plan regressions passed. Scoped
+mypy, Ruff and documentation checks validate this increment. Production
+background invocation, completed-value freshness/cache design, broader package
+deduplication and cold/hot performance acceptance remain unfinished.

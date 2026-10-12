@@ -18,6 +18,77 @@ async def _entered(event: threading.Event) -> None:
             await asyncio.sleep(0.001)
 
 
+@pytest.mark.parametrize("mode", ["shared", "close_first", "cancel_first", "different_policy", "different_subject"])
+def test_distinct_resource_owners_share_only_matching_live_work(tmp_path, monkeypatch, mode) -> None:
+    first = ResourceLoader(user_resource_roots=())
+    second = ResourceLoader(user_resource_roots=())
+    original = ResourceLoader._compute_catalog_input_receipt_from_state
+    entered, released = threading.Event(), threading.Event()
+    calls = 0
+
+    def compute(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        entered.set()
+        assert released.wait(5)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(ResourceLoader, "_compute_catalog_input_receipt_from_state", staticmethod(compute))
+
+    async def scenario():
+        waiter = asyncio.create_task(_request(first, tmp_path))
+        peer = None
+        close = None
+        try:
+            await _entered(entered)
+            peer = asyncio.create_task(_request(
+                second, tmp_path, policy="c" * 64 if mode == "different_policy" else "b" * 64,
+                subject="c" * 64 if mode == "different_subject" else "a" * 64,
+                priority="foreground",
+            ))
+            async with asyncio.timeout(5):
+                while second._catalog_preview_tasks is None or not second._catalog_preview_tasks._jobs:
+                    await asyncio.sleep(0)
+            first_job = first._catalog_preview_tasks._jobs[0]
+            second_job = second._catalog_preview_tasks._jobs[0]
+            isolated = mode in {"different_policy", "different_subject"}
+            assert (first_job is second_job) == (not isolated)
+            if mode == "cancel_first":
+                waiter.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await waiter
+                assert not first_job.cancelled.is_set()
+                assert not peer.done()
+            if mode == "close_first":
+                close = asyncio.create_task(first.aclose())
+                async with asyncio.timeout(5):
+                    while not first._catalog_preview_tasks._closed:
+                        await asyncio.sleep(0)
+                assert not first_job.cancelled.is_set()
+                assert not peer.done()
+            released.set()
+            result = await peer
+            if mode == "close_first":
+                with pytest.raises(CatalogPreviewTaskError, match="catalog_preview_closed"):
+                    await waiter
+                await close
+            elif mode != "cancel_first":
+                assert await waiter == result
+            assert calls == (2 if isolated else 1)
+            assert result == second.preview_catalog_input_receipt(tmp_path).input_fingerprint
+            assert not first._catalog_authority_selected
+            assert not second._catalog_authority_selected
+        finally:
+            released.set()
+            await first.aclose()
+            await second.aclose()
+            await asyncio.gather(*(item for item in (waiter, peer, close) if item is not None), return_exceptions=True)
+            assert not first._catalog_preview_tasks._jobs
+            assert not second._catalog_preview_tasks._jobs
+
+    asyncio.run(scenario())
+
+
 def test_last_view_close_releases_waiter_before_native_settlement(tmp_path, monkeypatch) -> None:
     loader = ResourceLoader(user_resource_roots=())
     view = loader.create_catalog_session_view()

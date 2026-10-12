@@ -65,6 +65,13 @@ class _Job:
     admission: _Admission
     references: int = 0
     native_operation: Callable[[], None] | None = None
+    scope_references: dict[CatalogPreviewTaskScope, int] = field(default_factory=dict)
+
+
+# Only running pure Resource computations live here. No completed value or
+# authority is cached; an event loop cannot borrow another loop's Future.
+_IN_FLIGHT: list[_Job] = []
+_IN_FLIGHT_LOCK = threading.Lock()
 
 
 class CatalogPreviewTaskScope:
@@ -74,6 +81,9 @@ class CatalogPreviewTaskScope:
     constitutes Resource selection, Writer admission, or execution authority.
     The process shares two native slots and at most eight admitted jobs, with
     at most six background jobs so foreground preparation can still enter.
+    Matching scopes on the same event loop borrow a reference to running work.
+    Closing one scope fences its references and joins native pin settlement;
+    another open scope's reference keeps the shared computation alive.
     """
 
     def __init__(self) -> None:
@@ -102,7 +112,10 @@ class CatalogPreviewTaskScope:
             raise CatalogPreviewTaskError("catalog_preview_scheduler_unavailable")
         if priority not in ("foreground", "background"):
             raise ValueError("invalid Catalog preview priority")
-        job = next((item for item in self._jobs if item.key == key and not item.cancelled.is_set()), None)
+        with _IN_FLIGHT_LOCK:
+            job = next((item for item in _IN_FLIGHT
+                        if item.receipt.get_loop() is loop and item.key == key
+                        and not item.cancelled.is_set()), None)
         if job is None:
             admission = _Admission.acquire(priority)
             try:
@@ -112,6 +125,8 @@ class CatalogPreviewTaskScope:
                 raise
             job = _Job(key, loop.create_future(), threading.Event(), admission)
             self._jobs.append(job)
+            with _IN_FLIGHT_LOCK:
+                _IN_FLIGHT.append(job)
             selected = job
             deadline = time.monotonic() + time_budget_seconds
             units = 0
@@ -129,9 +144,13 @@ class CatalogPreviewTaskScope:
                     raise CatalogPreviewTaskError("catalog_preview_time_budget_exceeded")
 
             def publish(outcome: tuple[bool, object]) -> None:
+                with _IN_FLIGHT_LOCK:
+                    _IN_FLIGHT.remove(selected)
                 selected.receipt.set_result(outcome)
-                if selected.references == 0:
-                    self._jobs.remove(selected)
+                for scope, references in tuple(selected.scope_references.items()):
+                    if references == 0:
+                        scope._jobs.remove(selected)
+                        del selected.scope_references[scope]
 
             def native() -> None:
                 published.wait()
@@ -162,12 +181,17 @@ class CatalogPreviewTaskScope:
                 except BaseException as cleanup_error:
                     error.add_note(f"preview pin cleanup failed: {type(cleanup_error).__name__}")
                 self._jobs.remove(selected)
+                with _IN_FLIGHT_LOCK:
+                    _IN_FLIGHT.remove(selected)
                 selected.admission.release()
                 raise
             finally:
                 published.set()
         if job.references >= 64:
             raise CatalogPreviewTaskError("catalog_preview_reference_capacity_exceeded")
+        if job not in self._jobs:
+            self._jobs.append(job)
+        job.scope_references[self] = job.scope_references.get(self, 0) + 1
         job.references += 1
         try:
             if priority == "foreground" and job.native_operation is not None:
@@ -181,21 +205,25 @@ class CatalogPreviewTaskScope:
             return cast(str, value)
         finally:
             job.references -= 1
+            job.scope_references[self] -= 1
             if job.references == 0:
                 job.cancelled.set()
                 if job.native_operation is not None:
                     _EXECUTOR.promote(job.native_operation)
-                if job.receipt.done():
-                    self._jobs.remove(job)
+            if job.scope_references[self] == 0 and job.receipt.done():
+                self._jobs.remove(job)
+                del job.scope_references[self]
 
     def fence(self) -> bool:
         """Stop new references; return whether actual native work is settled."""
 
         self._closed = True
         for job in self._jobs:
-            job.cancelled.set()
-            if job.native_operation is not None:
-                _EXECUTOR.promote(job.native_operation)
+            if not any(not scope._closed and references > 0
+                       for scope, references in job.scope_references.items()):
+                job.cancelled.set()
+                if job.native_operation is not None:
+                    _EXECUTOR.promote(job.native_operation)
         return all(job.receipt.done() for job in self._jobs)
 
     async def close(self) -> None:

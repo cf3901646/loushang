@@ -454,8 +454,8 @@ class ResourceLoader:
         A waiter owns only its reference. The owner retains temporary read pins
         through actual native completion. No receipt or live handle is returned.
         Separate subject/policy domains never share a job. Foreground references
-        promote queued shared work. Distinct ResourceLoader instances do not yet
-        share computation.
+        promote queued shared work. Distinct ResourceLoader instances on the same
+        loop share running work only when all captured input dependencies match.
         """
 
         if not isinstance(cwd, Path) or not cwd.is_absolute():
