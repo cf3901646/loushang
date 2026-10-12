@@ -1709,3 +1709,45 @@ epoch/effect producers, default Embedded/Hosted routing, recovery, background
 invocation/cache/performance and released provenance acceptance remain
 incomplete; the full Issue #696 Goal remains active. The Root fixture's effect
 callback still verifies orchestration only.
+
+
+#### History-screen failure recovery reads the original saved input
+
+The explicit native Resume history screen now uses its retained exact input
+lookup query to re-read the discovered target through the original Root history
+entry after first-input failure. It verifies the original Header and selected
+ancestry prefix before projecting the native Model Input/Outcome observation.
+Confirmed saved-input presence refreshes the displayed persisted history, so a
+failed event subscription or revoked confirmation no longer leaves a committed
+first input invisible. No replacement Agent, Writer, lookup journal, model
+request or approval fact is created.
+
+The display distinguishes an unknown model result from a recorded terminal
+outcome. A recorded failed call is historical evidence, not proof that a
+provider performed no external work. Missing input remains unknown; it does
+not prove non-commit. Identity conflict, unreadable/stale source or changed
+history cannot authorize retry. Subsequent prompt submissions remain fenced
+and do not append another input or dispatch again.
+
+A native first-input failure that leaves execution unavailable now releases
+its active Slot through the original Root after observation. Exceptions also
+release the native prepared operation or active Slot if the recovery read is
+cancelled again. The native Root retains its cancelled history reads until
+settlement. A new fault injection pauses after the actual native read and
+cancels the observation, then verifies the original Slot is gone.
+
+The existing eight screen scenarios passed as baseline. The regression first
+failed because revoked confirmation had no recovery observation. Added cases
+cover an actual provider transport failure and cancellation during recovery.
+This closes failure presentation and read-only observation in the explicit
+screen entry. Default Embedded/Hosted routing, production actor/epoch/effect
+inputs, restart reconciliation and admitted retry, background performance and
+released-version acceptance are still required; Issue #696 remains active.
+
+Validation: the combined screen/Model Outcome run covered 28 cases, with 25
+passing and three failures caused by the test using `ErrorRecord.text` rather
+than its native `summary` field. After correcting that assertion, all three
+failed scenarios passed in the focused rerun. Ruff, scoped mypy, diff whitespace
+and all nine documentation checks passed. The branch-wide `make plan-checks`
+was inspected; its broader subsystem and platform gates remain delivery work,
+not evidence supplied by these focused runs.

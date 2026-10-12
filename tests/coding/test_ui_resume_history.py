@@ -35,7 +35,11 @@ from loushang.harnesstui.conversation.application_host import (
     run_prepared_screen_conversation,
 )
 from loushang.harnesstui.conversation.control import ConversationTextAction
-from loushang.tui.transcript import AssistantMessageRecord, UserPromptRecord
+from loushang.tui.transcript import (
+    AssistantMessageRecord,
+    ErrorRecord,
+    UserPromptRecord,
+)
 
 pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="Linux owned Resume Writer")
 
@@ -56,7 +60,7 @@ class _TerminalSurface:
         pass
 
 
-@pytest.mark.parametrize("mode", ["history", "completed", "denied", "revoked", "cancelled", "closed_before_writer", "wrong_target", "rebind_failed"])
+@pytest.mark.parametrize("mode", ["history", "completed", "denied", "revoked", "cancelled", "closed_before_writer", "wrong_target", "rebind_failed", "unknown_transport", "cancel_recovery"])
 def test_native_screen_history_then_one_original_resume_input(tmp_path, monkeypatch, mode):
     monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
 
@@ -108,6 +112,8 @@ def test_native_screen_history_then_one_original_resume_input(tmp_path, monkeypa
             async def invoke_prepared_raw(self, request, prepared):
                 prepared.payload_for_transport()
                 requests.append(request)
+                if mode == "unknown_transport":
+                    raise ConnectionError("provider outcome unknown")
                 yield {"type": "response_start", "response_id": "ui-response"}
                 yield {"type": "text_delta", "text": "actual reply"}
                 yield {"type": "stop_reason", "stop_reason": "stop"}
@@ -178,8 +184,18 @@ def test_native_screen_history_then_one_original_resume_input(tmp_path, monkeypa
                     require_current_admission=permission.require_current,
                     require_current_epoch_settlement=epoch, observe_input_identity=observe_identity,
                 )
-                if mode == "revoked":
+                if mode in {"revoked", "cancel_recovery"}:
                     issuer.release_confirmation(fact)
+                if mode == "cancel_recovery":
+                    native_read = root.preview_resume_history
+
+                    async def pause_recovery(*args, **kwargs):
+                        result = await native_read(*args, **kwargs)
+                        entered.set()
+                        await asyncio.Event().wait()
+                        return result
+
+                    monkeypatch.setattr(root, "preview_resume_history", pause_recovery)
                 if mode == "rebind_failed":
                     def failed_subscribe(session, listener):
                         raise OSError("native event subscription failed")
@@ -207,7 +223,7 @@ def test_native_screen_history_then_one_original_resume_input(tmp_path, monkeypa
                 assert not preparations
                 if mode == "history":
                     return 0
-                if mode in {"cancelled", "closed_before_writer"}:
+                if mode in {"cancelled", "closed_before_writer", "cancel_recovery"}:
                     task = asyncio.create_task(host.submit(ConversationTextAction("continue once")))
                     waiter = asyncio.create_task(entered.wait())
                     try:
@@ -233,11 +249,25 @@ def test_native_screen_history_then_one_original_resume_input(tmp_path, monkeypa
                     assert [record.text for record in app.state.records if isinstance(record, UserPromptRecord)] == ["old history", "continue once"]
                     assert [record.text for record in app.state.records if isinstance(record, AssistantMessageRecord)] == ["actual reply"]
                 else:
-                    assert not requests
+                    assert len(requests) == int(mode == "unknown_transport")
                     assert root.current_session is None
+                    if mode in {"revoked", "rebind_failed", "unknown_transport"}:
+                        assert host._recovery is not None
+                        assert host._recovery.input_record_id == "ui-input-record"
+                        assert host._recovery.status == (
+                            "observed_failed" if mode == "unknown_transport" else "unknown"
+                        )
+                        assert [record.text for record in app.state.records if isinstance(record, UserPromptRecord)] == ["old history", "continue once"]
+                        assert any(
+                            "Saved input found." in record.summary
+                            for record in app.state.records if isinstance(record, ErrorRecord)
+                        )
                     # Recovery never calls the preparer or normal prompt again.
+                    saved = path.read_bytes()
                     await host.submit(ConversationTextAction("continue once"))
                     assert len(preparations) == 1
+                    assert path.read_bytes() == saved
+                    assert len(requests) == int(mode == "unknown_transport")
                 return 0
 
             assert await run_prepared_screen_conversation(

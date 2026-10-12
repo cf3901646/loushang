@@ -15,6 +15,10 @@ from typing import Literal, TextIO
 from loushang.coding.resume_activation_attempt import CodingResumeRecoveryRequired
 from loushang.coding.resume_history import CodingResumeHistoryPreview
 from loushang.coding.resume_input_lookup import CodingResumeInputLookupQueryV1
+from loushang.coding.resume_model_outcome import (
+    CodingResumeModelOutcomeObservationV1,
+    observe_coding_resume_model_outcome,
+)
 from loushang.coding.runtime.agent_session_runtime import (
     AgentSessionRuntime,
     CodingRuntimePreparedResume,
@@ -72,6 +76,7 @@ class _HistoryActions:
         self._records = agent_session_history_records(history.selected_records)
         self._prepared: CodingRuntimePreparedResume | None = None
         self._query: CodingResumeInputLookupQueryV1 | None = None
+        self._recovery: CodingResumeModelOutcomeObservationV1 | None = None
         self._phase: Literal["history", "preparing", "active", "recovery_required", "closed"] = "history"
         self._task: asyncio.Task[object] | None = None
         self._presenter = ConversationActionResultPresenter(
@@ -93,6 +98,40 @@ class _HistoryActions:
         if type(query) is not CodingResumeInputLookupQueryV1 or self._query is not None:
             raise ValueError("Resume input identity observation differs from the first input")
         self._query = query  # Lookup data only, including uncertain commits.
+
+    async def _observe_recovery(self) -> str:
+        """Refresh exact persisted history through the original Root read entry.
+
+        Observation grants no retry or execution. Missing input stays unknown;
+        only the Transcript owner with a staged record can prove absence.
+        """
+
+        self._recovery = None
+        if self._query is None:
+            return "The submitted input needs recovery before another input."
+        try:
+            history = await self._runtime.preview_resume_history(self._target)
+            prefix = self._history.selected_records
+            if (
+                history.header_preview.header != self._history.header_preview.header
+                or history.selected_records[:len(prefix)] != prefix
+            ):
+                raise ValueError("Resume recovery history target changed")
+            self._recovery = observe_coding_resume_model_outcome(history, self._query)
+            if self._recovery.input_record_id is not None:
+                self._records = agent_session_history_records(history.selected_records)
+        except Exception:
+            return "Unable to verify the saved input. Recovery is required before another input."
+        observed = self._recovery
+        if observed.status == "conflict":
+            return "Saved input identity conflicts with history. Recovery is required before another input."
+        if observed.input_record_id is None:
+            return "Saved input state is unknown. Recovery is required before another input."
+        if observed.status == "unknown":
+            outcome = "First model result is unknown."
+        else:
+            outcome = "First model call recorded as " + observed.status.removeprefix("observed_") + "."
+        return "Saved input found. " + outcome + " Recovery is required before another input."
 
     def materialize(self) -> tuple[DisplayRecord, ...]:
         prepared = self._prepared
@@ -156,22 +195,33 @@ class _HistoryActions:
             if self._phase == "active":
                 self._app.state.input_capabilities = ConversationInputCapabilities()
             else:
-                self._error("The submitted input needs recovery before another input.")
+                message = await self._observe_recovery()
+                await self._runtime.dispose_session_runtime()
+                self._app.install_resumed_history(self._records)
+                self._error(message)
         except BaseException as error:
             if self._phase != "closed":
                 self._phase = "recovery_required"
             try:
-                if self._prepared is not None:
-                    if self._prepared.consumed:
-                        # A failed presentation bind must not expose an active
-                        # Slot that this screen cannot observe or control.
-                        await self._runtime.dispose_session_runtime()
-                    else:
-                        await self._prepared.abort()
-            except BaseException as cleanup:
-                error.add_note(f"Native Resume cleanup retained: {cleanup!r}")
+                message = (
+                    await self._observe_recovery() if self._phase != "closed"
+                    else "The submitted input needs recovery before another input."
+                )
+            finally:
+                try:
+                    if self._prepared is not None:
+                        if self._prepared.consumed:
+                            # Failed presentation or cancelled recovery must
+                            # release the Slot through its original owner.
+                            await self._runtime.dispose_session_runtime()
+                        else:
+                            await self._prepared.abort()
+                except BaseException as cleanup:
+                    error.add_note(f"Native Resume cleanup retained: {cleanup!r}")
             self._app.install_resumed_history(self._records)
             self._error("Request cancelled." if isinstance(error, asyncio.CancelledError) else str(error))
+            if self._phase != "closed":
+                self._error(message)
             if isinstance(error, asyncio.CancelledError):
                 raise
         finally:
