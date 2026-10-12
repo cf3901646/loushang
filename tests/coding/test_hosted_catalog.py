@@ -22,9 +22,6 @@ from loushang.coding.hosted_catalog import (
     CodingHostedSessionCatalogV1,
 )
 from loushang.coding.product_plan import CODING_CAPABILITY_PROFILE_METADATA_KEY
-from loushang.coding.resume_composition_comparison import (
-    compare_coding_resume_composition,
-)
 from loushang.coding.session_manager import SessionManager
 from loushang.harness.transcript.jsonl_file import (
     load_agent_transcript_file,
@@ -202,6 +199,12 @@ def test_G14_RECOVERY_create_identity_is_idempotent_across_catalog_instances(
 def test_canonical_hosted_history_previews_changed_environment_without_activation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Installed-evidence fixtures also import this module. Keep this optional
+    # Resume dependency local to the regression that actually exercises it.
+    from loushang.coding.resume_composition_comparison import (
+        compare_coding_resume_composition,
+    )
+
     async def scenario() -> None:
         scope = _scope(tmp_path)
         owner = CodingHostedSessionCatalogV1((scope,))

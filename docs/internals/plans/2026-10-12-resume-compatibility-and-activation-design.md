@@ -1888,3 +1888,15 @@ source and failed 17 collections. Re-running the test phase with explicit
 `PYTHONPATH=src` selects this task branch. The command retains `-m 'not live'`
 and `--skip-host-runtime`; that full test phase is still running at this
 checkpoint. It must reach a terminal result before being reported as passed.
+
+That full AppService test phase finished with 2,439 passes, 16 skips and two
+failures after 1,323 seconds. Both failures were the G17 opt-in collection
+regression's isolated `python -I` subprocess: its older editable installation
+could not import this branch's new Resume comparison module, pulled in at
+module load by a reused catalog test fixture. The comparison import is now
+local to the Resume regression that uses it. The collection test retains
+`-I`, its root-only test path and explicit opt-in assertions; installed native
+evidence still requires a wheel and rejects source imports. All 39 G17 runner
+and Hosted catalog cases then passed, including both failed collection cases.
+Ruff and whitespace checks passed. The original full run is recorded as
+failed with those focused repairs verified, not as a new full green run.
