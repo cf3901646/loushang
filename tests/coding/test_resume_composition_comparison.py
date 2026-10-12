@@ -34,6 +34,7 @@ def _history() -> CodingResumeHistoryPreview:
         binding_status="none", binding=None,
         selected_ancestry_digest="a" * 64,
         source_fingerprint="stat-v1:fixture",
+        source_content_digest="b" * 64,
     )
 
 

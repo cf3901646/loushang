@@ -74,6 +74,7 @@ class SessionActivationPlanV1:
     session_id: str
     selected_leaf_id: str | None
     source_fingerprint: str
+    source_content_digest: str
     ancestry_digest: str | None
     workspace_root: str
     composition_comparison: CodingResumeCompositionComparisonV1
@@ -133,6 +134,11 @@ def build_session_activation_plan(
     ):
         raise ValueError("activation Plan source fingerprint is invalid")
     if (
+        type(history.source_content_digest) is not str
+        or _DIGEST.fullmatch(history.source_content_digest) is None
+    ):
+        raise ValueError("activation Plan source content digest is invalid")
+    if (
         history.selected_ancestry_digest is not None
         and (type(history.selected_ancestry_digest) is not str
              or _DIGEST.fullmatch(history.selected_ancestry_digest) is None)
@@ -159,6 +165,7 @@ def build_session_activation_plan(
         "sessionId": session_id,
         "selectedLeafId": history.selected_leaf_id,
         "sourceFingerprint": history.source_fingerprint,
+        "sourceContentDigest": history.source_content_digest,
         "ancestryDigest": history.selected_ancestry_digest,
         "workspaceRoot": str(workspace_root),
         "composition": {
@@ -197,6 +204,7 @@ def build_session_activation_plan(
         session_id=session_id,
         selected_leaf_id=history.selected_leaf_id,
         source_fingerprint=history.source_fingerprint,
+        source_content_digest=history.source_content_digest,
         ancestry_digest=history.selected_ancestry_digest,
         workspace_root=str(workspace_root),
         composition_comparison=comparison,
@@ -220,6 +228,7 @@ def require_current_resume_plan_source(
         plan.session_id != history.header_preview.header.conversation_id
         or plan.selected_leaf_id != history.selected_leaf_id
         or plan.source_fingerprint != history.source_fingerprint
+        or plan.source_content_digest != history.source_content_digest
         or plan.ancestry_digest != history.selected_ancestry_digest
         or plan.composition_comparison
         != compare_coding_resume_composition(history, current)

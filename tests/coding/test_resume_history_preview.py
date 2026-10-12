@@ -34,6 +34,7 @@ from loushang.harness.transcript import AGENT_MESSAGE_KIND
 from loushang.harness.transcript.jsonl_file import (
     AgentTranscriptFileError,
     load_agent_transcript_file,
+    load_agent_transcript_file_with_content_digest,
     write_agent_transcript_export,
 )
 from loushang.harness.transcript.session_catalog import (
@@ -185,7 +186,7 @@ def test_readonly_snapshot_selects_one_parent_linked_history_path(
             path, max_bytes=1024 * 1024, selected_leaf_id="missing",
         )
 
-    original_load = load_agent_transcript_file
+    original_load = load_agent_transcript_file_with_content_digest
 
     def change_after_read(*args, **kwargs):
         result = original_load(*args, **kwargs)
@@ -194,7 +195,7 @@ def test_readonly_snapshot_selects_one_parent_linked_history_path(
         return result
 
     monkeypatch.setattr(
-        "loushang.coding.resume_history.load_agent_transcript_file",
+        "loushang.coding.resume_history.load_agent_transcript_file_with_content_digest",
         change_after_read,
     )
     with pytest.raises(ValueError, match="source changed"):

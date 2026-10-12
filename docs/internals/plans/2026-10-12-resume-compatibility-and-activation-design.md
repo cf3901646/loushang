@@ -5,7 +5,8 @@
 - Authority: descriptive — candidate design and delivery plan.
 - Design status: proposed; design acceptance is separate from review completion.
 - Implementation status: partial — read-only Header, bounded selected-path and
-  unverified tail previews, historical Binding projection, fixed-ID UserMessage
+  unverified tail previews, exact-byte digest for bounded historical snapshots,
+  historical Binding projection, fixed-ID UserMessage
   commit primitives, composition comparison, and a data-only internal
   `SessionActivationPlanV1` envelope exist. ResourceLoader can calculate
   Catalog input facts without choosing authority; Plan records only their

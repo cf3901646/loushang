@@ -9,7 +9,7 @@ from typing import Literal
 from loushang.harness.conversation import ConversationHeader, ConversationRepository
 from loushang.harness.runtime import RuntimeProfileSnapshot
 from loushang.harness.transcript.jsonl_file import (
-    load_agent_transcript_file,
+    load_agent_transcript_file_with_content_digest,
     load_agent_transcript_header,
 )
 from loushang.harness.transcript.session_catalog import (
@@ -57,6 +57,7 @@ class CodingResumeHistoryPreview:
     binding: CodingRuntimeBindingV1 | None
     selected_ancestry_digest: str | None
     source_fingerprint: str
+    source_content_digest: str
     status: Literal["preview"] = "preview"
 
 
@@ -120,7 +121,11 @@ def read_coding_resume_snapshot(
         and source_fingerprint != expected_source_fingerprint
     ):
         raise ValueError("Coding Resume source changed before snapshot")
-    header, records = load_agent_transcript_file(
+    (
+        header,
+        records,
+        source_content_digest,
+    ) = load_agent_transcript_file_with_content_digest(
         source_path, max_bytes=max_bytes, read_only=True,
     )
     if session_file_authority_fingerprint(source_path) != source_fingerprint:
@@ -168,6 +173,7 @@ def read_coding_resume_snapshot(
         binding=binding,
         selected_ancestry_digest=ancestry_digest,
         source_fingerprint=source_fingerprint,
+        source_content_digest=source_content_digest,
     )
 
 

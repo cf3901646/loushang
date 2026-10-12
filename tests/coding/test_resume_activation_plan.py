@@ -47,6 +47,7 @@ def _history() -> CodingResumeHistoryPreview:
             (), current_session_id="session-1",
         ).ancestry_digest,
         source_fingerprint="stat-v1:1:2:3:4:5",
+        source_content_digest="a" * 64,
     )
 
 
@@ -75,12 +76,17 @@ def test_activation_plan_is_deterministic_and_stale_on_source_or_branch_change()
         replace(history, source_fingerprint="stat-v1:changed"),
         replace(history, selected_leaf_id="another-leaf"),
         replace(history, selected_ancestry_digest="c" * 64),
+        replace(history, source_content_digest="b" * 64),
     ):
         with pytest.raises(ResumePlanStaleError):
             require_current_resume_plan_source(first, changed)
     assert build_session_activation_plan(
         history, current, workspace_root=Path("/workspace"),
         owner_selections=(replace(selection, fingerprint="c" * 64),),
+    ).plan_id != first.plan_id
+    assert build_session_activation_plan(
+        replace(history, source_content_digest="b" * 64), current,
+        workspace_root=Path("/workspace"), owner_selections=(selection,),
     ).plan_id != first.plan_id
 
 
@@ -121,7 +127,11 @@ def test_activation_plan_rejects_noncanonical_or_duplicate_owner_inputs() -> Non
         )
 
 
-def test_activation_plan_rejects_rewritten_real_transcript(tmp_path: Path) -> None:
+def test_activation_plan_rejects_rewritten_real_transcript(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from loushang.coding import resume_history as resume_history_module
+
     async def create() -> Path:
         manager = await SessionManager.new_with_composition(
             session_dir=tmp_path, cwd=str(tmp_path),
@@ -134,6 +144,10 @@ def test_activation_plan_rejects_rewritten_real_transcript(tmp_path: Path) -> No
             await manager.dispose_runtime_profile()
 
     path = asyncio.run(create())
+    monkeypatch.setattr(
+        resume_history_module, "session_file_authority_fingerprint",
+        lambda _path: "stat-v1:1:2:3:4:5",
+    )
     current = resolve_coding_composition_set("coding-standard")
     original = read_coding_resume_snapshot(path, max_bytes=1024 * 1024)
     plan = build_session_activation_plan(
@@ -143,6 +157,9 @@ def test_activation_plan_rejects_rewritten_real_transcript(tmp_path: Path) -> No
     with path.open("ab") as stream:
         stream.write(b"\n")
     revised = read_coding_resume_snapshot(path, max_bytes=1024 * 1024)
+    assert revised.source_fingerprint == original.source_fingerprint
+    assert revised.source_content_digest != original.source_content_digest
+    assert revised.selected_ancestry_digest == original.selected_ancestry_digest
     with pytest.raises(ResumePlanStaleError):
         require_current_resume_plan_source(plan, revised)
 
