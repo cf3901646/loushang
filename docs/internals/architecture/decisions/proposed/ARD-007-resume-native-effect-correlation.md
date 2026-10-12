@@ -10,6 +10,7 @@
 - Owner: Loushang architecture, Coding, Harness Approval and native Worker owners
 - Tracking: [Issue #696](https://github.com/zhnt/loushang/issues/696)
 - Source review: `e072a764`, 2026-10-12
+- Proposal revision: `2026-10-12-r2`
 
 This proposal refines the external-effect prerequisite in
 [ARD-005](../accepted/ARD-005-resume-continuation-commit.md). It does not replace
@@ -133,6 +134,131 @@ unavailability, but formal reconciliation belongs to admitted activation.
 Embedded and Hosted use this same coordinator; Hosted additionally retains
 its existing subject/controller generation and single Product binding.
 
+## Proposed Wire And Owner Protocol
+
+### Complete participation before evaluation
+
+Use a new `coding.activation-attempt/v2` intent rather than silently extending
+v1's exact fields. Retain the v1 identity, ancestry and payload-independent
+intent fields. Add `effectOwners`: a sorted, unique list of at most eight
+entries containing `ownerId`, `scopeDigest`, `contractDigest`, `phases` and
+`effectClasses`. Enforce an 8 KiB total encoded intent budget and strict field,
+identifier and digest validation. v1 remains historical input; it cannot prove
+this v2 participation contract. The final message keeps the accepted single-record commit and RuntimeBinding
+semantics. Its proposed `coding.runtimeBindingV2` metadata carries the v1 fields
+plus `intentDigest`, with `version: 2`; it has an 8 KiB encoded budget. v1 stays
+readable. A decoder must not synthesize the new digest from a current graph or
+accept a v1 Binding as proof of v2 participation. Unknown metadata stays inert
+for display and unavailable for mutation. The original Transcript message owner
+co-commits this Binding, ordinary resource evidence and the UserMessage as one
+fixed-ID record; no additional preliminary Binding record is introduced.
+
+The original Product selection computes participation from its verified,
+inert package closure and its trusted host/domain configuration before any
+Definition evaluation. The list includes Definition invocation, component
+construction/import, Worker reservation/start and every declared external
+startup domain. A manifest can request a domain but cannot register a trusted
+reconciler, assert effect freedom or supply a contract digest as authority.
+The selected original owner validates its own contract identity. Missing or
+unsupported domains refuse activation before evaluation. If evaluation exposes
+an additional domain, stop and preserve its already registered effects; do not
+extend the frozen parent list or proceed to first-input commit.
+
+Application-level Product preparation is a separate prerequisite: the original
+Package Product owner must reconcile its existing cutover/management/bootstrap
+operations under current admission before its selected epoch can be used as a
+Resume dependency. An epoch fingerprint does not settle those operations. That
+owner keeps its application operation identities and journals; this protocol
+does not relabel an existing application operation as a Session native use or
+permit it to be replayed using a new Resume ID. Unresolved application effects
+block preparation before the first Resume Writer. The production bridge must
+validate both that application prerequisite and this Session startup protocol.
+
+Initial built-in support requires an audited, verified code closure and the
+original owner contract for its actual startup effects. There is no blanket
+assumption that all first-party, local or host-equivalent Python is effect-free.
+Custom Plugin startup domains can participate through their trusted original
+owners; unsupported domains remain readable and report writable unavailability.
+
+### Original journal transactions and complete enumeration
+
+Each participating owner persists the following in its existing journal/state
+store, under its existing root, lock, revision CAS and current admission:
+
+1. **Enroll** the parent context and this owner's exact obligation descriptor.
+2. **Register** each native use together with its parent context atomically
+   with native decision consumption or attempt reservation. Native start is
+   forbidden until that registration has a known durable acknowledgement.
+3. **Record outcomes** through existing native transitions and domain-owned
+   completion, cleanup or disposition evidence. A parent context never changes
+   the authorization needed for those transitions.
+4. **Seal** this owner's operation enumeration, with its current revision and
+   digest of sorted native operation identities. Sealing forbids additional
+   startup registration for that parent. It grants no execution or retry.
+
+A parent context has exact fields `contextVersion`, `productId`, `sessionId`,
+`attemptId`, `requestId`, `intentDigest`, `ownerId`, `scopeDigest` and
+`contractDigest`; its encoded budget is 2 KiB. Digests use domain-separated
+canonical JSON. The context is lookup data. Native subjects retain their exact
+instance/content, current authority, native use ID and host/domain identities.
+
+Definition and component journals require versioned enrollment/seal events
+and a parent context on the consumed-use event. Do not append an independent
+link after consumption. Worker enrollment/registration/seal belongs in the
+original C5 CAS state and its retained attempt projection, including checkpoint
+and segmented-history replay. Its process attempt key remains the exact native
+receipt/attempt/owner-generation tuple. Sealing a parent cannot authorize
+skipping any native containment or cleanup edge.
+
+Reconciliation requires a complete original-owner snapshot for the enrolled
+scope, every registered native operation and its sealed membership digest.
+Before sealing after a crash, the owner must fence outstanding original tasks
+and possible native starters through its existing lifecycle/containment
+mechanisms. A different random boot ID alone cannot prove that another process
+or thread stopped. Starts and transitions recheck the parent's native fence;
+sealing cannot race with an unchecked late start. Failure to establish that
+fence remains unknown. A missing owner, journal, retained segment, enrollment,
+seal or membership match is unknown. An empty sealed scope is evidence only
+when the original owner proves this complete protocol, never from an empty
+untrusted JSON list.
+
+### Separate outcome obligations
+
+| Original owner | Covered completion boundary | Failure/restart treatment |
+| --- | --- | --- |
+| Definition Host and its execution journal | The exact declared invocation returned and its domain obligations completed; `EVALUATED` alone covers only invocation return | Started failure stays unknown for external effects. Original import/cleanup and domain reconciliation must account for them. |
+| Component Host and its activation journal | The exact factory completed, the original use published and its declared startup obligations completed | `FAILED` or disposal failure is not external settlement. A retired component cannot satisfy current live publication even after its prior effects settle. |
+| Native Worker/C5 owner | The exact registered startup reaches admitted live readiness, or original no-start/cleanup proof establishes its applicable obligation | Live readiness is checked again through the original admitted facet; another boot needs original process/containment reconciliation. Historical cleanup must match exact native identities and the supported cleanup contract. |
+| External domain owner | Its declared domain-specific completion or compensated/disposed outcome | Unknown filesystem/network/publication outcomes stay quarantined until that owner proves completion or records an authorized explicit disposition. |
+
+The continuation validates the complete owner set, contexts, seals, native
+identities and domain obligations before first-input commit. It separately
+checks original live candidate publication and current caller/policy/content.
+It repeats those current checks at publication and transport. A historical
+settlement result cannot revive a retired component or start a model.
+
+### Disposition authority and evidence retention
+
+Native cleanup uses each domain's existing authority and lifecycle. An
+administrative disposition is available only if that original domain has a
+trusted issuer capable of authorizing that exact action under current policy.
+Its evidence includes the parent digest, exact native operation identities,
+covered obligations, actor/authorization identity, policy revision, revocation
+epoch and disposition digest. The original owner revalidates authorization and
+persists the result. An ordinary activation approval cannot silently become
+administrative disposition authority. If no such issuer exists, return unknown;
+this slice does not create one inside Coding, AppService or the UI.
+
+Existing native completion and cleanup mechanisms are reused where their
+contracts suffice. New trusted external reconcilers require their own reviewed
+domain contracts. A callback that merely matches the current composition set
+or returns None is not a production adapter. Original custodians retain the
+native journals, required historical segments and evidence until every covered
+operation is resolved; ephemeral data cannot erase unresolved durable evidence.
+Session/graph, Product epoch and Worker owners retain their existing disposal
+responsibilities. Post-publication Tool/model effects belong to their own Turn
+identities and are not added retroactively to this sealed startup scope.
+
 ## Version And Release Boundary
 
 Use versioned native owner events for the additional causal context and
@@ -140,13 +266,32 @@ settlement/disposition data. Keep legacy decoding explicit. A legacy use
 without a complete parent association cannot supply verified absence or full
 settlement for a Resume intent.
 
-Before the first such event is written, each affected original journal writer
-must enforce its new minimum writer capability. Old binaries must refuse
-mutation of those journals before repair or append. Changing native journal
-schemas does not imply that `coding.resume-continuation/v1` covers this owner
-capability. Name the concrete native capabilities and first shipping builds
-in the implementation/release evidence; they are not established by this
-proposal. Do not claim safe writer rollback from reader/export compatibility.
+The proposed writer capabilities are `coding.resume-continuation/v2`,
+`harness.plugin-execution.resume-context/v1`,
+`harness.plugin-activation.resume-context/v1` and
+`harness.worker-activation.resume-context/v1`. They identify protocol support,
+not authorization. The original writer checks all required capabilities before
+repair, enrollment or append. Native new readers decode v1 and v2 explicitly;
+unknown future events refuse mutation. Store the required protocol boundary in
+the original owner's version mechanism, not in a new Coding sidecar ledger.
+
+Current old Approval journal implementations use partial-tail repair before
+semantic replay. Therefore an arbitrary previously shipped binary cannot be
+claimed to honor a new pre-repair fence. This is a concrete limitation, not a
+property that a v2 event can retroactively add. Unfenced older writers are
+unsupported for the upgraded owner state. Any supported downgrade operation
+must use an original-owner, capability-aware entry and refuse before repair or
+append; otherwise downgrade is read/export only. Installed-version tests must
+exercise both complete and partial-tail journals and report the old binary's
+actual behavior. No safe native writer rollback is promised by transcript
+reader/export compatibility.
+
+The first shipping build for each capability must be identified by released
+artifact version and source revision after implementation. `0.1.0` alone does
+not distinguish these builds. Release remains gated on installed N/N+1 history
+reader/export, new writer, supported rollback refusal and explicit unsupported
+old-writer evidence. Neither this proposal nor a source checkout supplies those
+release results.
 
 ## Review And Acceptance Gates
 
@@ -157,16 +302,20 @@ to the common parent of Coding and Harness. The project governance profile
 requires owner acceptance of this exact contract; it creates no blanket
 customer-confirmation requirement.
 
-Before acceptance, resolve these material findings:
+The four initial design findings are addressed by the exact proposal above:
 
-1. Specify complete participating-owner enumeration, including effects started
-   during Definition evaluation before a component graph exists.
-2. Specify atomic native registration and exact outcome semantics separately
-   for Definition, in-process component and native Worker owners.
-3. Identify original disposition authority and supported domain reconcilers;
-   a generic callback returning None is insufficient production evidence.
-4. Specify native event versions, old-writer refusal before repair, retention
-   and first-shipping capability identities.
+| Finding | Proposed closure | Implementation/release evidence still required |
+| --- | --- | --- |
+| Complete owner enumeration before Definition evaluation | Frozen v2 owner obligations from verified inert Product closure; enrollment and sealed native membership | Unknown/omitted domain, late discovery and unsealed/partial enumeration fault tests |
+| Atomic registration and native outcome meaning | Context co-committed with consume/reserve; separate Definition, component and Worker obligations | Actual native CAS/ack-loss, late-start fence and cross-boot containment tests |
+| Original disposition authority | Existing domain issuer required; missing issuer remains unknown; no UI/Coding force retry | Authorization/revocation and incomplete compensation tests with original owners |
+| Version, old writer and retention | Named capabilities; explicit v1/v2 decoding; unsupported unfenced old writers; original-owner retention | Installed artifact identities and complete/partial-tail downgrade behavior |
+
+This closes the proposal's missing design detail, not its implementation or
+release findings. The selected scope and native writer compatibility policy
+still require common-parent owner acceptance. The accepted ARD-005 v1 paths
+remain effective until an explicit accepted extension and implemented gates
+replace the affected clauses. No runtime activation is enabled by this review.
 
 Required implementation evidence includes crash/ack loss at intent,
 registration, start, completion, input commit and publication; recovery under

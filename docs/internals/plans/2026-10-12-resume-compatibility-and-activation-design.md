@@ -2358,3 +2358,26 @@ changed source modules with an isolated cache; Ruff passed all four changed
 Python files. The generated current package dependency check and nine static
 architecture documentation checks passed. No timeout, snapshot budget or
 activation permission was relaxed to obtain these results.
+
+
+#### ARD-007 concrete protocol revision
+
+The proposed ARD-007 revision `2026-10-12-r2` specifies frozen participating
+owners before Definition evaluation, enrollment/co-committed native
+registration/sealed enumeration, separate native outcome obligations and
+original disposition authority. It names a v2 attempt/Binding extension and
+native writer capabilities; these are proposed protocol boundaries, not
+implemented or shipping versions. Application Product bootstrap/cutover
+settlement remains a separate original-owner prerequisite; a selected epoch
+alone cannot satisfy it. The proposal closes its four missing design details
+while retaining implementation/release findings and common-parent acceptance.
+
+Inspection of both original Approval journals confirms their current
+partial-tail repair policy runs before semantic replay. A new event cannot
+retroactively make those old binaries honor a pre-repair gate. The proposal
+therefore explicitly excludes unfenced old writers from supported native-state
+rollback and requires installed complete/partial-tail evidence of actual old
+behavior. It retains readable history/export and supported capability-aware
+rollback refusal as separate requirements. Nine static documentation checks
+and `git diff --check` passed for the revision. No native v2 event has been
+written or default writable Resume enabled by this design work.
