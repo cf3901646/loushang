@@ -1,5 +1,7 @@
 """Coding bindings for the generic summary evaluation runtime."""
 
+# CI timing probe for issue 704 after the gate runner reduction.
+
 from __future__ import annotations
 
 from pathlib import Path
