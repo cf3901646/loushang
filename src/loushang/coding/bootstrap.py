@@ -69,6 +69,7 @@ from loushang.coding._resource_catalog_shadow import (
     finalize_coding_package_plugin_plan_seed,
     prepare_coding_package_plugin_plan_seed,
 )
+from loushang.coding._resume_cleanup import retain_resume_cleanup_failure
 from loushang.coding._tool_authority import (
     CODING_ARCH_EXACT_OWNER_TOOL_NAMES,
     CODING_EXACT_OWNER_TOOL_NAMES,
@@ -2605,6 +2606,9 @@ async def _create_resume_agent_session(
                 await session.dispose()
             except BaseException as cleanup_error:
                 error.add_note(f"Coding Resume candidate cleanup also failed: {cleanup_error!r}")
+                raise retain_resume_cleanup_failure(
+                    original_owner=session, original_error=error, cleanup_error=cleanup_error,
+                ) from error
         else:
             _dispose_unbound_package_product_runtime(selected_factory, error)
         raise

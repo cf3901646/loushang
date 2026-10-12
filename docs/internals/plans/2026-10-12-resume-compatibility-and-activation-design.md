@@ -1394,3 +1394,27 @@ input cases were demonstrated before their fixes. The duplicate fixture's
 initial Writer assertion was corrected to recognize the already closed prior
 Writer before confirming the new candidate. Scoped mypy, Ruff and all nine
 documentation checks passed.
+
+#### Bootstrap cleanup debt retains the complete candidate
+
+The Resume bootstrap's final-admission failure now shares the same Coding
+cleanup-debt contract as the continuation coordinator. If the original
+constructed AgentSession cannot be disposed, the debt retains that exact
+Session, the admission error and cleanup error, and fences its original
+Transcript factory. Retrying disposal through this owner preserves graph,
+Product and Writer ordering. This is a complete constructed-candidate case;
+partial constructor failures still use their original preparation custodians.
+
+The continuation coordinator passes an existing bootstrap debt through without
+disposing its Manager separately. A real standard-composition fixture revokes
+native interactive confirmation immediately after original construction,
+injects one native disposal failure and verifies that the Manager has not been
+disposed before the retained Session's cleanup retry. No graph preparation or
+UserMessage commit occurs in that case. The existing later-publication cleanup
+failure uses the same contract. Product-root debt retention and default
+Embedded/Hosted adoption remain required.
+
+Validation: the new bootstrap failure was reproduced before the fix. Nineteen
+non-live bootstrap/coordinator regressions passed, followed by both nested
+bootstrap and later-publication cleanup-debt cases. Scoped mypy for all three
+source modules and Ruff passed.

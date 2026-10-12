@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 import pytest
 
 from loushang.ai.types import UserMessage
+from loushang.coding import bootstrap
 from loushang.coding.composition_sets import resolve_coding_composition_set
 from loushang.coding.resume_activation_attempt import (
     CodingActivationAttemptV1,
@@ -39,7 +40,7 @@ from loushang.harness.transcript.jsonl_file import load_agent_transcript_file
 pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="Linux owned Resume Writer")
 
 
-@pytest.mark.parametrize("mode", ["published", "published_duplicate", "denied", "graph_revoked", "preflight_revoked", "preflight_cancelled", "unsettled", "commit_unknown", "publication_revoked", "cleanup_failed", "identity_delivery_failed"])
+@pytest.mark.parametrize("mode", ["published", "published_duplicate", "denied", "graph_revoked", "preflight_revoked", "preflight_cancelled", "unsettled", "commit_unknown", "publication_revoked", "cleanup_failed", "bootstrap_cleanup_failed", "identity_delivery_failed"])
 def test_canonical_resume_continuation_uses_original_owners_in_order(tmp_path, monkeypatch, mode):
     monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
 
@@ -135,7 +136,7 @@ def test_canonical_resume_continuation_uses_original_owners_in_order(tmp_path, m
             await publish(session, **kwargs)
 
         monkeypatch.setattr(AgentSession, "_publish_resume_runtime", observe_publish)
-        if mode == "cleanup_failed":
+        if mode in {"cleanup_failed", "bootstrap_cleanup_failed"}:
             failures = []
 
             async def fail_cleanup_once(session, *args, **kwargs):
@@ -145,6 +146,16 @@ def test_canonical_resume_continuation_uses_original_owners_in_order(tmp_path, m
                 await dispose_session(session, *args, **kwargs)
 
             monkeypatch.setattr(AgentSession, "dispose", fail_cleanup_once)
+        if mode == "bootstrap_cleanup_failed":
+            construct = bootstrap._create_agent_session
+
+            def revoke_after_construct(**kwargs):
+                candidate = construct(**kwargs)
+                native_sessions.append(candidate)
+                owner.release_confirmation(fact)
+                return candidate
+
+            monkeypatch.setattr(bootstrap, "_create_agent_session", revoke_after_construct)
         preflight = PromptController.prepare_user_message
 
         async def observe_preflight(prompt, *args, **kwargs):
@@ -197,17 +208,18 @@ def test_canonical_resume_continuation_uses_original_owners_in_order(tmp_path, m
                     waiting.cancel()
                     await asyncio.gather(task, waiting, return_exceptions=True)
             else:
-                error = RuntimeError if mode in {"cleanup_failed", "identity_delivery_failed"} else (
+                error = RuntimeError if mode in {"cleanup_failed", "bootstrap_cleanup_failed", "identity_delivery_failed"} else (
                     StoreCommitOutcomeUnknown if mode in {"unsettled", "commit_unknown"} else PermissionError
                 )
                 with pytest.raises(error) as failed:
                     await operation
-                if mode == "cleanup_failed":
+                if mode in {"cleanup_failed", "bootstrap_cleanup_failed"}:
                     debt = failed.value
                     assert debt.original_owner is native_sessions[0]
                     assert isinstance(debt.original_error, PermissionError)
                     assert isinstance(debt.cleanup_error, OSError)
                     assert factory._closing
+                    assert not managers[0]._lifecycle_session._disposed
                     await debt.retry_cleanup()
             durable_header, records = load_agent_transcript_file(path, read_only=True)
             assert durable_header == header
@@ -235,6 +247,8 @@ def test_canonical_resume_continuation_uses_original_owners_in_order(tmp_path, m
             if mode == "denied":
                 assert path.read_bytes() == before
                 assert stages == ["confirm"]
+            elif mode == "bootstrap_cleanup_failed":
+                assert stages == ["confirm", "writer"]
             else:
                 assert stages[:3] == ["confirm", "writer", "graph"]
             if mode == "unsettled":

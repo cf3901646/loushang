@@ -28,7 +28,7 @@ pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="Linux owned Cod
 
 @pytest.mark.parametrize("mode", [
     "legacy", "changed", "denied", "wrong_composition", "revoked_after_construction",
-    "invalid_admission", "unknown_intent",
+    "invalid_admission", "unknown_intent", "cleanup_failed_after_construction",
 ])
 def test_resume_bootstrap_uses_current_plan_without_rewriting_original_header(tmp_path, monkeypatch, mode):
     monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
@@ -69,6 +69,9 @@ def test_resume_bootstrap_uses_current_plan_without_rewriting_original_header(tm
         )
         calls = []
         revoked = False
+        cleanup_debt = None
+        constructed = []
+        native_dispose = bootstrap.AgentSession.dispose
 
         def admit(observed):
             assert observed == attempt
@@ -98,26 +101,38 @@ def test_resume_bootstrap_uses_current_plan_without_rewriting_original_header(tm
             before = path.read_bytes()
             with pytest.raises(CodingResumeRecoveryRequired):
                 bootstrap.create_agent_session(session_manager=resumed, composition_set="coding-minimal")
-            if mode == "revoked_after_construction":
+            if mode in {"revoked_after_construction", "cleanup_failed_after_construction"}:
                 construct = bootstrap._create_agent_session
 
                 def revoke_after_construct(**kwargs):
                     nonlocal revoked
                     candidate = construct(**kwargs)
+                    constructed.append(candidate)
                     revoked = True
                     return candidate
 
                 monkeypatch.setattr(bootstrap, "_create_agent_session", revoke_after_construct)
+                if mode == "cleanup_failed_after_construction":
+                    failures = []
+
+                    async def fail_dispose_once(candidate, *args, **kwargs):
+                        if not failures:
+                            failures.append(candidate)
+                            raise OSError("native candidate cleanup failed")
+                        await native_dispose(candidate, *args, **kwargs)
+
+                    monkeypatch.setattr(bootstrap.AgentSession, "dispose", fail_dispose_once)
             if mode in {
                 "denied", "wrong_composition", "revoked_after_construction",
-                "invalid_admission", "unknown_intent",
+                "invalid_admission", "unknown_intent", "cleanup_failed_after_construction",
             }:
                 expected = (
-                    PermissionError if mode in {"denied", "revoked_after_construction"}
+                    RuntimeError if mode == "cleanup_failed_after_construction"
+                    else PermissionError if mode in {"denied", "revoked_after_construction"}
                     else TypeError if mode == "invalid_admission"
                     else CodingResumeRecoveryRequired if mode == "unknown_intent" else ValueError
                 )
-                with pytest.raises(expected):
+                with pytest.raises(expected) as failed:
                     await bootstrap._create_resume_agent_session(
                         session_manager=resumed, attempt_id=attempt.attempt_id,
                         composition_set=resolve_coding_composition_set(
@@ -127,6 +142,15 @@ def test_resume_bootstrap_uses_current_plan_without_rewriting_original_header(tm
                 if mode in {"wrong_composition", "unknown_intent"}:
                     assert not calls
                 if mode == "revoked_after_construction":
+                    assert resumed._lifecycle_session._disposed
+                    assert factory.pending_preparations == ()
+                if mode == "cleanup_failed_after_construction":
+                    cleanup_debt = failed.value
+                    assert cleanup_debt.original_owner is constructed[0]
+                    assert isinstance(cleanup_debt.original_error, PermissionError)
+                    assert isinstance(cleanup_debt.cleanup_error, OSError)
+                    assert factory._closing
+                    await cleanup_debt.retry_cleanup()
                     assert resumed._lifecycle_session._disposed
                     assert factory.pending_preparations == ()
             else:
@@ -145,6 +169,8 @@ def test_resume_bootstrap_uses_current_plan_without_rewriting_original_header(tm
             assert resumed.header == header
             assert path.read_bytes() == before
         finally:
+            if constructed:
+                await native_dispose(constructed[0])
             if session is not None:
                 await session.dispose()
             else:

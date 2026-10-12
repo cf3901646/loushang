@@ -20,6 +20,10 @@ from loushang.ai.types import ImagePart, UserMessage
 from loushang.harness.approval import InteractiveApprovalResolver
 from loushang.harness.policy import PolicyEvaluator
 
+from ._resume_cleanup import (
+    CodingResumeContinuationCleanupFailure,
+    retain_resume_cleanup_failure,
+)
 from .bootstrap import BootstrapServices, _create_resume_agent_session
 from .composition_sets import resolve_coding_composition_set
 from .resume_activation_attempt import (
@@ -56,30 +60,6 @@ class CodingResumePreparedContinuation:
     attempt_id: str
     input_record_id: str
     input_lookup_query: CodingResumeInputLookupQueryV1
-
-
-class CodingResumeContinuationCleanupFailure(RuntimeError):
-    """Retain the original undelivered owner until its cleanup can be retried.
-
-    The original Transcript factory is fenced; successful cleanup does not
-    reopen it. The Product root must retain this debt and close/restart its
-    affected owner before accepting another activation.
-    """
-
-    def __init__(
-        self, *, original_owner: AgentSession | SessionManager,
-        original_error: BaseException, cleanup_error: BaseException,
-    ) -> None:
-        super().__init__("Coding Resume continuation cleanup remains pending")
-        self.original_owner = original_owner
-        self.original_error = original_error
-        self.cleanup_error = cleanup_error
-
-    async def retry_cleanup(self) -> None:
-        if isinstance(self.original_owner, AgentSession):
-            await self.original_owner.dispose()
-        else:
-            await self.original_owner.dispose_runtime_profile()
 
 
 async def prepare_coding_resume_continuation(
@@ -233,6 +213,10 @@ async def prepare_coding_resume_continuation(
         return CodingResumePreparedContinuation(session, attempt.attempt_id, record_id, query)
     except BaseException as error:
         error.add_note(f"Coding Resume continuation failed during {phase}; no model was dispatched by this entry.")
+        if isinstance(error, CodingResumeContinuationCleanupFailure):
+            # Bootstrap already retains the complete candidate. Disposing its
+            # Manager separately could release its Writer before graph cleanup.
+            raise
         if phase in {"input_commit", "runtime_publication"}:
             error.add_note("Input may already be committed; use original input lookup before any explicit recovery.")
             if manager is not None and not observed_input and observe_input_identity is not None:
@@ -256,13 +240,9 @@ async def prepare_coding_resume_continuation(
                 await manager.dispose_runtime_profile()
         except BaseException as cleanup_error:
             error.add_note(f"Original Coding Resume owner cleanup also failed: {cleanup_error!r}")
-            try:
-                manager_type._factory_for_persistence(True).fence()
-            except BaseException as fence_error:
-                error.add_note(f"Original Coding Resume factory fencing also failed: {fence_error!r}")
             original_owner = session if session is not None else manager
             assert original_owner is not None
-            raise CodingResumeContinuationCleanupFailure(
+            raise retain_resume_cleanup_failure(
                 original_owner=original_owner, original_error=error,
                 cleanup_error=cleanup_error,
             ) from error
