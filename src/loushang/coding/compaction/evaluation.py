@@ -1,5 +1,7 @@
 """Coding bindings for the generic summary evaluation runtime."""
 
+# CI timing probe for issue 704; this comment has no runtime effect.
+
 from __future__ import annotations
 
 from pathlib import Path
