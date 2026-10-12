@@ -433,6 +433,40 @@ def test_catalog_input_preview_tracks_context_bytes_without_following_links(
     assert loader._catalog_authority_selected is False
 
 
+def test_catalog_input_preview_stops_package_enumeration_before_reading_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from concurrent.futures import CancelledError
+
+    package = tmp_path / "package"
+    prompts = package / "prompts"
+    prompts.mkdir(parents=True)
+    for index in range(20):
+        (prompts / f"prompt-{index}.md").write_text("prompt", encoding="utf-8")
+    loader = ResourceLoader(package_roots=(package,), user_resource_roots=())
+    calls = 0
+
+    def stop():
+        nonlocal calls
+        calls += 1
+        if calls == 5:
+            raise CancelledError("package enumeration cancelled")
+
+    def forbidden_read(*args, **kwargs):
+        pytest.fail("cancelled directory enumeration proceeded to package text reads")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(PackageResourceMount, "read_text", forbidden_read)
+        with pytest.raises(CancelledError, match="package enumeration cancelled"):
+            loader.preview_catalog_input_receipt(tmp_path, work_probe=stop)
+    assert calls == 5
+    assert loader._catalog_authority_selected is False
+    assert loader._legacy_authority_selected is False
+    # The cancelled receipt was not retained or consumed.
+    preview = loader.preview_catalog_input_receipt(tmp_path)
+    assert preview.input_fingerprint == loader.prepare_catalog_input_receipt(tmp_path).input_fingerprint
+
+
 def test_catalog_input_preview_checks_cancellation_between_context_chunks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

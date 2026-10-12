@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from dataclasses import replace
 from pathlib import Path
 
@@ -138,6 +138,7 @@ def _discover_project_resources(root: Path) -> _SourceDiscovery:
 
 def _discover_external_package_resources(
     package_mounts: tuple[PackageResourceMount, ...],
+    *, work_probe: Callable[[], None] | None = None,
 ) -> _SourceDiscovery:
     prompts: list[PromptFragmentDescriptor] = []
     skills: list[SkillDescriptor] = []
@@ -146,6 +147,8 @@ def _discover_external_package_resources(
     diagnostics: list[DiagnosticDraft] = []
 
     for index, mount in enumerate(package_mounts):
+        if work_probe is not None:
+            work_probe()
         if not mount.enabled:
             continue
         root = mount.root
@@ -170,6 +173,7 @@ def _discover_external_package_resources(
             source_label=_SOURCE_LABEL["external_package"],
             source_root_order=index,
             text_reader=mount.read_text,
+            work_probe=work_probe,
         )
         package_skills, skill_diagnostics = _discover_skills_from_dir(
             root / "skills",
@@ -178,6 +182,7 @@ def _discover_external_package_resources(
             source_label=_SOURCE_LABEL["external_package"],
             source_root_order=index,
             text_reader=mount.read_text,
+            work_probe=work_probe,
         )
         package_extensions, extension_diagnostics = _discover_extensions_from_dir(
             root / "extensions",
@@ -185,6 +190,7 @@ def _discover_external_package_resources(
             source_scope="package",
             source_label=_SOURCE_LABEL["external_package"],
             source_root_order=index,
+            work_probe=work_probe,
         )
         package_themes, theme_diagnostics = _discover_themes_from_dir(
             root / "themes",
@@ -193,6 +199,7 @@ def _discover_external_package_resources(
             source_label=_SOURCE_LABEL["external_package"],
             source_root_order=index,
             text_reader=mount.read_text,
+            work_probe=work_probe,
         )
         package_filter = mount.source_filter
         if package_filter is not None:

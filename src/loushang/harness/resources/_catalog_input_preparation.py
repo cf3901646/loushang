@@ -69,7 +69,7 @@ def prepare_resource_catalog_input_receipt(
         work_probe=work_probe,
     )
     external = _apply_resource_switches(
-        _discover_external_package_resources(package_mounts),
+        _discover_external_package_resources(package_mounts, work_probe=work_probe),
         no_prompts=no_prompt_templates,
         no_skills=no_skills,
         no_extensions=no_extensions,

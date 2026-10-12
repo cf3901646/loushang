@@ -417,8 +417,9 @@ class ResourceLoader:
 
         A work probe can enforce a caller's cooperative budget by raising a
         non-OSError exception. Checkpoints cover phase boundaries, context
-        candidates, and 64 KiB context reads. Package discovery remains one
-        synchronous phase; this hook alone does not make it background-safe.
+        candidates, package directory entries and Skill recursion, and 64 KiB
+        context reads. Package text reads and revision verification still lack
+        inner checkpoints; this hook alone does not make them background-safe.
         """
 
         if self._legacy_authority_selected:
