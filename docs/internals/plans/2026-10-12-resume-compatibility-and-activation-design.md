@@ -38,7 +38,11 @@
   asynchronous close joins their release without waiting for native work.
   Closing one view leaves peer computations available. The shared Resource
   owner still joins native completion before releasing its own source leases.
-  Production Resume startup and shared-owner close wiring remain pending.
+  The original AgentProductSession disposal path now joins local reference
+  release before retiring capability owners, without closing peer views or
+  the shared source loader. A real Coding Session disposal regression covers
+  two concurrent Session references. Production Resume startup and shared-owner
+  close wiring remain pending.
   Skill and other mutable
   Resource content is not closed by this receipt, which cannot replace current
   owner selection. The staged first-input path is not yet armed by live Resume

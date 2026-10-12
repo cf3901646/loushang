@@ -105,7 +105,10 @@ from loushang.harness.resources._skill_catalog_consumer import (
 from loushang.harness.resources._skill_catalog_status import (
     SkillCatalogStatusSummary,
 )
-from loushang.harness.resources.loader import ResourceLoader
+from loushang.harness.resources.loader import (
+    CatalogSessionResourceLoaderView,
+    ResourceLoader,
+)
 from loushang.harness.resources.packages.catalog import PackageSummaryProvider
 from loushang.harness.resources.packages.materializer import PackageMaterializer
 from loushang.harness.resources.packages.product_contract import (
@@ -1402,8 +1405,13 @@ class AgentProductSession(AgentSessionAdapterMixin):
         *,
         base_dispose: Callable[[], Awaitable[None]],
     ) -> None:
-        # Stop new work, then cancel producers before waiting for output idle.
+        # Stop new work before awaiting any owner settlement.
         self._fence_output_captures()
+        # Release only this Session's speculative reads before retiring owners.
+        # The shared input loader still owns native completion and source pins.
+        if isinstance(self._resource_loader, CatalogSessionResourceLoaderView):
+            await self._resource_loader.close_catalog_preview_tasks()
+        # Cancel producers before waiting for output idle.
         errors: list[BaseException] = []
         side_question_consumer = self._side_question_consumer
         if side_question_consumer is not None:
