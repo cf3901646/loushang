@@ -1,3 +1,5 @@
+# CI timing probe for issue 704; this comment has no runtime effect.
+
 from decimal import Decimal
 
 from loushang.ai.model.domain import Model, Pricing
