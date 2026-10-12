@@ -159,6 +159,7 @@ jobs:
           tests/coding/test_package_windows_pre_b_snapshot.py::test_windows_worker_candidate_requires_explicit_windows_product_flag
           tests/coding/test_package_windows_pre_b_snapshot.py::test_windows_worker_wheel_transaction_requires_exact_native_platform
           tests/coding/test_package_windows_pre_b_snapshot.py::test_windows_worker_selected_dependency_closure_remains_inert
+          tests/coding/test_package_worker_windows_candidate_cli.py::test_native_windows_worker_operator_accepts_command_without_candidate_switch
           tests/coding/test_plugin_author_smoke.py::test_windows_author_worker_smoke_proves_selected_bytes_without_use
           tests/coding/test_package_product_worker_windows_crash_cleanup_review.py
           tests/coding/test_package_product_worker_windows_crash_native_settlement.py

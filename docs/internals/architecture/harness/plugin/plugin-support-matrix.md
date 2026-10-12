@@ -109,7 +109,8 @@ Desired State drift as stale. See the
 and [read SDK](../../../../../src/loushang/coding/plugin_management_read_sdk.py).
 
 The explicit `loushang-worker-windows-candidate` command is gated to Windows
-AMD64 and `--windows-candidate`. It captures an inert Wheel, installs, updates,
+AMD64; its old `--windows-candidate` switch remains accepted but is optional.
+It captures an inert Wheel, installs, updates,
 enables, disables, and removes an exact candidate through Product management;
 update and removal require revoked opt-in. Removal leaves Package retirement
 as a separate operation. The command reviews and approves the current Loushang backend
