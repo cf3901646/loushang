@@ -48,6 +48,7 @@ from loushang.harness.transcript.jsonl_file import (
 from .resume_activation_attempt import (
     CodingActivationAttemptV1,
     project_coding_activation_attempt_path,
+    require_no_unsettled_coding_activation,
     validate_coding_activation_attempt_record,
 )
 from .resume_binding import (
@@ -176,6 +177,7 @@ class SessionManager(
     """Coding binding over the Harness-owned Agent transcript session API."""
 
     _resume_first_input: _PendingResumeFirstInput | None = None
+    _activation_guard_snapshot: tuple[int, str | None] | None = None
 
     @classmethod
     async def new_with_composition(
@@ -215,6 +217,8 @@ class SessionManager(
             return await self._append_resume_first_user_message(
                 pending, message, metadata=metadata,
             )
+        if self.persist:
+            self._require_no_unsettled_resume_activation()
         if (
             self.persist
             and isinstance(message, UserMessage)
@@ -225,7 +229,19 @@ class SessionManager(
                 "Coding Session composition startup is not prepared; "
                 "prepare the Session before committing input"
             )
-        return await super().append_message(message, metadata=metadata)
+        guarded_revision = self._transcript.revision
+        record_id = await super().append_message(message, metadata=metadata)
+        if (
+            self.persist
+            and self._transcript.revision == guarded_revision + 1
+            and self._transcript.leaf_id == record_id
+        ):
+            # This ordinary commit cannot create an activation intent. Retain
+            # the successful guard so subsequent messages avoid a full replay.
+            self._activation_guard_snapshot = (
+                self._transcript.revision, self._transcript.leaf_id,
+            )
+        return record_id
 
     def _stage_resume_first_user_input(
         self,
@@ -389,6 +405,8 @@ class SessionManager(
         """Seal the canonical creation choice before the first durable record."""
 
         self._coding_composition_ready = False
+        if self.persist:
+            self._require_no_unsettled_resume_activation()
         pinned = pinned_composition_plan(self.get_header().metadata)
         if pinned is not None:
             return pinned
@@ -405,6 +423,8 @@ class SessionManager(
         return plan
 
     def mark_composition_startup_prepared(self) -> None:
+        if self.persist:
+            self._require_no_unsettled_resume_activation()
         pinned = pinned_composition_plan(self.get_header().metadata)
         if pinned is None:
             raise ValueError("Coding Session has no pinned composition plan")
@@ -417,6 +437,16 @@ class SessionManager(
         ):
             raise ValueError("Coding Session startup receipt differs from its header")
         self._coding_composition_ready = True
+
+    def _require_no_unsettled_resume_activation(self) -> None:
+        snapshot = (self._transcript.revision, self._transcript.leaf_id)
+        if self._activation_guard_snapshot == snapshot:
+            return
+        require_no_unsettled_coding_activation(
+            self._transcript.active_path(),
+            current_session_id=self.get_header().conversation_id,
+        )
+        self._activation_guard_snapshot = snapshot
 
 
 def _create_owned_session_factory(

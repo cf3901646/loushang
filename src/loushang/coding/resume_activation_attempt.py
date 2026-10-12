@@ -103,6 +103,29 @@ class CodingActivationAttemptPathProjection:
     record_id: str | None = None
 
 
+class CodingResumeRecoveryRequired(RuntimeError):
+    """An ordinary writable route reached unresolved historical activation."""
+
+    def __init__(self, reason_code: str) -> None:
+        self.reason_code = reason_code
+        super().__init__(f"Coding Resume recovery required: {reason_code}")
+
+
+def require_no_unsettled_coding_activation(
+    records: Iterable[AgentTranscriptRecord], *, current_session_id: str,
+) -> None:
+    """Fence ordinary writes while an activation attempt needs reconciliation."""
+
+    try:
+        projection = project_coding_activation_attempt_path(
+            records, current_session_id=current_session_id,
+        )
+    except ValueError as error:
+        raise CodingResumeRecoveryRequired("history.activation_invalid") from error
+    if projection.status != "none":
+        raise CodingResumeRecoveryRequired(f"history.activation_{projection.status}")
+
+
 def project_coding_activation_attempt_path(
     records: Iterable[AgentTranscriptRecord], *, current_session_id: str,
 ) -> CodingActivationAttemptPathProjection:
@@ -250,7 +273,9 @@ __all__ = [
     "CODING_ACTIVATION_ATTEMPT_MAX_BYTES",
     "CodingActivationAttemptPathProjection",
     "CodingActivationAttemptV1",
+    "CodingResumeRecoveryRequired",
     "prepare_coding_activation_attempt_record",
     "project_coding_activation_attempt_path",
+    "require_no_unsettled_coding_activation",
     "validate_coding_activation_attempt_record",
 ]

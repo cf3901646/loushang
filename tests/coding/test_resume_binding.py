@@ -9,8 +9,10 @@ import pytest
 
 from loushang.ai.types import ImagePart, UserMessage
 from loushang.coding.composition_provenance import CodingCompositionProvenanceV1
+from loushang.coding.composition_sets import resolve_coding_composition_set
 from loushang.coding.resume_activation_attempt import (
     CodingActivationAttemptV1,
+    CodingResumeRecoveryRequired,
     prepare_coding_activation_attempt_record,
     project_coding_activation_attempt_path,
     validate_coding_activation_attempt_record,
@@ -245,6 +247,33 @@ def test_staged_resume_cannot_skip_an_earlier_unbound_attempt(tmp_path) -> None:
                     ancestry_digest=ancestry,
                     attempt_id="attempt-2",
                 )
+        finally:
+            await manager.dispose_runtime_profile()
+
+    asyncio.run(scenario())
+
+
+def test_ordinary_writable_resume_cannot_cross_an_unbound_attempt(tmp_path) -> None:
+    async def scenario() -> None:
+        manager = await SessionManager.new_with_composition(
+            session_dir=tmp_path, cwd=str(tmp_path), session_id="session-1",
+            composition_set="coding-standard", defer_materialization=False,
+        )
+        try:
+            manager.bind_new_composition_plan(
+                resolve_coding_composition_set("coding-standard")
+            )
+            await _append_test_activation_attempt(manager)
+            with pytest.raises(CodingResumeRecoveryRequired) as error:
+                manager.bind_new_composition_plan(
+                    resolve_coding_composition_set("coding-standard")
+                )
+            assert error.value.reason_code == "history.activation_pending"
+            with pytest.raises(CodingResumeRecoveryRequired):
+                await manager.append_message(
+                    UserMessage(role="user", content="continue", timestamp=1.0)
+                )
+            assert len(manager.get_entries()) == 1
         finally:
             await manager.dispose_runtime_profile()
 

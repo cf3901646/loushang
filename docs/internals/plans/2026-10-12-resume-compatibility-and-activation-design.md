@@ -12,7 +12,10 @@
   commit path, a staged first-input path in Coding's SessionManager, and a
   data-only internal `SessionActivationPlanV1` envelope exist. Selected-path
   history projection classifies an unbound attempt as pending and keeps its
-  pure Plan unavailable while still allowing read-only viewing. ResourceLoader
+  pure Plan unavailable while still allowing read-only viewing. The ordinary
+  persistent Session write path also stops at an unresolved attempt; a normal
+  commit advances its checked transcript revision without rescanning history.
+  ResourceLoader
   can calculate Catalog input facts and bounded native context content digests
   without choosing authority; Plan records only their redacted input fingerprint and
   rejects reuse when refreshed owner inputs differ. Skill and other mutable
