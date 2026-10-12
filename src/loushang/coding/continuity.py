@@ -438,10 +438,15 @@ class CodingContinuityProvider:
                             rows.append(("Recent history", "Bounded preview unavailable"))
                         else:
                             try:
-                                recent = await settled_io(
-                                    read_coding_resume_recent_page,
-                                    summary.session_file,
-                                )
+                                if isinstance(self._runtime, AgentSessionRuntime):
+                                    recent = await AgentSessionRuntime.preview_resume_recent_page(
+                                        self._runtime, summary.session_file,
+                                    )
+                                else:
+                                    recent = await settled_io(
+                                        read_coding_resume_recent_page,
+                                        summary.session_file,
+                                    )
                             except (OSError, ValueError):
                                 rows.append(("Recent history", "Bounded preview unavailable"))
                             else:

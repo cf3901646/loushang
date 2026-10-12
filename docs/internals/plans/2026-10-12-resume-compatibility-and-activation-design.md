@@ -2307,3 +2307,54 @@ records the original-journal association option, outcome semantics, version and
 retention requirements, and four specific review findings. It is proposed,
 not accepted Target or implemented recovery. Existing accepted ARDs and their
 current safety gates retain their authority.
+
+
+#### Native Root bounded recent-history delivery
+
+The existing `read_coding_resume_recent_page` now enters Embedded Continuity's
+large-history fallback through the original Coding Root. Both complete
+snapshots and bounded recent pages share that Root's two-read limit, original
+source discovery/fingerprint, event-loop fence, cancelled waiter retention and
+native close settlement. Recent pages remain `unverified_tail_preview`, carry
+no selected ancestry, and cannot substitute for activation Plan input. This
+changes the existing picker preview fallback; it does not wire the default
+writable Resume coordinator or turn a tail page into a verified branch.
+
+Root source identity is checked before native IO and against the discovered
+identity again at delivery. A source replaced between discovery and read is
+not accepted merely because its replacement stayed stable. Root cancellation
+and close settle both kinds of original reads before releasing ownership.
+The original transcript bounded reader also treats a complete short head
+segment as the complete tail: previously it returned no recent records when
+the whole file fit in the first segment. Large files retain their bounded
+head/tail read behavior and their unverified display status.
+
+The existing Root history baseline passed ten cases in 10.20 seconds. Added
+Root entry, budget and cancellation regressions first failed seven cases on
+missing APIs, with the original snapshot cancellation case passing (14.96
+seconds). The initial implementation passed fifteen cases but exposed two
+short-file empty-tail failures (22.32 seconds). After the original bounded
+reader correction, Root and Coding history projection passed 24 cases in
+13.83 seconds. A 12,000-record file larger than the 8 MiB full-snapshot limit
+returned its actual final record using at most two 64 KiB segments. The real
+Continuity fallback used the Root-retained IO entry and displayed its explicit
+unverified label without constructing a Product Session. That integration plus
+all transcript catalog cases passed 31 tests in 29.30 seconds. Source size and
+mtime remained unchanged; no read lock, Writer or repair was added.
+
+These are correctness and bounded-read results, not the required 10k/100k
+cold/hot latency, memory or 1/2/8 concurrency acceptance measurements. The
+background plan/default activation, native effects, Hosted and release gates
+remain required. The architecture run started at `e072a764` is still running;
+later Root/Continuity/transcript source changes mean it cannot be reported as
+a full final-tree architecture gate, regardless of its eventual outcome.
+
+
+Final related verification passed 34 Root/history/Native screen cases in
+153.28 seconds, including recent-page stale delivery and cancelled native IO.
+The existing UI cases still use injected preparation/settlement inputs and do
+not establish production default activation. Scoped mypy passed the three
+changed source modules with an isolated cache; Ruff passed all four changed
+Python files. The generated current package dependency check and nine static
+architecture documentation checks passed. No timeout, snapshot budget or
+activation permission was relaxed to obtain these results.

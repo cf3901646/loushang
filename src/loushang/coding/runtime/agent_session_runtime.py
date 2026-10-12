@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from hashlib import sha256
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, TypeVar, cast
 
 from loushang.coding.package_product_runtime import (
     CodingFencedProductApplicationSelection,
@@ -32,6 +32,7 @@ from loushang.harness.session.lifecycle import (
     SessionLifecycleTransition,
 )
 from loushang.harness.session.multiagent import compose_multiagent_before_release
+from loushang.harness.session.transcript_lifecycle import ResolvedDiscoveredSessionFile
 from loushang.harness.transcript.session_catalog import (
     session_file_authority_fingerprint,
 )
@@ -40,7 +41,14 @@ from .._resume_cleanup import (
     CodingResumeContinuationCleanupFailure,
     retain_resume_cleanup_failure,
 )
-from ..resume_history import CodingResumeHistoryPreview, read_coding_resume_snapshot
+from ..resume_history import (
+    CodingResumeHistoryPreview,
+    CodingResumeRecentPage,
+    read_coding_resume_recent_page,
+    read_coding_resume_snapshot,
+)
+
+_ResumePreview = TypeVar("_ResumePreview", CodingResumeHistoryPreview, CodingResumeRecentPage)
 
 if TYPE_CHECKING:
     from loushang.ai.model import Model, ModelSelection
@@ -160,7 +168,7 @@ class AgentSessionRuntime(
         )
         self._product_owner_selection = product_owner_selection
         self._embedded_resume_approval_owner: InteractiveApprovalResolver | None = None
-        self._resume_history_reads: set[asyncio.Task[CodingResumeHistoryPreview]] = set()
+        self._resume_history_reads: set[asyncio.Task[CodingResumeHistoryPreview | CodingResumeRecentPage]] = set()
         self._resume_history_loop: asyncio.AbstractEventLoop | None = None
         self._resume_history_closed = False
         self._resume_activation_tasks: set[asyncio.Task[CodingRuntimePreparedResume]] = set()
@@ -531,6 +539,36 @@ class AgentSessionRuntime(
 
         if type(max_bytes) is not int or not 1 <= max_bytes <= 8 * 1024 * 1024:
             raise ValueError("invalid Coding Resume history byte budget")
+
+        def read(source: ResolvedDiscoveredSessionFile) -> CodingResumeHistoryPreview:
+            return read_coding_resume_snapshot(
+                source.path, max_bytes=max_bytes, selected_leaf_id=selected_leaf_id,
+                expected_source_fingerprint=source.authority_fingerprint,
+            )
+
+        return await self._preview_resume_data(session_id, read)
+
+    async def preview_resume_recent_page(
+        self, session_id: str | Path, *, segment_bytes: int = 64 * 1024,
+    ) -> CodingResumeRecentPage:
+        """Observe bounded head/tail data through the original history owner.
+
+        The page is an unverified display, not selected ancestry or activation
+        input. It shares the original read capacity and native close settlement.
+        """
+
+        if type(segment_bytes) is not int or not 1 <= segment_bytes <= 1024 * 1024:
+            raise ValueError("invalid Coding Resume history segment budget")
+
+        def read(source: ResolvedDiscoveredSessionFile) -> CodingResumeRecentPage:
+            return read_coding_resume_recent_page(source.path, segment_bytes=segment_bytes)
+
+        return await self._preview_resume_data(session_id, read)
+
+    async def _preview_resume_data(
+        self, session_id: str | Path,
+        reader: Callable[[ResolvedDiscoveredSessionFile], _ResumePreview],
+    ) -> _ResumePreview:
         if self._resume_history_closed:
             raise RuntimeError("coding_resume_history_closed")
         loop = asyncio.get_running_loop()
@@ -542,12 +580,10 @@ class AgentSessionRuntime(
             raise RuntimeError("coding_resume_history_capacity_exceeded")
         source = self.resolve_discovered_session_source(session_id)
 
-        async def read() -> CodingResumeHistoryPreview:
-            return await settled_io(
-                read_coding_resume_snapshot, source.path, max_bytes=max_bytes,
-                selected_leaf_id=selected_leaf_id,
-                expected_source_fingerprint=source.authority_fingerprint,
-            )
+        async def read() -> _ResumePreview:
+            if session_file_authority_fingerprint(source.path) != source.authority_fingerprint:
+                raise ValueError("coding_resume_history_stale")
+            return await settled_io(reader, source)
 
         work = read()
         try:
@@ -555,18 +591,22 @@ class AgentSessionRuntime(
         except BaseException:
             work.close()
             raise
-        self._resume_history_reads.add(task)
+        native_read = cast("asyncio.Task[CodingResumeHistoryPreview | CodingResumeRecentPage]", task)
+        self._resume_history_reads.add(native_read)
 
-        def settled(completed: asyncio.Task[CodingResumeHistoryPreview]) -> None:
+        def settled(completed: asyncio.Task[CodingResumeHistoryPreview | CodingResumeRecentPage]) -> None:
             self._resume_history_reads.discard(completed)
             if not completed.cancelled():
                 completed.exception()  # Observe errors after a waiter leaves.
 
-        task.add_done_callback(settled)
+        native_read.add_done_callback(settled)
         history = await asyncio.shield(task)
         if self._resume_history_closed:
             raise RuntimeError("coding_resume_history_closed")
-        if session_file_authority_fingerprint(source.path) != history.source_fingerprint:
+        if (
+            history.source_fingerprint != source.authority_fingerprint
+            or session_file_authority_fingerprint(source.path) != history.source_fingerprint
+        ):
             raise ValueError("coding_resume_history_stale")
         return history
 

@@ -1695,7 +1695,10 @@ def _decode_bounded_candidate(
     header: ConversationHeader | None = None
     records: list[AgentTranscriptRecord] = []
     tail_records: list[AgentTranscriptRecord] = []
-    tail_start = candidate.size - len(tail) if tail else candidate.size
+    # A file that fits entirely in the head also contains its complete tail.
+    tail_start = candidate.size - len(tail) if tail else (
+        0 if candidate.size <= segment_bytes else candidate.size
+    )
     for offset, line in sorted(lines.items()):
         try:
             value = json.loads(

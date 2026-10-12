@@ -91,21 +91,24 @@ def test_embedded_history_preserves_selected_path_without_writer_or_cwd_repair(t
     assert {item.name: item.read_bytes() for item in tmp_path.iterdir()} == before_files
 
 
-def test_embedded_history_rejects_changed_source_at_delivery(tmp_path, monkeypatch):
+@pytest.mark.parametrize("read_mode", ["snapshot", "recent_page"])
+def test_embedded_history_rejects_changed_source_at_delivery(tmp_path, monkeypatch, read_mode):
     owner, path, header, records = _fixture(tmp_path)
-    original = runtime_module.read_coding_resume_snapshot
+    reader_name = "read_coding_resume_snapshot" if read_mode == "snapshot" else "read_coding_resume_recent_page"
+    original = getattr(runtime_module, reader_name)
+    preview = owner.preview_resume_history if read_mode == "snapshot" else owner.preview_resume_recent_page
 
     def changed(*args, **kwargs):
         result = original(*args, **kwargs)
         write_agent_transcript_export(path, header, records[:-1])
         return result
 
-    monkeypatch.setattr(runtime_module, "read_coding_resume_snapshot", changed)
+    monkeypatch.setattr(runtime_module, reader_name, changed)
 
     async def scenario():
         try:
             with pytest.raises(ValueError, match="coding_resume_history_stale"):
-                await owner.preview_resume_history(path)
+                await preview(path)
             assert owner.current_session is None
         finally:
             await owner.dispose_session_runtime()
@@ -146,12 +149,15 @@ def test_real_embedded_continuity_preview_uses_runtime_history_owner(tmp_path, m
     assert path.read_bytes() == before
 
 
-def test_embedded_history_root_retains_cancelled_waiter_and_fences_delivery(tmp_path, monkeypatch):
+@pytest.mark.parametrize("read_mode", ["snapshot", "recent_page"])
+def test_embedded_history_root_retains_cancelled_waiter_and_fences_delivery(tmp_path, monkeypatch, read_mode):
     owner, path, _, _ = _fixture(tmp_path)
     entered = threading.Event()
     release = threading.Event()
     finished = threading.Event()
-    original = runtime_module.read_coding_resume_snapshot
+    reader_name = "read_coding_resume_snapshot" if read_mode == "snapshot" else "read_coding_resume_recent_page"
+    original = getattr(runtime_module, reader_name)
+    preview = owner.preview_resume_history if read_mode == "snapshot" else owner.preview_resume_recent_page
     calls = 0
 
     def blocked(*args, **kwargs):
@@ -165,10 +171,10 @@ def test_embedded_history_root_retains_cancelled_waiter_and_fences_delivery(tmp_
         finally:
             finished.set()
 
-    monkeypatch.setattr(runtime_module, "read_coding_resume_snapshot", blocked)
+    monkeypatch.setattr(runtime_module, reader_name, blocked)
 
     async def scenario():
-        first = asyncio.create_task(owner.preview_resume_history(path))
+        first = asyncio.create_task(preview(path))
         second = None
         close = None
         try:
@@ -178,12 +184,12 @@ def test_embedded_history_root_retains_cancelled_waiter_and_fences_delivery(tmp_
                 await first
             assert len(owner._resume_history_reads) == 1
             assert not finished.is_set()
-            second = asyncio.create_task(owner.preview_resume_history(path))
+            second = asyncio.create_task(preview(path))
             async with asyncio.timeout(5):
                 while len(owner._resume_history_reads) != 2:
                     await asyncio.sleep(0)
             with pytest.raises(RuntimeError, match="coding_resume_history_capacity_exceeded"):
-                await owner.preview_resume_history(path)
+                await preview(path)
             close = asyncio.create_task(owner.dispose_session_runtime())
             async with asyncio.timeout(5):
                 while not owner._resume_history_closed:
@@ -192,7 +198,7 @@ def test_embedded_history_root_retains_cancelled_waiter_and_fences_delivery(tmp_
             assert not done
             close.cancel()  # Root cancellation also waits for native settlement.
             with pytest.raises(RuntimeError, match="coding_resume_history_closed"):
-                await owner.preview_resume_history(path)
+                await preview(path)
         finally:
             release.set()
             await asyncio.gather(first, return_exceptions=True)
@@ -219,6 +225,98 @@ def test_embedded_history_rejects_invalid_budget_before_discovery(tmp_path, budg
         try:
             with pytest.raises(ValueError, match="byte budget"):
                 await owner.preview_resume_history("missing", max_bytes=budget)
+            assert not owner._resume_history_reads
+        finally:
+            await owner.dispose_session_runtime()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("reference", ["path", "identity"])
+def test_root_recent_page_is_detached_unverified_history(tmp_path, reference):
+    owner, path, header, _ = _fixture(tmp_path)
+    before = path.read_bytes()
+    before_names = {item.name for item in tmp_path.iterdir()}
+
+    async def scenario():
+        try:
+            page = await owner.preview_resume_recent_page(path if reference == "path" else "history")
+            assert page.header_preview.header == header
+            assert page.status == "unverified_tail_preview"
+            assert not hasattr(page, "selected_records")
+            assert [record.record_id for record in page.records] == ["root", "left", "right"]
+            assert owner.current_session is None
+        finally:
+            await owner.dispose_session_runtime()
+        with pytest.raises(RuntimeError, match="coding_resume_history_closed"):
+            await owner.preview_resume_recent_page(path)
+
+    asyncio.run(scenario())
+    assert path.read_bytes() == before
+    assert {item.name for item in tmp_path.iterdir()} == before_names
+
+
+def test_root_recent_page_handles_history_above_snapshot_budget(tmp_path, monkeypatch):
+    owner, path, header, _ = _fixture(tmp_path)
+    records = [ConversationRecord(
+        record_id=f"record-{index}", parent_id=None if index == 0 else f"record-{index - 1}",
+        kind=AGENT_MESSAGE_KIND, payload_version=1, created_at="2026-10-12T00:00:01Z",
+        payload=UserMessage(role="user", content="x" * 1024, timestamp=1.0),
+    ) for index in range(12000)]
+    write_agent_transcript_export(path, header, records)
+    assert path.stat().st_size > 8 * 1024 * 1024
+    before = path.stat()
+    owner.refresh_session_index()
+    composition = bind_coding_continuity(owner)
+    before_names = {item.name for item in tmp_path.iterdir()}
+    original_reader = runtime_module.read_coding_resume_recent_page
+    reads = []
+
+    def observed(*args, **kwargs):
+        assert owner._resume_history_reads  # The native Root retains this IO.
+        reads.append(args[0])
+        return original_reader(*args, **kwargs)
+
+    monkeypatch.setattr(runtime_module, "read_coding_resume_recent_page", observed)
+
+    async def scenario():
+        try:
+            page = await owner.preview_resume_recent_page(path)
+            assert page.status == "unverified_tail_preview"
+            assert page.records[-1].record_id == "record-11999"
+            assert len(page.records) < 12000
+            assert page.bytes_read <= 2 * 64 * 1024
+            assert owner.current_session is None
+            reference = composition.hub.reference()
+            try:
+                candidates = await reference.query(ContinuityQuery(page_size=10))
+                assert len(candidates.items) == 1
+                preview = await reference.preview(candidates.items[0].target)
+                assert not preview.stale
+                rows = [row for section in preview.sections for row in section.rows]
+                assert ("Recent history", "Unverified tail preview") in rows
+                assert any(section.text for section in preview.sections)
+                assert reads == [path, path]
+                assert owner.current_session is None
+            finally:
+                reference.release()
+        finally:
+            await owner.dispose_session_runtime()
+
+    asyncio.run(scenario())
+    assert path.stat().st_size == before.st_size
+    assert path.stat().st_mtime_ns == before.st_mtime_ns
+    assert {item.name for item in tmp_path.iterdir()} == before_names
+
+
+@pytest.mark.parametrize("segment_bytes", [True, 0, 1024 * 1024 + 1])
+def test_root_recent_page_refuses_invalid_budget_before_discovery(tmp_path, segment_bytes):
+    owner, _, _, _ = _fixture(tmp_path)
+
+    async def scenario():
+        try:
+            with pytest.raises(ValueError, match="segment budget"):
+                await owner.preview_resume_recent_page(tmp_path / "absent.jsonl", segment_bytes=segment_bytes)
             assert not owner._resume_history_reads
         finally:
             await owner.dispose_session_runtime()
