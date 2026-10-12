@@ -367,14 +367,56 @@ class ScopeTests(unittest.TestCase):
         compact = selector.workflow_plan(plan)
 
         self.assertEqual(
-            set(compact), {"version", "paths", "checks", "workflows", "unit_packages", "e2e"}
+            set(compact), {"version", "paths", "checks", "workflows", "unit_packages", "e2e", "windows"}
         )
         self.assertEqual(compact["paths"], plan["paths"])
         self.assertEqual(compact["checks"], plan["checks"])
         self.assertEqual(compact["workflows"], plan["workflows"])
         self.assertEqual(compact["unit_packages"], plan["unit_packages"])
+        self.assertEqual(compact["windows"], plan["windows"])
         self.assertEqual(compact["e2e"], plan["e2e"])
         self.assertNotIn("reasons", compact)
+
+    def test_pr_windows_smoke_and_full_domains(self):
+        ordinary = selector.select(
+            ["src/loushang/coding/session/agent_session.py"], pr_fast=True
+        )["windows"]
+        self.assertTrue(ordinary["smoke"])
+        self.assertFalse(ordinary["worker_full"] or ordinary["shell_full"])
+
+        worker = selector.select(
+            ["src/loushang/coding/package_product_worker_windows_crash_cleanup.py"],
+            pr_fast=True,
+        )["windows"]
+        self.assertTrue(worker["smoke"] and worker["worker_full"])
+        self.assertFalse(worker["shell_full"])
+
+        acl = selector.select(
+            ["src/loushang/foundation/windows_private_acl.py"], pr_fast=True
+        )["windows"]
+        self.assertTrue(acl["smoke"] and acl["shell_full"])
+        self.assertFalse(acl["worker_full"])
+
+    def test_pr_appservice_tui_and_gate_risk_keep_native_owners(self):
+        appservice = selector.select(
+            ["src/loushang/appservice/client.py"], pr_fast=True
+        )["windows"]
+        self.assertFalse(appservice["appservice_full"])
+        record = selector.select(
+            ["src/loushang/appserver/local_record.py"], pr_fast=True
+        )["windows"]
+        self.assertTrue(record["appservice_full"])
+        tui = selector.select(
+            ["src/loushang/tui/terminal_backends/windows.py"], pr_fast=True
+        )["windows"]
+        self.assertTrue(tui["tui_full"])
+        gate = selector.select(
+            [".github/workflows/windows-shell-compatibility.yml"], pr_fast=True
+        )["windows"]
+        self.assertTrue(all(gate.values()))
+        full = selector.select([], full=True, pr_fast=True)["windows"]
+        self.assertFalse(full["smoke"])
+        self.assertTrue(all(value for name, value in full.items() if name != "smoke"))
 
     def test_pr_ordinary_package_change_selects_only_owner_units(self):
         for path, package in (
@@ -488,6 +530,20 @@ class GateTests(unittest.TestCase):
     def test_missing_plan_is_rejected(self):
         with self.assertRaises(ValueError):
             guard.verify({}, {}, {})
+
+    def test_mixed_appservice_windows_job_must_match_its_own_selection(self):
+        plan = {
+            "version": 1,
+            "checks": {"appservice": True},
+            "windows": {"appservice_full": False},
+        }
+        jobs = {"quality": "appservice", "native": "windows.appservice_full"}
+        needs = {"quality": {"result": "success"}, "native": {"result": "skipped"}}
+        with contextlib.redirect_stdout(io.StringIO()):
+            guard.verify(plan, needs, jobs)
+        needs["native"]["result"] = "success"
+        with self.assertRaises(ValueError):
+            guard.verify(plan, needs, jobs)
 
     def test_failed_selector_cannot_pass_top_level_gate(self):
         completed = subprocess.run(
@@ -744,13 +800,14 @@ class WorkflowContractTests(unittest.TestCase):
             if path.name == "quality.yml":
                 continue
             text = path.read_text()
-            jobs = dict(
-                re.findall(
-                    r"^  ([\w-]+):\n    if: \$\{\{ fromJSON\(inputs.plan\).checks.(\w+) \}\}",
+            jobs = {
+                job: f"{section}.{scope}" if section != "checks" else scope
+                for job, section, scope in re.findall(
+                    r"^  ([\w-]+):\n    if: \$\{\{ fromJSON\(inputs.plan\).(checks|windows).(\w+) \}\}",
                     text,
                     re.M,
                 )
-            )
+            }
             mapping = json.loads(re.search(r"--jobs '(.*)'", text)[1])
             if path.name in {"package-unit-quality.yml", "e2e-smoke-quality.yml"}:
                 self.assertEqual(
@@ -761,7 +818,15 @@ class WorkflowContractTests(unittest.TestCase):
                 )
                 self.assertIn("--section workflows", text)
             else:
-                self.assertEqual(jobs, mapping, path.name)
+                mapped = {
+                    job: (
+                        "windows." + scope
+                        if "--section windows" in text and "." not in scope
+                        else scope
+                    )
+                    for job, scope in mapping.items()
+                }
+                self.assertEqual(jobs, mapped, path.name)
             all_jobs = set(
                 re.findall(r"^  ([\w-]+):", text.split("\njobs:\n")[1], re.M)
             )
@@ -782,7 +847,11 @@ class WorkflowContractTests(unittest.TestCase):
                 needs = {job: {"result": "success"} for job in mapping}
                 needs[failed]["result"] = result
                 with self.subTest(job=failed, result=result), self.assertRaises(ValueError):
-                    guard.verify({"version": 1, "checks": {"appservice": True}}, needs, mapping)
+                    guard.verify(
+                        {"version": 1, "checks": {"appservice": True},
+                         "windows": {"appservice_full": True}},
+                        needs, mapping,
+                    )
 
     def test_compatibility_contexts_require_the_unified_gate(self):
         text = (ROOT / ".github/workflows/quality.yml").read_text()
