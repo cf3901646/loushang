@@ -30,14 +30,7 @@ FAST_RISK_CHECKS = {
 }
 E2E_PATH_PARTS = ("/session/", "/conversation/", "/transcript/")
 FAST_RISK_RULE_REASONS = {"AI consumer contracts"}
-FAST_GATE_INFRA = {
-    ".github/workflows/quality.yml",
-    ".github/workflows/package-unit-quality.yml",
-    ".github/workflows/e2e-smoke-quality.yml",
-    "scripts/ci/select_checks.py",
-    "scripts/ci/run_checks.py",
-    "scripts/ci/unit-tests.json",
-}
+UNIT_SHARD_COUNTS = {"coding": 16, "harness": 4, "harnesstui": 2, "tui": 2}
 WINDOWS_GATE_INFRA = (
     ".github/", "scripts/ci/", "tests/ci/", "Makefile", "pyproject.toml",
     "uv.lock", "tests/conftest.py", "scripts/dev/run_pytest.py",
@@ -141,7 +134,7 @@ def select(
     checks = {name: False for name in rules["checks"]}
     reasons: dict[str, list[str]] = {name: [] for name in checks}
     unit_packages: set[str] = set()
-    e2e = False
+    e2e = full
 
     def enable(names: list[str], reason: str) -> None:
         for name in names:
@@ -249,10 +242,32 @@ def select(
         name: any(checks[check] for check in scopes)
         for name, scopes in rules["workflows"].items()
     }
-    if pr_fast and not full and FAST_GATE_INFRA.intersection(paths):
+    if pr_fast and not full:
+        # A risk path already running the complete package gate owns the same
+        # offline tests; mixed PRs must not launch that module twice.
+        unit_packages = {
+            package for package in unit_packages
+            if not checks.get("tui_unit" if package == "tui" else package, False)
+        }
+    gate_infra = any(
+        path.startswith((".github/workflows/", "scripts/ci/"))
+        for path in paths
+    )
+    if pr_fast and not full and gate_infra:
         # Gate changes retain full checks and exercise both new workflows.
-        unit_packages.add("coding")
+        unit_packages.add("agent")
         e2e = True
+    if pr_fast and not full and any(
+        path.startswith(("src/", "tests/")) and not path.endswith((".md", ".rst"))
+        for path in paths
+    ):
+        e2e = True
+    unit_jobs = [
+        {"package": package, "shard": shard,
+         "shards": UNIT_SHARD_COUNTS.get(package, 1)}
+        for package in sorted(unit_packages)
+        for shard in range(UNIT_SHARD_COUNTS.get(package, 1))
+    ]
     workflows["units"] = bool(unit_packages)
     workflows["e2e"] = e2e
     windows = {
@@ -337,6 +352,7 @@ def select(
         "checks": checks,
         "workflows": workflows,
         "unit_packages": sorted(unit_packages),
+        "unit_jobs": unit_jobs,
         "e2e": e2e,
         "windows": windows,
         "reasons": reasons,
@@ -354,7 +370,7 @@ def workflow_plan(plan: dict) -> dict:
     """
     return {
         key: plan[key]
-        for key in ("version", "paths", "checks", "workflows", "unit_packages", "e2e", "windows")
+        for key in ("version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "windows")
     }
 
 

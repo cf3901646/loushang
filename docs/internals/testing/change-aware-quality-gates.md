@@ -10,26 +10,28 @@ their results through `quality-gate`. Local development uses the same
 | Change | Required scope |
 | --- | --- |
 | Ordinary Markdown/RST documentation | Existing documentation invariants and changed Markdown links; no product dependency installation |
-| Ordinary package source or classified unit test on a PR | That package's [unit inventory](../../../scripts/ci/unit-tests.json), plus documentation and source dependency facts |
+| Ordinary package source or classified unit test on a PR | That package's complete offline regression directory and explicitly owned extras, plus documentation and source dependency facts |
 | Session, conversation, transcript, or hosted application code on a PR | Package units plus a focused create → turn → resume → turn → close E2E smoke |
 | Public AI contracts, shared Foundation, plugin SDK, and platform or native code | Existing affected package and consumer gates |
 | Terminal lifecycle/platform code | TUI units, playback, native PTY/ConPTY, and tmux; a PR runs one Windows ConPTY startup/exit case unless it changes native backend ownership |
 | Hosting provider source | Hosting checks and its AppHost/AppService startup and settlement consumers |
 | Hosted native/wheel evidence helpers, supervisors, and PTY/ConPTY fixture drivers | AppService quality plus G16/G17 native and installed matrices; native evidence changes retain full Windows coverage on the PR |
-| PR-only edits to the CI routing table, selector, gate verifier, or their existing contract tests | CI routing regressions and pinned Actions syntax check, plus documentation invariants |
+| PR-only edits to the CI routing table, selector, gate verifier, or their existing contract tests | CI routing regressions, pinned Actions syntax check, one Agent module regression, and the three-platform E2E smoke |
 | Shared dependencies, gate infrastructure, or unknown non-document paths | All configured checks |
 
 The fast PR route is limited to known package source and exact test files in
-the unit inventory. New or unclassified test files continue through the
-existing selector until they are reviewed and added to the inventory. Package
-source that selects a platform, Worker, installation, LSP, or other high-risk
-gate also keeps the existing route. The unit inventory is intentionally a
-focused suite of isolated tests, not a claim that every test under a package
-directory is a unit test. Each package gets a separate CI matrix job; a change
-touching two packages runs both unit inventories. The E2E smoke reopens a real
-hosted session and sends a second message. PRs that edit the new gate machinery
-run the established full checks and exercise one unit matrix entry plus E2E,
-so the new reusable workflows receive remote validation.
+the [routing inventory](../../../scripts/ci/unit-tests.json). New or unclassified
+test files continue through the existing selector until reviewed. Each fast
+module job runs every test in its package directory with offline selectors;
+the routing inventory identifies eligible paths, not a smaller test subset.
+Coding excludes its separately owned UI suite, and existing AI, Agent, Coding,
+and Harness example tests retain their package owner. Coding, Harness,
+HarnessTUI, and TUI module jobs use deterministic shards. A change touching
+two packages runs both complete module regressions. Package source that selects
+a platform, Worker, installation, LSP, or other high-risk gate also keeps the
+existing route. The E2E smoke reopens a real hosted session and sends a second
+message. PRs that edit the four listed routing files exercise CI static checks,
+the Agent module job, and E2E. Other gate machinery retains full validation.
 
 The existing routing rules are additive outside this fast PR route. Makefile source/test inventories retain explicitly shared
 support paths, such as the Coding product worker canary owned by Harness
@@ -146,6 +148,6 @@ CI infrastructure changes. Platform evidence manifests and their verifiers
 remain in the corresponding reusable workflows.
 
 Broad Harness/AppHost/Hosting suite commands remain available for selected
-high-risk changes, main pushes, and full validation. When changing the unit
-inventory, include tests that have no live provider or native runtime
-dependency, and confirm the exact scope locally before merging.
+high-risk changes, main pushes, and full validation. When changing the routing
+inventory, confirm that the path is eligible for complete offline package
+regression and that live or native tests remain behind their dedicated gates.
