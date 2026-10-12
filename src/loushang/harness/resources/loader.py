@@ -112,9 +112,15 @@ def _package_mounts_from_legacy_roots(
     )
 
 
-def _verify_package_mounts(mounts: Sequence[PackageResourceMount]) -> None:
+def _verify_package_mounts(
+    mounts: Sequence[PackageResourceMount], *, work_probe: Callable[[], None] | None = None,
+) -> None:
     for mount in mounts:
-        mount.verify()
+        if work_probe is not None:
+            work_probe()
+            mount.verify(work_probe=work_probe)
+        else:
+            mount.verify()
 
 
 @dataclass(frozen=True)
@@ -417,9 +423,9 @@ class ResourceLoader:
 
         A work probe can enforce a caller's cooperative budget by raising a
         non-OSError exception. Checkpoints cover phase boundaries, context
-        candidates, package directory entries and Skill recursion, and 64 KiB
-        context reads. Package text reads and revision verification still lack
-        inner checkpoints; this hook alone does not make them background-safe.
+        candidates, package and revision directory entries, Skill recursion,
+        and 64 KiB context and revision-digest reads. Package text reads still
+        lack inner checkpoints; this hook alone does not make them background-safe.
         """
 
         if self._legacy_authority_selected:
@@ -461,7 +467,10 @@ class ResourceLoader:
         state = self._catalog_input_state()
         if work_probe is not None:
             work_probe()
-        _verify_package_mounts(state.package_mounts)
+        if work_probe is None:
+            _verify_package_mounts(state.package_mounts)
+        else:
+            _verify_package_mounts(state.package_mounts, work_probe=work_probe)
         target = Path(cwd)
         project_resource_root = (
             resolve_workspace_resource_root(state.workspace_root or target)
@@ -492,7 +501,10 @@ class ResourceLoader:
         )
         if work_probe is not None:
             work_probe()
-        _verify_package_mounts(state.package_mounts)
+        if work_probe is None:
+            _verify_package_mounts(state.package_mounts)
+        else:
+            _verify_package_mounts(state.package_mounts, work_probe=work_probe)
         if self._catalog_input_state() != state:
             raise ResourceLoaderCompatibilityError("catalog_preview_stale")
         return receipt

@@ -36,11 +36,14 @@
   are not implemented.
 - Planning cancellation: the shared Plan entry and original ResourceLoader
   preview accept a cooperative work probe. Checkpoints cover phase boundaries,
-  context candidates, package directory enumeration and Skill recursion, and
-  64 KiB context-file reads. Directory cancellation occurs before collecting
+  context candidates, package/revision directory enumeration and Skill recursion,
+  and 64 KiB context-file and revision-digest reads. Descriptor and portable
+  revision verification preserve cancellation rather than reporting changed
+  content; temporary descriptors close and the original handle remains owned.
+  Directory cancellation occurs before collecting
   and sorting all candidates. Cancellation discards the
   result without selecting authority and permits re-planning. Package text reads
-  and revision verification still lack inner checkpoints; scan budgets, shared scheduling,
+  still lack inner checkpoints; scan budgets, shared scheduling,
   Session waiting references, priority, and close settlement remain unimplemented.
 - Revision: R2.1, 2026-10-12; R2 independently rechecked, with the requested
   legacy Ack timing and fork-origin clarifications applied.

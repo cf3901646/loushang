@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -50,10 +51,13 @@ class PackageResourceMount:
     def verified(self) -> bool:
         return self.revision_handle is not None
 
-    def verify(self) -> None:
+    def verify(self, *, work_probe: Callable[[], None] | None = None) -> None:
         handle = self.revision_handle
         if handle is not None:
-            handle.verify()
+            if work_probe is None:
+                handle.verify()
+            else:
+                handle.verify(work_probe=work_probe)
 
     def close(self) -> None:
         handle = self.revision_handle
