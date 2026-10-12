@@ -36,7 +36,11 @@ from .appservice_adapter import (
     CodingHostedSnapshotProjectionV1,
 )
 from .bootstrap import BootstrapServices, create_agent_session
-from .hosted_catalog import CodingHostedCandidateBindingV1, CodingHostedCatalogError
+from .hosted_catalog import (
+    CodingHostedCandidateBindingV1,
+    CodingHostedCatalogError,
+    CodingHostedHistoryCandidateBindingV1,
+)
 from .package_product_runtime import (
     CodingFencedProductApplicationSelection,
 )
@@ -371,16 +375,24 @@ class CodingRealHostedSessionFactoryV1:
         *,
         binding_key: SessionBindingKeyV1,
         opaque_session_binding: object,
-    ) -> CodingRealHostedSessionV1:
+    ) -> CodingRealHostedSessionV1 | CodingHostedHistoryBindingV1:
         if self._closing:
             raise CodingHostedCatalogError()
-        if type(opaque_session_binding) is not CodingHostedCandidateBindingV1:
+        if type(opaque_session_binding) not in (
+            CodingHostedCandidateBindingV1, CodingHostedHistoryCandidateBindingV1,
+        ):
             raise CodingHostedCatalogError()
+        opaque_session_binding = cast(
+            CodingHostedCandidateBindingV1 | CodingHostedHistoryCandidateBindingV1,
+            opaque_session_binding,
+        )
         identity = opaque_session_binding.record.identity
         if binding_key != SessionBindingKeyV1(
             identity.product_id, identity.continuity_id, identity.session_id
         ):
             raise CodingHostedCatalogError()
+        if isinstance(opaque_session_binding, CodingHostedHistoryCandidateBindingV1):
+            return opaque_session_binding.take_binding()
         manager = opaque_session_binding.manager_for_construction()
         try:
             approval = InteractiveApprovalResolver(fallback=DenyApprovalResolver())

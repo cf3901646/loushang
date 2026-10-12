@@ -146,6 +146,128 @@ async def _binding(tmp_path: Path):
     return binding
 
 
+@pytest.mark.parametrize("stage", [
+    "delivered", "source_changed", "factory_closed", "wrong_key",
+    "unclaimed_closed", "claimed_closed", "source_changed_before_claim",
+    pytest.param("catalog_fenced", marks=pytest.mark.skipif(
+        sys.platform != "linux", reason="Linux owned transcript fence",
+    )),
+    pytest.param("catalog_fenced_before_claim", marks=pytest.mark.skipif(
+        sys.platform != "linux", reason="Linux owned transcript fence",
+    )),
+])
+def test_hosted_history_candidate_transfers_through_original_factory_without_runtime(
+    tmp_path: Path, stage: str,
+) -> None:
+    from loushang.coding.hosted_application import (
+        CodingForegroundProductFactoryV1,
+        CodingHostedProfileFactoryV1,
+    )
+    from loushang.coding.hosted_catalog import (
+        CodingHostedCandidateValidatorV1,
+        CodingHostedCatalogError,
+    )
+
+    from .test_hosted_catalog import _intent, _scope
+
+    async def scenario() -> None:
+        scope = _scope(tmp_path)
+        scope.session_dir.mkdir(mode=0o700, exist_ok=True)
+        catalog = CodingHostedSessionCatalogV1(
+            (scope,), owned_transcripts=stage.startswith("catalog_fenced"),
+        )
+        created = await catalog.create_candidate(_intent(scope))
+        await created.close()
+        rows = await catalog.list_identities((scope.discovery_scope,), limit=256)
+        path = next(scope.session_dir.glob("*.jsonl"))
+        original_bytes = path.read_bytes()
+
+        def forbidden_services(cwd):
+            raise AssertionError("history candidate constructed current services")
+
+        def forbidden_product(manager):
+            raise AssertionError("history candidate selected a Product factory")
+
+        factory = CodingRealHostedSessionFactoryV1(
+            services_factory=forbidden_services,
+            package_product_runtime_factory_for_session=forbidden_product,
+        )
+        candidate = await catalog.open_history_candidate(
+            rows[0].reference, max_bytes=1024 * 1024,
+        )
+        if stage in ("unclaimed_closed", "source_changed_before_claim", "catalog_fenced_before_claim"):
+            if stage == "unclaimed_closed":
+                await candidate.close()
+            elif stage == "source_changed_before_claim":
+                path.write_bytes(original_bytes + b"\n")
+            else:
+                catalog.fence()
+            with pytest.raises(CodingHostedCatalogError):
+                await candidate.claim()
+            await candidate.close()
+            await factory.close()
+            await catalog.close()
+            return
+        claimed = await candidate.claim()
+        opened = await CodingHostedCandidateValidatorV1().open_product_candidate(
+            claimed, rows[0].envelope,
+        )
+        if stage == "source_changed":
+            path.write_bytes(original_bytes + b"\n")
+        elif stage == "catalog_fenced":
+            catalog.fence()
+        elif stage == "factory_closed":
+            await factory.close()
+        elif stage == "claimed_closed":
+            await claimed.close()
+        key = opened.binding_key
+        if stage == "wrong_key":
+            key = SessionBindingKeyV1(key.product_id, key.continuity_id, "wrong-session")
+        hosted = None
+        runtime = None
+        profile = None
+        try:
+            if stage != "delivered":
+                with pytest.raises(CodingHostedCatalogError):
+                    await factory.create_session(
+                        binding_key=key, opaque_session_binding=opened.opaque_binding,
+                    )
+            else:
+                product_factory = CodingForegroundProductFactoryV1(factory)
+                runtime = await product_factory.create_runtime(opened)
+                profile = await CodingHostedProfileFactoryV1().bind_profile(
+                    runtime.profile_binding,
+                )
+                binding = profile.profile_binding
+                assert binding.control is None
+                hosted = CodingHostedSessionV1(binding)
+                snapshot = await hosted.snapshot()
+                assert snapshot.identity.session_id == key.session_id
+                await opened.close()
+                await claimed.close()
+                await candidate.close()
+                assert await hosted.snapshot() == snapshot
+                with pytest.raises(CodingHostedCatalogError):
+                    await factory.create_session(
+                        binding_key=key, opaque_session_binding=opened.opaque_binding,
+                    )
+                assert path.read_bytes() == original_bytes
+        finally:
+            if hosted is not None:
+                await hosted.close()
+            if profile is not None:
+                await profile.close()
+            if runtime is not None:
+                await runtime.close()
+            await opened.close()
+            await claimed.close()
+            await candidate.close()
+            await factory.close()
+            await catalog.close()
+
+    asyncio.run(scenario())
+
+
 def test_hosted_resume_lookup_uses_the_existing_canonical_binding(tmp_path: Path) -> None:
     from loushang.appservice.resume_ports import ResumeInputLookupQueryV1
     from loushang.coding.hosted_catalog import CodingHostedCatalogError

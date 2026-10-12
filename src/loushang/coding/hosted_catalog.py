@@ -15,7 +15,7 @@ import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from loushang.apphost import (
     ClaimedSessionCandidateV1,
@@ -76,6 +76,9 @@ from .session_manager import (
     _resolve_coding_binding_input,
     _validate_coding_restored_header,
 )
+
+if TYPE_CHECKING:
+    from .hosted_session import CodingHostedHistoryBindingV1
 
 CODING_HOSTED_COMPATIBILITY_ID = "coding-hosted-v1"
 _METADATA_KEY = "coding.hosted"
@@ -216,9 +219,46 @@ class CodingHostedCandidateBindingV1:
             self._manager = None
 
 
+class CodingHostedHistoryCandidateBindingV1:
+    """Claimed display ownership, without transcript or runtime ownership."""
+
+    def __init__(
+        self, record: _Record, binding: CodingHostedSessionBindingV1,
+        require_accepting: Callable[[], None],
+    ) -> None:
+        self.record = record
+        self._binding: CodingHostedSessionBindingV1 | None = binding
+        self._require_accepting = require_accepting
+
+    def take_binding(self) -> CodingHostedHistoryBindingV1:
+        from .hosted_session import CodingHostedHistoryBindingV1
+
+        self.require_current_source()
+        if type(self._binding) is not CodingHostedHistoryBindingV1:
+            raise CodingHostedCatalogError()
+        binding, self._binding = self._binding, None
+        return binding
+
+    def require_current_source(self) -> None:
+        self._require_accepting()
+        if _revision(self.record.path) != self.record.projection.reference.revision:
+            raise CodingHostedCatalogError()
+
+    async def close(self) -> None:
+        binding = self._binding
+        if binding is not None:
+            await binding.close()
+            self._binding = None
+
+
+_CodingHostedCandidateBinding = (
+    CodingHostedCandidateBindingV1 | CodingHostedHistoryCandidateBindingV1
+)
+
+
 class _Claimed:
     def __init__(
-        self, reference: SessionCandidateRefV1, binding: CodingHostedCandidateBindingV1
+        self, reference: SessionCandidateRefV1, binding: _CodingHostedCandidateBinding
     ) -> None:
         self._reference = reference
         self._binding = binding
@@ -228,7 +268,7 @@ class _Claimed:
         return self._reference
 
     @property
-    def opaque_binding(self) -> CodingHostedCandidateBindingV1:
+    def opaque_binding(self) -> _CodingHostedCandidateBinding:
         return self._binding
 
     async def close(self) -> None:
@@ -237,7 +277,7 @@ class _Claimed:
 
 class _Candidate:
     def __init__(
-        self, record: _Record, binding: CodingHostedCandidateBindingV1
+        self, record: _Record, binding: _CodingHostedCandidateBinding
     ) -> None:
         self._record = record
         self._binding = binding
@@ -249,10 +289,11 @@ class _Candidate:
         return self._record.projection
 
     async def verify_current(self) -> None:
-        if (
-            self._closed
-            or _revision(self._record.path) != self.projection.reference.revision
-        ):
+        if self._closed:
+            raise CodingHostedCatalogError()
+        if isinstance(self._binding, CodingHostedHistoryCandidateBindingV1):
+            self._binding.require_current_source()
+        elif _revision(self._record.path) != self.projection.reference.revision:
             raise CodingHostedCatalogError()
 
     async def claim(self) -> _Claimed:
@@ -269,7 +310,7 @@ class _Candidate:
 
 
 class _Opened:
-    def __init__(self, binding: CodingHostedCandidateBindingV1) -> None:
+    def __init__(self, binding: _CodingHostedCandidateBinding) -> None:
         identity = binding.record.identity
         self._binding_key = SessionBindingKeyV1(
             identity.product_id, identity.continuity_id, identity.session_id
@@ -281,11 +322,11 @@ class _Opened:
         return self._binding_key
 
     @property
-    def opaque_binding(self) -> CodingHostedCandidateBindingV1:
+    def opaque_binding(self) -> _CodingHostedCandidateBinding:
         return self._binding
 
     async def close(self) -> None:
-        # The candidate owns an unconsumed transcript; Product owns a taken one.
+        # The candidate owns an unconsumed binding; Product owns a taken one.
         return None
 
 
@@ -296,8 +337,11 @@ class CodingHostedCandidateValidatorV1:
         envelope: SessionIdentityEnvelopeV1,
     ) -> OpenedProductCandidateV1:
         binding = candidate.opaque_binding
-        if type(binding) is not CodingHostedCandidateBindingV1:
+        if type(binding) not in (
+            CodingHostedCandidateBindingV1, CodingHostedHistoryCandidateBindingV1,
+        ):
             raise CodingHostedCatalogError()
+        binding = cast(_CodingHostedCandidateBinding, binding)
         if binding.record.projection.reference != candidate.reference:
             raise CodingHostedCatalogError()
         if binding.record.projection.envelope != envelope:
@@ -716,6 +760,28 @@ class CodingHostedSessionCatalogV1:
             identity = record.identity
         return CodingHostedHistoryBindingV1(identity, preview)
 
+    async def open_history_candidate(
+        self, reference: SessionCandidateRefV1, *, max_bytes: int,
+        selected_leaf_id: str | None = None,
+    ) -> _Candidate:
+        """Use the existing AppHost claim and factory chain for detached history."""
+
+        binding = await self.open_history_binding(
+            reference, max_bytes=max_bytes, selected_leaf_id=selected_leaf_id,
+        )
+        try:
+            async with self._lock:
+                self._accepting()
+                record = self._records.get(reference)
+                if record is None or _revision(record.path) != reference.revision:
+                    raise CodingHostedCatalogError()
+                return _Candidate(record, CodingHostedHistoryCandidateBindingV1(
+                    record, binding, self._accepting,
+                ))
+        except BaseException:
+            await binding.close()
+            raise
+
     def _scope_for(self, request: SessionCreateRequestV1) -> CodingHostedScopeV1:
         if request.product_id != "coding" or request.requested_continuity_id is None:
             raise CodingHostedCatalogError()
@@ -955,6 +1021,7 @@ __all__ = [
     "CodingHostedCandidateBindingV1",
     "CodingHostedCandidateValidatorV1",
     "CodingHostedCatalogError",
+    "CodingHostedHistoryCandidateBindingV1",
     "CodingHostedScopeV1",
     "CodingHostedSessionCatalogV1",
 ]

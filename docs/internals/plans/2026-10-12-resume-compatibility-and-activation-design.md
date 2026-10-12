@@ -2,8 +2,9 @@
 
 ## Status
 
-- Hosted history binding: an explicit catalog `open_history_binding` entry now
-  delivers bounded selected-branch history through the existing Hosted adapter
+- Hosted history binding: explicit catalog `open_history_binding` and
+  `open_history_candidate` entries now
+  deliver bounded selected-branch history through the existing Hosted adapter
   without a Writer, Product factory or executable control. This does not yet
   replace the default AppHost resume path or activate on first input.
 - Authority: descriptive — implementation design and delivery plan; accepted cross-scope contracts are normative in ARD-004/005/006.
@@ -955,3 +956,43 @@ effect settlement, first-input activation, and Embedded/TUI remains required.
 The full bounded snapshot read is not a measured large-session fast-open path;
 tail paging and background-plan performance acceptance remain pending. Goal and
 Issue #696 remain incomplete.
+
+### Hosted history claim and profile ownership
+
+The catalog's explicit `open_history_candidate` entry now wraps the detached
+display in the original candidate/claim lifecycle. Its exact
+`CodingHostedHistoryCandidateBindingV1` type carries no SessionManager or Writer.
+The original Product candidate validator continues to require matching canonical
+reference, envelope and Hosted compatibility identity. Claim verification and
+factory transfer recheck the original source revision and managed catalog fence.
+
+`CodingRealHostedSessionFactoryV1` recognizes this exact display candidate before
+services or Package Product selection. Transfer is synchronous and consumes the
+display once. Failed identity, source or owner checks retain candidate cleanup;
+closing an untransferred candidate closes its display. After transfer, candidate
+and claimed-handle cleanup leave the delivered Product display alive. The
+original foreground Product runtime and Hosted profile factory accept the
+absent execution control, with their existing identity and close ownership.
+Neither the candidate nor the display is a current actor grant or an activation
+proof.
+
+Nine focused offline cases passed for delivery through the original Product
+runtime/profile path, source changes before and after claim, catalog fences
+before and after claim, a closed factory, wrong binding key, unclaimed close,
+claimed close, repeated delivery rejection and post-transfer candidate cleanup.
+Test services and Product-selection functions fail on invocation; successful
+historical display invokes neither and preserves transcript bytes. The managed
+fence cases use the original owned catalog on Linux. The pre-change history
+baseline passed four cases.
+
+The integrated non-live catalog, owned-catalog, real-session, application and
+execution run passed sixty-eight cases with one existing skip. Scoped mypy for
+catalog, real-session factory, application and launcher modules passed, as did
+Ruff and all nine documentation checks.
+
+The default catalog `open_candidate` and writable/idempotent-create paths remain
+unchanged. This explicit path supplies the native claim/profile seam needed for
+deferred Resume composition; selecting it in default LMUX/AppHost, retaining
+first-input identity, admitting current authority and effects, and publishing
+the activated runtime still remain required. These tests do not establish a
+full scoped multi-client or default launcher Resume flow.
