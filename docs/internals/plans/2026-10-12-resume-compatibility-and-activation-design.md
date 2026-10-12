@@ -1972,3 +1972,46 @@ with the 29 passing lifecycle/model cases and the latest two model cases
 The earlier broad Coding run remains pending and cannot establish a final-tree
 green gate. Native Windows, default Embedded/Hosted activation, actual effect
 settlement and release/performance acceptance remain outstanding.
+
+#### Formal first-Resume epoch preparation through the original selection
+
+`CodingFencedProductApplicationSelection.prepare_resume_epoch` now uses the
+original workspace initialization/recovery/selection body also called by
+ordinary `factory_for_session`. That body was extracted under the same
+selection lock; unsupported-platform, fresh cutover, interrupted bootstrap,
+external-binding replacement and retained-owner behavior remain there.
+The formal entry requires canonical existing workspace data and synchronous
+current caller checks before and after selecting. It returns the read-only
+native epoch digest without selecting a Session factory or issuing a runtime
+lease. No owner/registry/queue or durable journal was added.
+
+This is a formal, potentially durable activation operation. It is not a
+history/background read and cannot be used as actor/Policy or effect-settlement
+proof. The initial refusal has no writes. A refusal after selecting leaves the
+original owner retained by the original selection for close; it does not erase
+durable native Product preparation. Production caller authority and default
+Embedded/Hosted first-input invocation still need wiring. The original Root
+continues to refuse missing/fenced or mismatched epoch before Writer work.
+
+Baseline native observation passed one case. Four new regressions first failed
+on the missing preparation entry. Seven cases then passed: admitted, denied,
+invalid check and post-selection revocation; native read-only observation;
+ordinary fresh Session bootstrap and interrupted-bootstrap recovery. The
+original native registry's quiescence receipt proves zero active Session
+leases after formal epoch preparation. A later five-case run repeats the four
+formal cases and adds actual original Root preparation/commit/consume after
+pure history, with no temporary Session. That run passed in 19.72 seconds.
+The caller admission callback in that test is an orchestration fixture, not
+production subject/Policy proof. Scoped mypy and Ruff passed.
+
+The broad Coding run started at `c81953e2` terminated after 954 passed,
+45 deselected and one failure in 2042.37 seconds. The failure was
+`test_real_parallel_review_uses_non_persistent_coding_children_and_full_fan_in`,
+at fixture `attachment.write_text`, with `OSError: [Errno 28] No space left on
+device`. Its managed scratch had used `/run/user/1001`, a 164 MiB tmpfs.
+Normal managed cleanup freed that run; the mount was then 2% used. The exact
+failed case passed separately (one passed, eight deselected, 36.28 seconds).
+This does not establish a full Coding gate. The final-tree rerun will use the
+supported `LOUSHANG_RUNTIME_DIR` override outside Git on the workspace disk,
+with the same managed scratch owner, offline selectors and host-runtime skip.
+No Product workaround or manual deletion of another run is needed.

@@ -32,6 +32,48 @@ from loushang.harness.transcript.jsonl_file import load_agent_transcript_file
 pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="Linux owned Resume Writer")
 
 
+@pytest.mark.parametrize("mode", ["admitted", "denied", "invalid_check", "revoked_after_selection"])
+def test_first_resume_prepares_original_epoch_without_session_lease(tmp_path, monkeypatch, mode):
+    monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
+    selection = CodingFencedProductApplicationSelection()
+    calls = []
+
+    def admission():
+        calls.append(True)
+        if mode == "denied" or (mode == "revoked_after_selection" and len(calls) == 2):
+            raise PermissionError("current caller revoked")
+        if mode == "invalid_check":
+            return True
+        return None
+
+    before = tuple(tmp_path.rglob("*"))
+    try:
+        if mode in {"denied", "invalid_check"}:
+            error = PermissionError if mode == "denied" else TypeError
+            with pytest.raises(error):
+                selection.prepare_resume_epoch(tmp_path, require_current_admission=admission)
+            assert not selection._owners
+            assert tuple(tmp_path.rglob("*")) == before
+            assert len(calls) == 1
+        else:
+            if mode == "revoked_after_selection":
+                with pytest.raises(PermissionError, match="revoked"):
+                    selection.prepare_resume_epoch(tmp_path, require_current_admission=admission)
+            else:
+                fingerprint = selection.prepare_resume_epoch(tmp_path, require_current_admission=admission)
+                assert fingerprint == selection.resume_epoch_fingerprint(tmp_path)
+            assert len(calls) == 2
+            assert len(selection._owners) == 1
+            owner = selection._owners[tmp_path].epoch_runtime
+            # The original native registry, rather than a local mock lease
+            # counter, proves no Session runtime admission was performed.
+            with owner.registry.exclusive_runtime_quiescence(store_id=owner.registry.store_id) as receipt:
+                assert receipt.active_runtime_lease_ids == ()
+    finally:
+        selection.close()
+    assert not selection._owners
+
+
 def test_selected_resume_epoch_is_native_readonly_and_never_repairs_tail(tmp_path, monkeypatch):
     import os
 
@@ -102,7 +144,7 @@ def test_selected_resume_epoch_is_native_readonly_and_never_repairs_tail(tmp_pat
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("mode", ["consume", "delivered_close_failed", "abort", "stale", "root_close", "cancel_prepare", "cancel_delivery", "delivery_revoked", "abort_failed", "host_bind_failed", "cleanup_debt", "epoch_mismatch", "epoch_unselected", "epoch_fenced"])
+@pytest.mark.parametrize("mode", ["consume", "first_epoch_prepared", "delivered_close_failed", "abort", "stale", "root_close", "cancel_prepare", "cancel_delivery", "delivery_revoked", "abort_failed", "host_bind_failed", "cleanup_debt", "epoch_mismatch", "epoch_unselected", "epoch_fenced"])
 def test_root_owns_native_resume_preparation_and_delivery(tmp_path, monkeypatch, mode):
     monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
 
@@ -114,7 +156,7 @@ def test_root_owns_native_resume_preparation_and_delivery(tmp_path, monkeypatch,
         path = manager.session_file
         header = manager.header
         selection = CodingFencedProductApplicationSelection()
-        if mode != "epoch_unselected":
+        if mode not in {"epoch_unselected", "first_epoch_prepared"}:
             factory = selection.factory_for_session(manager)
             assert factory is not None
             factory.runtime_lease.release()
@@ -146,6 +188,16 @@ def test_root_owns_native_resume_preparation_and_delivery(tmp_path, monkeypatch,
             plan = build_session_activation_plan(
                 history, resolve_coding_composition_set("coding-minimal"), workspace_root=tmp_path,
             )
+            if mode == "first_epoch_prepared":
+                # Exercise formal native epoch preparation after pure history,
+                # without any throwaway Session/lease. This callback is an
+                # orchestration fixture, not a production actor/Policy proof.
+                def caller_current():
+                    assert root.current_session is None
+                    assert not root._owned_transcript_factory.pending_preparations
+
+                selection.prepare_resume_epoch(tmp_path, require_current_admission=caller_current)
+                assert path.read_bytes() == before
             attempt = CodingActivationAttemptV1(
                 attempt_id="root-attempt", request_id="root-input", session_id=header.conversation_id,
                 original_leaf_id=plan.selected_leaf_id, ancestry_digest=plan.ancestry_digest,
@@ -264,7 +316,7 @@ def test_root_owns_native_resume_preparation_and_delivery(tmp_path, monkeypatch,
                 assert not candidate._is_current_model_call_session()
                 assert not prepared.consumed
                 assert candidate.session_manager.header == header
-                if mode in {"consume", "delivered_close_failed"}:
+                if mode in {"consume", "first_epoch_prepared", "delivered_close_failed"}:
                     result = await prepared.consume()
                     assert result.current is candidate
                     assert root.current_session is candidate

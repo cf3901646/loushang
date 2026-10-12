@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import secrets
@@ -13,6 +14,7 @@ from hashlib import sha256
 from importlib.metadata import version
 from pathlib import Path
 from threading import Lock
+from typing import cast
 
 from loushang.harness.config.agent import SettingsManager
 from loushang.harness.package_product.product_local_wheel_runtime import (
@@ -422,79 +424,120 @@ class CodingFencedProductApplicationSelection:
         # fence still requires the Product owner to validate the real root.
         workspace = Path(manager.get_cwd()).resolve(strict=False)
         with self._lock:
-            if self._fenced:
-                raise RuntimeError("Coding Product application is closing")
-            owner = self._owners.get(workspace)
+            owner = self._select_workspace_unlocked(workspace, settings_manager=settings_manager)
+            return owner.factory_for_session(manager) if owner is not None else None
+
+    def prepare_resume_epoch(
+        self, workspace: Path, *, require_current_admission: Callable[[], None],
+        settings_manager: SettingsManager | None = None,
+    ) -> str:
+        """Formally select the original epoch without creating a Session lease.
+
+        This may initialize/recover durable Product state. It is an admitted
+        activation step, never a history read or background Plan operation.
+        Caller authority and effect settlement remain original-owner inputs.
+        """
+
+        if not isinstance(workspace, Path) or not workspace.is_absolute():
+            raise ValueError("Coding Resume requires a canonical absolute workspace")
+        if workspace != workspace.resolve(strict=True):
+            raise ValueError("Coding Resume requires a canonical absolute workspace")
+        if not callable(require_current_admission) or inspect.iscoroutinefunction(require_current_admission):
+            raise TypeError("Coding Resume requires a synchronous current owner check")
+
+        def current() -> None:
+            result = cast(Callable[[], object], require_current_admission)()
+            if result is not None:
+                if inspect.iscoroutine(result):
+                    result.close()
+                raise TypeError("Coding Resume owner check must return None")
+
+        current()
+        with self._lock:
+            owner = self._select_workspace_unlocked(workspace, settings_manager=settings_manager)
             if owner is None:
-                lifecycle = resolve_coding_plugin_lifecycle_state_layout(workspace)
-                epoch = resolve_coding_package_epoch_layout(lifecycle)
-                unadmitted_platform = (
-                    os.name == "posix" and not sys.platform.startswith("linux")
-                ) or (os.name == "nt" and not self._windows_candidate)
-                try:
-                    (epoch.control_root / "epoch.jsonl").lstat()
-                except FileNotFoundError:
-                    # Platforms without an admitted default Product route keep
-                    # their existing Session route.
-                    if unadmitted_platform:
-                        require_fresh_coding_product_settings_without_writes(
-                            workspace=workspace,
-                            settings_manager=settings_manager,
-                        )
-                        return None
-                    # A Linux fresh workspace enters B before any ordinary
-                    # Session can prepare a legacy Plugin writer. Native
-                    # cutover owns the cross-process fence.
-                    require_fresh_coding_product_inputs_without_writes(
-                        lifecycle,
+                raise RuntimeError("Coding Resume native Product route is not admitted")
+        current()
+        return self.resume_epoch_fingerprint(workspace)
+
+    def _select_workspace_unlocked(
+        self, workspace: Path, *, settings_manager: SettingsManager | None,
+    ) -> CodingFencedProductApplicationOwner | None:
+        """Use the original selection/recovery path while its lock is held."""
+
+        if self._fenced:
+            raise RuntimeError("Coding Product application is closing")
+        owner = self._owners.get(workspace)
+        if owner is None:
+            lifecycle = resolve_coding_plugin_lifecycle_state_layout(workspace)
+            epoch = resolve_coding_package_epoch_layout(lifecycle)
+            unadmitted_platform = (
+                os.name == "posix" and not sys.platform.startswith("linux")
+            ) or (os.name == "nt" and not self._windows_candidate)
+            try:
+                (epoch.control_root / "epoch.jsonl").lstat()
+            except FileNotFoundError:
+                # Platforms without an admitted default Product route keep
+                # their existing Session route.
+                if unadmitted_platform:
+                    require_fresh_coding_product_settings_without_writes(
                         workspace=workspace,
                         settings_manager=settings_manager,
                     )
-                    _initialize_fresh_coding_product_for_session(
-                        lifecycle,
-                        workspace=workspace,
-                        settings_manager=settings_manager,
-                        windows_candidate=self._windows_candidate,
-                    )
-                else:
-                    if unadmitted_platform:
-                        PackageEpochFenceJournal(
-                            epoch.control_root / "epoch.jsonl", read_only=True
-                        ).current(epoch.store_id)
-                        raise RuntimeError(
-                            "Coding native B Session route is not yet admitted"
-                        )
-                    _retry_fresh_coding_product_bootstrap_for_session(
-                        lifecycle,
-                        workspace=workspace,
-                        settings_manager=settings_manager,
-                        windows_candidate=self._windows_candidate,
-                    )
-                owner = open_coding_fenced_product_application_owner(
+                    return None
+                # A Linux fresh workspace enters B before any ordinary
+                # Session can prepare a legacy Plugin writer. Native
+                # cutover owns the cross-process fence.
+                require_fresh_coding_product_inputs_without_writes(
                     lifecycle,
                     workspace=workspace,
-                    runtime_version=version("loushang"),
-                    runtime_protocol_epoch=CODING_PACKAGE_PRODUCT_RUNTIME_PROTOCOL_EPOCH,
-                    worker_candidates=self._worker_candidates,
-                    windows_candidate=self._windows_candidate,
+                    settings_manager=settings_manager,
                 )
-                self._owners[workspace] = owner
-            elif not self._external_bindings_current(
-                owner, lifecycle=resolve_coding_plugin_lifecycle_state_layout(workspace)
-            ):
-                lifecycle = resolve_coding_plugin_lifecycle_state_layout(workspace)
-                replacement = open_coding_fenced_product_application_owner(
+                _initialize_fresh_coding_product_for_session(
                     lifecycle,
                     workspace=workspace,
-                    runtime_version=version("loushang"),
-                    runtime_protocol_epoch=CODING_PACKAGE_PRODUCT_RUNTIME_PROTOCOL_EPOCH,
-                    worker_candidates=self._worker_candidates,
+                    settings_manager=settings_manager,
                     windows_candidate=self._windows_candidate,
                 )
-                self._retained_owners.append(owner)
-                owner = replacement
-                self._owners[workspace] = owner
-            return owner.factory_for_session(manager)
+            else:
+                if unadmitted_platform:
+                    PackageEpochFenceJournal(
+                        epoch.control_root / "epoch.jsonl", read_only=True
+                    ).current(epoch.store_id)
+                    raise RuntimeError(
+                        "Coding native B Session route is not yet admitted"
+                    )
+                _retry_fresh_coding_product_bootstrap_for_session(
+                    lifecycle,
+                    workspace=workspace,
+                    settings_manager=settings_manager,
+                    windows_candidate=self._windows_candidate,
+                )
+            owner = open_coding_fenced_product_application_owner(
+                lifecycle,
+                workspace=workspace,
+                runtime_version=version("loushang"),
+                runtime_protocol_epoch=CODING_PACKAGE_PRODUCT_RUNTIME_PROTOCOL_EPOCH,
+                worker_candidates=self._worker_candidates,
+                windows_candidate=self._windows_candidate,
+            )
+            self._owners[workspace] = owner
+        elif not self._external_bindings_current(
+            owner, lifecycle=resolve_coding_plugin_lifecycle_state_layout(workspace)
+        ):
+            lifecycle = resolve_coding_plugin_lifecycle_state_layout(workspace)
+            replacement = open_coding_fenced_product_application_owner(
+                lifecycle,
+                workspace=workspace,
+                runtime_version=version("loushang"),
+                runtime_protocol_epoch=CODING_PACKAGE_PRODUCT_RUNTIME_PROTOCOL_EPOCH,
+                worker_candidates=self._worker_candidates,
+                windows_candidate=self._windows_candidate,
+            )
+            self._retained_owners.append(owner)
+            owner = replacement
+            self._owners[workspace] = owner
+        return owner
 
     def resume_epoch_fingerprint(self, workspace: Path) -> str:
         """Observe an already selected native epoch; never select or activate it.

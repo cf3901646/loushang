@@ -130,6 +130,17 @@ create a Product owner to satisfy the check. First Resume startup must still
 obtain its owner through the production application route. Caller admission
 and effect settlement remain independently required.
 
+The original Product selection also exposes a formal `prepare_resume_epoch`
+entry. It uses the same locked workspace selection/recovery implementation
+as ordinary `factory_for_session`, with caller admission checked before and
+after selection. It can initialize/recover durable Product state, so it is
+an activation operation and must not be invoked by history/background reads.
+It returns the original native epoch dependency without a temporary Session
+or runtime lease. A post-selection admission failure leaves any selected
+owner in the original selection's close lifecycle. This entry does not prove
+actor/Policy authority, effect settlement or default CLI/Hosted activation;
+those production inputs and routes still require implementation.
+
 ### Candidate v1 attempt contract for owner review
 
 The proposed `coding.activation-attempt/v1` intent uses one `extension.data`
