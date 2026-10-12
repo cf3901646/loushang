@@ -935,6 +935,23 @@ of OS containment. In particular, a disabled Sandbox's ExecService may have no
 execution profile while the original process gateway still holds a managed
 ceiling; consumers must inspect the correct owner and Sandbox status separately.
 
+Resume can also bind the current native Policy configuration to that exact
+request. `PolicyEngine.configuration_fingerprint` observes ordered native rule
+inputs, with at most 256 rules per field and 16 KiB of encoded data.
+`PermissionProfilePolicyEvaluator.configuration_fingerprint` includes the live
+requested/effective profile and ceiling plus the selected native rule inputs.
+The default Workspace Policy selection reads managed rules from its original
+settings owner for both observation and evaluation; existing selections thus
+honor newly configured denies. Injected custom policy factories retain their
+existing evaluation contract and require their own observation entry.
+
+A Policy-bound confirmation requires an explicitly supplied current native
+Policy at revalidation. The original Approval owner compares the rebuilt exact
+request with its retained fact, including changes while awaiting confirmation.
+This fingerprint is a configuration dependency, not an actor admission,
+Policy verdict, executable-code identity or external-effect settlement. Those
+owner checks remain required before execution.
+
 ## 11. Mandatory Enforcement Gateway
 
 Every effectful tool or Product operation uses one gateway:

@@ -1664,3 +1664,48 @@ denial and bounded-root/byte cases, all 33 Authorization and confirmation tests
 passed. Scoped mypy passed four source files; Ruff, diff whitespace and all nine
 documentation checks passed. Effect-settlement callbacks in the Root fixtures
 still validate orchestration only.
+
+
+#### Resume confirmation observes native current Policy inputs
+
+The original native PolicyEngine now exposes a bounded fingerprint of its
+ordered rule configuration. It limits each rule field to 256 entries and the
+encoded document to 16 KiB. The original PermissionProfilePolicyEvaluator
+combines this observation with the current requested/effective profile and
+native ceiling. These hashes describe configuration dependencies; they grant
+no actor admission or Tool authority and identify neither executable code nor
+external effects.
+
+The native Workspace selection already read live permission profiles and
+ceilings, but retained managed rules from selection time. A regression first
+showed that a newly configured blocked Bash rule changed a fresh selection
+while the existing native evaluator kept its old fingerprint and behavior.
+The default selection now reads managed rules from the same settings owner
+for observation and evaluation. The selected evaluator honors the new deny.
+Injected custom policy factories keep their existing contract and require
+an owner-specific observation entry rather than inferred native identity.
+
+Coding Resume may bind this native Policy observation in the original Approval
+request. Revalidation requires explicit current native Policy inputs and
+rebuilds the exact request for the issuing resolver. Changing the profile,
+changing managed rules, omitting current Policy, or changing configuration
+while the native confirmation awaits rejects the old fact. A hash alone does
+not replace the existing actor, execution-scope, Product or settlement gates.
+
+Root first-input fixtures pass the actual selected native evaluator to the
+original candidate factory and observe fresh Policy through the same native
+settings entry at each admission boundary. A real settings profile change
+before first-input dispatch prevents a snapshot and provider call. Adding a
+managed deny immediately after the native snapshot commit prevents provider
+transport, preserves that snapshot and rejects a second dispatch. Existing
+Workspace/control-root, skill/AGENTS, revocation, cancellation and transport
+outcome cases remain covered with the original owners.
+
+Validation: 117 Root first-input, PolicyEngine and Workspace-profile cases
+passed, including fourteen Root transport scenarios. Ten existing Workspace
+tool/selection cases passed. Native Policy and confirmation tests also cover
+waiting-period changes and missing current inputs. Full production actor and
+epoch/effect producers, default Embedded/Hosted routing, recovery, background
+invocation/cache/performance and released provenance acceptance remain
+incomplete; the full Issue #696 Goal remains active. The Root fixture's effect
+callback still verifies orchestration only.

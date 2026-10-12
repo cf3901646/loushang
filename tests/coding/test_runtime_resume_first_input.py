@@ -33,13 +33,16 @@ from loushang.coding.runtime.agent_session_runtime import AgentSessionRuntime
 from loushang.coding.sandbox import coding_workspace_execution_profile
 from loushang.coding.session_manager import SessionManager
 from loushang.harness.approval import DenyApprovalResolver, InteractiveApprovalResolver
+from loushang.harness.config.agent import SettingsManager
+from loushang.harness.permissions import PermissionProfilePolicyEvaluator
 from loushang.harness.session.request_evidence import RESOURCE_EVIDENCE_METADATA_KEY
+from loushang.harness.tools.workspace.factory import workspace_tool_runtime_settings
 from loushang.harness.transcript.jsonl_file import load_agent_transcript_file
 
 pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="Linux owned Resume Writer")
 
 
-@pytest.mark.parametrize("mode", ["completed", "skill_changed", "agents_changed", "workspace_changed", "epoch_control_changed", "epoch_control_at_barrier", "revoked", "revoked_at_barrier", "unknown_transport", "cancelled", "slot_replaced", "root_closed"])
+@pytest.mark.parametrize("mode", ["completed", "skill_changed", "agents_changed", "workspace_changed", "epoch_control_changed", "epoch_control_at_barrier", "policy_changed", "policy_at_barrier", "revoked", "revoked_at_barrier", "unknown_transport", "cancelled", "slot_replaced", "root_closed"])
 def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch, mode):
     monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
 
@@ -70,6 +73,11 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
                                       context_window=128000, max_tokens=4096),
         )
         selection = CodingFencedProductApplicationSelection()
+        settings = SettingsManager(
+            global_settings_path=tmp_path / "user.json", project_settings_path=tmp_path / "project.json",
+        )
+        policy = workspace_tool_runtime_settings(settings).policy_engine
+        assert isinstance(policy, PermissionProfilePolicyEvaluator)
 
         def ordinary_factory(manager, **kwargs):
             return bootstrap.create_agent_session(
@@ -146,17 +154,18 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
             execution_profile = coding_workspace_execution_profile(workspace, writable=True)
             fact = await issuer.confirm(coding_resume_permission_request(
                 attempt, actor_id="root", expansion_codes=("authority.unknown",),
-                execution_profile=execution_profile,
+                execution_profile=execution_profile, policy_evaluator=policy,
             ))
             assert fact is not None
             permission = CodingResumePermissionConfirmation(
                 attempt, "root", ("authority.unknown",), issuer, fact,
-                execution_profile=execution_profile,
+                execution_profile=execution_profile, policy_evaluator=policy,
             )
 
             def admit(observed):
                 permission.require_current(
                     observed, current_execution_profile=coding_workspace_execution_profile(workspace, writable=True),
+                    current_policy_evaluator=workspace_tool_runtime_settings(settings).policy_engine,
                 )
 
             def epoch(observed, receipt):
@@ -166,7 +175,7 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
 
             prepared = await root.prepare_resume_continuation(
                 session_file=path, plan=plan, current_owner_inputs=(), attempt=attempt,
-                input_record_id="root-input-record", model=model, no_tools=True,
+                input_record_id="root-input-record", model=model, no_tools=True, tool_policy_evaluator=policy,
                 text="/skill:review continue once" if mode == "skill_changed" else "continue once",
                 created_at=datetime(2026, 10, 12, tzinfo=UTC),
                 require_current_admission=admit,
@@ -185,13 +194,15 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
             assert not candidate._coding_resume_dispatch_claimed
             await prepared.consume()
             assert root.current_session is candidate
-            if mode == "revoked":
+            if mode == "policy_changed":
+                settings.set_permission_profile("full_access", scope="session")
+            elif mode == "revoked":
                 issuer.release_confirmation(fact)
             elif mode == "root_closed":
                 await root.dispose_session_runtime()
             elif mode == "slot_replaced":
                 await root.new_session(cwd=str(tmp_path))
-            elif mode in {"revoked_at_barrier", "epoch_control_at_barrier"}:
+            elif mode in {"revoked_at_barrier", "epoch_control_at_barrier", "policy_at_barrier"}:
                 transcript = candidate.session_manager._transcript
                 append_snapshot = transcript.append_model_input_snapshot
                 if mode == "epoch_control_at_barrier":
@@ -202,6 +213,8 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
                     result = await append_snapshot(*args, **kwargs)
                     if mode == "revoked_at_barrier":
                         issuer.release_confirmation(fact)
+                    elif mode == "policy_at_barrier":
+                        settings.update_settings(scope="session", tools={"blocked_tools": ["bash"]})
                     else:
                         assert barrier_target is not None and barrier_retained is not None
                         barrier_target.rename(barrier_retained)
@@ -209,7 +222,7 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
                     return result
 
                 monkeypatch.setattr(transcript, "append_model_input_snapshot", revoke_after_snapshot)
-            if mode == "revoked":
+            if mode in {"revoked", "policy_changed"}:
                 with pytest.raises(PermissionError):
                     await prepared.run_first_input()
             elif mode in {"workspace_changed", "epoch_control_changed"}:
@@ -251,7 +264,7 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
                 finally:
                     restore_barrier_root()
             saved = path.read_bytes()
-            if mode in {"completed", "skill_changed", "agents_changed", "unknown_transport", "cancelled", "revoked_at_barrier", "epoch_control_at_barrier"}:
+            if mode in {"completed", "skill_changed", "agents_changed", "unknown_transport", "cancelled", "revoked_at_barrier", "epoch_control_at_barrier", "policy_at_barrier"}:
                 with pytest.raises(CodingResumeRecoveryRequired, match="model.dispatch_already_claimed"):
                     await prepared.run_first_input()
                 assert path.read_bytes() == saved
@@ -277,7 +290,7 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
                         assert "Use CURRENT workspace instruction." in requests[0].system_prompt
                         assert "OLD workspace instruction." not in requests[0].system_prompt
             snapshots = [record for record in records if record.kind == "model.input.prepared"]
-            assert len(snapshots) == int(mode in {"completed", "skill_changed", "agents_changed", "unknown_transport", "cancelled", "revoked_at_barrier", "epoch_control_at_barrier"})
+            assert len(snapshots) == int(mode in {"completed", "skill_changed", "agents_changed", "unknown_transport", "cancelled", "revoked_at_barrier", "epoch_control_at_barrier", "policy_at_barrier"})
             outcome = observe_coding_resume_model_outcome(
                 read_coding_resume_snapshot(path, max_bytes=1024 * 1024),
                 prepared.continuation.input_lookup_query,

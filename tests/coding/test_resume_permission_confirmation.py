@@ -12,6 +12,55 @@ from loushang.coding.resume_permission_confirmation import (
 )
 from loushang.harness.approval import DenyApprovalResolver, InteractiveApprovalResolver
 from loushang.harness.authorization import EffectiveExecutionProfile
+from loushang.harness.config.agent import SettingsManager
+from loushang.harness.tools.workspace.factory import workspace_tool_runtime_settings
+
+
+@pytest.mark.parametrize("mode", ["current", "profile", "managed_rules", "await_change", "missing_policy"])
+def test_resume_confirmation_revalidates_native_current_policy(tmp_path, mode):
+    async def scenario():
+        settings = SettingsManager(
+            global_settings_path=tmp_path / "user.json", project_settings_path=tmp_path / "project.json",
+        )
+        policy = workspace_tool_runtime_settings(settings).policy_engine
+        attempt = CodingActivationAttemptV1(
+            attempt_id="attempt-1", request_id="input-1", session_id="session-1",
+            original_leaf_id="leaf-1", ancestry_digest="a" * 64,
+            plan_fingerprint="b" * 64, epoch_fingerprint="c" * 64, subject_digest="d" * 64,
+        )
+        owner = InteractiveApprovalResolver(fallback=DenyApprovalResolver())
+
+        async def present(payload):
+            assert len(payload["arguments"]["policyConfigurationFingerprint"]) == 64
+            if mode == "await_change":
+                settings.set_permission_profile("full_access", scope="session")
+            assert await owner.handle_result(payload["action_id"], outcome="allow_once")
+
+        owner.set_request_presenter(present)
+        try:
+            fact = await owner.confirm(coding_resume_permission_request(
+                attempt, actor_id="root", expansion_codes=("authority.unknown",), policy_evaluator=policy,
+            ))
+            assert fact is not None
+            bound = CodingResumePermissionConfirmation(
+                attempt, "root", ("authority.unknown",), owner, fact, policy_evaluator=policy,
+            )
+            if mode == "profile":
+                settings.set_permission_profile("full_access", scope="session")
+            elif mode == "managed_rules":
+                settings.update_settings(scope="session", tools={"blocked_tools": ["bash"]})
+            fresh = workspace_tool_runtime_settings(settings).policy_engine
+            if mode == "missing_policy":
+                fresh = None
+            if mode == "current":
+                bound.require_current(attempt, current_policy_evaluator=fresh)
+            else:
+                with pytest.raises(PermissionError):
+                    bound.require_current(attempt, current_policy_evaluator=fresh)
+        finally:
+            owner.dispose()
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("mode", ["current", "read", "write", "network", "denial", "missing_scope", "current_scope_changed"])

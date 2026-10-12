@@ -22,10 +22,19 @@ from loushang.harness.authorization import (
     EffectiveExecutionProfile,
     execution_profile_expansion_codes,
 )
+from loushang.harness.permissions import PermissionProfilePolicyEvaluator
+from loushang.harness.policy.engine import PolicyEngine
 
 from .resume_activation_attempt import CodingActivationAttemptV1
 
 _EXPANSION = re.compile(r"[a-z][a-z0-9._-]{0,63}\Z")
+NativeResumePolicy = PolicyEngine | PermissionProfilePolicyEvaluator
+
+
+def _policy_fingerprint(policy: NativeResumePolicy) -> str:
+    if type(policy) not in {PolicyEngine, PermissionProfilePolicyEvaluator}:
+        raise TypeError("Coding Resume requires the original native Policy observation entry")
+    return policy.configuration_fingerprint()
 
 
 def _execution_scope(profile: EffectiveExecutionProfile) -> tuple[dict[str, object], str]:
@@ -51,6 +60,7 @@ def coding_resume_permission_request(
     expansion_codes: tuple[str, ...], action_id: str | None = None,
     execution_profile: EffectiveExecutionProfile | None = None,
     baseline_execution_profile: EffectiveExecutionProfile | None = None,
+    policy_evaluator: NativeResumePolicy | None = None,
 ) -> ApprovalRequest:
     """Bind owner-observed expansion to this exact subject, target and candidate.
 
@@ -76,6 +86,8 @@ def coding_resume_permission_request(
         if len(expansion_codes) > 16:
             raise ValueError("Coding Resume permission expansion codes exceed their budget")
     arguments: dict[str, object] = {**attempt.to_data(), "permissionExpansion": list(expansion_codes)}
+    if policy_evaluator is not None:
+        arguments["policyConfigurationFingerprint"] = _policy_fingerprint(policy_evaluator)
     if execution_profile is not None:
         scope, fingerprint = _execution_scope(execution_profile)
         arguments["executionScope"] = scope  # Reviewable in the native Approval surface.
@@ -115,10 +127,12 @@ class CodingResumePermissionConfirmation:
     confirmation: ApprovalConfirmation
     execution_profile: EffectiveExecutionProfile | None = None
     baseline_execution_profile: EffectiveExecutionProfile | None = None
+    policy_evaluator: NativeResumePolicy | None = None
 
     def require_current(
         self, attempt: CodingActivationAttemptV1,
         *, current_execution_profile: EffectiveExecutionProfile | None = None,
+        current_policy_evaluator: NativeResumePolicy | None = None,
     ) -> None:
         if attempt != self.attempt:
             raise PermissionError("Coding Resume permission confirmation target changed")
@@ -132,10 +146,18 @@ class CodingResumePermissionConfirmation:
             raise PermissionError("Coding Resume execution scope is not a native profile")
         if current_execution_profile != self.execution_profile:
             raise PermissionError("Coding Resume current execution scope is missing or changed")
+        if (current_policy_evaluator is None) != (self.policy_evaluator is None):
+            raise PermissionError("Coding Resume current Policy is missing or unbound")
+        if (
+            current_policy_evaluator is not None and self.policy_evaluator is not None
+            and _policy_fingerprint(current_policy_evaluator) != _policy_fingerprint(self.policy_evaluator)
+        ):
+            raise PermissionError("Coding Resume current Policy configuration changed")
         expected = coding_resume_permission_request(
             attempt, actor_id=self.actor_id, expansion_codes=self.expansion_codes,
             action_id=self.confirmation.request.action_id,
             execution_profile=self.execution_profile,
             baseline_execution_profile=self.baseline_execution_profile,
+            policy_evaluator=self.policy_evaluator,
         )
         self.owner.require_current_confirmation(self.confirmation, request=expected)
