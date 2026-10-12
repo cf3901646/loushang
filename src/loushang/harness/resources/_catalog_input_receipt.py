@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from loushang.foundation.json import dump_json_value
 from loushang.harness.resources.packages.catalog_inputs import (
     CatalogPluginPackageInput,
 )
@@ -224,6 +226,97 @@ class ResourceCatalogInputReceipt:
     @property
     def package_roots(self) -> tuple[Path, ...]:
         return tuple(mount.root for mount in self.package_mounts if mount.enabled)
+
+    @property
+    def input_fingerprint(self) -> str:
+        """Digest configured source facts, excluding live Package handles.
+
+        This does not prove mutable file contents or grant Resource authority.
+        The consuming owner must revalidate those facts before publication.
+        """
+
+        document = {
+            "version": 1,
+            "cwd": str(self.cwd),
+            "projectResourceRoot": str(self.project_resource_root),
+            "projectContextRoots": [str(path) for path in self.project_context_roots],
+            "packageMounts": [
+                {
+                    "root": str(mount.root),
+                    "enabled": mount.enabled,
+                    "contentDigest": mount.content_digest,
+                    "sourceFilter": (
+                        None if mount.source_filter is None else {
+                            "source": mount.source_filter.source,
+                            "extensions": _optional_names(
+                                mount.source_filter.extensions
+                            ),
+                            "skills": _optional_names(mount.source_filter.skills),
+                            "prompts": _optional_names(mount.source_filter.prompts),
+                            "themes": _optional_names(mount.source_filter.themes),
+                        }
+                    ),
+                }
+                for mount in self.package_mounts
+            ],
+            "packageCandidates": [
+                {
+                    "kind": item.resource_kind,
+                    "path": str(item.source_path),
+                    "order": item.source_root_order,
+                    "contentDigest": item.package_content_digest,
+                }
+                for item in self.package_resource_candidates
+            ],
+            "packageDiagnostics": list(self.package_diagnostic_codes),
+            "catalogPluginPackages": [
+                {
+                    "pluginId": item.binding.plugin_id,
+                    "sourceRootOrder": item.source_root_order,
+                    "sourceIdentity": item.binding.source_identity,
+                    "sourceKind": item.binding.source_kind,
+                    "contentDigest": item.package.content_digest,
+                    "manifestDigest": item.package.manifest_digest,
+                    "dependencyLockDigest": item.package.dependency_lock.digest,
+                    "revision": item.binding.revision,
+                }
+                for item in self.catalog_plugin_package_inputs
+            ],
+            "userResourceRoots": [str(path) for path in self.user_resource_roots],
+            "explicitUserResourceRoots": [
+                str(path) for path in sorted(self.explicit_user_resource_roots)
+            ],
+            "additionalExtensionPaths": [
+                str(path) for path in self.additional_extension_paths
+            ],
+            "additionalSkillPaths": [
+                str(path) for path in self.additional_skill_paths
+            ],
+            "additionalPromptTemplatePaths": [
+                str(path) for path in self.additional_prompt_template_paths
+            ],
+            "additionalThemePaths": [
+                str(path) for path in self.additional_theme_paths
+            ],
+            "noExtensions": self.no_extensions,
+            "noSkills": self.no_skills,
+            "noPromptTemplates": self.no_prompt_templates,
+            "noThemes": self.no_themes,
+            "noContextFiles": self.no_context_files,
+            "builtInResourcePackages": list(self.built_in_resource_packages),
+            "contextFileNames": list(self.context_file_names),
+        }
+        encoded = dump_json_value(
+            document, name="Resource Catalog input fingerprint",
+            ensure_ascii=True, sort_keys=True,
+        ).encode("utf-8")
+        return hashlib.sha256(
+            b"loushang.resource-catalog-input/v1\0" + encoded
+        ).hexdigest()
+
+
+def _optional_names(values: tuple[str, ...] | None) -> list[str] | None:
+    return list(values) if values is not None else None
 
 
 __all__ = [

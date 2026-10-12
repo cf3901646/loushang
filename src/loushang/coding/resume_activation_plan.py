@@ -53,6 +53,20 @@ class ActivationOwnerSelectionRefV1:
 
 
 @dataclass(frozen=True, slots=True)
+class ActivationOwnerInputRefV1:
+    """Redacted input dependency only; it cannot prove a selected Resource."""
+
+    owner_id: str
+    fingerprint: str
+
+    def __post_init__(self) -> None:
+        if type(self.owner_id) is not str or _OWNER.fullmatch(self.owner_id) is None:
+            raise ValueError("activation input owner id is invalid")
+        if type(self.fingerprint) is not str or _DIGEST.fullmatch(self.fingerprint) is None:
+            raise ValueError("activation input fingerprint is invalid")
+
+
+@dataclass(frozen=True, slots=True)
 class SessionActivationPlanV1:
     """Immutable Plan evidence awaiting live owner validation and admission."""
 
@@ -63,6 +77,7 @@ class SessionActivationPlanV1:
     ancestry_digest: str | None
     workspace_root: str
     composition_comparison: CodingResumeCompositionComparisonV1
+    owner_inputs: tuple[ActivationOwnerInputRefV1, ...]
     owner_selections: tuple[ActivationOwnerSelectionRefV1, ...]
     status: Literal["needs_final_validation", "unavailable"]
     schema_version: int = 1
@@ -73,6 +88,7 @@ def build_session_activation_plan(
     current_composition: CodingCompositionSetPlan,
     *,
     workspace_root: Path,
+    owner_inputs: Sequence[ActivationOwnerInputRefV1] = (),
     owner_selections: Sequence[ActivationOwnerSelectionRefV1] = (),
 ) -> SessionActivationPlanV1:
     """Aggregate historical facts and existing owner choices without effects."""
@@ -83,6 +99,15 @@ def build_session_activation_plan(
         raise ValueError("activation Plan requires a canonical absolute workspace root")
     if len(str(workspace_root).encode("utf-8")) > 4096:
         raise ValueError("activation Plan workspace root exceeds its budget")
+    inputs = tuple(owner_inputs)
+    if len(inputs) > 64:
+        raise ValueError("activation Plan owner inputs exceed their budget")
+    if any(not isinstance(item, ActivationOwnerInputRefV1) for item in inputs):
+        raise TypeError("activation Plan owner inputs are invalid")
+    if inputs != tuple(sorted(inputs, key=lambda item: item.owner_id)) or len({
+        item.owner_id for item in inputs
+    }) != len(inputs):
+        raise ValueError("activation Plan owner inputs must be sorted and unique")
     selections = tuple(owner_selections)
     if len(selections) > 64:
         raise ValueError("activation Plan owner selections exceed their budget")
@@ -152,6 +177,10 @@ def build_session_activation_plan(
              "generation": item.generation}
             for item in selections
         ],
+        "ownerInputs": [
+            {"ownerId": item.owner_id, "fingerprint": item.fingerprint}
+            for item in inputs
+        ],
         "status": status,
     }
     encoded = dump_json_value(
@@ -171,6 +200,7 @@ def build_session_activation_plan(
         ancestry_digest=history.selected_ancestry_digest,
         workspace_root=str(workspace_root),
         composition_comparison=comparison,
+        owner_inputs=inputs,
         owner_selections=selections,
         status=status,
     )
@@ -198,6 +228,7 @@ def require_current_resume_plan_source(
 
 
 __all__ = [
+    "ActivationOwnerInputRefV1",
     "ActivationOwnerSelectionRefV1",
     "ResumePlanStaleError",
     "SessionActivationPlanV1",

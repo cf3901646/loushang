@@ -9,6 +9,7 @@ import pytest
 from loushang.coding.composition_provenance import CodingCompositionProvenanceV1
 from loushang.coding.composition_sets import resolve_coding_composition_set
 from loushang.coding.resume_activation_plan import (
+    ActivationOwnerInputRefV1,
     ActivationOwnerSelectionRefV1,
     ResumePlanStaleError,
     build_session_activation_plan,
@@ -22,6 +23,7 @@ from loushang.coding.resume_history import (
 )
 from loushang.coding.session_manager import SessionManager
 from loushang.harness.conversation import ConversationHeader
+from loushang.harness.resources.loader import ResourceLoader
 
 
 def _history() -> CodingResumeHistoryPreview:
@@ -142,3 +144,31 @@ def test_activation_plan_rejects_rewritten_real_transcript(tmp_path: Path) -> No
     revised = read_coding_resume_snapshot(path, max_bytes=1024 * 1024)
     with pytest.raises(ResumePlanStaleError):
         require_current_resume_plan_source(plan, revised)
+
+
+def test_activation_plan_references_resource_owner_input_without_retaining_receipt(
+    tmp_path: Path,
+) -> None:
+    loader = ResourceLoader(user_resource_roots=())
+    first_receipt = loader.preview_catalog_input_receipt(tmp_path)
+    first_ref = ActivationOwnerInputRefV1(
+        "resources.catalog", first_receipt.input_fingerprint,
+    )
+    current = resolve_coding_composition_set("coding-standard")
+    first = build_session_activation_plan(
+        _history(), current, workspace_root=tmp_path,
+        owner_inputs=(first_ref,),
+    )
+
+    loader.set_runtime_options(no_skills=True)
+    next_receipt = loader.preview_catalog_input_receipt(tmp_path)
+    next_ref = ActivationOwnerInputRefV1(
+        "resources.catalog", next_receipt.input_fingerprint,
+    )
+    changed = build_session_activation_plan(
+        _history(), current, workspace_root=tmp_path,
+        owner_inputs=(next_ref,),
+    )
+    assert first.plan_id != changed.plan_id
+    assert first.owner_inputs == (first_ref,)
+    assert "ResourceCatalogInputReceipt" not in repr(first)

@@ -380,7 +380,20 @@ def test_catalog_input_preview_uses_formal_owner_selection_without_claiming_auth
     assert loader._catalog_inputs_pending is False
     assert loader._initial_resource_catalog_input_receipt is None
     assert loader.get_system_prompt_override() is None
+    assert len(preview.input_fingerprint) == 64
     assert loader.prepare_catalog_input_receipt(project) == preview
+    assert loader.preview_catalog_input_receipt(project).input_fingerprint == (
+        preview.input_fingerprint
+    )
+    loader.set_runtime_options(no_skills=True)
+    assert loader.preview_catalog_input_receipt(project).input_fingerprint != (
+        preview.input_fingerprint
+    )
+    loader.set_package_roots(
+        (package,),
+        {package: PackageSourceConfig(source=str(package), prompts=("review.md",))},
+    )
+    assert len(loader.preview_catalog_input_receipt(project).input_fingerprint) == 64
 
 
 def test_catalog_input_preview_rejects_loader_configuration_race(
@@ -479,6 +492,7 @@ def test_resource_loader_receipt_carries_verified_package_candidate_facts(
         assert handle.closed is False
         receipt = loader.prepare_catalog_input_receipt(project)
         assert receipt == preview
+        assert receipt.input_fingerprint == preview.input_fingerprint
 
         assert receipt.package_mounts == (mount,)
         assert receipt.package_roots == (handle.root,)
