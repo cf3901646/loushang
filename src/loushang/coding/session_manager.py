@@ -44,8 +44,11 @@ from loushang.harness.transcript.jsonl_file import (
     load_agent_transcript_file,
     load_agent_transcript_header,
 )
-from loushang.harness.transcript.types import ExtensionData
 
+from .resume_activation_attempt import (
+    CodingActivationAttemptV1,
+    validate_coding_activation_attempt_record,
+)
 from .resume_binding import (
     CodingRuntimeBindingV1,
     prepare_coding_resume_user_record,
@@ -61,6 +64,7 @@ class _PendingResumeFirstInput:
     original_leaf_id: str | None
     commit_parent_id: str
     attempt_id: str
+    attempt: CodingActivationAttemptV1
     revision: int
     ancestry_digest: str
     lock: asyncio.Lock
@@ -267,16 +271,12 @@ class SessionManager(
         if len(tail) != 1:
             raise ValueError("Coding Resume requires one selected activation attempt")
         intent = tail[0]
-        payload = intent.payload
+        attempt = validate_coding_activation_attempt_record(intent)
         if (
-            not isinstance(payload, ExtensionData)
-            or payload.extension_type != "coding.activation-attempt/v1"
-            or not isinstance(payload.data, dict)
-            or payload.data.get("version") != 1
-            or payload.data.get("attemptId") != attempt_id
-            or payload.data.get("originalLeafId") != original_leaf_id
-            or payload.data.get("ancestryDigest") != ancestry_digest
-            or intent.parent_id != original_leaf_id
+            attempt.attempt_id != attempt_id
+            or attempt.session_id != self.get_header().conversation_id
+            or attempt.original_leaf_id != original_leaf_id
+            or attempt.ancestry_digest != ancestry_digest
         ):
             raise ValueError("Coding Resume activation attempt differs from selected history")
         self._resume_first_input = _PendingResumeFirstInput(
@@ -286,6 +286,7 @@ class SessionManager(
             original_leaf_id=original_leaf_id,
             commit_parent_id=intent.record_id,
             attempt_id=attempt_id,
+            attempt=attempt,
             revision=self._transcript.revision,
             ancestry_digest=projection.ancestry_digest,
             lock=asyncio.Lock(),
@@ -320,8 +321,12 @@ class SessionManager(
                 if (
                     binding.session_id != self.get_header().conversation_id
                     or binding.attempt_id != pending.attempt_id
+                    or binding.input_id != pending.attempt.request_id
                     or binding.original_leaf_id != pending.original_leaf_id
                     or binding.ancestry_digest != pending.ancestry_digest
+                    or binding.planned_fingerprint != pending.attempt.plan_fingerprint
+                    or binding.actual_fingerprint != pending.attempt.epoch_fingerprint
+                    or binding.subject_digest != pending.attempt.subject_digest
                 ):
                     raise ValueError("Coding Resume binding differs from selected history")
                 record = prepare_coding_resume_user_record(

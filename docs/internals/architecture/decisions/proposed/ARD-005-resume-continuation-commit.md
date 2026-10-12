@@ -16,8 +16,10 @@
   RuntimeBinding v1 metadata codec and pure single-record builder. Selected
   ancestry projection preserves an epoch through compaction, excludes bindings
   copied from a source Session fork, and treats unknown later schema as
-  unavailable. Activation admission, full recovery, and runtime wiring are not
-  implemented
+  unavailable. Coding also has an internal bounded activation-attempt v1 record
+  builder and selected-path validator. A test helper commits this candidate
+  intent directly; the production Transcript owner commit, activation admission,
+  full recovery, and runtime wiring are not implemented
 - Owner: Loushang architecture, Coding continuity, and Harness transcript
 - Tracking: [Issue #696](https://github.com/zhnt/loushang/issues/696)
 
@@ -93,6 +95,33 @@ shows “message saved, response not started.” A model attempt with uncertain
 external outcome is marked unknown and is not automatically replayed. The
 first writable slice does not cover automatic Continue, compaction, or other
 effectful commands without a UserMessage.
+
+### Candidate v1 attempt contract for owner review
+
+The proposed `coding.activation-attempt/v1` intent uses one `extension.data`
+record. Its fixed record ID equals `attemptId`; its parent is the selected
+`originalLeafId`. The exact, bounded data object contains `version: 1`,
+`attemptId`, `requestId`, `sessionId`, `originalLeafId`, `ancestryDigest`,
+`planFingerprint`, `epochFingerprint`, `subjectDigest`, and sorted redacted
+`effectClasses`. The proposed byte ceiling is 4096 bytes. An unknown version
+is inert for historical reading and unavailable for writable continuation.
+
+`requestId` is the stable logical input ID. Before the first input is staged,
+the continuation owner checks the intent against the selected ancestry and
+current Session. The Binding on the single user record must then match the
+intent's attempt, request, Plan, epoch, subject, original leaf, and ancestry.
+Its actual record parent is the intent record ID. The record contains no
+approval grant, mutable lease, resource secret, or assertion that effects
+settled. Fixed-ID intent commit, restart lookup, and unknown-result handling
+must remain with the Transcript owner; a test-only direct commit does not
+establish a production owner path.
+
+The candidate writer capability name is `coding.resume-continuation/v1`.
+Its first shipping build is still undecided. The capability is a release
+gate, not a claim that a historical reader or writer implements this path.
+The owning scopes must accept this exact schema, unknown-version behavior,
+record identity, commit owner, recovery states, and writer boundary before
+the proposed route is enabled.
 
 ## Version And Rollback Boundary
 

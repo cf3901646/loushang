@@ -9,6 +9,11 @@ import pytest
 
 from loushang.ai.types import ImagePart, UserMessage
 from loushang.coding.composition_provenance import CodingCompositionProvenanceV1
+from loushang.coding.resume_activation_attempt import (
+    CodingActivationAttemptV1,
+    prepare_coding_activation_attempt_record,
+    validate_coding_activation_attempt_record,
+)
 from loushang.coding.resume_binding import (
     CODING_RUNTIME_BINDING_METADATA_KEY,
     CodingRuntimeBindingV1,
@@ -55,16 +60,44 @@ async def _append_test_activation_attempt(
         manager._transcript.active_path(),
         current_session_id=manager.header.conversation_id,
     ).ancestry_digest
-    intent_id = await manager.append_custom_entry(
-        "coding.activation-attempt/v1",
-        {
-            "version": 1,
-            "attemptId": "attempt-1",
-            "originalLeafId": original_leaf_id,
-            "ancestryDigest": ancestry,
-        },
+    binding = _binding()
+    attempt = CodingActivationAttemptV1(
+        attempt_id=binding.attempt_id,
+        request_id=binding.input_id,
+        session_id=manager.header.conversation_id,
+        original_leaf_id=original_leaf_id,
+        ancestry_digest=ancestry,
+        plan_fingerprint=binding.planned_fingerprint,
+        epoch_fingerprint=binding.actual_fingerprint,
+        subject_digest=binding.subject_digest,
+        effect_classes=("plugin_activation",),
     )
-    return intent_id, original_leaf_id, ancestry
+    record = prepare_coding_activation_attempt_record(
+        attempt, created_at=datetime(2026, 10, 12, tzinfo=UTC),
+    )
+    await manager._transcript.commit(record)
+    return record.record_id, original_leaf_id, ancestry
+
+
+def test_activation_attempt_is_a_bounded_fixed_id_historical_fact() -> None:
+    attempt = CodingActivationAttemptV1(
+        attempt_id="attempt-1", request_id="input-1", session_id="session-1",
+        original_leaf_id="leaf-1", ancestry_digest="a" * 64,
+        plan_fingerprint="b" * 64, epoch_fingerprint="c" * 64,
+        subject_digest="d" * 64, effect_classes=("plugin_activation",),
+    )
+    record = prepare_coding_activation_attempt_record(
+        attempt, created_at=datetime(2026, 10, 12, tzinfo=UTC),
+    )
+    assert record.record_id == attempt.attempt_id
+    assert record.parent_id == attempt.original_leaf_id
+    assert validate_coding_activation_attempt_record(record) == attempt
+    with pytest.raises(ValueError, match="identity or parent"):
+        validate_coding_activation_attempt_record(replace(record, parent_id=None))
+    with pytest.raises(ValueError, match="fields"):
+        validate_coding_activation_attempt_record(replace(
+            record, payload=replace(record.payload, data={"version": 1}),
+        ))
 
 
 def test_runtime_binding_round_trip_keeps_historical_origin_and_bounded_metadata() -> None:
@@ -339,6 +372,45 @@ def test_staged_resume_first_input_rejects_changed_transcript_revision(tmp_path)
             with pytest.raises(ValueError, match="selected transcript branch changed"):
                 await manager.append_message(message)
             assert len(manager.get_entries()) == 2
+        finally:
+            await manager.dispose_runtime_profile()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("mismatch", [
+    {"input_id": "different-request"},
+    {"planned_fingerprint": "1" * 64},
+    {"actual_fingerprint": "2" * 64},
+    {"subject_digest": "3" * 64},
+])
+def test_staged_resume_first_input_rejects_changed_activation_identity(
+    tmp_path, mismatch,
+) -> None:
+    async def scenario() -> None:
+        manager = await SessionManager.new(
+            session_dir=tmp_path, cwd=str(tmp_path), session_id="session-1",
+            defer_materialization=False,
+        )
+        message = UserMessage(role="user", content="continue", timestamp=1.0)
+        try:
+            _, original_leaf_id, ancestry = await _append_test_activation_attempt(manager)
+            manager._stage_resume_first_user_input(
+                message,
+                prepare_binding=lambda persisted: replace(
+                    _binding(), original_leaf_id=original_leaf_id,
+                    ancestry_digest=ancestry,
+                    payload_digest=coding_user_payload_digest(persisted),
+                    **mismatch,
+                ),
+                created_at=datetime(2026, 10, 12, tzinfo=UTC),
+                original_leaf_id=original_leaf_id,
+                ancestry_digest=ancestry,
+                attempt_id="attempt-1",
+            )
+            with pytest.raises(ValueError, match="binding differs"):
+                await manager.append_message(message)
+            assert len(manager.get_entries()) == 1
         finally:
             await manager.dispose_runtime_profile()
 
