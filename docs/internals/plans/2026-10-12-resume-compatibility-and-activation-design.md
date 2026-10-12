@@ -2564,3 +2564,59 @@ old/new artifacts and the supported rollback matrix remain outstanding. The
 remote `main` query still resolved to `f7d1811418fa51068d739770b6f39054c8ef10a7`,
 matching the integrated task baseline. No release, push or remote write was
 performed.
+
+#### Installed local old/new writer and export comparison
+
+Two isolated, locally built wheels now have concrete reader/export/writer
+evidence. They are development candidates, not released N and N+1 versions:
+
+| Candidate source | Wheel SHA256 | Verified package files |
+| --- | --- | --- |
+| main `f7d1811418fa51068d739770b6f39054c8ef10a7` | `4ba16137f3dfdd22def372b71ed9e07214e22d0df1dccf5d114f2f25f3cc3878` | 1683 |
+| task `9a866b25` | `0eb54daaae6e4c0a8193cb52ed39b8548d0e5c9e1178677e038064874c5c7fe6` | 1699 |
+
+The first main build was rejected by source/installed-byte verification before
+any Session operation: the control lane's existing build tree contributed a
+retired `harness/resources/plugins/manager.py` absent from main source. The
+control build directory was preserved. A clean `git archive` of the fixed main
+commit was exported outside the product tree. Its first build terminated with
+an uv executor panic and no wheel; installation/source checks consequently
+failed and no fixture was created from it. Repeating the same offline build
+with temporary and output directories on private disk succeeded. The final
+main wheel above matches every file in the clean export and its installation.
+Neither rejected artifact contributes compatibility evidence.
+
+The main wheel created a legacy Session through its ordinary non-composition
+entry and committed a historical UserMessage. A first fixture attempt using
+`new_with_composition` correctly refused a message before composition startup;
+it was closed and excluded. The task wheel's canonical codec then constructed
+separate private copies preserving the original Header and Session ID: clean
+history, an unbound v1 activation intent, that intent plus an incomplete JSONL
+tail, and an intent followed by a complete v1 RuntimeBinding UserMessage.
+These are codec-valid golden exports, not claims of native effect execution or
+settlement. No Agent, model call or plugin activation was performed.
+
+| History | main reader/export | main writer | task reader/export | task writer |
+| --- | --- | --- | --- | --- |
+| Clean legacy | Preserved one record | Appended | Preserved one record | Appended |
+| Unbound v1 intent | Preserved two records | Appended across intent | Preserved two records | Refused: `history.activation_pending` |
+| Unbound intent plus partial tail | Preserved two complete records | Repaired tail and appended | Preserved two complete records | Refused with entire source, including partial tail, unchanged |
+| Complete v1 Binding | Preserved all three records and Binding metadata | Appended without current Resume admission | Preserved all three records and Binding metadata | Refused: `runtime.current_admission_required` |
+
+All eight cases retained exact original Header bytes and the original Session
+ID. Every read-only observation left its source unchanged. Exported record
+objects equaled the complete decoded source records; the new installed decoder
+validated the Binding in main's export. The old partial-tail write produced
+valid JSONL; the new refused source still retained its incomplete tail bytes.
+Both processes verified isolated package origins throughout. Raw reports,
+the matrix assertion summary and the local evidence runner remain under
+`/home/dev/lsspace/resume696-main-installed-f7d18114/`.
+
+This strengthens ARD-005's existing unsupported-downgrade finding with actual
+installed artifact identities and complete/partial-tail behavior. The main
+writer is not a safe writable rollback target for Resume v1. A minimum supported
+writer capability/build and released-artifact evidence remain required; a
+read/export claim cannot be used to promise that an unfenced old binary refuses
+new records. These Transcript probes do not cover ARD-007's native owner
+journals, cross-boot effect correlation or default writable activation. No
+existing accepted contract, default activation or release policy was changed.
