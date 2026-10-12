@@ -24,6 +24,10 @@ from .product_plan import (
     CODING_PRODUCT_ID,
     CODING_TRANSCRIPT_RUNTIME,
 )
+from .resume_binding import (
+    CodingRuntimeBindingV1,
+    project_coding_runtime_binding_path,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +49,8 @@ class CodingResumeHistoryPreview:
     selected_leaf_id: str | None
     startup: dict[str, object] | None
     provenance_conflict: bool
+    binding_status: Literal["none", "bound", "unknown_version", "invalid"]
+    binding: CodingRuntimeBindingV1 | None
     status: Literal["preview"] = "preview"
 
 
@@ -101,10 +107,23 @@ def read_coding_resume_snapshot(
     )
     startup = historical_startup_composition_record(records)
     composition = header_preview.composition
+    selected_records = repository.active_records()
+    try:
+        binding_projection = project_coding_runtime_binding_path(
+            selected_records, current_session_id=header.conversation_id,
+        )
+        binding_status: Literal["none", "bound", "unknown_version", "invalid"] = (
+            binding_projection.status
+        )
+        binding = binding_projection.binding
+    except ValueError:
+        # Historical viewing remains possible when binding evidence is unusable.
+        binding_status = "invalid"
+        binding = None
     return CodingResumeHistoryPreview(
         header_preview=header_preview,
         records=tuple(records),
-        selected_records=repository.active_records(),
+        selected_records=selected_records,
         selected_leaf_id=repository.leaf_id,
         startup=startup,
         provenance_conflict=(
@@ -115,6 +134,8 @@ def read_coding_resume_snapshot(
                 or startup["planFingerprint"] != composition.plan_fingerprint
             )
         ),
+        binding_status=binding_status,
+        binding=binding,
     )
 
 

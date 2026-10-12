@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from copy import deepcopy
 from dataclasses import replace
+from datetime import UTC, datetime
 
 import pytest
 
@@ -11,6 +12,12 @@ from loushang.coding.composition_provenance import CODING_COMPOSITION_HEADER_KEY
 from loushang.coding.product_plan import (
     CODING_CAPABILITY_PROFILE_METADATA_KEY,
     CODING_RUNTIME_PROFILE_METADATA_KEY,
+)
+from loushang.coding.resume_binding import (
+    CODING_RUNTIME_BINDING_METADATA_KEY,
+    CodingRuntimeBindingV1,
+    coding_user_payload_digest,
+    prepare_coding_resume_user_record,
 )
 from loushang.coding.resume_history import (
     inspect_coding_resume_header,
@@ -144,4 +151,44 @@ def test_readonly_snapshot_selects_one_parent_linked_history_path(tmp_path) -> N
     assert [record.record_id for record in preview.records] == ["root", "left", "right"]
     assert [record.record_id for record in preview.selected_records] == ["root", "right"]
     assert preview.selected_leaf_id == "right"
+    assert preview.binding_status == "none"
     assert path.read_bytes() == before
+
+
+def test_readonly_snapshot_reports_selected_binding_without_blocking_corrupt_history(
+    tmp_path,
+) -> None:
+    path = tmp_path / "binding.jsonl"
+    header = ConversationHeader(
+        conversation_id="session-1", version=1, created_at="2026-10-12T00:00:00Z",
+    )
+    message = UserMessage(role="user", content="continue", timestamp=1.0)
+    binding = CodingRuntimeBindingV1(
+        attempt_id="attempt-1", input_id="input-1", record_id="bound-1",
+        session_id=header.conversation_id, original_leaf_id=None,
+        ancestry_digest="a" * 64, subject_digest="b" * 64,
+        origin_composition=None, planned_fingerprint="c" * 64,
+        actual_fingerprint="d" * 64,
+        payload_digest=coding_user_payload_digest(message),
+    )
+    bound = prepare_coding_resume_user_record(
+        binding, message, commit_parent_id=None,
+        created_at=datetime(2026, 10, 12, tzinfo=UTC),
+    )
+    write_agent_transcript_export(path, header, [bound])
+    before = path.read_bytes()
+
+    preview = read_coding_resume_snapshot(path, max_bytes=1024 * 1024)
+    assert preview.binding_status == "bound"
+    assert preview.binding == binding
+    assert path.read_bytes() == before
+
+    corrupt = replace(
+        bound,
+        metadata={CODING_RUNTIME_BINDING_METADATA_KEY: {"version": 1}},
+    )
+    write_agent_transcript_export(path, header, [corrupt])
+    preview = read_coding_resume_snapshot(path, max_bytes=1024 * 1024)
+    assert preview.binding_status == "invalid"
+    assert preview.binding is None
+    assert preview.selected_records == (corrupt,)

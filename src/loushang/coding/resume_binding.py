@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, cast
@@ -119,6 +119,57 @@ class CodingRuntimeBindingV1:
 class CodingRuntimeBindingObservation:
     status: Literal["absent", "known", "unknown_version"]
     binding: CodingRuntimeBindingV1 | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CodingRuntimeBindingPathProjection:
+    """Last relevant Binding on one complete selected ancestry path."""
+
+    status: Literal["none", "bound", "unknown_version"]
+    binding: CodingRuntimeBindingV1 | None = None
+    record_id: str | None = None
+
+
+def project_coding_runtime_binding_path(
+    records: Iterable[AgentTranscriptRecord], *, current_session_id: str,
+) -> CodingRuntimeBindingPathProjection:
+    """Project historical epoch evidence, without granting current authority.
+
+    The caller must supply the complete, selected root-to-leaf ancestry. A copied
+    source Session Binding in a fork remains origin evidence, not a target epoch.
+    An unknown later schema makes activation unavailable until understood.
+    """
+
+    _require_identifier(current_session_id, name="current Session id")
+    projection = CodingRuntimeBindingPathProjection("none")
+    previous_id: str | None = None
+    seen: set[str] = set()
+    for record in records:
+        if record.parent_id != previous_id or record.record_id in seen:
+            raise ValueError("RuntimeBinding projection requires a complete parent-linked path")
+        seen.add(record.record_id)
+        previous_id = record.record_id
+        observation = inspect_coding_runtime_binding(record.metadata)
+        if observation.status == "absent":
+            continue
+        if record.kind != AGENT_MESSAGE_KIND or not isinstance(record.payload, UserMessage):
+            raise ValueError("RuntimeBinding requires an agent UserMessage record")
+        if observation.status == "unknown_version":
+            projection = CodingRuntimeBindingPathProjection(
+                "unknown_version", record_id=record.record_id,
+            )
+            continue
+        observed_binding = observation.binding
+        if observed_binding is None:
+            raise ValueError("RuntimeBinding known schema has no binding")
+        binding = validate_coding_runtime_binding_record(
+            record, expected_session_id=observed_binding.session_id,
+        )
+        if binding.session_id == current_session_id:
+            projection = CodingRuntimeBindingPathProjection(
+                "bound", binding=binding, record_id=record.record_id,
+            )
+    return projection
 
 
 def inspect_coding_runtime_binding(
