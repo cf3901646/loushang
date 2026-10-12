@@ -804,6 +804,23 @@ def test_staged_resume_first_input_uses_the_session_append_path(tmp_path) -> Non
             )
             assert record_id == "record-1"
             assert manager.leaf_id == record_id
+            # A bound historical attempt is settled input evidence, while live
+            # Runtime publication is still a separate, uncompleted phase.
+            assert project_coding_activation_attempt_path(
+                manager._transcript.active_path(), current_session_id="session-1",
+            ).status == "none"
+            manager._activation_guard_snapshot = (manager._transcript.revision, manager.leaf_id)
+            with pytest.raises(CodingResumeRecoveryRequired, match="runtime.publication_pending"):
+                manager.require_no_unsettled_resume_activation()
+            with pytest.raises(CodingResumeRecoveryRequired, match="runtime.publication_pending"):
+                manager.mark_composition_startup_prepared()
+            with pytest.raises(CodingResumeRecoveryRequired, match="runtime.publication_pending"):
+                await manager.append_message(UserMessage(role="user", content="next", timestamp=2.0))
+            from loushang.coding.session import AgentSession
+
+            with pytest.raises(CodingResumeRecoveryRequired, match="runtime.publication_pending"):
+                await AgentSession.prepare_model_call_runtime(SimpleNamespace(_coding_session_manager=manager))
+            assert len(manager.get_entries()) == 2
             path = manager.session_file
             assert path is not None
         finally:

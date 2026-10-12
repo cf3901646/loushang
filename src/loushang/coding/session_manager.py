@@ -49,6 +49,7 @@ from loushang.harness.transcript.jsonl_file import (
 
 from .resume_activation_attempt import (
     CodingActivationAttemptV1,
+    CodingResumeRecoveryRequired,
     project_coding_activation_attempt_path,
     require_no_unsettled_coding_activation,
     validate_coding_activation_attempt_record,
@@ -184,6 +185,7 @@ class SessionManager(
     """Coding binding over the Harness-owned Agent transcript session API."""
 
     _resume_first_input: _PendingResumeFirstInput | None = None
+    _resume_runtime_publication_pending: bool = False
     _activation_guard_snapshot: tuple[int, str | None] | None = None
 
     @classmethod
@@ -325,6 +327,10 @@ class SessionManager(
             ancestry_digest=projection.ancestry_digest,
             lock=asyncio.Lock(),
         )
+        # Binding/input durability does not prove that current Runtime owners
+        # have published. The forthcoming activation owner must settle this
+        # separate phase; historical projection cannot open this local gate.
+        self._resume_runtime_publication_pending = True
 
     async def _append_resume_first_user_message(
         self,
@@ -495,6 +501,8 @@ class SessionManager(
 
         if not self.persist:
             return
+        if self._resume_runtime_publication_pending:
+            raise CodingResumeRecoveryRequired("runtime.publication_pending")
         snapshot = (self._transcript.revision, self._transcript.leaf_id)
         if self._activation_guard_snapshot == snapshot:
             return

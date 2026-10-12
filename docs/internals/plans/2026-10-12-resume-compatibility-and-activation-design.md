@@ -30,6 +30,13 @@
   incomplete tail or unavailable authority remains unknown. The observation
   does not clear the activation fence, authorize retry, or start a model call.
   Before record preparation there is no invented fixed-record observation.
+  Staging also closes a distinct local Runtime publication gate. That gate
+  remains closed after successful input/Binding commit, including when the
+  historical attempt projection becomes settled and a historical guard result
+  is cached. Ordinary message writes, startup readiness and Coding model-runtime
+  preparation cannot treat input durability as Runtime publication. The current
+  activation owner's publication and reopening path is not implemented; this
+  local gate is not a durable publication receipt or a crash-recovery authority.
   ResourceLoader
   can calculate Catalog input facts and bounded native context content digests
   without choosing authority; Plan records only their redacted input fingerprint and
