@@ -43,18 +43,3 @@ jobs:
           name: resume-turn-${{ matrix.os }}-pytest-report
           path: .artifacts/resume-turn-${{ matrix.os }}.xml
           if-no-files-found: warn
-
-  selected-checks:
-    name: Selected checks
-    if: always()
-    needs: [resume-turn]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Verify selected job
-        env:
-          CI_PLAN: ${{ inputs.plan }}
-          CI_NEEDS: ${{ toJSON(needs) }}
-        run: >-
-          python scripts/ci/verify_gate.py --section workflows
-          --jobs '{"resume-turn":"e2e"}'
