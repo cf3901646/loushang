@@ -19,6 +19,7 @@ from loushang.coding.resume_binding import (
     validate_coding_runtime_binding_record,
 )
 from loushang.coding.session_manager import SessionManager
+from loushang.harness.conversation import StoreCommitOutcomeUnknown
 from loushang.harness.conversation.repository import ConversationRepository
 from loushang.harness.transcript.jsonl_file import load_agent_transcript_file
 from loushang.harness.transcript.kinds import CONTEXT_COMPACTION_CHECKPOINT_KIND
@@ -237,6 +238,136 @@ def test_resume_user_commit_externalizes_image_before_binding_payload_digest(
         assert records[0].metadata["loushang.request.resource_evidence"] == {
             "schemaVersion": 1,
         }
+
+    asyncio.run(scenario())
+
+
+def test_staged_resume_first_input_uses_the_session_append_path(tmp_path) -> None:
+    async def scenario() -> None:
+        manager = await SessionManager.new(
+            session_dir=tmp_path,
+            cwd=str(tmp_path),
+            session_id="session-1",
+            defer_materialization=False,
+        )
+        message = UserMessage(role="user", content="continue", timestamp=1.0)
+        try:
+            ancestry = project_coding_runtime_binding_path(
+                manager._transcript.active_path(),
+                current_session_id=manager.header.conversation_id,
+            ).ancestry_digest
+            manager._stage_resume_first_user_input(
+                message,
+                prepare_binding=lambda persisted: replace(
+                    _binding(),
+                    original_leaf_id=manager.leaf_id,
+                    ancestry_digest=ancestry,
+                    payload_digest=coding_user_payload_digest(persisted),
+                ),
+                created_at=datetime(2026, 10, 12, tzinfo=UTC),
+            )
+            with pytest.raises(ValueError, match="differs from the staged input"):
+                await manager.append_message(replace(message, content="other"))
+            record_id = await manager.append_message(
+                message,
+                metadata={"loushang.request.resource_evidence": {
+                    "schemaVersion": 1,
+                }},
+            )
+            assert record_id == "record-1"
+            assert manager.leaf_id == record_id
+            path = manager.session_file
+            assert path is not None
+        finally:
+            await manager.dispose_runtime_profile()
+
+        _, records = load_agent_transcript_file(path, read_only=True)
+        assert len(records) == 1
+        assert validate_coding_runtime_binding_record(
+            records[0], expected_session_id="session-1",
+        ).ancestry_digest == ancestry
+        assert records[0].metadata["loushang.request.resource_evidence"] == {
+            "schemaVersion": 1,
+        }
+
+    asyncio.run(scenario())
+
+
+def test_staged_resume_first_input_rejects_changed_transcript_revision(tmp_path) -> None:
+    async def scenario() -> None:
+        manager = await SessionManager.new(
+            session_dir=tmp_path,
+            cwd=str(tmp_path),
+            session_id="session-1",
+            defer_materialization=False,
+        )
+        message = UserMessage(role="user", content="continue", timestamp=1.0)
+        try:
+            manager._stage_resume_first_user_input(
+                message,
+                prepare_binding=lambda _persisted: _binding(),
+                created_at=datetime(2026, 10, 12, tzinfo=UTC),
+            )
+            await manager.append_custom_entry("test.revision", {"version": 1})
+            with pytest.raises(ValueError, match="selected transcript branch changed"):
+                await manager.append_message(message)
+            assert len(manager.get_entries()) == 1
+        finally:
+            await manager.dispose_runtime_profile()
+
+    asyncio.run(scenario())
+
+
+def test_staged_resume_first_input_does_not_replay_after_lost_ack(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        manager = await SessionManager.new(
+            session_dir=tmp_path,
+            cwd=str(tmp_path),
+            session_id="session-1",
+            defer_materialization=False,
+        )
+        message = UserMessage(role="user", content="continue", timestamp=1.0)
+        try:
+            ancestry = project_coding_runtime_binding_path(
+                manager._transcript.active_path(),
+                current_session_id="session-1",
+            ).ancestry_digest
+            manager._stage_resume_first_user_input(
+                message,
+                prepare_binding=lambda persisted: replace(
+                    _binding(), original_leaf_id=None,
+                    ancestry_digest=ancestry,
+                    payload_digest=coding_user_payload_digest(persisted),
+                ),
+                created_at=datetime(2026, 10, 12, tzinfo=UTC),
+            )
+            store = manager._lifecycle_session.runtime_binding.store
+            original = store.append
+            calls = 0
+
+            async def lost_ack(*args, **kwargs):
+                nonlocal calls
+                calls += 1
+                await original(*args, **kwargs)
+                raise StoreCommitOutcomeUnknown("ack lost after durable append")
+
+            monkeypatch.setattr(store, "append", lost_ack)
+            with pytest.raises(StoreCommitOutcomeUnknown):
+                await manager.append_message(message)
+            first_attempt_calls = calls
+            with pytest.raises(StoreCommitOutcomeUnknown, match="authoritative reload"):
+                await manager.append_message(message)
+            assert calls == first_attempt_calls
+            path = manager.session_file
+            assert path is not None
+        finally:
+            await manager.dispose_runtime_profile()
+
+        _, records = load_agent_transcript_file(path, read_only=True)
+        assert len(records) == 1
+        assert records[0].record_id == "record-1"
 
     asyncio.run(scenario())
 

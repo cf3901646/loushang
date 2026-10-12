@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import replace
+import asyncio
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, replace
+from datetime import datetime
 from functools import partial
 from pathlib import Path
 from typing import Self
@@ -23,7 +25,7 @@ from loushang.coding.product_plan import (
     CODING_TRANSCRIPT_RUNTIME,
 )
 from loushang.foundation.json import JSONValue
-from loushang.harness.conversation import ConversationHeader
+from loushang.harness.conversation import ConversationHeader, StoreCommitOutcomeUnknown
 from loushang.harness.runtime import (
     SIDE_QUESTION_PROVIDER_SLOT,
     ResolvedRuntimeProfile,
@@ -42,6 +44,25 @@ from loushang.harness.transcript.jsonl_file import (
     load_agent_transcript_file,
     load_agent_transcript_header,
 )
+
+from .resume_binding import (
+    CodingRuntimeBindingV1,
+    prepare_coding_resume_user_record,
+    project_coding_runtime_binding_path,
+)
+
+
+@dataclass(slots=True)
+class _PendingResumeFirstInput:
+    expected_message: UserMessage
+    prepare_binding: Callable[[UserMessage], CodingRuntimeBindingV1]
+    created_at: datetime
+    original_leaf_id: str | None
+    revision: int
+    ancestry_digest: str
+    lock: asyncio.Lock
+    record_prepared: bool = False
+    outcome_unknown: bool = False
 
 _LIFECYCLE = AgentTranscriptLifecycle(
     bind_runtime=CODING_TRANSCRIPT_RUNTIME.bind_lifecycle
@@ -146,6 +167,8 @@ class SessionManager(
 ):
     """Coding binding over the Harness-owned Agent transcript session API."""
 
+    _resume_first_input: _PendingResumeFirstInput | None = None
+
     @classmethod
     async def new_with_composition(
         cls,
@@ -177,6 +200,13 @@ class SessionManager(
         *,
         metadata: Mapping[str, JSONValue] | None = None,
     ) -> str:
+        pending = self._resume_first_input
+        if isinstance(pending, _PendingResumeFirstInput):
+            if not isinstance(message, UserMessage):
+                raise ValueError("Coding Resume first user input is pending")
+            return await self._append_resume_first_user_message(
+                pending, message, metadata=metadata,
+            )
         if (
             self.persist
             and isinstance(message, UserMessage)
@@ -188,6 +218,97 @@ class SessionManager(
                 "prepare the Session before committing input"
             )
         return await super().append_message(message, metadata=metadata)
+
+    def _stage_resume_first_user_input(
+        self,
+        message: UserMessage,
+        *,
+        prepare_binding: Callable[[UserMessage], CodingRuntimeBindingV1],
+        created_at: datetime,
+    ) -> None:
+        """Register one admitted continuation input after the Writer is owned.
+
+        The activation owner supplies current policy and effect settlement.
+        This method only fences the selected transcript branch and commits the
+        eventual UserMessage through the Product Transcript owner.
+        """
+
+        if not self.persist or not self._transcript.is_materialized:
+            raise ValueError("Coding Resume first input requires a materialized Writer")
+        if not isinstance(message, UserMessage) or not callable(prepare_binding):
+            raise TypeError("Coding Resume first input requires a message and binding owner")
+        if not isinstance(created_at, datetime) or created_at.tzinfo is None:
+            raise ValueError("Coding Resume first input timestamp must be timezone-aware")
+        if self._resume_first_input is not None:
+            raise ValueError("Coding Resume first input is already staged")
+        projection = project_coding_runtime_binding_path(
+            self._transcript.active_path(),
+            current_session_id=self.get_header().conversation_id,
+        )
+        if projection.status == "unknown_version":
+            raise ValueError("Coding Resume has an unknown RuntimeBinding version")
+        self._resume_first_input = _PendingResumeFirstInput(
+            expected_message=message,
+            prepare_binding=prepare_binding,
+            created_at=created_at,
+            original_leaf_id=self.get_leaf_id(),
+            revision=self._transcript.revision,
+            ancestry_digest=projection.ancestry_digest,
+            lock=asyncio.Lock(),
+        )
+
+    async def _append_resume_first_user_message(
+        self,
+        pending: _PendingResumeFirstInput,
+        message: UserMessage,
+        *,
+        metadata: Mapping[str, JSONValue] | None,
+    ) -> str:
+        async with pending.lock:
+            if self._resume_first_input is not pending:
+                raise ValueError("Coding Resume first input was replaced")
+            if pending.outcome_unknown:
+                raise StoreCommitOutcomeUnknown(
+                    "Coding Resume first input requires authoritative reload"
+                )
+            if message != pending.expected_message:
+                raise ValueError("Coding Resume first input differs from the staged input")
+            if (
+                self.get_leaf_id() != pending.original_leaf_id
+                or self._transcript.revision != pending.revision
+            ):
+                raise ValueError("Coding Resume selected transcript branch changed")
+
+            def prepare_record(persisted: UserMessage):
+                binding = pending.prepare_binding(persisted)
+                if not isinstance(binding, CodingRuntimeBindingV1):
+                    raise TypeError("Coding Resume activation returned an invalid binding")
+                if (
+                    binding.session_id != self.get_header().conversation_id
+                    or binding.original_leaf_id != pending.original_leaf_id
+                    or binding.ancestry_digest != pending.ancestry_digest
+                ):
+                    raise ValueError("Coding Resume binding differs from selected history")
+                record = prepare_coding_resume_user_record(
+                    binding,
+                    persisted,
+                    commit_parent_id=pending.original_leaf_id,
+                    created_at=pending.created_at,
+                    resource_metadata=metadata,
+                )
+                pending.record_prepared = True
+                return record
+
+            try:
+                result = await self.commit_prebuilt_user_message_from_message(
+                    message, prepare_record=prepare_record,
+                )
+            except BaseException:
+                if pending.record_prepared:
+                    pending.outcome_unknown = True
+                raise
+            self._resume_first_input = None
+            return result.record_id
 
     @classmethod
     def _session_factory(

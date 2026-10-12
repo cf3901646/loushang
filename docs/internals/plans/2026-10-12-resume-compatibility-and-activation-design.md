@@ -8,13 +8,15 @@
   unverified tail previews, exact-byte digest for bounded historical snapshots,
   historical Binding projection, fixed-ID UserMessage commit primitives with
   image externalization inside the existing Transcript owner, composition
-  comparison, and a data-only internal
-  `SessionActivationPlanV1` envelope exist. ResourceLoader can calculate
+  comparison, a staged first-input path in Coding's SessionManager, and a
+  data-only internal `SessionActivationPlanV1` envelope exist. ResourceLoader
+  can calculate
   Catalog input facts and bounded native context content digests without
   choosing authority; Plan records only their redacted input fingerprint and
   rejects reuse when refreshed owner inputs differ. Skill and other mutable
   Resource content is not closed by this receipt, which cannot replace current
-  owner selection. Writable admission, owner selection
+  owner selection. The staged first-input path is not yet armed by live Resume
+  activation. Writable admission, owner selection
   completion, background scheduling, Hosted readiness, and release evidence
   are not implemented.
 - Revision: R2.1, 2026-10-12; R2 independently rechecked, with the requested
