@@ -1,0 +1,46 @@
+name: Package Unit Quality
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(inputs.plan).unit_packages }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --locked --extra dev
+      - name: Package unit tests
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: uv run python scripts/ci/run_checks.py "unit_${PACKAGE}"
+
+  selected-checks:
+    name: Selected checks
+    if: always()
+    needs: [package]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify selected job
+        env:
+          CI_PLAN: ${{ inputs.plan }}
+          CI_NEEDS: ${{ toJSON(needs) }}
+        run: >-
+          python scripts/ci/verify_gate.py --section workflows
+          --jobs '{"package":"units"}'
