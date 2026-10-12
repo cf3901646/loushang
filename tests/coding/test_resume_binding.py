@@ -752,6 +752,8 @@ def test_staged_resume_retry_requires_the_original_resource_metadata(
             )
             with pytest.raises(RuntimeError, match="before preparing"):
                 await manager.append_message(message, metadata={"evidence": "original"})
+            with pytest.raises(ValueError, match="no prepared record"):
+                await manager._lookup_resume_first_user_input(request_id="input-1")
             with pytest.raises(ValueError, match="metadata changed after admission"):
                 await manager.append_message(message, metadata={"evidence": "changed"})
             assert len(manager.get_entries()) == 1
@@ -927,6 +929,34 @@ def test_staged_resume_first_input_does_not_replay_after_lost_ack(
             with pytest.raises(StoreCommitOutcomeUnknown):
                 await manager.append_message(message)
             first_attempt_calls = calls
+            before_lookup = manager.session_file.read_bytes()
+            before_target = (manager._transcript.revision, manager.leaf_id)
+            for _ in range(2):
+                observed = await manager._lookup_resume_first_user_input(request_id="input-1")
+                assert observed.status == "committed"
+                assert observed.record_id == "record-1"
+            assert manager.session_file.read_bytes() == before_lookup
+            assert (manager._transcript.revision, manager.leaf_id) == before_target
+            path = manager.session_file
+            try:
+                with path.open("ab") as stream:
+                    stream.write(b'{"incomplete":')
+                assert (await manager._lookup_resume_first_user_input(
+                    request_id="input-1",
+                )).status == "unknown"
+            finally:
+                path.write_bytes(before_lookup)
+            try:
+                path.unlink()
+                assert (await manager._lookup_resume_first_user_input(
+                    request_id="input-1",
+                )).status == "unknown"
+            finally:
+                path.write_bytes(before_lookup)
+            assert calls == first_attempt_calls
+            assert (manager._transcript.revision, manager.leaf_id) == before_target
+            with pytest.raises(ValueError, match="request identity differs"):
+                await manager._lookup_resume_first_user_input(request_id="different-request")
             with pytest.raises(StoreCommitOutcomeUnknown, match="authoritative reload"):
                 await manager.append_message(message)
             assert calls == first_attempt_calls

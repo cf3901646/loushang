@@ -35,7 +35,9 @@ from loushang.harness.runtime import (
 )
 from loushang.harness.transcript import (
     AgentTranscriptLifecycle,
+    AgentTranscriptRecord,
     AgentTranscriptSessionFactory,
+    PrebuiltUserMessageLookupResult,
     ProductTranscriptSession,
     SessionSummary,
     TranscriptDeletionOwner,
@@ -75,7 +77,7 @@ class _PendingResumeFirstInput:
     ancestry_digest: str
     lock: asyncio.Lock
     expected_metadata: dict[str, JSONValue] | None = None
-    record_prepared: bool = False
+    prepared_record: AgentTranscriptRecord | None = None
     outcome_unknown: bool = False
 
 _LIFECYCLE = AgentTranscriptLifecycle(
@@ -376,7 +378,12 @@ class SessionManager(
                     created_at=pending.created_at,
                     resource_metadata=metadata_snapshot,
                 )
-                pending.record_prepared = True
+                pending.prepared_record = replace(
+                    record, payload=freeze_coding_user_input(persisted),
+                    metadata=require_json_mapping(
+                        dict(record.metadata), name="Coding Resume prepared input metadata",
+                    ),
+                )
                 return record
 
             try:
@@ -384,11 +391,34 @@ class SessionManager(
                     pending.expected_message, prepare_record=prepare_record,
                 )
             except BaseException:
-                if pending.record_prepared:
+                if pending.prepared_record is not None:
                     pending.outcome_unknown = True
                 raise
             self._resume_first_input = None
             return result.record_id
+
+    async def _lookup_resume_first_user_input(
+        self, *, request_id: str,
+    ) -> PrebuiltUserMessageLookupResult:
+        """Observe a staged input after losing its commit receipt, without replay.
+
+        The original Transcript owner compares the exact persisted payload and
+        metadata retained before dispatch. Observation neither clears the
+        activation fence nor admits retry or model execution; those decisions
+        require fresh owner admission and effect settlement.
+        """
+
+        pending = self._resume_first_input
+        if not isinstance(pending, _PendingResumeFirstInput):
+            raise ValueError("Coding Resume has no staged input to observe")
+        async with pending.lock:
+            if self._resume_first_input is not pending:
+                raise ValueError("Coding Resume first input was replaced")
+            if request_id != pending.attempt.request_id:
+                raise ValueError("Coding Resume input request identity differs")
+            if pending.prepared_record is None:
+                raise ValueError("Coding Resume input has no prepared record to observe")
+            return await self.lookup_prebuilt_user_message(pending.prepared_record)
 
     @classmethod
     def _session_factory(

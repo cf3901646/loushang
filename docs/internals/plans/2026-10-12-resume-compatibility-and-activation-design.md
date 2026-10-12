@@ -23,7 +23,14 @@
   leaf. Verified absence requires complete evidence and an unchanged target;
   an unavailable store, partial tail, or uncertain receipt remains unknown.
   This lookup uses a full authority reload and is not yet the Hosted logical-ID
-  or model-outcome facade. ResourceLoader
+  or model-outcome facade. The staged Coding first-input path now retains a
+  detached copy of its prepared persisted record and exposes an internal
+  request-ID checked observation through that original lookup owner. A lost
+  append acknowledgement can be observed as committed without replay;
+  incomplete tail or unavailable authority remains unknown. The observation
+  does not clear the activation fence, authorize retry, or start a model call.
+  Before record preparation there is no invented fixed-record observation.
+  ResourceLoader
   can calculate Catalog input facts and bounded native context content digests
   without choosing authority; Plan records only their redacted input fingerprint and
   rejects reuse when refreshed owner inputs differ. The synchronous
