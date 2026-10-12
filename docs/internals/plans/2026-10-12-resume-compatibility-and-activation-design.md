@@ -2509,3 +2509,58 @@ and native Resource scheduler modules passed together (36 passed in 1.79
 seconds), using `not live` and `--skip-host-runtime` outside the managed sandbox.
 Ruff and `git diff --check` passed. No production cache, activation permission,
 writer protocol, test timeout or work budget was changed.
+
+#### Isolated installed candidate history evidence
+
+At source commit `9a866b25`, an offline build produced
+`loushang-0.1.0-py3-none-any.whl` with SHA256
+`0eb54daaae6e4c0a8193cb52ed39b8548d0e5c9e1178677e038064874c5c7fe6`.
+The first build using the task-local uv cache failed because its offline index
+did not contain setuptools. The existing global uv cache supplied the build
+dependencies without downloading or changing the dependency lock.
+
+```sh
+uv --cache-dir /home/dev/.cache/uv build --offline --wheel \
+  --out-dir /tmp/loushang-resume696-wheel-9a866b25
+```
+
+A separate environment at
+`/home/dev/lsspace/resume696-installed-9a866b25/venv` was populated by offline,
+locked `uv sync --extra dev --no-install-project --no-editable`, with
+`UV_PROJECT_ENVIRONMENT` pointing there. The candidate wheel was installed
+offline with `--no-deps`; the developer editable environment was not used for
+the verification process.
+
+The retained local evidence runner validates the isolated interpreter,
+distribution direct URL, wheel digest and every installed package file against
+both the wheel and task source. All 1699 package files matched. It invokes
+pytest with `-I`, removes `PYTHONPATH`, disables plugin autoload and overrides
+pytest's pythonpath to the repository root for test helpers, excluding `src`.
+Its session-finish check found no imported Product module outside the isolated
+installed prefix. The three existing modules
+`test_resume_history_preview.py`, `test_runtime_resume_history.py` and
+`test_resume_binding.py` completed with **69 passed in 8.33 seconds** using
+`not live` and `--skip-host-runtime` outside the managed sandbox.
+
+The local runner, origin report, JUnit and terminal report are retained under
+`/home/dev/lsspace/resume696-installed-9a866b25/`; rerun command:
+
+```sh
+env -u PYTHONPATH PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+  /home/dev/lsspace/resume696-installed-9a866b25/venv/bin/python -I \
+  /home/dev/lsspace/resume696-installed-9a866b25/run_installed_history.py
+```
+
+This is actual installed candidate evidence for retired composition/profile
+history, bounded Root reads, Binding decoding and existing quarantine/commit
+APIs. It is not default Embedded/Hosted continuation, native effect recovery,
+Windows installation or a released N/N+1 matrix. `0.1.0` alone does not identify
+this build: its source commit and artifact digest do.
+
+A read-only GitHub release query returned an empty release list. This establishes
+that no GitHub release artifact was available for the matrix at this inspection;
+it does not establish absence of builds in other distribution channels. Released
+old/new artifacts and the supported rollback matrix remain outstanding. The
+remote `main` query still resolved to `f7d1811418fa51068d739770b6f39054c8ef10a7`,
+matching the integrated task baseline. No release, push or remote write was
+performed.
