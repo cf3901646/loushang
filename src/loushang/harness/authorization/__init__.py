@@ -5,6 +5,7 @@ from .execution_profile import (
     ExecutionAuthorizationError,
     ExecutionNetworkAccess,
     constrain_execution_profile,
+    execution_profile_expansion_codes,
     resolve_effective_execution_profile,
 )
 
@@ -13,5 +14,6 @@ __all__ = [
     "ExecutionAuthorizationError",
     "ExecutionNetworkAccess",
     "constrain_execution_profile",
+    "execution_profile_expansion_codes",
     "resolve_effective_execution_profile",
 ]

@@ -30,6 +30,7 @@ from loushang.coding.resume_permission_confirmation import (
     coding_resume_permission_request,
 )
 from loushang.coding.runtime.agent_session_runtime import AgentSessionRuntime
+from loushang.coding.sandbox import coding_workspace_execution_profile
 from loushang.coding.session_manager import SessionManager
 from loushang.harness.approval import DenyApprovalResolver, InteractiveApprovalResolver
 from loushang.harness.session.request_evidence import RESOURCE_EVIDENCE_METADATA_KEY
@@ -142,11 +143,21 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
                 assert await issuer.handle_result(payload["action_id"], outcome="allow_once")
 
             issuer.set_request_presenter(confirm)
+            execution_profile = coding_workspace_execution_profile(workspace, writable=True)
             fact = await issuer.confirm(coding_resume_permission_request(
                 attempt, actor_id="root", expansion_codes=("authority.unknown",),
+                execution_profile=execution_profile,
             ))
             assert fact is not None
-            permission = CodingResumePermissionConfirmation(attempt, "root", ("authority.unknown",), issuer, fact)
+            permission = CodingResumePermissionConfirmation(
+                attempt, "root", ("authority.unknown",), issuer, fact,
+                execution_profile=execution_profile,
+            )
+
+            def admit(observed):
+                permission.require_current(
+                    observed, current_execution_profile=coding_workspace_execution_profile(workspace, writable=True),
+                )
 
             def epoch(observed, receipt):
                 # Production external effect settlement remains a separate owner gate.
@@ -158,10 +169,14 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
                 input_record_id="root-input-record", model=model, no_tools=True,
                 text="/skill:review continue once" if mode == "skill_changed" else "continue once",
                 created_at=datetime(2026, 10, 12, tzinfo=UTC),
-                require_current_admission=permission.require_current,
+                require_current_admission=admit,
                 require_current_epoch_settlement=epoch,
             )
             candidate = prepared.continuation.session
+            assert candidate._sandbox_runtime is not None
+            launcher = candidate._sandbox_runtime._process_launcher
+            assert launcher is not None
+            assert launcher.execution_profile_ceiling == execution_profile
             committed = path.read_bytes()
             with pytest.raises(CodingResumeRecoveryRequired, match="model.root_not_delivered"):
                 await prepared.run_first_input()

@@ -11,6 +11,80 @@ from loushang.coding.resume_permission_confirmation import (
     coding_resume_permission_request,
 )
 from loushang.harness.approval import DenyApprovalResolver, InteractiveApprovalResolver
+from loushang.harness.authorization import EffectiveExecutionProfile
+
+
+@pytest.mark.parametrize("mode", ["current", "read", "write", "network", "denial", "missing_scope", "current_scope_changed"])
+def test_native_resume_confirmation_binds_execution_scope(tmp_path, mode):
+    async def scenario():
+        attempt = CodingActivationAttemptV1(
+            attempt_id="attempt-1", request_id="input-1", session_id="session-1",
+            original_leaf_id="leaf-1", ancestry_digest="a" * 64,
+            plan_fingerprint="b" * 64, epoch_fingerprint="c" * 64, subject_digest="d" * 64,
+        )
+        profile = EffectiveExecutionProfile(
+            readable_roots=(tmp_path,), writable_roots=(tmp_path / "output",),
+            denied_roots=(tmp_path / "secret",), network="restricted",
+        )
+        expansion = ("authority.unknown",)
+        owner = InteractiveApprovalResolver(fallback=DenyApprovalResolver())
+
+        async def present(payload):
+            assert payload["arguments"]["permissionExpansion"] == [
+                "authority.unknown", "execution.baseline_unknown",
+            ]
+            assert payload["arguments"]["executionScope"]["network"] == "restricted"
+            assert payload["arguments"]["executionScope"]["writableRoots"] == [str(tmp_path / "output")]
+            assert await owner.handle_result(payload["action_id"], outcome="allow_once")
+
+        owner.set_request_presenter(present)
+        try:
+            fact = await owner.confirm(coding_resume_permission_request(
+                attempt, actor_id="root", expansion_codes=expansion, execution_profile=profile,
+            ))
+            assert fact is not None
+            bound = CodingResumePermissionConfirmation(
+                attempt, "root", expansion, owner, fact, execution_profile=profile,
+            )
+            bound.require_current(attempt, current_execution_profile=profile)
+            observed = profile
+            if mode == "current":
+                owner.release_confirmation(fact)
+            elif mode == "missing_scope":
+                observed = None
+            elif mode == "current_scope_changed":
+                observed = replace(profile, network="allowed")
+            else:
+                changed = replace(profile, **{
+                    "read": {"readable_roots": (tmp_path.parent,)},
+                    "write": {"writable_roots": (tmp_path,)},
+                    "network": {"network": "allowed"},
+                    "denial": {"denied_roots": ()},
+                }[mode])
+                bound = replace(bound, execution_profile=changed)
+                observed = changed
+            with pytest.raises(PermissionError):
+                bound.require_current(attempt, current_execution_profile=observed)
+        finally:
+            owner.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_resume_execution_scope_request_rejects_unbounded_scope_bytes(tmp_path):
+    attempt = CodingActivationAttemptV1(
+        attempt_id="attempt-1", request_id="input-1", session_id="session-1",
+        original_leaf_id="leaf-1", ancestry_digest="a" * 64,
+        plan_fingerprint="b" * 64, epoch_fingerprint="c" * 64, subject_digest="d" * 64,
+    )
+    root = tmp_path
+    for _ in range(6):
+        root /= "x" * 100
+    profile = EffectiveExecutionProfile(readable_roots=tuple(root / str(index) for index in range(64)))
+    with pytest.raises(ValueError, match="byte budget"):
+        coding_resume_permission_request(
+            attempt, actor_id="root", expansion_codes=("authority.unknown",), execution_profile=profile,
+        )
 
 
 @pytest.mark.parametrize("mode", [

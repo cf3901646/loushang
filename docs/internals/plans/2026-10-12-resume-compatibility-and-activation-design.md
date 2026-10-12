@@ -1622,3 +1622,45 @@ permission differences, prove Plugin/Worker external effect settlement, or
 derive the activation attempt's production epoch fingerprint. Those owner
 producers, default CLI/TUI and Hosted routing, recovery and the remaining
 background/release/performance acceptance are still required by Issue #696.
+
+#### Resume permission confirmation binds the observed execution scope
+
+The original Harness Authorization module now compares native execution scopes
+without issuing authority. It identifies readable/writable expansion, weaker
+network restriction and removed denied subtrees, including partial removal of a
+denied subtree. Entirely denied current roots and baseline denials outside the
+current scope do not falsely count as expansion. An absent baseline is unknown.
+Inputs are bounded to 64 roots per field. These are abstract scope comparisons;
+historical restrictions and a non-widening result grant no current permission.
+
+The existing Coding Resume request can bind this native scope and its observed
+baseline. It adds the owner-computed expansion codes without dropping other
+unknown-authority codes, and includes reviewable current scope data plus bounded
+scope fingerprints. Scope serialization is capped at 16 KiB; the combined code
+budget remains sixteen. The original Approval owner still issues and rechecks
+the exact fact. A scope-bound borrower must receive the current native scope at
+every revalidation; omission, changed scope, rebound wrapper fields or native
+revocation rejects the borrow. No approval store or journal was added.
+
+The original Process launcher now exposes its frozen execution-profile ceiling
+as data. Root first-input fixtures compare the confirmed native Workspace scope
+with this actual original gateway ceiling and recompute the current Workspace
+scope at every admission boundary. The initial assertion against Sandbox
+ExecService was corrected: when Sandbox is disabled that service's profile can
+be absent, even though the original process authorization gateway retains its
+ceiling. This evidence does not establish OS containment or external effects.
+
+The missing Authorization comparison and scope-binding request were reproduced
+before implementation. Native Approval fixtures cover changed readable,
+writable, network and denied scope, omitted current scope and revocation. Root
+transport fixtures use the real native gateway, Writer, fact and transport.
+Default CLI/TUI and Hosted actor/Policy producers, trusted configuration proof
+reuse, formal effect settlement, recovery, production background invocation and
+release/performance acceptance remain incomplete. The full Goal remains active.
+
+Validation: the combined Authorization/confirmation/Root run passed 41 cases,
+including all twelve actual first-input transport scenarios. After adding nested
+denial and bounded-root/byte cases, all 33 Authorization and confirmation tests
+passed. Scoped mypy passed four source files; Ruff, diff whitespace and all nine
+documentation checks passed. Effect-settlement callbacks in the Root fixtures
+still validate orchestration only.

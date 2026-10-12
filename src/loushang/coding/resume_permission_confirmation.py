@@ -18,15 +18,39 @@ from loushang.harness.approval import (
     InteractiveApprovalResolver,
     ensure_approval_action_id,
 )
+from loushang.harness.authorization import (
+    EffectiveExecutionProfile,
+    execution_profile_expansion_codes,
+)
 
 from .resume_activation_attempt import CodingActivationAttemptV1
 
 _EXPANSION = re.compile(r"[a-z][a-z0-9._-]{0,63}\Z")
 
 
+def _execution_scope(profile: EffectiveExecutionProfile) -> tuple[dict[str, object], str]:
+    execution_profile_expansion_codes(profile, None)  # Native type/root budget.
+    document: dict[str, object] = {
+        "readableRoots": sorted(str(root) for root in profile.readable_roots),
+        "writableRoots": sorted(str(root) for root in profile.writable_roots),
+        "deniedRoots": sorted(str(root) for root in profile.denied_roots),
+        "network": profile.network,
+        "policyCode": profile.policy_code,
+        "approvalActionId": profile.approval_action_id,
+    }
+    encoded = dump_json_value(
+        document, name="Coding Resume execution scope", ensure_ascii=True, sort_keys=True,
+    ).encode("utf-8")
+    if len(encoded) > 16 * 1024:
+        raise ValueError("Coding Resume execution scope exceeds its byte budget")
+    return document, hashlib.sha256(b"loushang.coding.resume-execution-scope/v1\0" + encoded).hexdigest()
+
+
 def coding_resume_permission_request(
     attempt: CodingActivationAttemptV1, *, actor_id: str,
     expansion_codes: tuple[str, ...], action_id: str | None = None,
+    execution_profile: EffectiveExecutionProfile | None = None,
+    baseline_execution_profile: EffectiveExecutionProfile | None = None,
 ) -> ApprovalRequest:
     """Bind owner-observed expansion to this exact subject, target and candidate.
 
@@ -43,7 +67,23 @@ def coding_resume_permission_request(
         or expansion_codes != tuple(sorted(set(expansion_codes)))
     ):
         raise ValueError("Coding Resume permission expansion codes are invalid")
-    arguments = {**attempt.to_data(), "permissionExpansion": list(expansion_codes)}
+    if execution_profile is None and baseline_execution_profile is not None:
+        raise ValueError("Coding Resume baseline requires a current execution scope")
+    if execution_profile is not None:
+        expansion_codes = tuple(sorted(set(expansion_codes) | set(
+            execution_profile_expansion_codes(execution_profile, baseline_execution_profile),
+        )))
+        if len(expansion_codes) > 16:
+            raise ValueError("Coding Resume permission expansion codes exceed their budget")
+    arguments: dict[str, object] = {**attempt.to_data(), "permissionExpansion": list(expansion_codes)}
+    if execution_profile is not None:
+        scope, fingerprint = _execution_scope(execution_profile)
+        arguments["executionScope"] = scope  # Reviewable in the native Approval surface.
+        arguments["executionProfileFingerprint"] = fingerprint
+        arguments["baselineExecutionProfileFingerprint"] = (
+            _execution_scope(baseline_execution_profile)[1]
+            if baseline_execution_profile is not None else None
+        )
     encoded = dump_json_value(
         arguments, name="Coding Resume permission confirmation",
         ensure_ascii=True, sort_keys=True,
@@ -73,12 +113,29 @@ class CodingResumePermissionConfirmation:
     expansion_codes: tuple[str, ...]
     owner: InteractiveApprovalResolver
     confirmation: ApprovalConfirmation
+    execution_profile: EffectiveExecutionProfile | None = None
+    baseline_execution_profile: EffectiveExecutionProfile | None = None
 
-    def require_current(self, attempt: CodingActivationAttemptV1) -> None:
+    def require_current(
+        self, attempt: CodingActivationAttemptV1,
+        *, current_execution_profile: EffectiveExecutionProfile | None = None,
+    ) -> None:
         if attempt != self.attempt:
             raise PermissionError("Coding Resume permission confirmation target changed")
+        if (
+            current_execution_profile is not None
+            and type(current_execution_profile) is not EffectiveExecutionProfile
+        ) or (
+            self.execution_profile is not None
+            and type(self.execution_profile) is not EffectiveExecutionProfile
+        ):
+            raise PermissionError("Coding Resume execution scope is not a native profile")
+        if current_execution_profile != self.execution_profile:
+            raise PermissionError("Coding Resume current execution scope is missing or changed")
         expected = coding_resume_permission_request(
             attempt, actor_id=self.actor_id, expansion_codes=self.expansion_codes,
             action_id=self.confirmation.request.action_id,
+            execution_profile=self.execution_profile,
+            baseline_execution_profile=self.baseline_execution_profile,
         )
         self.owner.require_current_confirmation(self.confirmation, request=expected)

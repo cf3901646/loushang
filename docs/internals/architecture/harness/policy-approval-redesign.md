@@ -915,6 +915,26 @@ ancestry, Plan, subject, candidate epoch and owner-observed permission expansion
 to this original owner. This confirmation prerequisite does not compute live
 Policy, settle activation effects or make Resume ready by itself.
 
+Resume may additionally bind a native `EffectiveExecutionProfile` to its exact
+confirmation request. The Authorization owner's
+`execution_profile_expansion_codes` compares readable/writable roots, denied
+subtrees and network rank. Missing baseline is explicitly unknown. Comparison
+is bounded to 64 roots per field and is data only: a historical baseline or an
+empty difference does not prove a live subject, Policy or approval.
+
+Coding's native Approval request carries reviewable current scope data and a
+fingerprint bounded to 16 KiB, alongside bounded expansion codes. Revalidation
+requires an explicitly supplied current scope matching the confirmed scope,
+then checks the same original resolver's confirmation. Omitting or changing
+that scope cannot borrow the fact. Current actor/Policy producers and effect
+settlement remain separate mandatory gates.
+
+The original `ScopeBoundProcessLauncher.execution_profile_ceiling` exposes its
+frozen gateway ceiling as read data. It is not a process-start grant or evidence
+of OS containment. In particular, a disabled Sandbox's ExecService may have no
+execution profile while the original process gateway still holds a managed
+ceiling; consumers must inspect the correct owner and Sandbox status separately.
+
 ## 11. Mandatory Enforcement Gateway
 
 Every effectful tool or Product operation uses one gateway:
