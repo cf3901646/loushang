@@ -69,6 +69,11 @@ from .resume_history import (
     inspect_coding_resume_header,
     read_coding_resume_snapshot,
 )
+from .resume_input_lookup import CodingResumeInputLookupQueryV1
+from .resume_model_outcome import (
+    CodingResumeModelOutcomeObservationV1,
+    observe_coding_resume_model_outcome,
+)
 from .session_manager import (
     _LIFECYCLE,
     SessionManager,
@@ -759,6 +764,23 @@ class CodingHostedSessionCatalogV1:
                 raise CodingHostedCatalogError()
             identity = record.identity
         return CodingHostedHistoryBindingV1(identity, preview)
+
+    async def preview_resume_model_outcome(
+        self, reference: SessionCandidateRefV1, query: CodingResumeInputLookupQueryV1,
+        *, max_bytes: int, selected_leaf_id: str | None = None,
+    ) -> CodingResumeModelOutcomeObservationV1:
+        """Observe original model facts under the current catalog source fence.
+
+        The caller owns current read authorization. A stale discovery reference
+        is rejected; no cached display, Writer or executable Runtime is used.
+        """
+
+        if type(query) is not CodingResumeInputLookupQueryV1:
+            raise TypeError("invalid Coding Resume outcome query")
+        history = await self.preview_history_snapshot(
+            reference, max_bytes=max_bytes, selected_leaf_id=selected_leaf_id,
+        )
+        return observe_coding_resume_model_outcome(history, query)
 
     async def open_history_candidate(
         self, reference: SessionCandidateRefV1, *, max_bytes: int,

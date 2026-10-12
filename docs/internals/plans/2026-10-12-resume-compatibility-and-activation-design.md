@@ -1045,3 +1045,53 @@ This proves Resource-owned scheduling and lifecycle behavior, not production
 Resume invocation, current subject or policy grants, cross-loader Workspace
 deduplication, completed Plan caching or first-message performance acceptance.
 Embedded/TUI, default Hosted activation and release evidence remain pending.
+
+### Read-only initial Model Outcome observation
+
+`observe_coding_resume_model_outcome` correlates one exact, selected-path Resume
+UserMessage with the original Model Input snapshot and native
+`project_model_call_invocations` terminal projection. Input lookup identity is
+the complete persisted record digest, including Binding, parent and timestamp.
+The initial snapshot must anchor to that UserMessage leaf, use Coding's same
+conversation and main purpose, and identify one unambiguous invocation. Native
+outcome snapshot references must match exactly. Repeated input identities or
+multiple anchored snapshots are conflicts, rather than latest-success selection.
+
+The result contains only logical input/record IDs, invocation ID, one snapshot
+ID and `observed_completed`, `observed_failed`, `observed_cancelled`, `unknown`
+or `conflict`. These are historical observations of the initial model call,
+not whole-turn completion, current admission or retry permission. Missing
+snapshots, prepared-only invocations, unknown outcome schemas, mismatched
+references, copied foreign-conversation snapshots, compaction and other users
+remain unknown. Neither an AssistantMessage nor an input commit proves model
+completion. The original required Model Input codec remains unchanged: an
+unsupported required version is rejected by that reader, not implicitly adopted.
+
+The Hosted catalog's explicit `preview_resume_model_outcome` uses its original
+bounded snapshot and source/closing fences. It reads fresh data for a current
+discovery reference; a stale reference is rejected. It does not use a cached
+display or acquire a Writer/Runtime. Calling services still own current read
+authorization; no new remote profile or submit capability is negotiated here.
+
+The pre-change logical-input/publication baseline passed twenty-three cases.
+Five original offline API-adapter dispatch cases passed outcome correlation for
+completion, provider failure, caller cancellation, Host abort and revocation at
+the snapshot commit barrier. The last case persists a snapshot without invoking
+transport and remains unknown. Actual snapshots anchor to the fixed resumed
+UserMessage record. Existing repeat-dispatch rejection and one-UserMessage
+invariants continue to hold.
+
+The integrated fresh-reader projection, logical-input lookup and Hosted catalog
+run passed thirty-five non-live cases. Sixteen projection cases include restart
+reads, selected branches, duplicate input/snapshot identities, digest and outcome
+reference conflicts, other conversations/users/purposes and unknown payload
+observations. The unknown required-snapshot projection case uses a detached
+in-memory mutation because the original file codec refuses to encode that
+unsupported version; it is not future-version reader compatibility evidence.
+File bytes remain unchanged. Scoped mypy for both source modules and Ruff passed.
+
+This supplies observation needed by recovery but does not authorize automatic
+retry or complete crash recovery. Default production activation, scoped Hosted
+outcome delivery, first-input deduplication, current policy/effect settlement,
+Embedded/TUI and release/performance evidence remain required. Goal and Issue
+#696 remain incomplete.

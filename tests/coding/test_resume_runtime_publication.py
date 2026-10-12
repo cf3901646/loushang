@@ -305,6 +305,32 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
                             assert [m["content"][0]["text"] for m in messages if m["role"] == "user"] == ["history", "resume once"]
                         snapshots = [r.payload for r in manager.get_entries() if r.kind == "model.input.prepared"]
                         assert len(snapshots) == 1
+                        assert snapshots[0].source_leaf_id == "record-1"
+                        from loushang.coding.resume_input_lookup import (
+                            CodingResumeInputLookupQueryV1,
+                            coding_resume_input_record_digest,
+                        )
+                        from loushang.coding.resume_model_outcome import (
+                            observe_coding_resume_model_outcome,
+                        )
+
+                        input_record = next(record for record in manager.get_entries() if record.record_id == "record-1")
+                        query = CodingResumeInputLookupQueryV1(
+                            attempt.request_id, coding_resume_input_record_digest(input_record),
+                        )
+                        observed = observe_coding_resume_model_outcome(
+                            read_coding_resume_snapshot(path, max_bytes=8 * 1024 * 1024), query,
+                        )
+                        assert observed.input_record_id == "record-1"
+                        assert observed.invocation_id == snapshots[0].invocation_id
+                        assert observed.model_input_snapshot_ids == (snapshots[0].snapshot_id,)
+                        assert observed.status == {
+                            "dispatch_completed": "observed_completed",
+                            "dispatch_error": "observed_failed",
+                            "dispatch_revoked_at_barrier": "unknown",
+                            "dispatch_cancelled": "observed_cancelled",
+                            "dispatch_aborted": "observed_cancelled",
+                        }[mode]
                         assert manager.rebuild_model_input(snapshots[0].snapshot_id).snapshot.purpose == "main"
                         assert len([r for r in manager.get_entries() if isinstance(r.payload, UserMessage)]) == 2
                         with pytest.raises(CodingResumeRecoveryRequired, match="model.dispatch_already_claimed"):

@@ -237,6 +237,14 @@ def test_canonical_hosted_history_previews_changed_environment_without_activatio
         )
         assert comparison.status == "changed"
         assert comparison.difference_codes == ("composition.set_changed",)
+        from loushang.coding.resume_input_lookup import CodingResumeInputLookupQueryV1
+
+        model_observation = await fresh.preview_resume_model_outcome(
+            rows[0].reference, CodingResumeInputLookupQueryV1("unknown-input", "a" * 64),
+            max_bytes=1024 * 1024,
+        )
+        assert model_observation.status == "unknown"
+        assert model_observation.invocation_id is None
         from loushang.appserver.protocol import AppErrorCodeV1, AppServiceError
         from loushang.coding.appservice_adapter import CodingHostedSessionV1
 
@@ -386,6 +394,15 @@ def test_G14_PRODUCT_candidate_revision_is_fenced_before_claim(tmp_path: Path) -
             with pytest.raises(CodingHostedCatalogError):
                 await catalog.preview_history_snapshot(
                     projections[0].reference, max_bytes=1024 * 1024,
+                )
+            from loushang.coding.resume_input_lookup import (
+                CodingResumeInputLookupQueryV1,
+            )
+
+            with pytest.raises(CodingHostedCatalogError):
+                await catalog.preview_resume_model_outcome(
+                    projections[0].reference, CodingResumeInputLookupQueryV1("input-1", "a" * 64),
+                    max_bytes=1024 * 1024,
                 )
             with pytest.raises(CodingHostedCatalogError):
                 await candidate.claim()
