@@ -29,7 +29,7 @@ guard = load_script("verify_gate")
 docs = load_script("check_docs")
 runner = load_script("run_checks")
 worker_sessions = load_script("windows_worker_session_cases")
-pytest_shard = load_script("pytest_shard")
+shard_hash = load_script("shard_hash")
 
 
 class ScopeTests(unittest.TestCase):
@@ -826,7 +826,7 @@ class SuiteSelectionTests(unittest.TestCase):
             runner.commands("agent", shard=0, shards=16)
         nodeids = [f"tests/coding/test_example.py::test_case[{index}]" for index in range(100)]
         groups = [
-            {nodeid for nodeid in nodeids if pytest_shard.shard_for_nodeid(nodeid, 16) == index}
+            {nodeid for nodeid in nodeids if shard_hash.shard_for_nodeid(nodeid, 16) == index}
             for index in range(16)
         ]
         self.assertEqual(set().union(*groups), set(nodeids))
