@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from collections.abc import Awaitable, Callable, Sequence
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
@@ -1595,18 +1596,45 @@ class AgentProductSession(AgentSessionAdapterMixin):
     async def _ensure_session_graph_prepared(
         self,
     ) -> SessionModelCallCapabilityConsumer:
+        return await self._prepare_candidate_session_graph(
+            require_current_admission=self._require_execution_preparation_available,
+        )
+
+    def _require_execution_preparation_available(self) -> None:
         if not self.execution_available:
             raise RuntimeError(
                 "failed execution preparation requires Session retirement"
             )
+
+    def _require_candidate_preparation_admission(
+        self, require_current_admission: Callable[[], None],
+    ) -> None:
+        if getattr(self, "_execution_preparation_failed", False):
+            raise RuntimeError("failed execution preparation requires Session retirement")
+        if not callable(require_current_admission) or inspect.iscoroutinefunction(require_current_admission):
+            raise TypeError("candidate preparation requires synchronous current admission")
+        result = cast(Callable[[], object], require_current_admission)()
+        if result is not None:
+            if inspect.iscoroutine(result):
+                result.close()
+            raise TypeError("candidate preparation admission must return None")
+
+    async def _prepare_candidate_session_graph(
+        self, *, require_current_admission: Callable[[], None],
+    ) -> SessionModelCallCapabilityConsumer:
+        """Prepare the original graph under a Product's live admission check.
+
+        This internal owner path does not change Product execution readiness.
+        The Product must retain its invocation gate until input/effect settlement
+        and Runtime publication. Ordinary callers use the execution-ready check.
+        """
+
+        self._require_candidate_preparation_admission(require_current_admission)
         consumer = self._model_call_consumer
         if consumer is not None:
             return consumer
         async with self._model_call_bind_lock:
-            if not self.execution_available:
-                raise RuntimeError(
-                    "failed execution preparation requires Session retirement"
-                )
+            self._require_candidate_preparation_admission(require_current_admission)
             consumer = self._model_call_consumer
             if consumer is not None:
                 return consumer
@@ -1700,11 +1728,13 @@ class AgentProductSession(AgentSessionAdapterMixin):
                         )
                         await self._preflight_worker_preparation(prepared_catalog)
                         for request in worker_requests:
+                            self._require_candidate_preparation_admission(require_current_admission)
                             prepared_components.append(
                                 await request.prepare_component(
                                     self._capability_graph_runtime.generation + 1
                                 )
                             )
+                self._require_candidate_preparation_admission(require_current_admission)
                 await self._capability_graph_binder.bind(
                     self._capability_graph_runtime,
                     self._session_capability_plan,
@@ -1720,6 +1750,7 @@ class AgentProductSession(AgentSessionAdapterMixin):
                         if item is not None
                     ),
                 )
+                self._require_candidate_preparation_admission(require_current_admission)
                 for prepared in prepared_components:
                     prepared.commit_after_graph_publication()
                 consumer = SessionModelCallCapabilityConsumer(
@@ -1815,6 +1846,7 @@ class AgentProductSession(AgentSessionAdapterMixin):
                 else:
                     commit_session_capability_owner_generations(owner_generations)
                     self._commit_session_owner_generation_evidence()
+                self._require_candidate_preparation_admission(require_current_admission)
             except BaseException as error:
                 if self._defer_output_capture_rollback():
                     # Keep the original staged owners for disposal outside the
@@ -1948,6 +1980,10 @@ class AgentProductSession(AgentSessionAdapterMixin):
                     component_start.host.abort_admission_start(component_start)
                 for start in reversed(owner_starts):
                     start.authority_gate.abort(start)
+            # Retain original owners before the remaining candidate cleanup
+            # awaits. A failed final admission check must remain disposable.
+            self._external_consumer_captures = external_captures
+            self._capability_owner_generations = owner_generations
             staged_candidate = self._staged_resource_candidate
             if catalog_bootstrap is not None:
                 if (
@@ -1976,13 +2012,16 @@ class AgentProductSession(AgentSessionAdapterMixin):
             if self._staged_transcript_candidate.ownership_state == "root_owned":
                 # Graph reuse rejected the freshly supplied transcript candidate.
                 await self._staged_transcript_candidate.dispose_root_owned()
+            try:
+                self._require_candidate_preparation_admission(require_current_admission)
+            except BaseException:
+                self._execution_preparation_failed = True
+                raise
             self._workspace_capability_ports.install(
                 tools=workspace_tools,
                 process=workspace_process,
             )
             self._transcript_capability_ports.install(transcript_consumer)
-            self._external_consumer_captures = external_captures
-            self._capability_owner_generations = owner_generations
             self._transcript_consumer = transcript_consumer
             self._side_question_consumer = side_question
             self._model_call_consumer = consumer

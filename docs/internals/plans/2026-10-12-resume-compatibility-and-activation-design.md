@@ -118,6 +118,18 @@
   local Resume gate closed, including caller mutation of a returned receipt.
   This is a data seam for the upcoming activation coordinator, not live owner
   admission, effect settlement or Runtime publication.
+  Harness AgentProductSession now exposes an internal candidate graph preparation
+  path with an explicit synchronous current-admission check. Ordinary graph
+  preparation delegates to it using the existing execution-readiness check.
+  The candidate path retains original component/owner authority gates, graph
+  binding and rollback; it rechecks admission after lock acquisition, around
+  graph binding, before Worker preparation and before consumer delivery. It
+  rejects a failed execution preparation and checks admission even for a cached
+  graph. Tests keep Product execution unavailable while preparing a candidate,
+  revoke admission during lock/bind waits and verify original owner disposal.
+  This shared owner seam does not implement Coding's live admission decision,
+  input/effect settlement or the final Runtime publication gate; the Coding
+  activation coordinator and its production call sites remain pending.
   ResourceLoader
   can calculate Catalog input facts and bounded native context content digests
   without choosing authority; Plan records only their redacted input fingerprint and

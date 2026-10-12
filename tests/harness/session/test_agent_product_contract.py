@@ -705,6 +705,133 @@ def test_graph_owned_compaction_views_follow_the_current_profile_selection(
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("admission", ["accepted", "denied", "failed_preparation"])
+def test_candidate_graph_requires_live_admission_while_execution_stays_closed(tmp_path, admission):
+    class UnpublishedSession(_ContractProductSession):
+        @property
+        def execution_available(self):
+            return False
+
+    async def scenario():
+        disposed = []
+        _bind_transcript_factory(disposed)
+        product_id = "candidate-admission"
+        transcript = await _new_transcript(tmp_path, product_id=product_id)
+        candidate = _capability_runtime(product_id)
+        session = UnpublishedSession(
+            product_id=product_id, transcript=transcript, capability_runtime=candidate,
+            reserve_tokens=1_111, compact_percent=61.0,
+        )
+        checks = []
+
+        def require_current_admission():
+            checks.append(admission)
+            if admission == "denied":
+                raise PermissionError("candidate admission revoked")
+
+        try:
+            with pytest.raises(RuntimeError, match="Session retirement"):
+                await session.prepare_model_call_runtime()
+            if admission == "failed_preparation":
+                session._execution_preparation_failed = True
+            if admission == "accepted":
+                consumer = await session._prepare_candidate_session_graph(
+                    require_current_admission=require_current_admission,
+                )
+                assert session._model_call_consumer is consumer
+                assert candidate.ownership_state == "graph_owned"
+                assert checks
+                assert not session.execution_available
+                with pytest.raises(RuntimeError, match="Session retirement"):
+                    await session.prepare_model_call_runtime()
+                # A cached graph still needs the caller's current admission.
+                def revoked():
+                    raise PermissionError("candidate admission revoked")
+
+                with pytest.raises(PermissionError):
+                    await session._prepare_candidate_session_graph(require_current_admission=revoked)
+            else:
+                expected = PermissionError if admission == "denied" else RuntimeError
+                with pytest.raises(expected):
+                    await session._prepare_candidate_session_graph(
+                        require_current_admission=require_current_admission,
+                    )
+                assert session._model_call_consumer is None
+                assert candidate.ownership_state == "root_owned"
+        finally:
+            await session.dispose()
+        assert candidate.ownership_state == "disposed"
+        assert disposed == [f"{product_id}-session"]
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("boundary", ["lock", "bind", "delivery"])
+def test_candidate_graph_rechecks_revoked_admission_and_uses_original_rollback(tmp_path, boundary):
+    async def scenario():
+        disposed = []
+        _bind_transcript_factory(disposed)
+        product_id = "candidate-revocation"
+        transcript = await _new_transcript(tmp_path, product_id=product_id)
+        candidate = _capability_runtime(product_id)
+        session = _ContractProductSession(
+            product_id=product_id, transcript=transcript, capability_runtime=candidate,
+            reserve_tokens=1_111, compact_percent=61.0,
+        )
+        entered, release = asyncio.Event(), asyncio.Event()
+        revoked = False
+
+        def require_current_admission():
+            if boundary == "lock":
+                entered.set()
+            if revoked:
+                raise PermissionError("candidate admission revoked")
+            if boundary == "delivery" and session._staged_resource_candidate is None:
+                raise PermissionError("candidate admission revoked before delivery")
+
+        if boundary == "lock":
+            await session._model_call_bind_lock.acquire()
+        elif boundary == "bind":
+            original = session._capability_graph_binder.bind
+
+            async def held(*args, **kwargs):
+                entered.set()
+                await release.wait()
+                return await original(*args, **kwargs)
+
+            session._capability_graph_binder.bind = held
+        task = asyncio.create_task(session._prepare_candidate_session_graph(
+            require_current_admission=require_current_admission,
+        ))
+        entering = asyncio.create_task(entered.wait())
+        try:
+            if boundary != "delivery":
+                await asyncio.wait((task, entering), return_when=asyncio.FIRST_COMPLETED)
+                if not entered.is_set():
+                    await task
+                revoked = True
+                if boundary == "lock":
+                    session._model_call_bind_lock.release()
+                release.set()
+            with pytest.raises(PermissionError):
+                await task
+            assert session._model_call_consumer is None
+            assert candidate.ownership_state == {
+                "lock": "root_owned", "bind": "disposed", "delivery": "graph_owned",
+            }[boundary]
+            if boundary == "delivery":
+                assert not session.execution_available
+        finally:
+            release.set()
+            entering.cancel()
+            await asyncio.gather(entering, task, return_exceptions=True)
+            await session.dispose()
+        assert candidate.ownership_state == "disposed"
+        assert disposed == [f"{product_id}-session"]
+
+    asyncio.run(scenario())
+
+
 def test_initial_catalog_bootstrap_publishes_one_graph_owned_session_view(
     tmp_path: Path,
 ) -> None:
