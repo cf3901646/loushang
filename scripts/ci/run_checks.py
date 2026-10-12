@@ -15,6 +15,14 @@ OFFLINE_MARKERS = (
     "not live and not requires_host_runtime and not tui_render_contract "
     "and not tui_terminal_backend and not tui_terminal_contract and not tui_tmux_integration"
 )
+MODULE_EXTRA_TESTS = {
+    "ai": ["tests/protocols", "tests/examples/test_ai_examples.py",
+           "tests/examples/test_auth_examples.py"],
+    "agent": ["tests/examples/test_agent_examples.py"],
+    "coding": ["tests/examples/test_coding_examples.py"],
+    "harness": ["tests/examples/test_harness_tool_authoring_example.py",
+                "tests/examples/test_harness_document_product_example.py"],
+}
 
 
 def commands(
@@ -23,8 +31,8 @@ def commands(
 ) -> list[list[str]]:
     if shards < 1 or not 0 <= shard < shards:
         raise ValueError(f"invalid regression shard {shard}/{shards}")
-    if scope != "coding" and (shard != 0 or shards != 1):
-        raise ValueError("shards are only supported for Coding regression")
+    if scope != "coding" and not scope.startswith("unit_") and (shard != 0 or shards != 1):
+        raise ValueError("shards are only supported for module regression")
     python = sys.executable
     pytest = [python, "scripts/dev/run_pytest.py"]
     inventories = make_paths(root)
@@ -42,10 +50,23 @@ def commands(
         unit_paths = json.loads((root / "scripts/ci/unit-tests.json").read_text())
         if package not in unit_paths:
             raise ValueError(f"unknown unit package {package!r}")
+        package_dir = root / "tests" / package
+        paths = [f"tests/{package}"] if package_dir.is_dir() else unit_paths[package]
+        extras = MODULE_EXTRA_TESTS.get(package, [])
+        for path in extras:
+            if not (root / path).exists():
+                raise ValueError(f"missing module regression path {path!r}")
+        shard_args = (
+            ["-p", "pytest_shard", "--ci-shard-index", str(shard),
+             "--ci-shard-count", str(shards)]
+            if shards > 1 else []
+        )
         return [
             pytest
-            + unit_paths[package]
-            + ["-m", OFFLINE_MARKERS, "--skip-host-runtime", "--strict-markers", "-q"]
+            + (coding_ignores if package == "coding" else [])
+            + paths + extras
+            + ["-m", f"{OFFLINE_MARKERS} and not e2e_smoke",
+               "--skip-host-runtime", "--strict-markers", "-q", *shard_args]
         ]
     if scope == "e2e_smoke":
         return [

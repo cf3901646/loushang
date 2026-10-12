@@ -30,6 +30,7 @@ FAST_RISK_CHECKS = {
 }
 E2E_PATH_PARTS = ("/session/", "/conversation/", "/transcript/")
 FAST_RISK_RULE_REASONS = {"AI consumer contracts"}
+UNIT_SHARD_COUNTS = {"coding": 16, "harness": 4, "harnesstui": 2, "tui": 2}
 FAST_GATE_INFRA = {
     ".github/workflows/quality.yml",
     ".github/workflows/package-unit-quality.yml",
@@ -249,15 +250,28 @@ def select(
         name: any(checks[check] for check in scopes)
         for name, scopes in rules["workflows"].items()
     }
+    if pr_fast and not full:
+        # A risk path already running the complete package gate owns the same
+        # offline tests; mixed PRs must not launch that module twice.
+        unit_packages = {
+            package for package in unit_packages
+            if not checks.get("tui_unit" if package == "tui" else package, False)
+        }
     if pr_fast and not full and FAST_GATE_INFRA.intersection(paths):
         # Gate changes retain full checks and exercise both new workflows.
-        unit_packages.add("coding")
+        unit_packages.add("agent")
         e2e = True
     if pr_fast and not full and any(
         path.startswith(("src/", "tests/")) and not path.endswith((".md", ".rst"))
         for path in paths
     ):
         e2e = True
+    unit_jobs = [
+        {"package": package, "shard": shard,
+         "shards": UNIT_SHARD_COUNTS.get(package, 1)}
+        for package in sorted(unit_packages)
+        for shard in range(UNIT_SHARD_COUNTS.get(package, 1))
+    ]
     workflows["units"] = bool(unit_packages)
     workflows["e2e"] = e2e
     windows = {
@@ -342,6 +356,7 @@ def select(
         "checks": checks,
         "workflows": workflows,
         "unit_packages": sorted(unit_packages),
+        "unit_jobs": unit_jobs,
         "e2e": e2e,
         "windows": windows,
         "reasons": reasons,
@@ -359,7 +374,7 @@ def workflow_plan(plan: dict) -> dict:
     """
     return {
         key: plan[key]
-        for key in ("version", "paths", "checks", "workflows", "unit_packages", "e2e", "windows")
+        for key in ("version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "windows")
     }
 
 
