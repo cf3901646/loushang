@@ -1115,3 +1115,28 @@ remain incomplete.
 
 The original offline completed-dispatch case also passed with these narrower
 association rules, and all nine documentation checks passed.
+
+#### Embedded history preview native-read settlement
+
+The real Coding Continuity preview now uses the existing native I/O settlement
+helper for Header, selected history, large-file tail fallback, and asset-health
+reads. Cancellation retains the submitted read through actual completion. When
+the preview is called through the original stable Continuity reference, root
+shutdown consequently joins the native read before disposing the binding. A
+second cancellation does not release that ownership or resubmit the read;
+references arriving after root closing fail before reaching the reader.
+
+Two blocked-native-read regressions, for Header and selected-history reads,
+first reproduced premature reference retirement. Both pass after the change,
+including repeated cancellation, concurrent root shutdown, stale-reference
+rejection, one reader invocation, unchanged transcript bytes, and no prepared
+Writer. The complete Continuity test file passed thirty-six non-live cases.
+Scoped source mypy and Ruff passed. Existing byte limits and tail display
+semantics remain in force. Cancellation and provider timeout can finish only
+after submitted native I/O settles; this is ownership evidence, not a native
+I/O latency guarantee or a performance measurement.
+
+This change reaches the production Embedded history-preview path. It does not
+connect the Resource Catalog scheduler to transcript reads, switch the default
+restore operation to a read-only session, or supply first-input activation.
+Full R2.1 delivery, Goal, and Issue #696 remain incomplete.

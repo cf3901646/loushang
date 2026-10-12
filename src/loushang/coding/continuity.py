@@ -53,6 +53,7 @@ from loushang.harness.continuity.plugin_runtime import (
     publish_continuity_plugin_generation_with_mutations,
 )
 from loushang.harness.conversation import IndexedProjection
+from loushang.harness.journal._owned_io import settled_io
 from loushang.harness.runtime import (
     CONTINUITY_PROVIDER_PACKS_SLOT,
     ProductRuntimePlan,
@@ -395,8 +396,11 @@ class CodingContinuityProvider:
             if discovery.conflicts:
                 rows.append(("Conflicting copies", str(len(discovery.conflicts))))
         if summary.session_file is not None:
+            # A cancelled preview still owns each submitted native read until
+            # it settles. Stable references therefore keep root shutdown joined
+            # through real completion rather than just waiter cancellation.
             try:
-                history = await asyncio.to_thread(
+                history = await settled_io(
                     read_coding_resume_header, summary.session_file,
                 )
             except (OSError, ValueError):
@@ -416,7 +420,7 @@ class CodingContinuityProvider:
                         if history.composition is not None else "Legacy unknown",
                     ))
                     try:
-                        snapshot = await asyncio.to_thread(
+                        snapshot = await settled_io(
                             read_coding_resume_snapshot,
                             summary.session_file,
                             max_bytes=1024 * 1024,
@@ -426,7 +430,7 @@ class CodingContinuityProvider:
                             rows.append(("Recent history", "Bounded preview unavailable"))
                         else:
                             try:
-                                recent = await asyncio.to_thread(
+                                recent = await settled_io(
                                     read_coding_resume_recent_page,
                                     summary.session_file,
                                 )
@@ -468,7 +472,7 @@ class CodingContinuityProvider:
         )
         if callable(inspect_assets) and summary.session_file is not None:
             try:
-                asset_health = await asyncio.to_thread(
+                asset_health = await settled_io(
                     inspect_assets,
                     summary.session_file,
                 )

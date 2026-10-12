@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -1103,6 +1104,80 @@ def test_coding_preview_rejects_a_snapshot_from_another_source_revision(
         await shutdown_coding_continuity(runtime)
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("reader_name", [
+    "read_coding_resume_header", "read_coding_resume_snapshot",
+])
+def test_coding_preview_cancellation_keeps_native_read_owned_until_shutdown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reader_name: str,
+) -> None:
+    from loushang.coding import continuity as continuity_module
+    from loushang.harness.continuity import StaleContinuityReferenceError
+
+    runtime = _Runtime(tmp_path)
+    transcript = tmp_path / "session-1.jsonl"
+    write_agent_transcript_export(
+        transcript, _header("session-1"), [_record("record-1", "History")],
+    )
+    before = transcript.read_bytes()
+    composition = bind_coding_continuity(runtime)
+    entered = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    calls = 0
+    original = getattr(continuity_module, reader_name)
+
+    def blocked_read(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        entered.set()
+        try:
+            if not release.wait(5):
+                raise RuntimeError("test native read was not released")
+            return original(*args, **kwargs)
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(continuity_module, reader_name, blocked_read)
+
+    async def scenario() -> None:
+        reference = composition.hub.reference()
+        page = await reference.query(ContinuityQuery(page_size=10))
+        preview = asyncio.create_task(reference.preview(page.items[0].target))
+        close = None
+        try:
+            assert await asyncio.to_thread(entered.wait, 5)
+            preview.cancel()
+            # The actual read is deliberately blocked: cancellation cannot
+            # retire its owning reference before native completion.
+            done, _ = await asyncio.wait({preview}, timeout=0.05)
+            assert not done
+            preview.cancel()  # A second cancellation must retain ownership.
+            close = asyncio.create_task(shutdown_coding_continuity(runtime))
+            async with asyncio.timeout(5):
+                while not composition.hub.closing:
+                    await asyncio.sleep(0)
+            done, _ = await asyncio.wait({close}, timeout=0.05)
+            assert not done
+            with pytest.raises(StaleContinuityReferenceError):
+                await reference.preview(page.items[0].target)
+            assert calls == 1
+            assert not finished.is_set()
+        finally:
+            release.set()
+            await asyncio.gather(preview, return_exceptions=True)
+            if close is not None:
+                await close
+            else:
+                await shutdown_coding_continuity(runtime)
+        assert preview.cancelled()
+        assert finished.is_set()
+        assert calls == 1
+        assert runtime.prepared == []
+
+    asyncio.run(scenario())
+    assert transcript.read_bytes() == before
 
 
 def test_coding_prepare_aborts_when_bounded_file_changes_during_prepare(
