@@ -19,6 +19,7 @@ their results through `quality-gate`. Local development uses the same
 | Terminal lifecycle/platform code | TUI units, playback, platform units, native PTY/ConPTY, and tmux |
 | Hosting provider source | Hosting checks and its AppHost/AppService startup and settlement consumers |
 | Hosted native/wheel evidence helpers, supervisors, and PTY/ConPTY fixture drivers | AppService quality plus G16/G17 native and installed matrices |
+| PR-only edits to the CI routing table, selector, gate verifier, or their existing contract tests | CI routing regressions and pinned Actions syntax check, plus documentation invariants |
 | Shared dependencies, gate infrastructure, or unknown non-document paths | All configured checks |
 
 Rules are additive. Makefile source/test inventories retain explicitly shared
@@ -26,6 +27,11 @@ support paths, such as the Coding product worker canary owned by Harness
 checks. An unchanged package can still be affected by changed dependencies or
 shared test infrastructure. Package dependency direction does not mean every
 consumer change must rerun all of its providers' suites.
+
+The narrow routing-file exception applies only to pull requests. Main pushes
+and scheduled/manual validation keep their existing scopes. Other CI files,
+workflow definitions, test runners, build dependencies, and new unclassified
+test files still select the complete gate.
 
 The host-runtime workflow also limits collection to affected package test
 directories. A Coding-only plan collects Coding host-runtime tests, not Harness

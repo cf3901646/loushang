@@ -326,6 +326,30 @@ class ScopeTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(self.selected(path), expected)
 
+    def test_pr_routing_files_use_ci_contract_gate(self):
+        for path in selector.PR_ROUTING_FILES:
+            with self.subTest(path=path):
+                plan = selector.select([path], pr_fast=True)
+                self.assertEqual(
+                    {name for name, enabled in plan["checks"].items() if enabled},
+                    {"docs", "ci"},
+                )
+        plan = selector.select(sorted(selector.PR_ROUTING_FILES), pr_fast=True)
+        self.assertEqual(
+            {name for name, enabled in plan["checks"].items() if enabled},
+            {"docs", "ci"},
+        )
+
+    def test_pr_routing_exception_keeps_build_and_other_ci_files_full(self):
+        expected = set(selector.select([], full=True)["checks"])
+        for path in (
+            "pyproject.toml", ".github/workflows/quality.yml",
+            "scripts/ci/run_checks.py", "tests/ci/test_new_gate.py",
+        ):
+            with self.subTest(path=path):
+                actual = selector.select([path], pr_fast=True)["checks"]
+                self.assertEqual({name for name, enabled in actual.items() if enabled}, expected)
+
     def test_generated_document_rechecks_source_facts(self):
         self.assertEqual(
             self.selected(

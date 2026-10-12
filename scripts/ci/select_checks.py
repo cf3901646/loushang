@@ -15,6 +15,12 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+PR_ROUTING_FILES = {
+    "scripts/ci/check-scopes.json",
+    "scripts/ci/select_checks.py",
+    "scripts/ci/verify_gate.py",
+    "tests/ci/test_change_gates.py",
+}
 
 
 def git(*args: str, root: Path = ROOT) -> bytes:
@@ -46,7 +52,9 @@ def make_paths(root: Path = ROOT) -> dict[str, list[str]]:
     }
 
 
-def select(paths: list[str], *, full: bool = False, root: Path = ROOT) -> dict:
+def select(
+    paths: list[str], *, full: bool = False, pr_fast: bool = False, root: Path = ROOT
+) -> dict:
     rules = json.loads((root / "scripts/ci/check-scopes.json").read_text())
     checks = {name: False for name in rules["checks"]}
     reasons: dict[str, list[str]] = {name: [] for name in checks}
@@ -81,6 +89,9 @@ def select(paths: list[str], *, full: bool = False, root: Path = ROOT) -> dict:
             "document_files"
         ]:
             enable(["docs"], f"{path}: documentation")
+            continue
+        if pr_fast and not full and path in PR_ROUTING_FILES:
+            enable(["ci"], f"{path}: PR gate routing regression and Actions syntax")
             continue
         matched = False
         for rule in rules["rules"]:
@@ -187,7 +198,10 @@ def main() -> None:
         paths = []
     else:
         paths = local_paths(args.base)
-    plan = select(paths, full=full)
+    plan = select(
+        paths, full=full,
+        pr_fast=args.event and os.environ["GITHUB_EVENT_NAME"] == "pull_request",
+    )
     if args.output:
         args.output.write_text(json.dumps(plan, indent=2) + "\n")
     print(json.dumps(plan, indent=2))
