@@ -21,6 +21,10 @@ from loushang.appserver.protocol import (
     TranscriptRecordV1,
 )
 from loushang.appservice import HostedSessionEventListenerV1, HostedSessionPortV1
+from loushang.appservice.resume_ports import (
+    ResumeInputLookupQueryV1,
+    ResumeInputLookupResultV1,
+)
 from loushang.harness.events import RuntimeEvent
 from loushang.harness.session import (
     SessionControlPort,
@@ -29,6 +33,10 @@ from loushang.harness.session import (
 )
 
 from .product_plan import CODING_PRODUCT_ID
+from .resume_input_lookup import (
+    CodingResumeInputLookupQueryV1,
+    CodingResumeInputLookupResultV1,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +130,23 @@ class CodingHostedSessionV1:
         "_unsubscribed",
         "identity",
     )
+
+    async def lookup_resume_input(
+        self, query: ResumeInputLookupQueryV1,
+    ) -> ResumeInputLookupResultV1:
+        """Adapt the optional Product observation; scoped service owns reads."""
+
+        from loushang.appserver.protocol import AppErrorCodeV1, AppServiceError
+
+        if self._close_task is not None:
+            raise AppServiceError(AppErrorCodeV1.SESSION_UNAVAILABLE)
+        lookup = getattr(self._binding, "lookup_resume_input", None)
+        if not inspect.iscoroutinefunction(lookup):
+            raise AppServiceError(AppErrorCodeV1.OPERATION_UNAVAILABLE)
+        result = await lookup(CodingResumeInputLookupQueryV1(query.input_id, query.record_digest))
+        if type(result) is not CodingResumeInputLookupResultV1:
+            raise AppServiceError(AppErrorCodeV1.SESSION_UNAVAILABLE)
+        return ResumeInputLookupResultV1(result.input_id, result.record_id, result.status)
 
     def __init__(self, binding: CodingHostedSessionBindingV1) -> None:
         self._require_binding(binding)

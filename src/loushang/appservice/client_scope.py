@@ -48,6 +48,7 @@ from ._operations import _observe, _OwnedAppOperations
 from ._scope_interactions import _ScopeInteractions
 from .execution_registry import ExecutionErrorCodeV1, ExecutionServiceErrorV1
 from .execution_service import ScopedExecutionClientV1
+from .resume_ports import ResumeInputLookupQueryV1, ResumeInputLookupResultV1
 from .runtime import AppServiceV1, _SessionOwner
 from .session_discovery import SessionDiscoveryViewV1
 
@@ -485,6 +486,25 @@ class AppClientScopeV1:
         )
         value = await session.snapshot()
         self._attachment(request.attachment_id, request.controller_generation)
+        return value
+
+    async def lookup_resume_input(
+        self, request: SessionSnapshotRequestV1, query: ResumeInputLookupQueryV1,
+    ) -> ResumeInputLookupResultV1:
+        """Read under current attachment/member authority, including delivery.
+
+        The result observes input durability only. It neither reserves an
+        execution nor grants re-admission or permission to replay a model call.
+        """
+
+        self._service._require_request(request, SessionSnapshotRequestV1)
+        self._service._require_request(query, ResumeInputLookupQueryV1)
+        session = await self._session(
+            request.attachment_id, request.controller_generation, request.member_id,
+        )
+        self._require_current_session(request, session)
+        value = await session.lookup_resume_input(query)
+        self._require_current_session(request, session)
         return value
 
     async def start_turn(self, request: TurnTextV1) -> AckV1:

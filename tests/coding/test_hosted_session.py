@@ -147,11 +147,13 @@ async def _binding(tmp_path: Path):
 
 
 def test_hosted_resume_lookup_uses_the_existing_canonical_binding(tmp_path: Path) -> None:
+    from loushang.appservice.resume_ports import ResumeInputLookupQueryV1
     from loushang.coding.hosted_catalog import CodingHostedCatalogError
     from loushang.coding.resume_input_lookup import CodingResumeInputLookupQueryV1
 
     async def scenario():
         binding = await _binding(tmp_path)
+        hosted = CodingHostedSessionV1(binding)
         try:
             original_control = binding.control
             query = CodingResumeInputLookupQueryV1("input-1", "a" * 64)
@@ -160,8 +162,11 @@ def test_hosted_resume_lookup_uses_the_existing_canonical_binding(tmp_path: Path
             assert result.record_id is None
             assert binding.control is original_control
             assert binding._close_task is None
+            assert (await hosted.lookup_resume_input(ResumeInputLookupQueryV1(
+                query.input_id, query.record_digest,
+            ))).status == "unknown"
         finally:
-            await binding.close()
+            await hosted.close()
         with pytest.raises(CodingHostedCatalogError):
             await binding.lookup_resume_input(query)
 

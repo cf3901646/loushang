@@ -76,6 +76,11 @@ from .ports import (
     HostedSessionResolutionFailureV1,
     HostedSessionResolverV1,
 )
+from .resume_ports import (
+    HostedResumeInputLookupPortV1,
+    ResumeInputLookupQueryV1,
+    ResumeInputLookupResultV1,
+)
 from .session_discovery import SessionDiscoveryOwnerV1, SessionDiscoveryViewV1
 
 if TYPE_CHECKING:
@@ -262,6 +267,28 @@ class _SessionOwner:
         if type(value) is not SessionSnapshotV1 or value.identity != self.identity:
             raise _error(AppErrorCodeV1.SESSION_UNAVAILABLE)
         self._latest_cursor = max(self._latest_cursor, value.cursor)
+        return value
+
+    async def lookup_resume_input(
+        self, query: ResumeInputLookupQueryV1,
+    ) -> ResumeInputLookupResultV1:
+        if not self._accepting:
+            raise _error(AppErrorCodeV1.SESSION_UNAVAILABLE)
+        if not isinstance(self._port, HostedResumeInputLookupPortV1):
+            raise _error(AppErrorCodeV1.OPERATION_UNAVAILABLE)
+        try:
+            value = await self._port.lookup_resume_input(query)
+        except asyncio.CancelledError:
+            raise
+        except AppServiceError:
+            raise
+        except BaseException:
+            raise _error(AppErrorCodeV1.SESSION_UNAVAILABLE) from None
+        if (
+            not self._accepting or type(value) is not ResumeInputLookupResultV1
+            or value.input_id != query.input_id
+        ):
+            raise _error(AppErrorCodeV1.SESSION_UNAVAILABLE)
         return value
 
     async def start_turn(self, text: str) -> None:

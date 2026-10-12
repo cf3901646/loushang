@@ -42,7 +42,20 @@
   and rejects lookup once close begins. Callers still need current read
   authorization. SessionManager reload tests cover committed identity with no local
   submission ledger and partial-tail uncertainty. New/old client negotiation,
-  AppService read-admission wiring and model-attempt observation remain pending.
+  transport negotiation and model-attempt observation remain pending. An optional
+  Product-neutral AppService observation port now accepts bounded input IDs and
+  record digests and returns validated durability states. Coding's Hosted
+  adapter converts this port to the native query without exposing Plans or
+  Transcript records. The existing scoped AppService client validates current
+  attachment, member and controller generation before Product lookup and again
+  before delivery. Foreign scopes are rejected before the Product read; controller
+  takeover discards an old scope's late result. Unsupported Product ports return
+  operation unavailable, not absence. Invalid or mismatched results and private
+  Product failures become Session unavailable. This read does not reserve an
+  execution or change old Ack timing; current scope authority is the existing
+  snapshot-read capability, not a new persistent permission grant. AppServer
+  framing, client capability negotiation, actor-policy read revocation and the
+  full Hosted Resume readiness/admission flow remain pending.
   Staging also closes a distinct local Runtime publication gate. That gate
   remains closed after successful input/Binding commit, including when the
   historical attempt projection becomes settled and a historical guard result
