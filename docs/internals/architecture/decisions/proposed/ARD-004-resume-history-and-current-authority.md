@@ -11,8 +11,10 @@
   receipt decoders are separated from current registry resolution and
   discovered Managed/Hosted candidates have read-only Header and bounded
   transcript previews. Coding Continuity displays the historical Header and
-  a bounded recent slice of the selected parent path in its preview; full UI
-  history opening, large-history paging, and activation separation are not implemented
+  a bounded slice of the selected parent path. Read-only snapshots can select
+  a specific leaf and classify that path's RuntimeBinding evidence without
+  granting execution authority. Full UI history opening, large-history paging,
+  and activation separation are not implemented
 - Owner: Loushang architecture, with the affected scope owners
 - Tracking: [Issue #696](https://github.com/zhnt/loushang/issues/696)
 

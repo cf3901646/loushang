@@ -13,8 +13,11 @@
   with a fixed record ID, reject conflicting identity or branch, and reconcile
   a lost acknowledgement after an authoritative MemoryStore reload; a JSONL
   partial tail leaves absence unproven. Coding has a bounded internal
-  RuntimeBinding v1 metadata codec and pure single-record builder; activation
-  admission, full recovery, and runtime wiring are not implemented
+  RuntimeBinding v1 metadata codec and pure single-record builder. Selected
+  ancestry projection preserves an epoch through compaction, excludes bindings
+  copied from a source Session fork, and treats unknown later schema as
+  unavailable. Activation admission, full recovery, and runtime wiring are not
+  implemented
 - Owner: Loushang architecture, Coding continuity, and Harness transcript
 - Tracking: [Issue #696](https://github.com/zhnt/loushang/issues/696)
 
