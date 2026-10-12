@@ -1095,3 +1095,23 @@ retry or complete crash recovery. Default production activation, scoped Hosted
 outcome delivery, first-input deduplication, current policy/effect settlement,
 Embedded/TUI and release/performance evidence remain required. Goal and Issue
 #696 remain incomplete.
+
+#### Initial outcome ordering and later replay
+
+The initial-outcome observer also checks anchored snapshots across the whole
+selected descendant path. A replay of the same input after a later UserMessage
+is a conflict, even when the earlier invocation completed. A sole anchored
+snapshot after that later UserMessage remains unknown. A matching terminal
+Outcome that precedes its prepared snapshot is unknown. The native generic
+Model Call projector remains unchanged; these are Coding's narrower Resume
+association rules.
+
+Both wrong-order and later-replay regressions first reproduced false completed
+observations. The updated fresh-reader observation and logical-input lookup run
+passed twenty-three non-live cases, including both new cases. Scoped mypy and
+Ruff passed. This strengthens historical evidence and still grants no retry or
+current execution authority. Default activation and the full R2.1 delivery
+remain incomplete.
+
+The original offline completed-dispatch case also passed with these narrower
+association rules, and all nine documentation checks passed.

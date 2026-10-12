@@ -45,6 +45,7 @@ from loushang.harness.transcript.model_input_v2_types import (
     "wrong_digest", "wrong_input", "duplicate_input", "duplicate_snapshot",
     "wrong_outcome_reference", "future_outcome", "future_snapshot",
     "wrong_conversation", "wrong_purpose", "other_user", "other_branch",
+    "outcome_before_snapshot", "replayed_after_other_user",
 ])
 def test_resume_model_observation_reopens_exact_selected_input_without_authority(tmp_path, case):
     created = "2026-10-12T00:00:00Z"
@@ -128,6 +129,17 @@ def test_resume_model_observation_reopens_exact_selected_input_without_authority
             payload_version=1, created_at=created,
             payload=UserMessage(role="user", content="branch", timestamp=2.0),
         ))
+    if case == "outcome_before_snapshot":
+        records = [
+            bound, replace(records[2], parent_id=bound.record_id),
+            replace(records[1], parent_id=records[2].record_id),
+        ]
+    elif case == "replayed_after_other_user":
+        append("next-user", AGENT_MESSAGE_KIND, UserMessage(role="user", content="next", timestamp=2.0))
+        append("replayed-snapshot", MODEL_INPUT_PREPARED_KIND,
+               replace(snapshot, snapshot_id="snapshot-2", invocation_id="invocation-2"), version=2)
+        append("replayed-outcome", MODEL_CALL_OUTCOME_KIND,
+               replace(outcome, invocation_id="invocation-2", model_input_snapshot_ids=("snapshot-2",)))
     path = tmp_path / "history.jsonl"
     write_agent_transcript_export(path, header, records)
     before = path.read_bytes()
@@ -149,7 +161,7 @@ def test_resume_model_observation_reopens_exact_selected_input_without_authority
     observed = observe_coding_resume_model_outcome(history, query)
     expected = (
         "observed_" + case if case in ("completed", "failed", "cancelled")
-        else "conflict" if case in ("wrong_digest", "duplicate_input", "duplicate_snapshot")
+        else "conflict" if case in ("wrong_digest", "duplicate_input", "duplicate_snapshot", "replayed_after_other_user")
         else "unknown"
     )
     assert observed.status == expected

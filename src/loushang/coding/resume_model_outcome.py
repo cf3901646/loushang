@@ -90,7 +90,7 @@ def observe_coding_resume_model_outcome(
     unknown = CodingResumeModelOutcomeObservationV1(query.input_id, input_record.record_id)
     end = next((i for i in range(index + 1, len(path)) if isinstance(path[i].payload, UserMessage)), len(path))
     candidates = []
-    for record in path[index + 1:end]:
+    for position, record in enumerate(path[index + 1:], start=index + 1):
         payload = record.payload
         if record.kind == MODEL_INPUT_PREPARED_KIND and not isinstance(payload, ModelInputSnapshot | ModelInputSnapshotV2):
             return unknown
@@ -101,18 +101,26 @@ def observe_coding_resume_model_outcome(
             and payload.conversation_id == session_id
             and payload.product_id == "coding" and payload.purpose == "main"
         ):
-            candidates.append(payload)
+            candidates.append((position, payload))
     if not candidates:
         return unknown
     # Repeated consumption or replay is not collapsed into the latest success.
     if len(candidates) != 1:
         return CodingResumeModelOutcomeObservationV1(query.input_id, input_record.record_id, status="conflict")
-    snapshot = candidates[0]
+    position, snapshot = candidates[0]
+    if position >= end:
+        return unknown
     if len(snapshot.invocation_id) > 256 or len(snapshot.snapshot_id) > 256:
         return unknown
     for record in path[index + 1:]:
         if record.kind == MODEL_CALL_OUTCOME_KIND and not isinstance(record.payload, ModelCallOutcome):
             return unknown
+    if any(
+        isinstance(record.payload, ModelCallOutcome)
+        and record.payload.invocation_id == snapshot.invocation_id
+        for record in path[:position]
+    ):
+        return unknown
     try:
         invocations = project_model_call_invocations(path)
     except ModelInputIntegrityError:
