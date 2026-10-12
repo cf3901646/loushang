@@ -209,6 +209,7 @@ class SessionManager(
     _resume_writer_plan: SessionActivationPlanV1 | None = None
     _resume_committed_attempt: tuple[CodingActivationAttemptV1, str] | None = None
     _resume_committed_plan: SessionActivationPlanV1 | None = None
+    _resume_committed_input: tuple[CodingActivationAttemptV1, AgentTranscriptRecord, str] | None = None
     _activation_guard_snapshot: tuple[int, str | None] | None = None
 
     @property
@@ -330,6 +331,7 @@ class SessionManager(
         self._resume_writer_plan = None
         self._resume_committed_attempt = None
         self._resume_committed_plan = None
+        self._resume_committed_input = None
         result = await self.commit_prebuilt_extension_data(frozen)
         if (
             type(result) is not CommitResult or result.record_id != frozen.record_id
@@ -595,12 +597,75 @@ class SessionManager(
                 result = await self.commit_prebuilt_user_message_from_message(
                     pending.expected_message, prepare_record=prepare_record,
                 )
+                prepared = pending.prepared_record
+                if (
+                    type(result) is not CommitResult or prepared is None
+                    or result.record_id != prepared.record_id
+                    or result.disposition not in {"committed", "already_committed"}
+                ):
+                    raise StoreCommitOutcomeUnknown("Coding Resume input commit was not verified")
+                self._resume_committed_input = (
+                    pending.attempt, prepared, coding_resume_input_record_digest(prepared),
+                )
             except BaseException:
                 if pending.prepared_record is not None:
                     pending.outcome_unknown = True
                 raise
             self._resume_first_input = None
             return result.record_id
+
+    def _require_committed_resume_input(
+        self, attempt_id: str, record_id: str,
+    ) -> tuple[CodingActivationAttemptV1, AgentTranscriptRecord]:
+        """Verify local commit and selected-path identity without granting execution."""
+
+        proof = self._resume_committed_input
+        intent_proof = self._resume_committed_attempt
+        if (
+            proof is None or intent_proof is None or self._resume_first_input is not None
+            or self._lifecycle_session._writer_owner is None
+        ):
+            raise CodingResumeRecoveryRequired("runtime.input_unverified")
+        attempt, expected, digest = proof
+        if attempt_id != attempt.attempt_id or record_id != expected.record_id:
+            raise ValueError("Coding Resume publication differs from its committed input")
+        selected = self._transcript.active_path()
+        try:
+            index = next(i for i, entry in enumerate(selected) if entry.record_id == record_id)
+            if (
+                attempt != intent_proof[0] or index == 0
+                or coding_resume_input_record_digest(expected) != digest
+                or coding_resume_input_record_digest(selected[index]) != digest
+                or selected[index - 1] != prepare_coding_activation_attempt_record(
+                    attempt, created_at=datetime.fromisoformat(intent_proof[1].replace("Z", "+00:00")),
+                )
+                or project_coding_activation_attempt_path(
+                    selected, current_session_id=self.get_header().conversation_id,
+                ).status != "none"
+            ):
+                raise ValueError("Coding Resume committed input identity changed")
+        except (ValueError, StopIteration) as error:
+            raise CodingResumeRecoveryRequired("runtime.input_changed") from error
+        return attempt, expected
+
+    async def _verify_resume_publication_input(
+        self, attempt_id: str, record_id: str,
+    ) -> CodingActivationAttemptV1:
+        attempt, expected = self._require_committed_resume_input(attempt_id, record_id)
+        observation = await self.lookup_prebuilt_user_message(expected)
+        if observation.status != "committed" or observation.record_id != record_id:
+            raise CodingResumeRecoveryRequired("runtime.input_unverified")
+        self._require_committed_resume_input(attempt_id, record_id)
+        return attempt
+
+    def _publish_resume_runtime(self, attempt_id: str, record_id: str) -> None:
+        """Finish the activation owner's synchronous publication after its checks."""
+
+        self._require_committed_resume_input(attempt_id, record_id)
+        if not self._resume_runtime_publication_pending or self.leaf_id != record_id:
+            raise CodingResumeRecoveryRequired("runtime.publication_target_changed")
+        self._coding_composition_ready = True
+        self._resume_runtime_publication_pending = False
 
     async def _lookup_resume_first_user_input(
         self, *, request_id: str,

@@ -921,7 +921,8 @@ def test_staged_resume_first_input_uses_the_session_append_path(tmp_path) -> Non
 
             with pytest.raises(CodingResumeRecoveryRequired, match="runtime.publication_pending"):
                 await AgentSession.prepare_model_call_runtime(SimpleNamespace(_coding_session_manager=manager))
-            inert = SimpleNamespace(_coding_session_manager=manager)
+            inert = object.__new__(AgentSession)
+            inert._coding_session_manager = manager
             # Each boundary fails before it can reach extension hooks, shell
             # services, or compaction setup; the inert binding has none of them.
             with pytest.raises(CodingResumeRecoveryRequired, match="runtime.publication_pending"):

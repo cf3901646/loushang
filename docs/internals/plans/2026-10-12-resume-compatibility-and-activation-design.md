@@ -89,7 +89,7 @@
   Plan pins the initial intent's Session, leaf and ancestry and is consumed
   before commit. Matching these data facts grants no execution permission.
   This internal route is not yet called by Embedded/Hosted Product bootstrap;
-  live policy/owner admission, effects and Runtime publication remain pending.
+  live policy/owner admission, effects and production Runtime publication remain pending.
   The internal SessionManager initial-intent route now validates current
   Session, selected leaf and ancestry, freezes the canonical intent, and closes
   the local Runtime publication gate before its first await into the original
@@ -107,8 +107,8 @@
   execution-availability observation also remains false while local publication
   is pending, so the existing Hosted execution entry rejects dispatch. These
   checks do not implement Hosted readiness or continuation admission. The current
-  activation owner's publication and reopening path is not implemented; this
-  local gate is not a durable publication receipt or a crash-recovery authority.
+  production activation coordinator is not implemented. The internal publication
+  boundary below is not a durable publication receipt or crash-recovery authority.
   Coding AgentSession now builds detached current composition observations in
   a separate internal receipt builder. Ordinary startup calls that builder and
   retains its existing historical Header/startup equality checks. The builder
@@ -142,7 +142,7 @@
   execution gate. Unknown acknowledgements and historical intent alone do not
   establish local preparation admission. This is not yet the production Resume
   coordinator: production bootstrap wiring, native effect correlation, current
-  grants and final Runtime publication remain pending.
+  grants and production Runtime publication remain pending.
   An internal asynchronous Coding bootstrap now constructs a current candidate
   from that same owned resumed Writer after definite intent commit. The Writer
   retains its verified Plan locally; bootstrap matches the canonical current
@@ -154,6 +154,23 @@
   after construction is disposed through the original Session owner before the
   error returns. This route neither settles native effects nor publishes
   execution readiness, and Embedded/Hosted production callers are still pending.
+  The internal Coding publication boundary now retains a definitely committed
+  first-input record and its full digest separately from intent and candidate
+  preparation. Publication requires that same selected input and canonical
+  intent, an original Transcript lookup reporting the exact committed record,
+  and the locally prepared consumer, graph generation and composition receipt.
+  The coordinator must supply both current admission and current epoch/effect
+  settlement checks; neither historical Binding nor local preparation substitutes
+  for them. Admission runs before the lookup await and both checks run before
+  final synchronous publication. Only then does the boundary activate the
+  original Worker turn Tool lease and reopen the local gate. Failure during
+  final publication retires execution preparation. A published local Resume
+  uses these current checks for subsequent model-runtime preparation, shell,
+  extension exec and explicit compaction admission, retaining the first Binding
+  on its selected ancestry and avoiding old startup equality and startup writes.
+  The boundary dispatches no model request and supplies no
+  automatic replay or crash-recovery grant. Live policy/epoch settlement owners,
+  Worker Resume fault coverage and production continuation callers remain pending.
   ResourceLoader
   can calculate Catalog input facts and bounded native context content digests
   without choosing authority; Plan records only their redacted input fingerprint and
@@ -818,3 +835,33 @@ quality gates and Actions platform checks remain pending. These internal tests
 do not prove live subject/policy grants, native effect correlation, production
 Embedded/Hosted continuation, Runtime publication, performance acceptance or
 released N/N+1 behavior.
+
+## Internal Runtime Publication Evidence (2026-10-12)
+
+The pre-change Binding and candidate-preparation baseline passed 51 tests.
+After adding publication, 184 non-live tests passed across publication,
+bootstrap, graph preparation, Binding and ordinary AgentSession. After extending
+published Resume admission to shell, extension exec and explicit compaction,
+the final related Binding/AgentSession/publication run passed 170 tests.
+The existing inert guard fixture now uses the actual AgentSession type so its
+instance admission checks are exercised without downstream execution services.
+
+The final eleven publication cases passed. They cover definite publication,
+unknown input acknowledgement, selected branch change, subject revocation,
+unsettled epoch effects, changed current receipt, missing local graph,
+unknown durable lookup, revocation during lookup, real on-disk input mutation
+and cancellation while awaiting lookup. Successful publication permits current
+runtime preparation and a descendant input without writing historical startup
+records; later revocation rejects model preparation, shell, extension exec and
+explicit compaction. Selecting ancestry without the bound input also rejects
+preparation. Failure cases preserve the closed gate, perform no publication
+history write and dispatch no model request. Publication cancellation retains
+the already committed input and leaves execution closed.
+
+Ruff, mypy for the two Product modules and documentation checks passed. The
+admission and epoch-settlement callbacks in these tests exercise the internal
+boundary contract; they do not establish real current grants or native effect
+journal correlation. Production activation and submit owners must still supply
+those checks and consume the single committed input without appending it again.
+Hosted readiness, model outcome recovery, full quality gates, performance and
+released-artifact acceptance remain pending.
