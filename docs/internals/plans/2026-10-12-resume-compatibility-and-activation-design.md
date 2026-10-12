@@ -2293,3 +2293,17 @@ The next full run preserves its output outside the checkout to avoid another
 lost terminal report. The full Issue remains open, including default activation,
 external-effect reconciliation, Hosted writable preparation, release/version
 compatibility and performance acceptance.
+
+
+#### Native effect association investigation
+
+Source review at `e072a764` confirms that native Definition/component uses and
+Worker attempts retain original identities but do not record a complete parent
+Resume intent association. New COMMITTED component-use checks cannot settle
+older started attempts. A deterministic use-ID sequence alone would not prove
+complete enumeration after changed preparation order. The candidate
+[ARD-007](../architecture/decisions/proposed/ARD-007-resume-native-effect-correlation.md)
+records the original-journal association option, outcome semantics, version and
+retention requirements, and four specific review findings. It is proposed,
+not accepted Target or implemented recovery. Existing accepted ARDs and their
+current safety gates retain their authority.

@@ -80,6 +80,12 @@ draft/proposed and superseded groups only when they contain records.
 | [ARD-005: Commit Resume Binding With The First User Message](accepted/ARD-005-resume-continuation-commit.md) | Accepted | Coding and Harness transcript/session | Co-commit bounded RuntimeBinding and resource evidence with one `agent.message`; reconcile fixed input identity and define reader versus writer rollback boundaries. |
 | [ARD-006: Keep Hosted Resume Readiness Inside One Product Binding](accepted/ARD-006-hosted-resume-readiness-and-admission.md) | Accepted | Coding, AppHost, AppService, AppServer, HarnessTUI | Keep preparing inside AppHost's one live Product binding; preserve Ack timing and use durable input lookup for hosted retry. |
 
+### Proposed In State Directories
+
+| Record | Status | Boundary | Decision summary |
+| --- | --- | --- | --- |
+| [ARD-007: Correlate Resume Effects In Their Original Journals](proposed/ARD-007-resume-native-effect-correlation.md) | Proposed | Coding, Harness Approval and native Worker owners | Attach causal context to original native uses and require complete original-owner reconciliation; native journal versions and disposition contracts remain under review. |
+
 ## Reading And Change Rule
 
 For a cross-scope change:
