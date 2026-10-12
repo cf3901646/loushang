@@ -7,9 +7,12 @@
 - Implementation status: partial — read-only Header, bounded selected-path and
   unverified tail previews, historical Binding projection, fixed-ID UserMessage
   commit primitives, composition comparison, and a data-only internal
-  `SessionActivationPlanV1` envelope exist. Writable admission, current owner
-  selection completion, background scheduling, Hosted readiness, and release
-  evidence are not implemented.
+  `SessionActivationPlanV1` envelope exist. ResourceLoader can calculate
+  Catalog input facts without choosing authority; Plan records only their
+  redacted input fingerprint. This does not prove mutable Resource content or
+  replace current owner selection. Writable admission, owner selection
+  completion, background scheduling, Hosted readiness, and release evidence
+  are not implemented.
 - Revision: R2.1, 2026-10-12; R2 independently rechecked, with the requested
   legacy Ack timing and fork-origin clarifications applied.
 - Owning scope: Coding Session continuity; collaborating scopes: Harness,
