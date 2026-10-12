@@ -432,6 +432,49 @@ def test_unavailable_async_resume_does_not_start_native_work(tmp_path, monkeypat
     assert loader._catalog_preview_tasks is None
 
 
+@pytest.mark.parametrize("separate_owner", [False, True])
+def test_completed_background_plan_rechecks_same_stat_context_content(tmp_path, separate_owner) -> None:
+    background = ResourceLoader(user_resource_roots=())
+    foreground = ResourceLoader(user_resource_roots=()) if separate_owner else background
+    context = tmp_path / "AGENTS.md"
+    context.write_text("context before", encoding="utf-8")
+    original_stat = context.stat()
+
+    async def scenario():
+        try:
+            first = await _async_plan(background, tmp_path)
+            # A completed job's configuration key contains no context bytes.
+            # Matching inode/size/mtime therefore cannot justify reusing it.
+            context.write_text("context after!", encoding="utf-8")
+            os.utime(context, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+            changed_stat = context.stat()
+            assert (
+                changed_stat.st_dev, changed_stat.st_ino,
+                changed_stat.st_size, changed_stat.st_mtime_ns,
+            ) == (
+                original_stat.st_dev, original_stat.st_ino,
+                original_stat.st_size, original_stat.st_mtime_ns,
+            )
+            second = await _async_plan(foreground, tmp_path, priority="foreground")
+            assert first.plan_id != second.plan_id
+            assert first.owner_inputs != second.owner_inputs
+            current = foreground.preview_catalog_input_receipt(tmp_path).input_fingerprint
+            assert ActivationOwnerInputRefV1("resources.catalog", current) in second.owner_inputs
+            with pytest.raises(ResumePlanStaleError, match="owner inputs changed"):
+                require_current_resume_plan_inputs(first, second.owner_inputs)
+            assert await _async_plan(foreground, tmp_path, priority="foreground") == second
+            assert first.owner_selections == second.owner_selections == ()
+            for loader in (background, foreground):
+                assert not loader._catalog_authority_selected
+                assert not loader._legacy_authority_selected
+        finally:
+            await background.aclose()
+            if separate_owner:
+                await foreground.aclose()
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("async_close", [False, True])
 def test_async_resume_cancelled_view_does_not_fence_peer_planning(tmp_path, monkeypatch, async_close) -> None:
     loader = ResourceLoader(user_resource_roots=())

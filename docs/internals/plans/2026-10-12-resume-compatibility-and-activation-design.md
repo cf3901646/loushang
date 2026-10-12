@@ -2484,3 +2484,28 @@ during this run; only the benchmark and this evidence note changed. This
 establishes the affected boundary checks, not the outstanding full release,
 installed-version, Hosted activation or performance gates. All nine static
 documentation checks and `git diff --check` passed for this evidence update.
+
+#### Completed background work and context-content invalidation
+
+The Resource preview task key captures configuration and isolation inputs, but
+does not contain the bytes of mutable workspace context. Its existing sharing
+is limited to running work. Adding a completed-result cache keyed only by that
+configuration would incorrectly retain a Plan after AGENTS content changes.
+
+New fault coverage completes a background Plan, changes AGENTS bytes while
+preserving device, inode, file size and nanosecond mtime, then requests a
+foreground Plan through either the same Resource owner or a separate owner.
+Both cases observe a changed Plan and Resource fingerprint, match the original
+owner's freshly computed input receipt, and reject the old Plan with the fresh
+owner inputs. A further unchanged request remains deterministic. No Resource
+authority or owner selection is acquired. This verifies context-content
+invalidation through the actual async Resource computation; it does not prove
+Skill body admission, default Product planner integration or completed-cache
+safety for other dependencies.
+
+The pre-change focused async planning baseline passed (1 passed, 14 deselected).
+The two new cases passed (2 passed, 15 deselected), then the affected planning
+and native Resource scheduler modules passed together (36 passed in 1.79
+seconds), using `not live` and `--skip-host-runtime` outside the managed sandbox.
+Ruff and `git diff --check` passed. No production cache, activation permission,
+writer protocol, test timeout or work budget was changed.
