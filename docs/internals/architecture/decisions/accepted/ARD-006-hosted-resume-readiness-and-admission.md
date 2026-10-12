@@ -5,8 +5,8 @@
 - ID: `ARD-006`
 - Scope: Loushang cross-scope Coding, AppHost, AppService, AppServer, and HarnessTUI
 - Parent: Loushang architecture
-- Authority: normative when accepted; this proposal is not yet an accepted Target
-- Design status: proposed
+- Authority: normative — accepted Hosted Resume readiness and admission boundary
+- Design status: accepted
 - Implementation status: not-started
 - Owner: Loushang architecture and the affected Product/host/service owners
 - Tracking: [Issue #696](https://github.com/zhnt/loushang/issues/696)
@@ -39,9 +39,9 @@ source-current facts, not an existing background activation queue.
 | Fully activate the Product during discovery | Reuses present binding behavior | Viewing history can import plugin code, acquire resources, or start a Worker. |
 | Put a continuity/readiness facade inside the one Product binding | Keeps AppHost identity and existing execution owner | Requires a narrow Product port, old-client negotiation, and durable input lookup before hosted retry. |
 
-## Proposed Decision And Exact Scope
+## Decision And Exact Scope
 
-Select the third option, subject to affected owner acceptance. AppHost creates
+Select the third option. AppHost creates
 or attaches exactly one canonical live binding for a given Product continuity
 identity. A new persisted Session's binding may initially expose Product
 identity, read-only history snapshot, readiness status, subscription, and
@@ -104,7 +104,13 @@ and old Ack completion/error timing. The [R2.1 review](../../../plans/2026-10-12
 closed the design's Ack wording ambiguity but did not test the protocol or
 accept this cross-scope contract.
 
-Coding, AppHost, AppService, AppServer, HarnessTUI, and their common-parent
-owner must record the exact port, event/state vocabulary, old-client
-negotiation, and accepted release scope before moving this record to
-`accepted/`. No such acceptance is recorded yet.
+On 2026-10-12, the project owner explicitly accepted ARD-004, ARD-005, and
+ARD-006 in the #696 implementation session with “接受，继续”. This records
+the common-parent acceptance for Coding, AppHost, AppService, AppServer, and
+HarnessTUI of the one-binding facade, narrow readiness and durable-lookup port,
+state vocabulary, unchanged old-Ack timing, and identity-limited release scope
+specified here. Concrete port schemas must conform to these boundaries.
+
+Implementation may proceed; Hosted release still requires the Embedded gates,
+negotiation, controller, restart, and multi-client evidence listed above.
+Neither this acceptance nor the R2.1 design review proves delivery.

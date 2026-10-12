@@ -182,6 +182,13 @@ or default activation. Those extensions require their own accepted contracts.
 
 Accepted Target directions include:
 
+- Resume separates readable historical facts from current execution authority;
+  [ARD-004](decisions/accepted/ARD-004-resume-history-and-current-authority.md),
+  [ARD-005](decisions/accepted/ARD-005-resume-continuation-commit.md), and
+  [ARD-006](decisions/accepted/ARD-006-hosted-resume-readiness-and-admission.md)
+  accept same-ID continuation, one-message Binding/evidence commit, and Hosted
+  readiness inside one Product binding. Live admission, recovery, and background
+  performance remain incomplete in the [Delta ledger](current-target-gap-ledger.md);
 - Product-to-Harness-to-Agent-to-AI remains the one-way execution spine;
 - Harness mechanisms remain Product-neutral and Products retain domain policy
   and final composition;

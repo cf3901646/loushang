@@ -5,8 +5,8 @@
 - ID: `ARD-004`
 - Scope: Loushang cross-scope Coding, Harness, AppHost, AppService, and HarnessTUI
 - Parent: Loushang architecture
-- Authority: normative when accepted; this proposal is not yet an accepted Target
-- Design status: proposed
+- Authority: normative — accepted Resume history and authority boundary
+- Design status: accepted
 - Implementation status: partial — historical composition Header and startup
   receipt decoders are separated from current registry resolution and
   discovered Managed/Hosted candidates have read-only Header and bounded
@@ -62,10 +62,10 @@ behavior.
 | Ignore historical evidence and use current defaults | Opens more files | Can guess Product identity, lose explicit user intent, or treat a preview as executable; fails identity and authority constraints. |
 | Separate historical decode, compatibility classification, and current execution admission | Opens readable history while keeping new operations under current authority | Requires typed states and a distinct activation/commit contract; [R2.1](../../../plans/2026-10-12-resume-compatibility-and-activation-design.md) describes that subsequent contract and its release gates. |
 
-## Proposed Decision And Exact Scope
+## Decision And Exact Scope
 
-Select the third option for ordinary Resume, subject to the affected owners'
-acceptance. Historical provenance, receipt, Runtime Profile, and Capability
+Select the third option for ordinary Resume. Historical provenance, receipt,
+Runtime Profile, and Capability
 Profile are immutable audit facts. Decode them using their own versioned shape
 and internal references. Current registry entries or snapshot equality cannot
 retroactively invalidate those facts. A missing `codingCompositionSetV1` is
@@ -140,8 +140,13 @@ cannot be established independently of a mutable registry.
 
 ## Review And Acceptance Record
 
-The R2.1 review covers this proposal's design direction but is not an owner
-acceptance of this ARD. Before moving this record to `accepted/`, Coding,
-Harness, AppHost, AppService, and the Loushang common-parent owner must record
-their accepted scope and any remaining conditions. No acceptance is recorded
-here yet.
+On 2026-10-12, the project owner explicitly accepted ARD-004, ARD-005, and
+ARD-006 in the #696 implementation session with “接受，继续”. This records
+the common-parent decision for Coding, Harness, AppHost, AppService, and
+HarnessTUI within this ARD's stated scope. The earlier independent R2.1
+review remains supporting evidence, rather than the acceptance event.
+
+Acceptance permits implementation of the separated read and execution paths.
+Writable activation still requires the continuation, current authorization,
+failure recovery, and version evidence in ARD-005 and ARD-006. Implementation
+and release acceptance remain unproven.

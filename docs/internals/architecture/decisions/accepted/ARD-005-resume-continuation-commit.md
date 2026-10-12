@@ -5,8 +5,8 @@
 - ID: `ARD-005`
 - Scope: Loushang cross-scope Coding and Harness transcript/session owners
 - Parent: Loushang architecture
-- Authority: normative when accepted; this proposal is not yet an accepted Target
-- Design status: proposed
+- Authority: normative — accepted Resume continuation and commit boundary
+- Design status: accepted
 - Implementation status: partial — the original AgentEventRouter can merge
   optional Product message metadata with resource evidence before one append.
   The existing TranscriptCommitter can commit a prebuilt durable UserMessage
@@ -58,7 +58,7 @@ transaction or durable retry across every backend.
 | Add a new message envelope or rely on batch append | Could package more fields | Old readers may lose message semantics; per-record fallback does not supply group atomicity. |
 | Keep the existing message kind and co-commit bounded metadata | Preserves the ordinary message path and one-record visibility | Requires stable identity, metadata merge, partial-tail and old-version tests, plus a separate effect settlement protocol. |
 
-## Proposed Decision And Exact Scope
+## Decision And Exact Scope
 
 Select the third option for the first user-message-triggered writable current
 Resume. The existing message commit owner constructs one `agent.message`
@@ -129,20 +129,19 @@ or malformed known facts keep historical viewing available but make the pure
 Plan unavailable. Clearing the pending input fact does not settle plugin,
 Worker, Tool, or model effects.
 
-The candidate writer capability name is `coding.resume-continuation/v1`.
-Its first shipping build is still undecided. The capability is a release
-gate, not a claim that a historical reader or writer implements this path.
-The owning scopes must accept this exact schema, unknown-version behavior,
-record identity, commit owner, recovery states, and writer boundary before
-the proposed route is enabled.
+The minimum writer protocol capability is `coding.resume-continuation/v1`.
+Its first shipping build remains a release deliverable. A build advertising
+this capability must implement this schema, unknown-version behavior, record
+identity, commit owner, recovery states, and continuation gate together.
+Historical reader/export support does not imply this writer capability.
 
 ## Version And Rollback Boundary
 
 The first release must identify a concrete minimum writer build or protocol
 capability that understands RuntimeBinding and its continuation gate. Existing
 `pyproject.toml` uses `0.1.0`, so that package version alone is insufficient
-to name the boundary. The exact build/capability identifier remains a release
-decision, not an assumed value in this proposal.
+to name the boundary. The protocol capability is fixed above; the concrete
+first shipping build and tested N/N+1 artifacts must be recorded before release.
 
 A 2026-10-12 local probe used `main` at `e0878dfa` as the old reader/writer
 and an `agent.message` carrying a small unknown `coding.runtimeBindingV1`
@@ -182,7 +181,13 @@ writer behavior. The [R2.1 review](../../../plans/2026-10-12-resume-compatibilit
 identifies message/Blob/restart proof as open investigation. No implementation
 or version compatibility is claimed yet.
 
-Coding, Harness transcript, and their common-parent owner must record the
-accepted schema, commit owner, recovery states, and minimum writer capability
-before this record becomes accepted. The reviewed design is evidence for a
-decision, not the acceptance record itself.
+On 2026-10-12, the project owner explicitly accepted ARD-004, ARD-005, and
+ARD-006 in the #696 implementation session with “接受，继续”. This records
+the common-parent acceptance for Coding and Harness transcript of the bounded
+v1 schema, original Transcript commit owner, fixed-ID recovery states, and
+`coding.resume-continuation/v1` minimum writer capability specified here.
+The independent R2.1 review remains supporting evidence.
+
+Implementation may proceed under this contract. Release still requires the
+fault, reader/export, old-writer, and N/N+1 evidence listed above and a concrete
+first shipping build; acceptance does not assert that those gates have passed.

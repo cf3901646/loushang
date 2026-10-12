@@ -12,6 +12,17 @@ Harness may provide explicitly overridable cross-product platform defaults. It
 does not own domain content/defaults, product stores, product UI state, method
 planning, work event persistence, or AI provider behavior.
 
+## Accepted Resume Contract
+
+Harness owns read-only transcript projection, Writer fencing, and the original single-record commit and reconciliation mechanisms. Product policy and activation admission remain outside Harness.
+
+The project owner accepted the cross-scope #696 boundaries on 2026-10-12:
+[ARD-004](../decisions/accepted/ARD-004-resume-history-and-current-authority.md),
+[ARD-005](../decisions/accepted/ARD-005-resume-continuation-commit.md), and
+[ARD-006](../decisions/accepted/ARD-006-hosted-resume-readiness-and-admission.md).
+The [Delta ledger](../current-target-gap-ledger.md) records remaining work;
+acceptance does not establish writable release or performance readiness.
+
 ## Start Here
 
 - [Screen-first Session Startup](screen-first-session-startup-plan.md) defines

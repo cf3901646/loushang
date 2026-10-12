@@ -2,8 +2,8 @@
 
 ## Status
 
-- Authority: descriptive — candidate design and delivery plan.
-- Design status: proposed; design acceptance is separate from review completion.
+- Authority: descriptive — implementation design and delivery plan; accepted cross-scope contracts are normative in ARD-004/005/006.
+- Design status: proposed — ARD-004/005/006 boundaries were accepted by the project owner on 2026-10-12; further implementation detail and release evidence remain distinct.
 - Implementation status: partial — read-only Header, bounded selected-path and
   unverified tail previews, exact-byte digest for bounded historical snapshots,
   historical Binding projection, fixed-ID UserMessage commit primitives with
@@ -527,10 +527,13 @@ Plan 废弃与取消耗时。冷/热缓存、1/2/8 Session、1万/10万记录及
 
 ## Review And Decision Boundaries
 
-本轮落盘是候选设计与实施顺序，不接受新公共 API、持久化格式或跨 scope 依赖。
-正式实施前，按 [governance profile](../architecture/governance-profile.md) 记录
-受影响 owner 与 common-parent 的决定：恢复兼容契约、continuation 事务格式、
-Hosted readiness/admission 的精确协议及旧版本回滚行为。
+项目 owner 已于 2026-10-12 在 #696 实施会话中明确“接受，继续”。按
+[governance profile](../architecture/governance-profile.md) 记录的跨 scope 接受
+决定为 [ARD-004](../architecture/decisions/accepted/ARD-004-resume-history-and-current-authority.md)、
+[ARD-005](../architecture/decisions/accepted/ARD-005-resume-continuation-commit.md) 和
+[ARD-006](../architecture/decisions/accepted/ARD-006-hosted-resume-readiness-and-admission.md)。
+恢复边界、v1 continuation 契约及 Hosted 单一 binding 语义可进入实施；实际开放
+可写路径仍须满足本文的授权、故障、版本与性能发布条件。
 
 独立评审检查架构性能、安全一致性、兼容产品三视角。评审意见须引用 R1/后续
 具体 revision，区分 demonstrated source facts、设计歧义和需 spike 的假设。

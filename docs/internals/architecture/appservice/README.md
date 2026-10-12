@@ -17,6 +17,17 @@
   route opts into G16 client scopes, without changing default or G14 behavior
 - Owner: Loushang AppService architecture
 
+## Accepted Resume Contract
+
+AppService retains attachment, controller, and execution ownership and consumes a narrow Product readiness and durable-input lookup port. It does not own a second preparation queue.
+
+The project owner accepted the cross-scope #696 boundaries on 2026-10-12:
+[ARD-004](../decisions/accepted/ARD-004-resume-history-and-current-authority.md),
+[ARD-005](../decisions/accepted/ARD-005-resume-continuation-commit.md), and
+[ARD-006](../decisions/accepted/ARD-006-hosted-resume-readiness-and-admission.md).
+The [Delta ledger](../current-target-gap-ledger.md) records remaining work;
+acceptance does not establish writable release or performance readiness.
+
 ## Purpose
 
 AppService is the transport-neutral hosted application boundary over injected
