@@ -2066,6 +2066,83 @@ operation publishes no checkpoint or V2 owner and authorizes no deletion. A new
 checkpoint, Product preflight, owner commit, and retirement are separate steps;
 the installed Worker Session through those steps still needs direct evidence.
 
+### Windows retained-history cutover contract candidate
+
+The Windows Product currently stores opt-in, receipt, Supervisor, and C5
+histories as bounded files, and stores each native provisioning history under
+an attempt-specific name. Its GC reader proves settled retained attempts but
+does not shorten those files. Reaching a file or attempt-inventory bound must
+continue to refuse a new Worker attempt until a Windows Product history owner
+has completed the cutover below. The Linux five-stream index cannot be copied
+as a pathname protocol: Windows launch intent and native Job/provisioning
+evidence are separate Product-owned records.
+
+1. Under runtime quiescence and the Product GC write gate, capture the exact
+   current Desired selection, Package leases and reservations, backup
+   references, native release approval, four root journal histories, every
+   launch intent, and every per-attempt provisioning history. Read through the
+   pinned Product state-root descriptor with native no-follow and private ACL
+   checks. A missing,
+   unrecognized, changed, or staged `worker-*` name remains a refusal.
+2. Join each launched attempt to one historical receipt, its original `allow`
+   decision, immutable C5 identity, Supervisor settlement, LPAC provision and
+   cleanup record, retired payload and orphan lease, and independently observed
+   absence of the exact named Job. Retain any record named by a live Session,
+   incomplete attempt, repair debt, GC reservation, or backup pin. A current
+   revocation does not erase the historical allow used by an older receipt.
+3. Publish one canonical, scope- and Store-bound checkpoint that records byte
+   digests and revision boundaries for every source history, the complete
+   retained reference set, and high-water/tombstone sets for every removed
+   operation, receipt, attempt, C5 admission, and native provisioning identity.
+   Commit a separate anchored Product cutover record only after the checkpoint
+   and typed semantic bases can reconstruct the same selected state. Before
+   that commit, the full old files remain authoritative.
+4. Make every Windows journal writer and every recovery reader consult the
+   committed cutover and tombstones. Reuse of an identity from a retired byte
+   range is rejected before append. The current Product GC reader must replay
+   the same cutover and unresolved deletion debt; a later journal record may
+   extend the committed base only through its next exact revision.
+5. Remove only owner-named, reviewed old files through a durable deletion
+   ledger after all readers and writers use the new base. A crash before the
+   cutover leaves the old authority intact. A crash after cutover leaves
+   resumable deletion debt. An unknown replacement or changed source byte
+   refuses replay and GC.
+
+Acceptance requires native Windows Product reports for ordinary and crash
+attempts, disable/update while an old Session is pinned, exact restart and
+repair, a forced capacity rollover, each checkpoint/cutover/deletion crash
+boundary, and a fresh Worker query after retirement. Each negative case must
+show a no-write refusal or durable debt. This contract remains a candidate;
+the current Windows journals and GC reader still retain complete history.
+
+The first read-only implementation captures a Product-owned source inventory
+under exclusive runtime quiescence and the GC write gate. It hashes every
+recognized Worker state-root file through a pinned native handle with private
+ACL and alternate-stream checks, refuses unknown or changed inventory, and
+records the Product scope, Store, and lease-owner revision. This is byte
+identity evidence for a later semantic checkpoint; it neither publishes a
+cutover nor prunes a source. The native Windows GC job includes an isolated
+source-file and unknown-name refusal case. That source case passed in the
+Windows GC job of Actions run `38123824672`
+at PR #672 head `dd5aa604`: 3 tests passed, zero skipped or failed. The
+old-base workflow was then canceled after that target job; final integrated
+CI remains required after the branch rejoins current `main`.
+A separate read-only settlement review now joins that exact source snapshot to
+the existing Windows GC history reader under the same runtime quiescence and
+GC write gate. It refuses an active runtime or an unsettled cross-owner
+attempt, and binds the successful momentary review to the source digest. This
+is a prerequisite candidate for semantic checkpoint preparation; it contains
+no Package lease, backup, or Desired State closure and authorizes no cutover
+or deletion. Native settled-attempt evidence remains pending.
+The next read-only semantic input joins that same source snapshot with the
+existing offline Windows recovery projection under one runtime quiescence and
+GC snapshot guard. It refuses active GC reservations and Worker backup
+references, rereads every source byte after the semantic read, and returns
+only matching Store and lease-owner revisions. The guarded helper extraction
+preserves the ordinary recovery reader. This input has no durable checkpoint
+record, high-water publication, cutover, or deletion authority; its native
+Windows case remains pending.
+
 1. **Author artifact.** A versioned author recipe packages one Worker
    declaration document, a platform-specific executable, and a manifest whose
    v3 reservation exactly matches the v3 declaration. The recipe validates

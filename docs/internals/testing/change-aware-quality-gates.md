@@ -13,9 +13,9 @@ their results through `quality-gate`. Local development uses the same
 | Ordinary package source or classified unit test on a PR | That package's [unit inventory](../../../scripts/ci/unit-tests.json), plus documentation and source dependency facts |
 | Session, conversation, transcript, or hosted application code on a PR | Package units plus a focused create → turn → resume → turn → close E2E smoke |
 | Public AI contracts, shared Foundation, plugin SDK, and platform or native code | Existing affected package and consumer gates |
-| Terminal lifecycle/platform code | TUI units, playback, platform units, native PTY/ConPTY, and tmux |
+| Terminal lifecycle/platform code | TUI units, playback, native PTY/ConPTY, and tmux; a PR runs one Windows ConPTY startup/exit case unless it changes native backend ownership |
 | Hosting provider source | Hosting checks and its AppHost/AppService startup and settlement consumers |
-| Hosted native/wheel evidence helpers, supervisors, and PTY/ConPTY fixture drivers | AppService quality plus G16/G17 native and installed matrices |
+| Hosted native/wheel evidence helpers, supervisors, and PTY/ConPTY fixture drivers | AppService quality plus G16/G17 native and installed matrices; native evidence changes retain full Windows coverage on the PR |
 | PR-only edits to the CI routing table, selector, gate verifier, or their existing contract tests | CI routing regressions and pinned Actions syntax check, plus documentation invariants |
 | Shared dependencies, gate infrastructure, or unknown non-document paths | All configured checks |
 
@@ -41,6 +41,18 @@ The narrow routing-file exception applies only to pull requests. Main pushes
 and scheduled/manual validation keep their existing scopes. Other CI files,
 workflow definitions, test runners, build dependencies, and new unclassified
 test files still select the complete gate.
+
+Windows jobs have a second selection within their affected scope. An ordinary
+PR selected for Windows Shell runs three native cases: shell execution, an
+ordinary Session, and a hosted Worker query with clean exit evidence.
+AppService runs one authenticated local request and one native console entry
+case; TUI runs one ConPTY startup and
+exit case. Windows Worker recovery and GC changes retain the full Worker jobs;
+private data, ACL, and native package or platform changes retain their affected
+full Windows jobs. Gate infrastructure and unknown paths retain the complete
+Windows matrix. Main pushes and scheduled/manual validation use the full
+Windows suites. The Windows summary verifies each selected full or smoke job,
+including expected skips, against the same change plan.
 
 The host-runtime workflow also limits collection to affected package test
 directories. A Coding-only plan collects Coding host-runtime tests, not Harness

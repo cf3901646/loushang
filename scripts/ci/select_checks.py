@@ -38,6 +38,51 @@ FAST_GATE_INFRA = {
     "scripts/ci/run_checks.py",
     "scripts/ci/unit-tests.json",
 }
+WINDOWS_GATE_INFRA = (
+    ".github/", "scripts/ci/", "tests/ci/", "Makefile", "pyproject.toml",
+    "uv.lock", "tests/conftest.py", "scripts/dev/run_pytest.py",
+    "scripts/dev/verify_pytest_xml.py",
+)
+WINDOWS_WORKER_FULL_PARTS = (
+    "recovery", "crash", "gc", "cleanup", "retire", "lease", "settlement",
+    "activation_state",
+)
+WINDOWS_WORKER_FULL_PREFIXES = (
+    "src/loushang/coding/package_product_worker_windows_",
+    "tests/coding/test_package_product_worker_windows_",
+    "src/loushang/coding/package_external_worker_wheel.py",
+    "src/loushang/coding/package_product_runtime.py",
+    "src/loushang/harness/worker/", "tests/harness/worker/",
+    "src/loushang/hosting/", "tests/hosting/",
+    "tests/coding/test_package_windows_pre_b_snapshot.py",
+)
+WINDOWS_SHELL_FULL_PARTS = (
+    "private_data", "windows_private_acl", "package_pre_b_snapshot",
+    "package_epoch_", "package_installation_private_data",
+    "package_legacy_", "package_cutover", "package_gc",
+    "product_local_wheel_runtime", "plc9b_windows",
+)
+WINDOWS_SHELL_FULL_PREFIXES = (
+    "src/loushang/harness/workspace/", "tests/harness/workspace/",
+    "src/loushang/harness/resources/packages/",
+    "tests/harness/resources/packages/",
+    "src/loushang/harness/sandbox/", "tests/harness/sandbox/",
+    "src/loushang/harness/machine_resources/",
+    "tests/harness/machine_resources/",
+    "src/loushang/hosting/", "tests/hosting/",
+    "tests/coding/test_package_windows_",
+)
+WINDOWS_APPSERVICE_FULL_PARTS = (
+    "record", "security", "auth", "recovery", "native", "installed",
+)
+WINDOWS_APPSERVICE_FULL_PREFIXES = (
+    "src/loushang/appserver/", "tests/appserver/",
+    "src/loushang/hosting/", "tests/hosting/",
+    "tests/coding/_hosted_", "tests/coding/test_mux_",
+)
+WINDOWS_TUI_FULL_PARTS = (
+    "terminal_backends/", "windows_conpty", "terminal_process_support/",
+)
 
 
 def git(*args: str, root: Path = ROOT) -> bytes:
@@ -191,6 +236,65 @@ def select(
         e2e = True
     workflows["units"] = bool(unit_packages)
     workflows["e2e"] = e2e
+    windows = {
+        "smoke": False,
+        "worker_full": False,
+        "shell_full": False,
+        "appservice_full": False,
+        "tui_full": False,
+    }
+    if not pr_fast or full:
+        windows.update({
+            "worker_full": checks["windows_shell"],
+            "shell_full": checks["windows_shell"],
+            "appservice_full": checks["appservice"],
+            "tui_full": checks["tui_native"] or checks["tui_playback"],
+        })
+    else:
+        windows["smoke"] = checks["windows_shell"]
+        for path in paths:
+            # Unknown and gate-infrastructure paths retain the complete native
+            # matrix. New Windows owners must be classified before fast routing.
+            known = any(
+                any(fnmatch.fnmatchcase(path, pattern) for pattern in rule["paths"])
+                for rule in rules["rules"]
+            ) or any(
+                path == entry or path.startswith(entry + "/")
+                for entries in variables.values() for entry in entries
+            )
+            broad = (
+                path.startswith(WINDOWS_GATE_INFRA[:3])
+                or path in WINDOWS_GATE_INFRA[3:]
+                or (not known and not path.endswith((".md", ".rst")))
+            )
+            if broad:
+                windows.update({
+                    "worker_full": checks["windows_shell"],
+                    "shell_full": checks["windows_shell"],
+                    "appservice_full": checks["appservice"],
+                    "tui_full": checks["tui_native"] or checks["tui_playback"],
+                })
+                continue
+            if checks["windows_shell"]:
+                windows["worker_full"] |= (
+                    path.startswith(WINDOWS_WORKER_FULL_PREFIXES)
+                    or ("worker" in path and any(
+                        part in path for part in WINDOWS_WORKER_FULL_PARTS
+                    ))
+                )
+                windows["shell_full"] |= (
+                    path.startswith(WINDOWS_SHELL_FULL_PREFIXES)
+                    or any(part in path for part in WINDOWS_SHELL_FULL_PARTS)
+                )
+            if checks["appservice"]:
+                windows["appservice_full"] |= (
+                    path.startswith(WINDOWS_APPSERVICE_FULL_PREFIXES)
+                    or any(part in path for part in WINDOWS_APPSERVICE_FULL_PARTS)
+                )
+            if checks["tui_native"]:
+                windows["tui_full"] |= any(
+                    part in path for part in WINDOWS_TUI_FULL_PARTS
+                )
     return {
         "version": 1,
         "paths": sorted(set(paths)),
@@ -198,6 +302,7 @@ def select(
         "workflows": workflows,
         "unit_packages": sorted(unit_packages),
         "e2e": e2e,
+        "windows": windows,
         "reasons": reasons,
     }
 
@@ -213,7 +318,7 @@ def workflow_plan(plan: dict) -> dict:
     """
     return {
         key: plan[key]
-        for key in ("version", "paths", "checks", "workflows", "unit_packages", "e2e")
+        for key in ("version", "paths", "checks", "workflows", "unit_packages", "e2e", "windows")
     }
 
 
