@@ -364,6 +364,21 @@ class ScopeTests(unittest.TestCase):
         )
         self.assertFalse(any(plan["workflows"].values()))
 
+    def test_pr_code_paths_run_resume_turn_e2e_on_all_platforms(self):
+        for path in (
+            "src/loushang/ai/pricing.py",
+            "src/loushang/ai/types.py",
+            "src/loushang/coding/session/agent_session.py",
+            "tests/coding/test_hosted_application.py",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(selector.select([path], pr_fast=True)["e2e"])
+        self.assertTrue(selector.select([], full=True, pr_fast=True)["e2e"])
+        workflow = (ROOT / ".github/workflows/e2e-smoke-quality.yml").read_text()
+        self.assertIn("os: [ubuntu-24.04, macos-15, windows-2022]", workflow)
+        self.assertIn("--require-tests-count 1", workflow)
+        self.assertIn("uv run python scripts/ci/run_checks.py e2e_smoke", workflow)
+
     def test_empty_changes_do_not_start_product_checks(self):
         self.assertEqual(self.selected(), {"docs"})
 

@@ -122,7 +122,7 @@ def select(
     checks = {name: False for name in rules["checks"]}
     reasons: dict[str, list[str]] = {name: [] for name in checks}
     unit_packages: set[str] = set()
-    e2e = False
+    e2e = full
 
     def enable(names: list[str], reason: str) -> None:
         for name in names:
@@ -233,6 +233,11 @@ def select(
     if pr_fast and not full and FAST_GATE_INFRA.intersection(paths):
         # Gate changes retain full checks and exercise both new workflows.
         unit_packages.add("coding")
+        e2e = True
+    if pr_fast and not full and any(
+        path.startswith(("src/", "tests/")) and not path.endswith((".md", ".rst"))
+        for path in paths
+    ):
         e2e = True
     workflows["units"] = bool(unit_packages)
     workflows["e2e"] = e2e
