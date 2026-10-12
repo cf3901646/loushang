@@ -4,7 +4,12 @@
 
 - Authority: descriptive — candidate design and delivery plan.
 - Design status: proposed; design acceptance is separate from review completion.
-- Implementation status: not-started.
+- Implementation status: partial — read-only Header, bounded selected-path and
+  unverified tail previews, historical Binding projection, fixed-ID UserMessage
+  commit primitives, composition comparison, and a data-only internal
+  `SessionActivationPlanV1` envelope exist. Writable admission, current owner
+  selection completion, background scheduling, Hosted readiness, and release
+  evidence are not implemented.
 - Revision: R2.1, 2026-10-12; R2 independently rechecked, with the requested
   legacy Ack timing and fork-origin clarifications applied.
 - Owning scope: Coding Session continuity; collaborating scopes: Harness,
