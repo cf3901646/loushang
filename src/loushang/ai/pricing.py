@@ -3,6 +3,8 @@ from decimal import Decimal
 from loushang.ai.model.domain import Model, Pricing
 from loushang.ai.types import Usage, UsageCost
 
+# CI timing probe for issue 704 after the gate runner reduction.
+
 
 def calculate_usage_cost(
     pricing: Pricing | None, usage: Usage, *, multiplier: float = 1.0
