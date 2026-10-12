@@ -27,6 +27,7 @@ from loushang.coding.resume_binding import (
     project_coding_runtime_binding_path,
     validate_coding_runtime_binding_record,
 )
+from loushang.coding.resume_history import read_coding_resume_snapshot
 from loushang.coding.session_manager import SessionManager
 from loushang.harness.conversation import StoreCommitOutcomeUnknown
 from loushang.harness.conversation.repository import ConversationRepository
@@ -277,6 +278,55 @@ def test_ordinary_writable_resume_cannot_cross_an_unbound_attempt(tmp_path) -> N
             assert len(manager.get_entries()) == 1
         finally:
             await manager.dispose_runtime_profile()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("status", ["pending", "unknown_version", "invalid"])
+def test_reopened_jsonl_retains_activation_quarantine_and_readonly_history(
+    tmp_path, status: str,
+) -> None:
+    async def scenario() -> None:
+        manager = await SessionManager.new_with_composition(
+            session_dir=tmp_path, cwd=str(tmp_path), session_id="session-1",
+            composition_set="coding-standard", defer_materialization=False,
+        )
+        try:
+            if status == "pending":
+                await _append_test_activation_attempt(manager)
+            else:
+                version = 2 if status == "unknown_version" else 1
+                await manager.append_extension_data(
+                    f"coding.activation-attempt/v{version}", {"version": version},
+                )
+            path = manager.session_file
+            assert path is not None
+            original_bytes = path.read_bytes()
+            original_leaf = manager.leaf_id
+        finally:
+            await manager.dispose_runtime_profile()
+
+        preview = read_coding_resume_snapshot(path, max_bytes=1024 * 1024)
+        assert preview.activation_status == status
+        assert preview.header_preview.header.conversation_id == "session-1"
+        assert preview.selected_leaf_id == original_leaf
+        assert len(preview.selected_records) == 1
+
+        restored = await SessionManager.load(path)
+        try:
+            assert restored.header.conversation_id == "session-1"
+            with pytest.raises(CodingResumeRecoveryRequired) as error:
+                restored.require_no_unsettled_resume_activation()
+            assert error.value.reason_code == f"history.activation_{status}"
+            with pytest.raises(CodingResumeRecoveryRequired):
+                await restored.append_message(
+                    UserMessage(role="user", content="continue", timestamp=1.0)
+                )
+            assert restored.leaf_id == original_leaf
+            assert len(restored.get_entries()) == 1
+        finally:
+            await restored.dispose_runtime_profile()
+        assert path.read_bytes() == original_bytes
 
     asyncio.run(scenario())
 
