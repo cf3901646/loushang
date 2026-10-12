@@ -72,6 +72,7 @@ from loushang.coding.resource_runtime import (
     CodingPackageMaterializer as PackageMaterializer,
 )
 from loushang.coding.resource_runtime import summarize_coding_package_root
+from loushang.coding.resume_activation_attempt import CodingActivationAttemptV1
 from loushang.coding.runtime_capability_admission import (
     CodingExtensionDeclarationPreflight,
     resolve_coding_capability_profile,
@@ -592,6 +593,8 @@ class AgentSession(AgentProductSession):
         )
         self._coding_composition_plan = coding_composition_plan
         self._coding_composition_record_lock = asyncio.Lock()
+        self._coding_resume_runtime_preparation_lock = asyncio.Lock()
+        self._coding_resume_graph_attempt_id: str | None = None
         self._coding_composition_had_entries_at_construction = bool(
             session_manager.get_entries()
         )
@@ -1095,8 +1098,7 @@ class AgentSession(AgentProductSession):
                 )
         super()._prepare_resource_refresh()
 
-    async def prepare_model_call_runtime(self) -> None:
-        self._coding_session_manager.require_no_unsettled_resume_activation()
+    def _require_current_coding_runtime_selection(self) -> None:
         product_runtime = self._coding_base_product_runtime_binding
         product_compilation = self._coding_base_product_compilation
         worker_binding = self._coding_product_worker_ordinary_binding
@@ -1201,6 +1203,8 @@ class AgentSession(AgentProductSession):
                         "selection change",
                         code="coding_capability_product_restart_required",
                     ) from exc
+
+    def _claim_current_coding_runtime_owners(self) -> None:
         capability_plugins = self._coding_capability_plugin_assembly
         runtime_claim_id = (
             "coding-session-runtime:"
@@ -1213,6 +1217,11 @@ class AgentSession(AgentProductSession):
             assembly.management_lease.claim_runtime(
                 runtime_claim_id if capability_plugins is not None else None
             )
+
+    async def prepare_model_call_runtime(self) -> None:
+        self._coding_session_manager.require_no_unsettled_resume_activation()
+        self._require_current_coding_runtime_selection()
+        self._claim_current_coding_runtime_owners()
         await super().prepare_model_call_runtime()
         worker_tool_lease = self._coding_worker_turn_tool_lease
         if worker_tool_lease is not None and worker_tool_lease.state == "staged":
@@ -1225,10 +1234,54 @@ class AgentSession(AgentProductSession):
         await self._record_coding_composition_startup()
         self._coding_product_desired_preflight_completed = True
 
+    async def _prepare_resume_runtime_graph(
+        self, *, attempt_id: str,
+        require_current_admission: Callable[[CodingActivationAttemptV1], None],
+    ) -> dict[str, object]:
+        """Prepare current owners for one committed intent, keeping execution fenced.
+
+        The activation coordinator supplies live subject/policy admission. This
+        path returns current observations; it does not commit input, activate
+        the Worker turn Tool or publish Product execution readiness.
+        """
+
+        manager = self._coding_session_manager
+
+        def require_current() -> None:
+            # Graph rollback can retire this same Transcript Writer. Never hold
+            # its operation scope across graph awaits or retirement would wait
+            # for the operation that is itself waiting for retirement.
+            with manager._lifecycle_session.sync_operation_scope():
+                attempt = manager._require_resume_runtime_preparation(attempt_id)
+                self._require_candidate_preparation_admission(lambda: require_current_admission(attempt))
+                self._require_current_coding_runtime_selection()
+
+        async with self._coding_resume_runtime_preparation_lock:
+            self._require_candidate_preparation_admission(require_current)
+            self._coding_resume_graph_attempt_id = attempt_id
+            try:
+                self._claim_current_coding_runtime_owners()
+                await self._prepare_candidate_session_graph(require_current_admission=require_current)
+                self._publish_coding_capability_owner_retirement_receipts()
+                self._publish_coding_base_owner_retirement_receipts()
+                require_current()
+                return self._build_current_coding_composition_receipt()
+            except BaseException:
+                self._execution_preparation_failed = True
+                raise
+            finally:
+                self._coding_resume_graph_attempt_id = None
+
     async def _preflight_worker_preparation(
         self, catalog_snapshot: object | None
     ) -> None:
         if self._coding_product_worker_ordinary_binding is None:
+            return
+        attempt_id = self._coding_resume_graph_attempt_id
+        if attempt_id is not None:
+            self._coding_session_manager._require_resume_runtime_preparation(attempt_id)
+            self._require_current_coding_runtime_selection()
+            self._build_current_coding_composition_receipt(prepared_catalog_snapshot=catalog_snapshot)
             return
         async with self._coding_composition_record_lock:
             await self._record_coding_composition_startup_locked(

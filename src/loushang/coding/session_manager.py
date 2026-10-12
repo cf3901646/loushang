@@ -207,6 +207,7 @@ class SessionManager(
     _resume_first_input: _PendingResumeFirstInput | None = None
     _resume_runtime_publication_pending: bool = False
     _resume_writer_plan: SessionActivationPlanV1 | None = None
+    _resume_committed_attempt: tuple[CodingActivationAttemptV1, str] | None = None
     _activation_guard_snapshot: tuple[int, str | None] | None = None
 
     @property
@@ -326,7 +327,44 @@ class SessionManager(
         # execution; the activation recovery owner must settle that decision.
         self._resume_runtime_publication_pending = True
         self._resume_writer_plan = None
-        return await self.commit_prebuilt_extension_data(frozen)
+        self._resume_committed_attempt = None
+        result = await self.commit_prebuilt_extension_data(frozen)
+        if (
+            type(result) is not CommitResult or result.record_id != frozen.record_id
+            or result.disposition not in {"committed", "already_committed"}
+        ):
+            raise StoreCommitOutcomeUnknown("Coding Resume intent commit was not verified")
+        self._resume_committed_attempt = (attempt, frozen.created_at)
+        return result
+
+    def _require_resume_runtime_preparation(self, attempt_id: str) -> CodingActivationAttemptV1:
+        """Verify a local definite intent, without admitting policy or effects."""
+
+        proof = self._resume_committed_attempt
+        if (
+            not self.persist or not self._resume_runtime_publication_pending
+            or proof is None or self._lifecycle_session._writer_owner is None
+        ):
+            raise CodingResumeRecoveryRequired("runtime.intent_unverified")
+        attempt, created_at = proof
+        if type(attempt_id) is not str or attempt_id != attempt.attempt_id:
+            raise ValueError("Coding Resume preparation differs from its committed attempt")
+        selected = self._transcript.active_path()
+        try:
+            projection = project_coding_activation_attempt_path(
+                selected, current_session_id=self.get_header().conversation_id,
+            )
+            expected = prepare_coding_activation_attempt_record(
+                attempt, created_at=datetime.fromisoformat(created_at.replace("Z", "+00:00")),
+            )
+            if (
+                projection.status != "pending" or projection.attempt != attempt
+                or projection.record_id != attempt_id or not selected or selected[-1] != expected
+            ):
+                raise ValueError("Coding Resume preparation selected history changed")
+        except ValueError as error:
+            raise CodingResumeRecoveryRequired("runtime.intent_changed") from error
+        return attempt
 
     @classmethod
     async def new_with_composition(

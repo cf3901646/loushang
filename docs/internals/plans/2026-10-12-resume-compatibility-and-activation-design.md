@@ -130,6 +130,19 @@
   This shared owner seam does not implement Coding's live admission decision,
   input/effect settlement or the final Runtime publication gate; the Coding
   activation coordinator and its production call sites remain pending.
+  Coding now has an internal candidate preparation entry tied to a locally
+  verified, definitely committed intent and the original exclusive Writer.
+  It passes the checked immutable attempt to a synchronous current-admission
+  callback, rechecks original current Product selections, and calls the same
+  Harness graph owner. Each admission borrows a short synchronous Writer scope;
+  no Writer operation spans graph awaits, because graph rollback may retire
+  that same Writer. A preparation failure after owner claims fences retry on
+  that Session. Preparation returns current composition observations without
+  appending startup history, activating the Worker turn Tool or reopening the
+  execution gate. Unknown acknowledgements and historical intent alone do not
+  establish local preparation admission. This is not yet the production Resume
+  coordinator: construction from a legacy resumed Writer, native effect
+  correlation, current grants and final Runtime publication remain pending.
   ResourceLoader
   can calculate Catalog input facts and bounded native context content digests
   without choosing authority; Plan records only their redacted input fingerprint and
@@ -752,3 +765,23 @@ execution connections, authenticated local execution, local records, and
 connection profiles. Documentation validation passed nine checks. This proves
 the listed local integration checks, not Windows runtime execution or completed
 Resume admission/publication, release, and performance acceptance.
+
+## Internal Coding Candidate Preparation Evidence (2026-10-12)
+
+208 non-live tests passed across Resume runtime preparation, Binding, Writer,
+ordinary Coding AgentSession and the Harness AgentProduct contract. The seven
+new preparation cases use the original owned Writer and graph: definite intent,
+unknown acknowledgement, historical-only intent, admission denial, wrong attempt,
+changed selected branch and revocation after real graph binding. The last case
+also rejects retry after failed preparation. All preserve transcript bytes
+during preparation and keep execution unavailable. An initial fault run exposed
+a Writer-drain deadlock when an operation scope spanned graph rollback; short
+synchronous admission scopes fixed that lifecycle conflict, and the final
+seven-case run completed normally.
+
+Seven focused composition tests also passed for detached current observations,
+concurrent ordinary preparation, foreign startup rejection and fenced Product
+startup records. Ruff, mypy for the two changed Product modules and all nine
+documentation checks passed. The test fixture constructs its AgentSession
+before committing intent; it does not yet prove bootstrap from a legacy resumed
+Writer, native Worker effect settlement, Hosted readiness or Runtime publication.
