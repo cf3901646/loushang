@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from loushang.ai.types import AssistantMessage, ImagePart, Usage, UserMessage
+from loushang.ai.types import AssistantMessage, ImagePart, TextPart, Usage, UserMessage
 from loushang.coding.composition_provenance import CodingCompositionProvenanceV1
 from loushang.coding.composition_sets import resolve_coding_composition_set
 from loushang.coding.resume_activation_attempt import (
@@ -628,6 +628,140 @@ def test_resume_user_commit_externalizes_image_before_binding_payload_digest(
         assert records[0].metadata["loushang.request.resource_evidence"] == {
             "schemaVersion": 1,
         }
+
+    asyncio.run(scenario())
+
+
+def test_staged_resume_rejects_mutation_of_the_original_message_list(tmp_path) -> None:
+    async def scenario() -> None:
+        manager = await SessionManager.new(
+            session_dir=tmp_path, cwd=str(tmp_path), session_id="session-1",
+            defer_materialization=False,
+        )
+        content = [TextPart(type="text", text="original")]
+        message = UserMessage(role="user", content=content, timestamp=1.0)
+        try:
+            _, original_leaf_id, ancestry = await _append_test_activation_attempt(manager)
+            manager._stage_resume_first_user_input(
+                message,
+                prepare_binding=lambda persisted: replace(
+                    _binding(), original_leaf_id=original_leaf_id,
+                    ancestry_digest=ancestry,
+                    payload_digest=coding_user_payload_digest(persisted),
+                ),
+                created_at=datetime(2026, 10, 12, tzinfo=UTC),
+                original_leaf_id=original_leaf_id, ancestry_digest=ancestry,
+                attempt_id="attempt-1",
+            )
+            content[0] = TextPart(type="text", text="mutated after admission")
+            with pytest.raises(ValueError, match="differs from the staged input"):
+                await manager.append_message(message)
+            assert len(manager.get_entries()) == 1
+            assert manager.leaf_id == "attempt-1"
+        finally:
+            await manager.dispose_runtime_profile()
+
+    asyncio.run(scenario())
+
+
+def test_staged_resume_commit_uses_frozen_input_after_async_boundary(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        manager = await SessionManager.new(
+            session_dir=tmp_path, cwd=str(tmp_path), session_id="session-1",
+            defer_materialization=False,
+        )
+        content = [TextPart(type="text", text="original")]
+        message = UserMessage(role="user", content=content, timestamp=1.0)
+        original_commit = manager.commit_prebuilt_user_message_from_message
+        evidence = {"schemaVersion": 1}
+
+        async def mutate_caller_input_then_commit(admitted_message, **kwargs):
+            content[0] = TextPart(type="text", text="mutated during async commit")
+            evidence["schemaVersion"] = 2
+            return await original_commit(admitted_message, **kwargs)
+
+        monkeypatch.setattr(
+            manager, "commit_prebuilt_user_message_from_message",
+            mutate_caller_input_then_commit,
+        )
+        try:
+            _, original_leaf_id, ancestry = await _append_test_activation_attempt(manager)
+            manager._stage_resume_first_user_input(
+                message,
+                prepare_binding=lambda persisted: replace(
+                    _binding(), original_leaf_id=original_leaf_id,
+                    ancestry_digest=ancestry,
+                    payload_digest=coding_user_payload_digest(persisted),
+                ),
+                created_at=datetime(2026, 10, 12, tzinfo=UTC),
+                original_leaf_id=original_leaf_id, ancestry_digest=ancestry,
+                attempt_id="attempt-1",
+            )
+            await manager.append_message(
+                message, metadata={"loushang.request.resource_evidence": evidence},
+            )
+            persisted = manager.get_leaf_entry()
+            assert persisted is not None
+            assert persisted.payload.content == [TextPart(type="text", text="original")]
+            assert persisted.metadata["loushang.request.resource_evidence"] == {
+                "schemaVersion": 1,
+            }
+        finally:
+            await manager.dispose_runtime_profile()
+
+    asyncio.run(scenario())
+
+
+def test_staged_resume_retry_requires_the_original_resource_metadata(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        manager = await SessionManager.new(
+            session_dir=tmp_path, cwd=str(tmp_path), session_id="session-1",
+            defer_materialization=False,
+        )
+        message = UserMessage(role="user", content="original", timestamp=1.0)
+        original_commit = manager.commit_prebuilt_user_message_from_message
+        fail_before_prepare = True
+
+        async def fail_once_before_record_prepare(admitted_message, **kwargs):
+            nonlocal fail_before_prepare
+            if fail_before_prepare:
+                fail_before_prepare = False
+                raise RuntimeError("failed before preparing the record")
+            return await original_commit(admitted_message, **kwargs)
+
+        monkeypatch.setattr(
+            manager, "commit_prebuilt_user_message_from_message",
+            fail_once_before_record_prepare,
+        )
+        try:
+            _, original_leaf_id, ancestry = await _append_test_activation_attempt(manager)
+            manager._stage_resume_first_user_input(
+                message,
+                prepare_binding=lambda persisted: replace(
+                    _binding(), original_leaf_id=original_leaf_id,
+                    ancestry_digest=ancestry,
+                    payload_digest=coding_user_payload_digest(persisted),
+                ),
+                created_at=datetime(2026, 10, 12, tzinfo=UTC),
+                original_leaf_id=original_leaf_id, ancestry_digest=ancestry,
+                attempt_id="attempt-1",
+            )
+            with pytest.raises(RuntimeError, match="before preparing"):
+                await manager.append_message(message, metadata={"evidence": "original"})
+            with pytest.raises(ValueError, match="metadata changed after admission"):
+                await manager.append_message(message, metadata={"evidence": "changed"})
+            assert len(manager.get_entries()) == 1
+            await manager.append_message(message, metadata={"evidence": "original"})
+            assert len(manager.get_entries()) == 2
+            persisted = manager.get_leaf_entry()
+            assert persisted is not None
+            assert persisted.metadata["evidence"] == "original"
+        finally:
+            await manager.dispose_runtime_profile()
 
     asyncio.run(scenario())
 

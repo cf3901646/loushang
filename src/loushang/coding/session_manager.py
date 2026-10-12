@@ -24,7 +24,7 @@ from loushang.coding.product_plan import (
     CODING_PRODUCT_ID,
     CODING_TRANSCRIPT_RUNTIME,
 )
-from loushang.foundation.json import JSONValue
+from loushang.foundation.json import JSONValue, require_json_mapping
 from loushang.harness.conversation import ConversationHeader, StoreCommitOutcomeUnknown
 from loushang.harness.runtime import (
     SIDE_QUESTION_PROVIDER_SLOT,
@@ -54,6 +54,8 @@ from .resume_activation_attempt import (
 from .resume_binding import (
     CODING_RUNTIME_BINDING_METADATA_KEY,
     CodingRuntimeBindingV1,
+    coding_user_input_digest,
+    freeze_coding_user_input,
     prepare_coding_resume_user_record,
     project_coding_runtime_binding_path,
 )
@@ -62,6 +64,7 @@ from .resume_binding import (
 @dataclass(slots=True)
 class _PendingResumeFirstInput:
     expected_message: UserMessage
+    expected_message_digest: str
     prepare_binding: Callable[[UserMessage], CodingRuntimeBindingV1]
     created_at: datetime
     original_leaf_id: str | None
@@ -71,6 +74,7 @@ class _PendingResumeFirstInput:
     revision: int
     ancestry_digest: str
     lock: asyncio.Lock
+    expected_metadata: dict[str, JSONValue] | None = None
     record_prepared: bool = False
     outcome_unknown: bool = False
 
@@ -305,8 +309,10 @@ class SessionManager(
             or attempt.ancestry_digest != ancestry_digest
         ):
             raise ValueError("Coding Resume activation attempt differs from selected history")
+        frozen_message = freeze_coding_user_input(message)
         self._resume_first_input = _PendingResumeFirstInput(
-            expected_message=message,
+            expected_message=frozen_message,
+            expected_message_digest=coding_user_input_digest(frozen_message),
             prepare_binding=prepare_binding,
             created_at=created_at,
             original_leaf_id=original_leaf_id,
@@ -325,6 +331,10 @@ class SessionManager(
         *,
         metadata: Mapping[str, JSONValue] | None,
     ) -> str:
+        metadata_snapshot = require_json_mapping(
+            {} if metadata is None else dict(metadata),
+            name="Coding Resume first input metadata",
+        )
         async with pending.lock:
             if self._resume_first_input is not pending:
                 raise ValueError("Coding Resume first input was replaced")
@@ -332,8 +342,12 @@ class SessionManager(
                 raise StoreCommitOutcomeUnknown(
                     "Coding Resume first input requires authoritative reload"
                 )
-            if message != pending.expected_message:
+            if coding_user_input_digest(message) != pending.expected_message_digest:
                 raise ValueError("Coding Resume first input differs from the staged input")
+            if pending.expected_metadata is None:
+                pending.expected_metadata = metadata_snapshot
+            elif metadata_snapshot != pending.expected_metadata:
+                raise ValueError("Coding Resume first input metadata changed after admission")
             if (
                 self.get_leaf_id() != pending.commit_parent_id
                 or self._transcript.revision != pending.revision
@@ -360,14 +374,14 @@ class SessionManager(
                     persisted,
                     commit_parent_id=pending.commit_parent_id,
                     created_at=pending.created_at,
-                    resource_metadata=metadata,
+                    resource_metadata=metadata_snapshot,
                 )
                 pending.record_prepared = True
                 return record
 
             try:
                 result = await self.commit_prebuilt_user_message_from_message(
-                    message, prepare_record=prepare_record,
+                    pending.expected_message, prepare_record=prepare_record,
                 )
             except BaseException:
                 if pending.record_prepared:

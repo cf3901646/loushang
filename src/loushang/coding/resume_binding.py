@@ -240,6 +240,34 @@ def inspect_coding_runtime_binding(
     return CodingRuntimeBindingObservation("known", binding)
 
 
+def freeze_coding_user_input(message: UserMessage) -> UserMessage:
+    """Detach mutable caller content using the original Transcript codec."""
+
+    if not isinstance(message, UserMessage):
+        raise TypeError("Resume input requires a UserMessage")
+    registry = create_agent_transcript_payload_registry()
+    payload = registry.encode(AGENT_MESSAGE_KIND, STANDARD_PAYLOAD_VERSION, message)
+    frozen = registry.decode(
+        AGENT_MESSAGE_KIND, STANDARD_PAYLOAD_VERSION, payload,
+    )
+    if not isinstance(frozen, UserMessage):
+        raise TypeError("Resume input codec did not preserve UserMessage")
+    return frozen
+
+
+def coding_user_input_digest(message: UserMessage) -> str:
+    """Freeze admitted input bytes before image externalization, without writes."""
+
+    if not isinstance(message, UserMessage):
+        raise TypeError("Resume input requires a UserMessage")
+    payload = create_agent_transcript_payload_registry().encode(
+        AGENT_MESSAGE_KIND, STANDARD_PAYLOAD_VERSION, message,
+    )
+    return hashlib.sha256(
+        b"loushang.coding.resume-input/v1\0" + _canonical_bytes(payload)
+    ).hexdigest()
+
+
 def coding_user_payload_digest(message: UserMessage) -> str:
     """Digest the exact persisted UserMessage payload, including image refs."""
 
@@ -346,6 +374,8 @@ __all__ = [
     "CODING_RUNTIME_BINDING_VERSION",
     "CodingRuntimeBindingObservation",
     "CodingRuntimeBindingV1",
+    "coding_user_input_digest",
+    "freeze_coding_user_input",
     "coding_user_payload_digest",
     "inspect_coding_runtime_binding",
     "prepare_coding_resume_user_record",
