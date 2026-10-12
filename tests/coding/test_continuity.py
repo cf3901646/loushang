@@ -277,6 +277,35 @@ def test_coding_resume_preview_keeps_large_history_on_bounded_fallback(
     assert transcript.read_bytes() == before
 
 
+def test_coding_resume_preview_shows_unverified_recent_tail_for_large_history(
+    tmp_path: Path,
+) -> None:
+    runtime = _Runtime(tmp_path)
+    transcript = tmp_path / "large-recent.jsonl"
+    write_agent_transcript_export(
+        transcript,
+        _header("large-recent"),
+        [
+            _record("large-root", "x" * (1024 * 1024)),
+            _record("recent", "Latest readable message", parent_id="large-root"),
+        ],
+    )
+    runtime.refresh_session_index()
+    before = transcript.read_bytes()
+    composition = bind_coding_continuity(runtime)
+
+    async def scenario() -> None:
+        page = await composition.hub.query(ContinuityQuery(page_size=10))
+        preview = await composition.hub.preview(page.items[0].target)
+        assert ("Recent history", "Unverified tail preview") in preview.sections[1].rows
+        assert "Latest readable message" in (preview.sections[0].text or "")
+        assert runtime.prepared == []
+        await shutdown_coding_continuity(runtime)
+
+    asyncio.run(scenario())
+    assert transcript.read_bytes() == before
+
+
 def test_coding_resume_discovery_defaults_to_current_cwd(tmp_path: Path) -> None:
     runtime = _Runtime(tmp_path)
     write_agent_transcript_export(

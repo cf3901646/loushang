@@ -79,8 +79,13 @@ from loushang.harness.transcript import (
     session_summary_revision,
     user_message_text,
 )
+from loushang.harness.transcript.jsonl_file import AgentTranscriptFileError
 
-from .resume_history import read_coding_resume_header, read_coding_resume_snapshot
+from .resume_history import (
+    read_coding_resume_header,
+    read_coding_resume_recent_page,
+    read_coding_resume_snapshot,
+)
 
 CODING_CONTINUITY_PROVIDER_ID = "coding.sessions"
 CODING_CONTINUITY_IMPLEMENTATION = "coding.session_continuity"
@@ -416,6 +421,32 @@ class CodingContinuityProvider:
                             summary.session_file,
                             max_bytes=1024 * 1024,
                         )
+                    except AgentTranscriptFileError as exc:
+                        if exc.code != "session_file_too_large":
+                            rows.append(("Recent history", "Bounded preview unavailable"))
+                        else:
+                            try:
+                                recent = await asyncio.to_thread(
+                                    read_coding_resume_recent_page,
+                                    summary.session_file,
+                                )
+                            except (OSError, ValueError):
+                                rows.append(("Recent history", "Bounded preview unavailable"))
+                            else:
+                                if not recent.records:
+                                    rows.append(("Recent history", "Bounded preview unavailable"))
+                                elif (
+                                    recent.header_preview.header != history.header
+                                    or (
+                                        summary.authority_fingerprint is not None
+                                        and recent.source_fingerprint
+                                        != summary.authority_fingerprint
+                                    )
+                                ):
+                                    history_changed = True
+                                else:
+                                    history_text = _readonly_history_text(recent.records)
+                                    rows.append(("Recent history", "Unverified tail preview"))
                     except (OSError, ValueError):
                         rows.append(("Recent history", "Bounded preview unavailable"))
                     else:

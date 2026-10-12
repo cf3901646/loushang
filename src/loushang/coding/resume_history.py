@@ -13,6 +13,7 @@ from loushang.harness.transcript.jsonl_file import (
     load_agent_transcript_header,
 )
 from loushang.harness.transcript.session_catalog import (
+    read_agent_transcript_bounded_preview,
     session_file_authority_fingerprint,
 )
 from loushang.harness.transcript.types import AgentTranscriptRecord
@@ -57,6 +58,17 @@ class CodingResumeHistoryPreview:
     selected_ancestry_digest: str | None
     source_fingerprint: str
     status: Literal["preview"] = "preview"
+
+
+@dataclass(frozen=True, slots=True)
+class CodingResumeRecentPage:
+    """A bounded tail display; its records are not a selected ancestry."""
+
+    header_preview: CodingResumeHeaderPreview
+    records: tuple[AgentTranscriptRecord, ...]
+    source_fingerprint: str
+    bytes_read: int
+    status: Literal["unverified_tail_preview"] = "unverified_tail_preview"
 
 
 def inspect_coding_resume_header(
@@ -159,10 +171,28 @@ def read_coding_resume_snapshot(
     )
 
 
+def read_coding_resume_recent_page(
+    path: str | Path, *, segment_bytes: int = 64 * 1024,
+) -> CodingResumeRecentPage:
+    """Show recent decoded tail records without proving their selected branch."""
+
+    bounded = read_agent_transcript_bounded_preview(
+        path, segment_bytes=segment_bytes,
+    )
+    return CodingResumeRecentPage(
+        header_preview=inspect_coding_resume_header(bounded.header),
+        records=bounded.tail_records,
+        source_fingerprint=bounded.source_fingerprint,
+        bytes_read=bounded.bytes_read,
+    )
+
+
 __all__ = [
     "CodingResumeHeaderPreview",
     "CodingResumeHistoryPreview",
+    "CodingResumeRecentPage",
     "inspect_coding_resume_header",
     "read_coding_resume_header",
+    "read_coding_resume_recent_page",
     "read_coding_resume_snapshot",
 ]
