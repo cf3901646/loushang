@@ -379,6 +379,23 @@ class ScopeTests(unittest.TestCase):
         self.assertIn("--require-tests-count 1", workflow)
         self.assertIn("uv run python scripts/ci/run_checks.py e2e_smoke", workflow)
 
+    def test_sustained_worker_query_runs_for_its_test_and_full_validation(self):
+        ordinary = selector.select(
+            ["src/loushang/coding/session/agent_session.py"], pr_fast=True
+        )
+        worker = selector.select(
+            ["src/loushang/coding/package_product_worker_windows_crash_cleanup.py"],
+            pr_fast=True,
+        )
+        owned_test = selector.select(
+            ["tests/coding/test_package_worker_candidate_wheel.py"], pr_fast=True
+        )
+        full = selector.select([], full=True, pr_fast=True)
+        self.assertFalse(ordinary["checks"]["hosting_sustained"])
+        self.assertFalse(worker["checks"]["hosting_sustained"])
+        self.assertTrue(owned_test["checks"]["hosting_sustained"])
+        self.assertTrue(full["checks"]["hosting_sustained"])
+
     def test_empty_changes_do_not_start_product_checks(self):
         self.assertEqual(self.selected(), {"docs"})
 

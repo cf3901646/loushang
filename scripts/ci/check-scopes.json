@@ -13,6 +13,7 @@
     "harness",
     "harness_native",
     "hosting",
+    "hosting_sustained",
     "apphost",
     "appservice",
     "host_runtime",
@@ -107,6 +108,7 @@
         "harness",
         "harness_native",
         "hosting",
+        "hosting_sustained",
         "apphost",
         "appservice",
         "host_runtime",
@@ -429,6 +431,15 @@
     },
     {
       "paths": [
+        "tests/coding/test_package_worker_candidate_wheel.py"
+      ],
+      "checks": [
+        "hosting_sustained"
+      ],
+      "reason": "Worker sustained native query test ownership"
+    },
+    {
+      "paths": [
         "src/loushang/coding/_tool_authority.py",
         "src/loushang/coding/bootstrap.py",
         "src/loushang/coding/composition_provenance.py",
@@ -648,6 +659,9 @@
     "hosting": [
       "host_runtime"
     ],
+    "hosting_sustained": [
+      "hosting"
+    ],
     "apphost": [
       "host_runtime"
     ],
@@ -682,7 +696,8 @@
       "tui_native"
     ],
     "hosting": [
-      "hosting"
+      "hosting",
+      "hosting_sustained"
     ],
     "apphost": [
       "apphost"
