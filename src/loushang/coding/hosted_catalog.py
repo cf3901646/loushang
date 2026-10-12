@@ -62,7 +62,7 @@ from loushang.harness.transcript.session_catalog import (
 from .appservice_adapter import CodingHostedSessionBindingV1
 from .composition_provenance import composition_header_metadata
 from .composition_sets import resolve_coding_composition_set
-from .product_plan import CODING_TRANSCRIPT_RUNTIME
+from .product_plan import CODING_PRODUCT_ID, CODING_TRANSCRIPT_RUNTIME
 from .resume_history import (
     CodingResumeHeaderPreview,
     CodingResumeHistoryPreview,
@@ -1047,3 +1047,31 @@ __all__ = [
     "CodingHostedScopeV1",
     "CodingHostedSessionCatalogV1",
 ]
+
+
+def _coding_hosted_identity_from_envelope(
+    envelope: SessionIdentityEnvelopeV1,
+    *,
+    discovery_scope: SessionDiscoveryScope,
+    scope_fingerprint: str,
+) -> SessionIdentityV1:
+    """Project a canonical path-free AppHost envelope into the App Contract."""
+
+    if type(envelope) is not SessionIdentityEnvelopeV1 or envelope.product_id != (
+        CODING_PRODUCT_ID
+    ):
+        raise ValueError("Coding hosted Session envelope is invalid")
+    if type(discovery_scope) is not SessionDiscoveryScope:
+        raise TypeError("Coding hosted discovery scope is invalid")
+    scope = (
+        SessionScopeV1.CWD
+        if discovery_scope is SessionDiscoveryScope.CURRENT_DIRECTORY
+        else SessionScopeV1.USER_HOME
+    )
+    return SessionIdentityV1(
+        product_id=envelope.product_id,
+        continuity_id=envelope.continuity_id,
+        session_id=envelope.session_id,
+        scope=scope,
+        scope_fingerprint=scope_fingerprint,
+    )

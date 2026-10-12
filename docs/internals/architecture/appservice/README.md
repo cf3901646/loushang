@@ -28,6 +28,23 @@ The project owner accepted the cross-scope #696 boundaries on 2026-10-12:
 The [Delta ledger](../current-target-gap-ledger.md) records remaining work;
 acceptance does not establish writable release or performance readiness.
 
+The original scoped client can observe a Resume subject with
+`resume_subject_digest` and revalidate it synchronously with
+`require_current_resume_subject`. These entries check the owning client scope,
+live attachment/controller generation, canonical member and Session, and the
+original Session's accepting state. The bounded fingerprint includes the native
+execution application's service instance and exact target scope. An absent
+execution instance is unavailable. Observation does not select an execution
+port, bind an execution, invoke Product code or reserve accepted work.
+
+This dependency observation is not a Product permission, Approval fact or
+effect-settlement receipt. A Product borrower must supply its exact target
+Session and recheck the same native owner at mutation boundaries. Coding can
+bind this owner selection into its original exact Approval request; controller
+takeover or dropping the selected owner cannot reuse that fact. Default Hosted
+Resume activation and the remaining admission/effect producers still require
+integration under ARD-006.
+
 ## Purpose
 
 AppService is the transport-neutral hosted application boundary over injected

@@ -77,9 +77,9 @@ from .ports import (
     HostedSessionResolverV1,
 )
 from .resume_ports import (
-    HostedResumeInputLookupPortV1,
     ResumeInputLookupQueryV1,
     ResumeInputLookupResultV1,
+    _lookup_resume_product_input,
 )
 from .session_discovery import SessionDiscoveryOwnerV1, SessionDiscoveryViewV1
 
@@ -274,20 +274,8 @@ class _SessionOwner:
     ) -> ResumeInputLookupResultV1:
         if not self._accepting:
             raise _error(AppErrorCodeV1.SESSION_UNAVAILABLE)
-        if not isinstance(self._port, HostedResumeInputLookupPortV1):
-            raise _error(AppErrorCodeV1.OPERATION_UNAVAILABLE)
-        try:
-            value = await self._port.lookup_resume_input(query)
-        except asyncio.CancelledError:
-            raise
-        except AppServiceError:
-            raise
-        except BaseException:
-            raise _error(AppErrorCodeV1.SESSION_UNAVAILABLE) from None
-        if (
-            not self._accepting or type(value) is not ResumeInputLookupResultV1
-            or value.input_id != query.input_id
-        ):
+        value = await _lookup_resume_product_input(self._port, query)
+        if not self._accepting:
             raise _error(AppErrorCodeV1.SESSION_UNAVAILABLE)
         return value
 

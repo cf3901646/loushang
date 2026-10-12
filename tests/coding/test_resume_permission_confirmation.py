@@ -16,6 +16,78 @@ from loushang.harness.config.agent import SettingsManager
 from loushang.harness.tools.workspace.factory import workspace_tool_runtime_settings
 
 
+@pytest.mark.parametrize("mode", ["current", "wrong_target", "takeover", "await_takeover", "stripped_owner"])
+def test_resume_confirmation_borrows_original_hosted_controller(mode):
+    from loushang.appserver.protocol import (
+        AppServiceError,
+        MuxAttachV1,
+        SessionSnapshotRequestV1,
+    )
+    from tests.appservice.test_execution_service import fixture
+
+    async def scenario():
+        service, host, first, second, selector, control, product = await fixture()
+        owner = InteractiveApprovalResolver(fallback=DenyApprovalResolver())
+        try:
+            attempt = CodingActivationAttemptV1(
+                attempt_id="hosted-attempt", request_id="hosted-input",
+                session_id=product.identity.session_id, original_leaf_id="leaf-1",
+                ancestry_digest="a" * 64, plan_fingerprint="b" * 64,
+                epoch_fingerprint="c" * 64, subject_digest=first.resume_subject_digest(control),
+            )
+            if mode == "wrong_target":
+                attempt = replace(attempt, session_id="different-session")
+                with pytest.raises(AppServiceError):
+                    coding_resume_permission_request(
+                        attempt, actor_id=control.attachment_id, expansion_codes=("authority.unknown",),
+                        hosted_subject_scope=first, hosted_subject_control=control,
+                    )
+                return
+
+            async def takeover():
+                await first.close()
+                replacement = await second.attach_mux(MuxAttachV1(selector))
+                current = SessionSnapshotRequestV1(
+                    replacement.attachment_id, replacement.controller_generation, control.member_id,
+                )
+                assert second.resume_subject_digest(current) != attempt.subject_digest
+
+            async def confirm(payload):
+                assert payload["arguments"]["subjectOwner"] == "appservice.controller/v1"
+                if mode == "await_takeover":
+                    await takeover()
+                assert await owner.handle_result(payload["action_id"], outcome="allow_once")
+
+            owner.set_request_presenter(confirm)
+            fact = await owner.confirm(coding_resume_permission_request(
+                attempt, actor_id=control.attachment_id, expansion_codes=("authority.unknown",),
+                hosted_subject_scope=first, hosted_subject_control=control,
+            ))
+            assert fact is not None
+            bound = CodingResumePermissionConfirmation(
+                attempt, control.attachment_id, ("authority.unknown",), owner, fact,
+                hosted_subject_scope=first, hosted_subject_control=control,
+            )
+            if mode == "takeover":
+                await takeover()
+            if mode == "stripped_owner":
+                bound = replace(bound, hosted_subject_scope=None, hosted_subject_control=None)
+                with pytest.raises(PermissionError):
+                    bound.require_current(attempt)
+            elif mode == "current":
+                bound.require_current(attempt)
+            else:
+                with pytest.raises(AppServiceError):
+                    bound.require_current(attempt)
+            assert not product.entered.is_set()
+            assert host.pending_counts == (0, 0)
+        finally:
+            owner.dispose()
+            await service.close()
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("mode", ["current", "profile", "managed_rules", "await_change", "missing_policy"])
 def test_resume_confirmation_revalidates_native_current_policy(tmp_path, mode):
     async def scenario():

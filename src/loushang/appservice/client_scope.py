@@ -7,6 +7,8 @@ unscoped client alongside these scoped clients to untrusted callers.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from typing import TypeVar
@@ -466,6 +468,7 @@ class AppClientScopeV1:
         pair = self._service._attachments.get(request.attachment_id)
         if pair is None:
             raise AppServiceError(AppErrorCodeV1.STALE_ATTACHMENT)
+
         mux, attachment = pair
         if (
             not attachment.active or mux.closed
@@ -475,6 +478,64 @@ class AppClientScopeV1:
             or not any(member.member_id == request.member_id and member.session is session
                        for member in mux.members)
         ):
+            raise AppServiceError(AppErrorCodeV1.STALE_ATTACHMENT)
+
+    def resume_subject_digest(
+        self, request: SessionSnapshotRequestV1, *, expected_session_id: str | None = None,
+    ) -> str:
+        """Observe the current native controller's exact target as bounded data.
+
+        This is neither a Product permission nor an execution reservation. A
+        Resume caller must recheck this owner at each mutation boundary and
+        obtain current Product Policy/Approval and effect settlement separately.
+        """
+
+        self._service._require_request(request, SessionSnapshotRequestV1)
+        self._attachment(request.attachment_id, request.controller_generation)
+        pair = self._service._attachments.get(request.attachment_id)
+        if pair is None:
+            raise AppServiceError(AppErrorCodeV1.STALE_ATTACHMENT)
+        mux, _ = pair
+        session = next((
+            member.session for member in mux.members if member.member_id == request.member_id
+        ), None)
+        if session is None:
+            raise AppServiceError(AppErrorCodeV1.STALE_ATTACHMENT)
+        self._require_current_session(request, session)
+        if not session._accepting:
+            raise AppServiceError(AppErrorCodeV1.SESSION_UNAVAILABLE)
+        registry = self._service._execution_registry
+        if registry is None:
+            raise AppServiceError(AppErrorCodeV1.OPERATION_UNAVAILABLE)
+        identity = session.identity
+        if expected_session_id is not None and (
+            type(expected_session_id) is not str or expected_session_id != identity.session_id
+        ):
+            raise AppServiceError(AppErrorCodeV1.STALE_ATTACHMENT)
+        encoded = json.dumps({
+            "applicationId": registry.application_id,
+            "serviceInstanceId": registry.service_instance_id,
+            "attachmentId": request.attachment_id,
+            "controllerGeneration": request.controller_generation,
+            "memberId": request.member_id,
+            "productId": identity.product_id,
+            "continuityId": identity.continuity_id,
+            "sessionId": identity.session_id,
+            "scope": identity.scope.value,
+            "scopeFingerprint": identity.scope_fingerprint,
+        }, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        if len(encoded) > 4096:
+            raise AppServiceError(AppErrorCodeV1.OPERATION_UNAVAILABLE)
+        return hashlib.sha256(b"loushang.appservice.resume-subject/v1\0" + encoded).hexdigest()
+
+    def require_current_resume_subject(
+        self, request: SessionSnapshotRequestV1, expected_digest: str,
+        *, expected_session_id: str | None = None,
+    ) -> None:
+        """Revalidate against this original live owner, never a copied digest."""
+
+        current = self.resume_subject_digest(request, expected_session_id=expected_session_id)
+        if type(expected_digest) is not str or expected_digest != current:
             raise AppServiceError(AppErrorCodeV1.STALE_ATTACHMENT)
 
     async def snapshot_session(

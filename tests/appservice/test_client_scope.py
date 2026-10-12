@@ -40,6 +40,82 @@ async def _fixture():
     return service, owner, first, second, selector, mux, resolver.sessions[0]
 
 
+def test_resume_subject_observation_uses_native_controller_and_instance() -> None:
+    from .test_execution_service import fixture
+
+    async def scenario():
+        service, owner, first, second, selector, request, product = await fixture()
+        try:
+            digest = first.resume_subject_digest(request)
+            assert len(digest) == 64
+            assert first.resume_subject_digest(request) == digest
+            first.require_current_resume_subject(request, digest)
+            with pytest.raises(AppServiceError) as foreign:
+                second.resume_subject_digest(request)
+            assert foreign.value.code is AppErrorCodeV1.STALE_ATTACHMENT
+            assert owner.pending_counts == (0, 0)
+            assert not product.entered.is_set()
+            assert service._sessions[product.identity.session_id]._execution is None
+            await first.close()
+            attachment = await second.attach_mux(MuxAttachV1(selector))
+            current = SessionSnapshotRequestV1(
+                attachment.attachment_id, attachment.controller_generation, request.member_id,
+            )
+            assert second.resume_subject_digest(current) != digest
+            with pytest.raises(AppServiceError) as stale:
+                second.require_current_resume_subject(current, digest)
+            assert stale.value.code is AppErrorCodeV1.STALE_ATTACHMENT
+            with pytest.raises(AppServiceError):
+                first.require_current_resume_subject(request, digest)
+            await second.close()
+            with pytest.raises(AppServiceError):
+                second.resume_subject_digest(current)
+        finally:
+            await service.close()
+
+    asyncio.run(scenario())
+
+
+def test_resume_subject_without_native_execution_instance_is_unavailable() -> None:
+    async def scenario():
+        service, owner, first, second, selector, mux, session = await _fixture()
+        try:
+            attachment = await first.attach_mux(MuxAttachV1(selector))
+            request = SessionSnapshotRequestV1(
+                attachment.attachment_id, attachment.controller_generation, mux.members[0].member_id,
+            )
+            with pytest.raises(AppServiceError) as unsupported:
+                first.resume_subject_digest(request)
+            assert unsupported.value.code is AppErrorCodeV1.OPERATION_UNAVAILABLE
+            assert not session.calls
+        finally:
+            await service.close()
+
+    asyncio.run(scenario())
+
+
+def test_resume_subject_rejects_closed_native_session_before_removal() -> None:
+    from .test_execution_service import fixture
+
+    async def scenario():
+        service, owner, first, second, selector, request, product = await fixture()
+        try:
+            digest = first.resume_subject_digest(request)
+            session = service._sessions[product.identity.session_id]
+            await session.close()
+            # The original owner is already fenced while canonical mapping
+            # removal may still be pending in its caller's close operation.
+            assert service._sessions[product.identity.session_id] is session
+            with pytest.raises(AppServiceError) as closed:
+                first.require_current_resume_subject(request, digest)
+            assert closed.value.code in {AppErrorCodeV1.SESSION_UNAVAILABLE, AppErrorCodeV1.STALE_ATTACHMENT}
+            assert not product.entered.is_set()
+        finally:
+            await service.close()
+
+    asyncio.run(scenario())
+
+
 def test_resume_lookup_requires_current_scope_before_product_read() -> None:
     async def scenario():
         service, owner, first, second, selector, mux, session = await _fixture()

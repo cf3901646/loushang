@@ -1751,3 +1751,64 @@ failed scenarios passed in the focused rerun. Ruff, scoped mypy, diff whitespace
 and all nine documentation checks passed. The branch-wide `make plan-checks`
 was inspected; its broader subsystem and platform gates remain delivery work,
 not evidence supplied by these focused runs.
+
+
+#### Native Hosted controller subject observation and exact confirmation
+
+The original AppClientScope now observes the current Resume subject using its
+own attachment/controller/member checks and the original canonical Session
+owner. Its synchronous revalidation includes the Session's accepting state.
+The fingerprint carries the selected execution application's native application
+and service-instance identities, attachment generation, member, canonical
+Product/continuity/Session and scope. Encoded data is bounded to 4 KiB; an absent
+native execution instance is explicitly unavailable. No execution port is
+selected, no execution binding/reservation is created and no Product callback
+runs during observation.
+
+Coding's permission request may borrow this exact native scoped owner and
+control. The native owner requires the activation attempt's Session to match
+the actual controlled Session before issuing a request. The owner selection
+is itself bound into the exact request, so stripping those wrapper references
+changes the original Approval request and cannot reuse its retained fact.
+Revalidation consults the same live native controller before the original
+Approval fact. Closing a scope, controller takeover while confirmation awaits,
+wrong target, or a closed canonical Session rejects the borrow. Embedded
+confirmation does not import Hosted owners merely to take its unbound path.
+
+The original scope tests passed 23 baseline cases. Missing subject observation
+and revalidation entries first failed two regressions. Native owner fixtures
+then cover foreign scopes, takeover, closed scopes, Session close before mapping
+removal, unavailable execution identity and zero execution binding. Cross-owner
+fixtures use the original AppService scope and Approval resolver, covering
+current confirmation, wrong Session, takeover before/after confirmation and
+removing owner references. These tests observe actual native controller state;
+their injected Hosted Product ports do not establish full Coding activation or
+external-effect settlement.
+
+This supplies a production Hosted subject producer and its exact confirmation
+borrower. Wiring the default Hosted submit path and Embedded actor producer,
+production epoch/content/effect settlement, restart reconciliation, background
+invocation/performance, released compatibility and delivery gates remains
+required. The full Goal and Issue #696 remain active.
+
+
+G11 architecture validation also exposed an impermissible new direct
+AppService consumer and branch-wide reviewability budget excess. The concrete
+subject borrower now lives at the existing optional Coding Hosted execution
+bridge. Default lookup remains on the ordinary Hosted binding path and does
+not import or select optional execution. The original AppService Session owner
+keeps accepting checks before and after lookup; its closed Product-result
+validation uses the existing optional port module. Coding's existing catalog
+and binding modules host their own pure identity/lookup/binding validation,
+while the public adapter methods and original owners remain in place. No
+budget limit was raised, authority owner split, new file hidden or wire shape
+changed. These placements restore the existing G11 bridge and budget gates.
+
+Validation: 62 controller/execution/confirmation cases passed before boundary
+placement checks. Those checks identified the bridge and budget failures above.
+After the adjustments, 113 confirmation, AppService controller/execution,
+Coding adapter/catalog/execution and G11 cases passed. The final ordinary
+lookup helper placement was separately revalidated by 67 confirmation,
+adapter, scope and G11 cases. Scoped mypy passed all eight affected source
+files; Ruff, whitespace and documentation validation passed. These focused
+results do not discharge the branch-wide delivery and platform gates.

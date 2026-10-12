@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import sys
 from collections.abc import Callable, Mapping
@@ -15,10 +16,16 @@ from loushang.ai.model import Model, ModelSelection
 from loushang.ai.types import AssistantMessage, UserMessage
 from loushang.apphost import SessionBindingKeyV1
 from loushang.appserver.protocol import (
+    AppErrorCodeV1,
+    AppServiceError,
     SessionEventKindV1,
     SessionIdentityV1,
     TranscriptRecordKindV1,
     TranscriptRecordV1,
+)
+from loushang.appserver.resume_model import (
+    ResumeInputLookupQueryV1,
+    ResumeInputLookupResultV1,
 )
 from loushang.harness.approval import DenyApprovalResolver, InteractiveApprovalResolver
 from loushang.harness.events import RuntimeEvent
@@ -33,6 +40,7 @@ from loushang.harness.workspace.exec.capture_lease import ExecCaptureFactory
 
 from .appservice_adapter import (
     CodingHostedEventProjectionV1,
+    CodingHostedSessionBindingV1,
     CodingHostedSnapshotProjectionV1,
 )
 from .bootstrap import BootstrapServices, create_agent_session
@@ -474,3 +482,40 @@ __all__ = [
     "CodingRealHostedSessionFactoryV1",
     "CodingRealHostedSessionV1",
 ]
+
+
+def _require_coding_hosted_binding(binding: object) -> None:
+    for name in ("project_snapshot", "project_event"):
+        if not callable(getattr(binding, name, None)):
+            raise TypeError("Coding hosted Session binding is invalid")
+    for name in ("respond_interaction", "close"):
+        if not inspect.iscoroutinefunction(getattr(binding, name, None)):
+            raise TypeError("Coding hosted Session binding is invalid")
+    try:
+        control = cast(CodingHostedSessionBindingV1, binding).control
+    except BaseException:
+        raise TypeError("Coding hosted Session binding is invalid") from None
+    if control is None:
+        return
+    for name in (
+        "subscribe_runtime_events",
+        "prompt",
+        "wait_for_idle",
+        "steer",
+        "follow_up",
+        "abort",
+    ):
+        if not callable(getattr(control, name, None)):
+            raise TypeError("Coding hosted Session control is invalid")
+
+
+async def _lookup_coding_resume_input(
+    binding: CodingHostedSessionBindingV1, query: ResumeInputLookupQueryV1,
+) -> ResumeInputLookupResultV1:
+    lookup = getattr(binding, "lookup_resume_input", None)
+    if not inspect.iscoroutinefunction(lookup):
+        raise AppServiceError(AppErrorCodeV1.OPERATION_UNAVAILABLE)
+    result = await lookup(CodingResumeInputLookupQueryV1(query.input_id, query.record_digest))
+    if type(result) is not CodingResumeInputLookupResultV1:
+        raise AppServiceError(AppErrorCodeV1.SESSION_UNAVAILABLE)
+    return ResumeInputLookupResultV1(result.input_id, result.record_id, result.status)

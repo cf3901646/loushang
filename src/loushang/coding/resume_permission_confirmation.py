@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from loushang.foundation.json import dump_json_value
 from loushang.harness.approval import (
@@ -26,6 +27,9 @@ from loushang.harness.permissions import PermissionProfilePolicyEvaluator
 from loushang.harness.policy.engine import PolicyEngine
 
 from .resume_activation_attempt import CodingActivationAttemptV1
+
+if TYPE_CHECKING:
+    from .hosted_execution import HostedResumeSubjectControl, HostedResumeSubjectScope
 
 _EXPANSION = re.compile(r"[a-z][a-z0-9._-]{0,63}\Z")
 NativeResumePolicy = PolicyEngine | PermissionProfilePolicyEvaluator
@@ -61,6 +65,8 @@ def coding_resume_permission_request(
     execution_profile: EffectiveExecutionProfile | None = None,
     baseline_execution_profile: EffectiveExecutionProfile | None = None,
     policy_evaluator: NativeResumePolicy | None = None,
+    hosted_subject_scope: HostedResumeSubjectScope | None = None,
+    hosted_subject_control: HostedResumeSubjectControl | None = None,
 ) -> ApprovalRequest:
     """Bind owner-observed expansion to this exact subject, target and candidate.
 
@@ -71,6 +77,10 @@ def coding_resume_permission_request(
 
     if not isinstance(attempt, CodingActivationAttemptV1):
         raise TypeError("Coding Resume confirmation requires an activation attempt")
+    if hosted_subject_scope is not None or hosted_subject_control is not None:
+        from .hosted_execution import _require_current_coding_hosted_resume_subject
+
+        _require_current_coding_hosted_resume_subject(attempt, hosted_subject_scope, hosted_subject_control)
     if (
         type(expansion_codes) is not tuple or not 1 <= len(expansion_codes) <= 16
         or any(type(code) is not str or _EXPANSION.fullmatch(code) is None for code in expansion_codes)
@@ -86,6 +96,8 @@ def coding_resume_permission_request(
         if len(expansion_codes) > 16:
             raise ValueError("Coding Resume permission expansion codes exceed their budget")
     arguments: dict[str, object] = {**attempt.to_data(), "permissionExpansion": list(expansion_codes)}
+    if hosted_subject_scope is not None:
+        arguments["subjectOwner"] = "appservice.controller/v1"
     if policy_evaluator is not None:
         arguments["policyConfigurationFingerprint"] = _policy_fingerprint(policy_evaluator)
     if execution_profile is not None:
@@ -128,6 +140,8 @@ class CodingResumePermissionConfirmation:
     execution_profile: EffectiveExecutionProfile | None = None
     baseline_execution_profile: EffectiveExecutionProfile | None = None
     policy_evaluator: NativeResumePolicy | None = None
+    hosted_subject_scope: HostedResumeSubjectScope | None = None
+    hosted_subject_control: HostedResumeSubjectControl | None = None
 
     def require_current(
         self, attempt: CodingActivationAttemptV1,
@@ -136,6 +150,12 @@ class CodingResumePermissionConfirmation:
     ) -> None:
         if attempt != self.attempt:
             raise PermissionError("Coding Resume permission confirmation target changed")
+        if self.hosted_subject_scope is not None or self.hosted_subject_control is not None:
+            from .hosted_execution import _require_current_coding_hosted_resume_subject
+
+            _require_current_coding_hosted_resume_subject(
+                attempt, self.hosted_subject_scope, self.hosted_subject_control,
+            )
         if (
             current_execution_profile is not None
             and type(current_execution_profile) is not EffectiveExecutionProfile
@@ -159,5 +179,7 @@ class CodingResumePermissionConfirmation:
             execution_profile=self.execution_profile,
             baseline_execution_profile=self.baseline_execution_profile,
             policy_evaluator=self.policy_evaluator,
+            hosted_subject_scope=self.hosted_subject_scope,
+            hosted_subject_control=self.hosted_subject_control,
         )
         self.owner.require_current_confirmation(self.confirmation, request=expected)

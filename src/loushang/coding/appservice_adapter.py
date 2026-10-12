@@ -7,16 +7,17 @@ import inspect
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Protocol, cast
+from typing import Protocol
 
 from loushang.apphost import SessionDiscoveryScope, SessionIdentityEnvelopeV1
 from loushang.appserver.protocol import (
+    AppErrorCodeV1,
+    AppServiceError,
     InteractionOutcomeV1,
     SessionEventKindV1,
     SessionEventV1,
     SessionIdentityV1,
     SessionOpenSpecV1,
-    SessionScopeV1,
     SessionSnapshotV1,
     TranscriptRecordV1,
 )
@@ -33,10 +34,6 @@ from loushang.harness.session import (
 )
 
 from .product_plan import CODING_PRODUCT_ID
-from .resume_input_lookup import (
-    CodingResumeInputLookupQueryV1,
-    CodingResumeInputLookupResultV1,
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,17 +133,11 @@ class CodingHostedSessionV1:
     ) -> ResumeInputLookupResultV1:
         """Adapt the optional Product observation; scoped service owns reads."""
 
-        from loushang.appserver.protocol import AppErrorCodeV1, AppServiceError
+        from .hosted_session import _lookup_coding_resume_input
 
         if self._close_task is not None:
             raise AppServiceError(AppErrorCodeV1.SESSION_UNAVAILABLE)
-        lookup = getattr(self._binding, "lookup_resume_input", None)
-        if not inspect.iscoroutinefunction(lookup):
-            raise AppServiceError(AppErrorCodeV1.OPERATION_UNAVAILABLE)
-        result = await lookup(CodingResumeInputLookupQueryV1(query.input_id, query.record_digest))
-        if type(result) is not CodingResumeInputLookupResultV1:
-            raise AppServiceError(AppErrorCodeV1.SESSION_UNAVAILABLE)
-        return ResumeInputLookupResultV1(result.input_id, result.record_id, result.status)
+        return await _lookup_coding_resume_input(self._binding, query)
 
     def __init__(self, binding: CodingHostedSessionBindingV1) -> None:
         self._require_binding(binding)
@@ -338,28 +329,9 @@ class CodingHostedSessionV1:
 
     @staticmethod
     def _require_binding(binding: object) -> None:
-        for name in ("project_snapshot", "project_event"):
-            if not callable(getattr(binding, name, None)):
-                raise TypeError("Coding hosted Session binding is invalid")
-        for name in ("respond_interaction", "close"):
-            if not inspect.iscoroutinefunction(getattr(binding, name, None)):
-                raise TypeError("Coding hosted Session binding is invalid")
-        try:
-            control = cast(CodingHostedSessionBindingV1, binding).control
-        except BaseException:
-            raise TypeError("Coding hosted Session binding is invalid") from None
-        if control is None:
-            return
-        for name in (
-            "subscribe_runtime_events",
-            "prompt",
-            "wait_for_idle",
-            "steer",
-            "follow_up",
-            "abort",
-        ):
-            if not callable(getattr(control, name, None)):
-                raise TypeError("Coding hosted Session control is invalid")
+        from .hosted_session import _require_coding_hosted_binding
+
+        _require_coding_hosted_binding(binding)
 
 
 def coding_hosted_identity_from_envelope(
@@ -370,23 +342,10 @@ def coding_hosted_identity_from_envelope(
 ) -> SessionIdentityV1:
     """Project a canonical path-free AppHost envelope into the App Contract."""
 
-    if type(envelope) is not SessionIdentityEnvelopeV1 or envelope.product_id != (
-        CODING_PRODUCT_ID
-    ):
-        raise ValueError("Coding hosted Session envelope is invalid")
-    if type(discovery_scope) is not SessionDiscoveryScope:
-        raise TypeError("Coding hosted discovery scope is invalid")
-    scope = (
-        SessionScopeV1.CWD
-        if discovery_scope is SessionDiscoveryScope.CURRENT_DIRECTORY
-        else SessionScopeV1.USER_HOME
-    )
-    return SessionIdentityV1(
-        product_id=envelope.product_id,
-        continuity_id=envelope.continuity_id,
-        session_id=envelope.session_id,
-        scope=scope,
-        scope_fingerprint=scope_fingerprint,
+    from .hosted_catalog import _coding_hosted_identity_from_envelope
+
+    return _coding_hosted_identity_from_envelope(
+        envelope, discovery_scope=discovery_scope, scope_fingerprint=scope_fingerprint,
     )
 
 
