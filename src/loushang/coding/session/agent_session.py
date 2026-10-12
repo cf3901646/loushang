@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 from loushang.agent import Agent, PrepareModelCallFn
@@ -134,6 +135,7 @@ from loushang.harness.runtime.registration import (
 )
 from loushang.harness.sandbox import SandboxExecutionRuntime, SandboxStatus
 from loushang.harness.session import AgentProductSession
+from loushang.harness.session.bash import UserBashHookResult, UserBashRequest
 from loushang.harness.session.capability_composition_inputs import (
     SessionCapabilityOwnerGenerationBinding,
     StagedSessionCapabilityOwnerGeneration,
@@ -162,7 +164,7 @@ from loushang.harness.transcript import (
     CompactionPreparation,
     CompactionResult,
 )
-from loushang.harness.workspace.exec import ExecService
+from loushang.harness.workspace.exec import ExecResult, ExecService, ExecUpdateCallback
 from loushang.harness.workspace.exec.capture_lease import ExecCaptureFactory
 
 SessionEventListener = Callable[[AgentSessionEvent], Awaitable[None] | None]
@@ -218,6 +220,40 @@ async def _execute_coding_branch_summary(
 
 class AgentSession(AgentProductSession):
     """Coding content and policy bound to the shared Agent Product session."""
+
+    @property
+    def execution_available(self) -> bool:
+        return (
+            super().execution_available
+            and not self._coding_session_manager.resume_runtime_publication_pending
+        )
+
+    async def _before_bash(self, request: UserBashRequest) -> UserBashHookResult | None:
+        self._coding_session_manager.require_no_unsettled_resume_activation()
+        return await super()._before_bash(request)
+
+    async def compact(self, custom_instructions: str | None = None) -> object:
+        self._coding_session_manager.require_no_unsettled_resume_activation()
+        return await super().compact(custom_instructions)
+
+    async def _exec_command_from_extension(
+        self, command: str, args: Sequence[str] = (), *,
+        cwd: str | Path | None = None,
+        env: Mapping[str, str] | Sequence[tuple[str, str]] | None = None,
+        timeout_seconds: float | None = None, stdin: str | None = None,
+        signal: object | None = None, on_update: ExecUpdateCallback | None = None,
+        preview_max_lines: int = 2000, preview_max_bytes: int = 50 * 1024,
+        artifact_dir: str | None = None, capture_full_output: bool = True,
+        rolling_max_bytes: int = 100 * 1024,
+    ) -> ExecResult:
+        self._coding_session_manager.require_no_unsettled_resume_activation()
+        return await super()._exec_command_from_extension(
+            command, args, cwd=cwd, env=env, timeout_seconds=timeout_seconds,
+            stdin=stdin, signal=signal, on_update=on_update,
+            preview_max_lines=preview_max_lines, preview_max_bytes=preview_max_bytes,
+            artifact_dir=artifact_dir, capture_full_output=capture_full_output,
+            rolling_max_bytes=rolling_max_bytes,
+        )
 
     @staticmethod
     def _reject_peer_worker_tool(tool: object) -> None:

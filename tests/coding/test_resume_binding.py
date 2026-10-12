@@ -820,6 +820,18 @@ def test_staged_resume_first_input_uses_the_session_append_path(tmp_path) -> Non
 
             with pytest.raises(CodingResumeRecoveryRequired, match="runtime.publication_pending"):
                 await AgentSession.prepare_model_call_runtime(SimpleNamespace(_coding_session_manager=manager))
+            inert = SimpleNamespace(_coding_session_manager=manager)
+            # Each boundary fails before it can reach extension hooks, shell
+            # services, or compaction setup; the inert binding has none of them.
+            with pytest.raises(CodingResumeRecoveryRequired, match="runtime.publication_pending"):
+                await AgentSession._before_bash(inert, None)
+            with pytest.raises(CodingResumeRecoveryRequired, match="runtime.publication_pending"):
+                await AgentSession._exec_command_from_extension(inert, "forbidden-command")
+            with pytest.raises(CodingResumeRecoveryRequired, match="runtime.publication_pending"):
+                await AgentSession.compact(inert)
+            binding = object.__new__(AgentSession)
+            binding._coding_session_manager = manager
+            assert binding.execution_available is False
             assert len(manager.get_entries()) == 2
             path = manager.session_file
             assert path is not None

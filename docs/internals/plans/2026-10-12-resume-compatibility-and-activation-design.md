@@ -35,6 +35,11 @@
   historical attempt projection becomes settled and a historical guard result
   is cached. Ordinary message writes, startup readiness and Coding model-runtime
   preparation cannot treat input durability as Runtime publication. The current
+  Coding shell pre-execution hook, extension exec entry and explicit compaction
+  entry check the same guard before invoking their downstream owners. Coding's
+  execution-availability observation also remains false while local publication
+  is pending, so the existing Hosted execution entry rejects dispatch. These
+  checks do not implement Hosted readiness or continuation admission. The current
   activation owner's publication and reopening path is not implemented; this
   local gate is not a durable publication receipt or a crash-recovery authority.
   ResourceLoader

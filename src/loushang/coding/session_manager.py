@@ -188,6 +188,12 @@ class SessionManager(
     _resume_runtime_publication_pending: bool = False
     _activation_guard_snapshot: tuple[int, str | None] | None = None
 
+    @property
+    def resume_runtime_publication_pending(self) -> bool:
+        """Local readiness only; historical Binding cannot prove publication."""
+
+        return self._resume_runtime_publication_pending
+
     @classmethod
     async def new_with_composition(
         cls,
