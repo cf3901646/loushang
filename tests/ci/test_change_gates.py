@@ -29,6 +29,7 @@ guard = load_script("verify_gate")
 docs = load_script("check_docs")
 runner = load_script("run_checks")
 worker_sessions = load_script("windows_worker_session_cases")
+pytest_shard = load_script("pytest_shard")
 
 
 class ScopeTests(unittest.TestCase):
@@ -679,6 +680,40 @@ class SuiteSelectionTests(unittest.TestCase):
         self.assertIn(
             "--ignore=tests/coding/test_screen_coding_tui_app.py", host_command
         )
+
+    def test_coding_matrix_partitions_the_complete_existing_offline_suite(self):
+        workflow = (ROOT / ".github/workflows/package-quality.yml").read_text()
+        coding_job = workflow.split("  coding:\n", 1)[1].split("  foundation:\n", 1)[0]
+        self.assertIn(
+            "shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]",
+            coding_job,
+        )
+        self.assertIn("--shard ${{ matrix.shard }} --shards 16", coding_job)
+        self.assertIn("verify_pytest_xml.py", coding_job)
+        self.assertIn("--allow-skipped", coding_job)
+        original, = runner.commands("coding")
+        for index in range(16):
+            with self.subTest(shard=index):
+                sharded, = runner.commands("coding", shard=index, shards=16)
+                self.assertEqual(
+                    sharded[:-6], original
+                )
+                self.assertEqual(
+                    sharded[-6:],
+                    ["-p", "pytest_shard", "--ci-shard-index", str(index),
+                     "--ci-shard-count", "16"],
+                )
+        with self.assertRaises(ValueError):
+            runner.commands("coding", shard=16, shards=16)
+        with self.assertRaises(ValueError):
+            runner.commands("agent", shard=0, shards=16)
+        nodeids = [f"tests/coding/test_example.py::test_case[{index}]" for index in range(100)]
+        groups = [
+            {nodeid for nodeid in nodeids if pytest_shard.shard_for_nodeid(nodeid, 16) == index}
+            for index in range(16)
+        ]
+        self.assertEqual(set().union(*groups), set(nodeids))
+        self.assertEqual(sum(map(len, groups)), len(nodeids))
 
     def test_full_host_runtime_keeps_the_original_repository_wide_collection(self):
         (command,) = runner.commands(
