@@ -47,6 +47,26 @@ def _binding() -> CodingRuntimeBindingV1:
     )
 
 
+async def _append_test_activation_attempt(
+    manager: SessionManager,
+) -> tuple[str, str | None, str]:
+    original_leaf_id = manager.leaf_id
+    ancestry = project_coding_runtime_binding_path(
+        manager._transcript.active_path(),
+        current_session_id=manager.header.conversation_id,
+    ).ancestry_digest
+    intent_id = await manager.append_custom_entry(
+        "coding.activation-attempt/v1",
+        {
+            "version": 1,
+            "attemptId": "attempt-1",
+            "originalLeafId": original_leaf_id,
+            "ancestryDigest": ancestry,
+        },
+    )
+    return intent_id, original_leaf_id, ancestry
+
+
 def test_runtime_binding_round_trip_keeps_historical_origin_and_bounded_metadata() -> None:
     binding = _binding()
     metadata = binding.to_message_metadata()
@@ -252,19 +272,21 @@ def test_staged_resume_first_input_uses_the_session_append_path(tmp_path) -> Non
         )
         message = UserMessage(role="user", content="continue", timestamp=1.0)
         try:
-            ancestry = project_coding_runtime_binding_path(
-                manager._transcript.active_path(),
-                current_session_id=manager.header.conversation_id,
-            ).ancestry_digest
+            intent_id, original_leaf_id, ancestry = (
+                await _append_test_activation_attempt(manager)
+            )
             manager._stage_resume_first_user_input(
                 message,
                 prepare_binding=lambda persisted: replace(
                     _binding(),
-                    original_leaf_id=manager.leaf_id,
+                    original_leaf_id=original_leaf_id,
                     ancestry_digest=ancestry,
                     payload_digest=coding_user_payload_digest(persisted),
                 ),
                 created_at=datetime(2026, 10, 12, tzinfo=UTC),
+                original_leaf_id=original_leaf_id,
+                ancestry_digest=ancestry,
+                attempt_id="attempt-1",
             )
             with pytest.raises(ValueError, match="differs from the staged input"):
                 await manager.append_message(replace(message, content="other"))
@@ -282,11 +304,12 @@ def test_staged_resume_first_input_uses_the_session_append_path(tmp_path) -> Non
             await manager.dispose_runtime_profile()
 
         _, records = load_agent_transcript_file(path, read_only=True)
-        assert len(records) == 1
+        assert len(records) == 2
         assert validate_coding_runtime_binding_record(
-            records[0], expected_session_id="session-1",
+            records[1], expected_session_id="session-1",
         ).ancestry_digest == ancestry
-        assert records[0].metadata["loushang.request.resource_evidence"] == {
+        assert records[1].parent_id == intent_id
+        assert records[1].metadata["loushang.request.resource_evidence"] == {
             "schemaVersion": 1,
         }
 
@@ -303,15 +326,19 @@ def test_staged_resume_first_input_rejects_changed_transcript_revision(tmp_path)
         )
         message = UserMessage(role="user", content="continue", timestamp=1.0)
         try:
+            _, original_leaf_id, ancestry = await _append_test_activation_attempt(manager)
             manager._stage_resume_first_user_input(
                 message,
                 prepare_binding=lambda _persisted: _binding(),
                 created_at=datetime(2026, 10, 12, tzinfo=UTC),
+                original_leaf_id=original_leaf_id,
+                ancestry_digest=ancestry,
+                attempt_id="attempt-1",
             )
             await manager.append_custom_entry("test.revision", {"version": 1})
             with pytest.raises(ValueError, match="selected transcript branch changed"):
                 await manager.append_message(message)
-            assert len(manager.get_entries()) == 1
+            assert len(manager.get_entries()) == 2
         finally:
             await manager.dispose_runtime_profile()
 
@@ -330,18 +357,18 @@ def test_staged_resume_first_input_does_not_replay_after_lost_ack(
         )
         message = UserMessage(role="user", content="continue", timestamp=1.0)
         try:
-            ancestry = project_coding_runtime_binding_path(
-                manager._transcript.active_path(),
-                current_session_id="session-1",
-            ).ancestry_digest
+            _, original_leaf_id, ancestry = await _append_test_activation_attempt(manager)
             manager._stage_resume_first_user_input(
                 message,
                 prepare_binding=lambda persisted: replace(
-                    _binding(), original_leaf_id=None,
+                    _binding(), original_leaf_id=original_leaf_id,
                     ancestry_digest=ancestry,
                     payload_digest=coding_user_payload_digest(persisted),
                 ),
                 created_at=datetime(2026, 10, 12, tzinfo=UTC),
+                original_leaf_id=original_leaf_id,
+                ancestry_digest=ancestry,
+                attempt_id="attempt-1",
             )
             store = manager._lifecycle_session.runtime_binding.store
             original = store.append
@@ -366,8 +393,8 @@ def test_staged_resume_first_input_does_not_replay_after_lost_ack(
             await manager.dispose_runtime_profile()
 
         _, records = load_agent_transcript_file(path, read_only=True)
-        assert len(records) == 1
-        assert records[0].record_id == "record-1"
+        assert len(records) == 2
+        assert records[1].record_id == "record-1"
 
     asyncio.run(scenario())
 

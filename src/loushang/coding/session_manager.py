@@ -44,6 +44,7 @@ from loushang.harness.transcript.jsonl_file import (
     load_agent_transcript_file,
     load_agent_transcript_header,
 )
+from loushang.harness.transcript.types import ExtensionData
 
 from .resume_binding import (
     CodingRuntimeBindingV1,
@@ -58,6 +59,8 @@ class _PendingResumeFirstInput:
     prepare_binding: Callable[[UserMessage], CodingRuntimeBindingV1]
     created_at: datetime
     original_leaf_id: str | None
+    commit_parent_id: str
+    attempt_id: str
     revision: int
     ancestry_digest: str
     lock: asyncio.Lock
@@ -225,6 +228,9 @@ class SessionManager(
         *,
         prepare_binding: Callable[[UserMessage], CodingRuntimeBindingV1],
         created_at: datetime,
+        original_leaf_id: str | None,
+        ancestry_digest: str,
+        attempt_id: str,
     ) -> None:
         """Register one admitted continuation input after the Writer is owned.
 
@@ -241,17 +247,45 @@ class SessionManager(
             raise ValueError("Coding Resume first input timestamp must be timezone-aware")
         if self._resume_first_input is not None:
             raise ValueError("Coding Resume first input is already staged")
+        active = tuple(self._transcript.active_path())
+        original_length = 0
+        if original_leaf_id is not None:
+            for index, record in enumerate(active):
+                if record.record_id == original_leaf_id:
+                    original_length = index + 1
+                    break
+            else:
+                raise ValueError("Coding Resume original leaf is not on the selected path")
+        original_path = active[:original_length]
         projection = project_coding_runtime_binding_path(
-            self._transcript.active_path(),
+            original_path,
             current_session_id=self.get_header().conversation_id,
         )
-        if projection.status == "unknown_version":
-            raise ValueError("Coding Resume has an unknown RuntimeBinding version")
+        if projection.status == "unknown_version" or projection.ancestry_digest != ancestry_digest:
+            raise ValueError("Coding Resume original ancestry changed")
+        tail = active[original_length:]
+        if len(tail) != 1:
+            raise ValueError("Coding Resume requires one selected activation attempt")
+        intent = tail[0]
+        payload = intent.payload
+        if (
+            not isinstance(payload, ExtensionData)
+            or payload.extension_type != "coding.activation-attempt/v1"
+            or not isinstance(payload.data, dict)
+            or payload.data.get("version") != 1
+            or payload.data.get("attemptId") != attempt_id
+            or payload.data.get("originalLeafId") != original_leaf_id
+            or payload.data.get("ancestryDigest") != ancestry_digest
+            or intent.parent_id != original_leaf_id
+        ):
+            raise ValueError("Coding Resume activation attempt differs from selected history")
         self._resume_first_input = _PendingResumeFirstInput(
             expected_message=message,
             prepare_binding=prepare_binding,
             created_at=created_at,
-            original_leaf_id=self.get_leaf_id(),
+            original_leaf_id=original_leaf_id,
+            commit_parent_id=intent.record_id,
+            attempt_id=attempt_id,
             revision=self._transcript.revision,
             ancestry_digest=projection.ancestry_digest,
             lock=asyncio.Lock(),
@@ -274,7 +308,7 @@ class SessionManager(
             if message != pending.expected_message:
                 raise ValueError("Coding Resume first input differs from the staged input")
             if (
-                self.get_leaf_id() != pending.original_leaf_id
+                self.get_leaf_id() != pending.commit_parent_id
                 or self._transcript.revision != pending.revision
             ):
                 raise ValueError("Coding Resume selected transcript branch changed")
@@ -285,6 +319,7 @@ class SessionManager(
                     raise TypeError("Coding Resume activation returned an invalid binding")
                 if (
                     binding.session_id != self.get_header().conversation_id
+                    or binding.attempt_id != pending.attempt_id
                     or binding.original_leaf_id != pending.original_leaf_id
                     or binding.ancestry_digest != pending.ancestry_digest
                 ):
@@ -292,7 +327,7 @@ class SessionManager(
                 record = prepare_coding_resume_user_record(
                     binding,
                     persisted,
-                    commit_parent_id=pending.original_leaf_id,
+                    commit_parent_id=pending.commit_parent_id,
                     created_at=pending.created_at,
                     resource_metadata=metadata,
                 )
