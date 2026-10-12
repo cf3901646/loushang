@@ -15,11 +15,24 @@ OFFLINE_MARKERS = (
     "not live and not requires_host_runtime and not tui_render_contract "
     "and not tui_terminal_backend and not tui_terminal_contract and not tui_tmux_integration"
 )
+MODULE_EXTRA_TESTS = {
+    "ai": ["tests/protocols", "tests/examples/test_ai_examples.py",
+           "tests/examples/test_auth_examples.py"],
+    "agent": ["tests/examples/test_agent_examples.py"],
+    "coding": ["tests/examples/test_coding_examples.py"],
+    "harness": ["tests/examples/test_harness_tool_authoring_example.py",
+                "tests/examples/test_harness_document_product_example.py"],
+}
 
 
 def commands(
-    scope: str, *, root: Path = ROOT, plan: dict | None = None
+    scope: str, *, root: Path = ROOT, plan: dict | None = None,
+    shard: int = 0, shards: int = 1,
 ) -> list[list[str]]:
+    if shards < 1 or not 0 <= shard < shards:
+        raise ValueError(f"invalid regression shard {shard}/{shards}")
+    if scope != "coding" and not scope.startswith("unit_") and (shard != 0 or shards != 1):
+        raise ValueError("shards are only supported for module regression")
     python = sys.executable
     pytest = [python, "scripts/dev/run_pytest.py"]
     inventories = make_paths(root)
@@ -37,10 +50,23 @@ def commands(
         unit_paths = json.loads((root / "scripts/ci/unit-tests.json").read_text())
         if package not in unit_paths:
             raise ValueError(f"unknown unit package {package!r}")
+        package_dir = root / "tests" / package
+        paths = [f"tests/{package}"] if package_dir.is_dir() else unit_paths[package]
+        extras = MODULE_EXTRA_TESTS.get(package, [])
+        for path in extras:
+            if not (root / path).exists():
+                raise ValueError(f"missing module regression path {path!r}")
+        shard_args = (
+            ["-p", "pytest_shard", "--ci-shard-index", str(shard),
+             "--ci-shard-count", str(shards)]
+            if shards > 1 else []
+        )
         return [
             pytest
-            + unit_paths[package]
-            + ["-m", OFFLINE_MARKERS, "--skip-host-runtime", "--strict-markers", "-q"]
+            + (coding_ignores if package == "coding" else [])
+            + paths + extras
+            + ["-m", f"{OFFLINE_MARKERS} and not e2e_smoke",
+               "--skip-host-runtime", "--strict-markers", "-q", *shard_args]
         ]
     if scope == "e2e_smoke":
         return [
@@ -75,11 +101,14 @@ def commands(
         # Existing packages do not all have established package-wide mypy/lint
         # baselines. Start with their offline regression suites, without inventing
         # new lint thresholds as part of CI routing.
-        return [
-            pytest
-            + (coding_ignores if scope == "coding" else [])
-            + [f"tests/{scope}", "-m", OFFLINE_MARKERS, "--skip-host-runtime", "-q"]
-        ]
+        shard_args = (
+            ["-p", "pytest_shard", "--ci-shard-index", str(shard),
+             "--ci-shard-count", str(shards)]
+            if shards > 1 else []
+        )
+        return [pytest + (coding_ignores if scope == "coding" else [])
+                + [f"tests/{scope}", "-m", OFFLINE_MARKERS,
+                   "--skip-host-runtime", "-q", *shard_args]]
     if scope == "tui_unit":
         return [
             pytest + ["tests/tui", "-m", OFFLINE_MARKERS, "--skip-host-runtime", "-q"]
@@ -136,12 +165,13 @@ def commands(
     raise ValueError(f"scope {scope!r} requires its platform-specific workflow")
 
 
-def run(scope: str, *, plan: dict | None = None) -> None:
+def run(scope: str, *, plan: dict | None = None, shard: int = 0, shards: int = 1) -> None:
     env = os.environ.copy()
     env["PYTHONPATH"] = os.pathsep.join(
-        part for part in (str(ROOT / "src"), env.get("PYTHONPATH")) if part
+        part for part in (str(ROOT / "src"), str(ROOT / "scripts" / "ci"),
+                          env.get("PYTHONPATH")) if part
     )
-    for command in commands(scope, plan=plan):
+    for command in commands(scope, plan=plan, shard=shard, shards=shards):
         print("Running:", " ".join(command), flush=True)
         completed = subprocess.run(command, cwd=ROOT, env=env, check=False)
         if (
@@ -159,11 +189,13 @@ def run(scope: str, *, plan: dict | None = None) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("scope")
+    parser.add_argument("--shard", type=int, default=0)
+    parser.add_argument("--shards", type=int, default=1)
     args = parser.parse_args()
     # Unit/package jobs must not accidentally activate opt-in provider tests.
     os.environ.pop("LOUSHANG_AI_LIVE", None)
     plan = json.loads(os.environ["CI_PLAN"]) if "CI_PLAN" in os.environ else None
-    run(args.scope, plan=plan)
+    run(args.scope, plan=plan, shard=args.shard, shards=args.shards)
 
 
 if __name__ == "__main__":
