@@ -106,7 +106,10 @@ def create_read_tool_definition(
     @tool(
         name="read",
         label="Read",
-        description="Read text files and images: read(path, offset?, limit?).",
+        description=(
+            'Read text files and images. JSON arguments: {"path":"file"}; '
+            "optional offset and limit are positive integers (offset starts at 1)."
+        ),
         prompt_snippet="- read: Read text files and images from the workspace.",
     )
     async def read(
