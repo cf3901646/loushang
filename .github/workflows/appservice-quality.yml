@@ -77,13 +77,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-24.04
-            platform: linux
-          - os: macos-15
-            platform: darwin
-          - os: windows-latest
-            platform: win32
+        include: ${{ fromJSON(inputs.plan).windows.appservice_full && fromJSON('[{"os":"ubuntu-24.04","platform":"linux"},{"os":"macos-15","platform":"darwin"},{"os":"windows-latest","platform":"win32"}]') || fromJSON('[{"os":"ubuntu-24.04","platform":"linux"},{"os":"macos-15","platform":"darwin"}]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -109,7 +103,7 @@ jobs:
           if-no-files-found: error
 
   g17-windows-native:
-    if: ${{ fromJSON(inputs.plan).checks.appservice }}
+    if: ${{ fromJSON(inputs.plan).windows.appservice_full }}
     name: g17-windows-native
     runs-on: windows-latest
     timeout-minutes: 20
@@ -163,9 +157,28 @@ jobs:
         run: uv sync --locked --extra dev
 
       - name: Check hosted application and G16 native record security
+        if: ${{ runner.os != 'Windows' || fromJSON(inputs.plan).windows.appservice_full }}
         env:
           PYTEST_ADDOPTS: ${{ runner.os == 'Windows' && '--durations=20 --junitxml=.artifacts/appservice-windows-timings.xml -o junit_family=xunit1' || '' }}
         run: make check-appservice
+
+      - name: Create PR Windows report directory
+        if: ${{ runner.os == 'Windows' && !fromJSON(inputs.plan).windows.appservice_full }}
+        run: uv run python -c "from pathlib import Path; Path('.artifacts').mkdir(exist_ok=True)"
+
+      - name: PR Windows application smoke
+        if: ${{ runner.os == 'Windows' && !fromJSON(inputs.plan).windows.appservice_full }}
+        run: >-
+          uv run python scripts/dev/run_pytest.py
+          tests/appserver/test_local.py::test_G16_LOCAL_NATIVE_real_authenticated_request_and_client_eof_only_closes_scope
+          "tests/coding/test_hosted_windows_evidence.py::test_G17_TERMINAL_WINDOWS_console_modes_and_physical_exit[G17-WINDOWS-ENTRY]"
+          --junitxml=.artifacts/appservice-windows-smoke.xml -q -m "not live"
+
+      - name: Verify PR Windows application smoke
+        if: ${{ runner.os == 'Windows' && !fromJSON(inputs.plan).windows.appservice_full }}
+        run: >-
+          uv run python scripts/dev/verify_pytest_xml.py
+          .artifacts/appservice-windows-smoke.xml --require-tests-count 2
 
       - name: Upload Windows full-suite timing report
         if: always() && runner.os == 'Windows'
@@ -181,16 +194,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-24.04
-            platform: linux
-            report: G16-NATIVE-LINUX
-          - os: macos-15
-            platform: darwin
-            report: G16-NATIVE-DARWIN
-          - os: windows-latest
-            platform: win32
-            report: G16-NATIVE-WIN32
+        include: ${{ fromJSON(inputs.plan).windows.appservice_full && fromJSON('[{"os":"ubuntu-24.04","platform":"linux","report":"G16-NATIVE-LINUX"},{"os":"macos-15","platform":"darwin","report":"G16-NATIVE-DARWIN"},{"os":"windows-latest","platform":"win32","report":"G16-NATIVE-WIN32"}]') || fromJSON('[{"os":"ubuntu-24.04","platform":"linux","report":"G16-NATIVE-LINUX"},{"os":"macos-15","platform":"darwin","report":"G16-NATIVE-DARWIN"}]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
@@ -224,13 +228,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-24.04
-            platform: linux
-          - os: macos-15
-            platform: darwin
-          - os: windows-latest
-            platform: win32
+        include: ${{ fromJSON(inputs.plan).windows.appservice_full && fromJSON('[{"os":"ubuntu-24.04","platform":"linux"},{"os":"macos-15","platform":"darwin"},{"os":"windows-latest","platform":"win32"}]') || fromJSON('[{"os":"ubuntu-24.04","platform":"linux"},{"os":"macos-15","platform":"darwin"}]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -268,4 +266,4 @@ jobs:
           CI_NEEDS: ${{ toJSON(needs) }}
         run: >-
           python scripts/ci/verify_gate.py
-          --jobs '{"appservice-quality":"appservice","g16-native-evidence":"appservice","g16-wheel-evidence":"appservice","g17-darwin-native":"appservice","g17-darwin-primitives":"appservice","g17-wheel-evidence":"appservice","g17-windows-native":"appservice"}'
+          --jobs '{"appservice-quality":"appservice","g16-native-evidence":"appservice","g16-wheel-evidence":"appservice","g17-darwin-native":"appservice","g17-darwin-primitives":"appservice","g17-wheel-evidence":"appservice","g17-windows-native":"windows.appservice_full"}'
