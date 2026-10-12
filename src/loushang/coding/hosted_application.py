@@ -779,6 +779,8 @@ def _validate_hosted_binding(
     for name in ("respond_interaction", "close"):
         if not inspect.iscoroutinefunction(_method_descriptor(binding, name)):
             raise TypeError("Coding hosted Session binding is invalid")
+    if control is None:
+        return
     for name in (
         "subscribe_runtime_events",
         "prompt",

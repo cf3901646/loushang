@@ -40,6 +40,7 @@ from .hosted_catalog import CodingHostedCandidateBindingV1, CodingHostedCatalogE
 from .package_product_runtime import (
     CodingFencedProductApplicationSelection,
 )
+from .resume_history import CodingResumeHistoryPreview
 from .resume_input_lookup import (
     CodingResumeInputLookupQueryV1,
     CodingResumeInputLookupResultV1,
@@ -52,6 +53,74 @@ _MAX_INTERACTIONS = 16
 CodingHostedProductRuntimeFactoryForSession = Callable[
     [SessionManager], PackageProductRuntimeFactoryPort
 ]
+
+
+class CodingHostedHistoryBindingV1:
+    """Detached historical display with no Writer or execution control.
+
+    The catalog admits identity and the source revision before constructing this
+    binding. AppService still owns caller read authorization. A display snapshot
+    cannot be promoted into a current runtime or used as activation evidence.
+    """
+
+    def __init__(
+        self, identity: SessionIdentityV1, history: CodingResumeHistoryPreview,
+    ) -> None:
+        if (
+            type(identity) is not SessionIdentityV1
+            or identity.product_id != "coding"
+            or type(history) is not CodingResumeHistoryPreview
+            or identity.session_id != history.header_preview.header.conversation_id
+        ):
+            raise CodingHostedCatalogError()
+        self.identity = identity
+        self._closed = False
+        records: list[TranscriptRecordV1] = []
+        remaining = _TEXT_LIMIT
+        omitted = False
+        for entry in reversed(history.selected_records):
+            record = _message_record(entry.payload)
+            if record is None:
+                continue
+            if len(records) >= 128 or len(record.text) > remaining:
+                omitted = True
+                break
+            records.append(record)
+            remaining -= len(record.text)
+        records.reverse()
+        if omitted:
+            records.insert(0, TranscriptRecordV1(
+                TranscriptRecordKindV1.STATUS,
+                "Earlier messages omitted from this bounded snapshot; the canonical transcript is unchanged.",
+            ))
+        records.append(TranscriptRecordV1(
+            TranscriptRecordKindV1.STATUS,
+            "Historical session is read-only; continuing requires current runtime activation.",
+        ))
+        self._projection = CodingHostedSnapshotProjectionV1(
+            title="Coding", revision=0, running=False, records=tuple(records),
+            truncated=omitted,
+        )
+
+    @property
+    def control(self) -> None:
+        return None
+
+    def project_snapshot(self) -> CodingHostedSnapshotProjectionV1:
+        if self._closed:
+            raise RuntimeError("coding_hosted_session_closed")
+        return self._projection
+
+    def project_event(
+        self, event: RuntimeEvent[object],
+    ) -> CodingHostedEventProjectionV1 | None:
+        return None
+
+    async def respond_interaction(self, interaction_id: str, outcome: str) -> bool:
+        return False
+
+    async def close(self) -> None:
+        self._closed = True
 
 
 class CodingRealHostedSessionV1:
@@ -388,6 +457,7 @@ def _observe_close(task: asyncio.Task[None]) -> None:
 
 
 __all__ = [
+    "CodingHostedHistoryBindingV1",
     "CodingHostedProductRuntimeFactoryForSession",
     "CodingRealHostedSessionFactoryV1",
     "CodingRealHostedSessionV1",

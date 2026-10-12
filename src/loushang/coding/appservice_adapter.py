@@ -92,7 +92,7 @@ class CodingHostedSessionBindingV1(Protocol):
     def identity(self) -> SessionIdentityV1: ...
 
     @property
-    def control(self) -> SessionControlPort: ...
+    def control(self) -> SessionControlPort | None: ...
 
     def project_snapshot(self) -> CodingHostedSnapshotProjectionV1: ...
 
@@ -157,15 +157,21 @@ class CodingHostedSessionV1:
             raise TypeError("Coding hosted Session identity is invalid")
         self.identity = identity
         self._binding = binding
-        self._operations = SessionOperationRuntime(binding.control)
+        control = binding.control
+        self._operations = (
+            None if control is None else SessionOperationRuntime(control)
+        )
         self._listeners: set[HostedSessionEventListenerV1] = set()
         self._cursor = 0
         self._settled = False
         self._unsubscribed = False
         self._close_task: asyncio.Task[None] | None = None
         self._close_lock = asyncio.Lock()
+        if control is None:
+            self._unsubscribe = lambda: None
+            return
         try:
-            unsubscribe = binding.control.subscribe_runtime_events(
+            unsubscribe = control.subscribe_runtime_events(
                 self._on_runtime_event
             )
         except BaseException:
@@ -207,21 +213,21 @@ class CodingHostedSessionV1:
 
     async def start_turn(self, text: str) -> None:
         self._require_open()
-        await self._operations.prompt(
+        await self._require_operations().prompt(
             request=self._prompt_request(text),
         )
 
     def steer_turn(self, text: str) -> None:
         self._require_open()
-        self._operations.steer(text)
+        self._require_operations().steer(text)
 
     def follow_up_turn(self, text: str) -> None:
         self._require_open()
-        self._operations.follow_up(text)
+        self._require_operations().follow_up(text)
 
     def interrupt_turn(self) -> bool:
         self._require_open()
-        return self._operations.abort_turn()
+        return False if self._operations is None else self._operations.abort_turn()
 
     async def respond_interaction(
         self,
@@ -229,6 +235,8 @@ class CodingHostedSessionV1:
         outcome: InteractionOutcomeV1,
     ) -> bool:
         self._require_open()
+        if self._operations is None:
+            return False
         mapped = {
             InteractionOutcomeV1.APPROVE: "allow_once",
             InteractionOutcomeV1.DENY: "deny",
@@ -321,6 +329,13 @@ class CodingHostedSessionV1:
         if self._unsubscribed:
             raise RuntimeError("coding_hosted_session_closed")
 
+    def _require_operations(self) -> SessionOperationRuntime:
+        if self._operations is None:
+            from loushang.appserver.protocol import AppErrorCodeV1, AppServiceError
+
+            raise AppServiceError(AppErrorCodeV1.SESSION_UNAVAILABLE)
+        return self._operations
+
     @staticmethod
     def _require_binding(binding: object) -> None:
         for name in ("project_snapshot", "project_event"):
@@ -333,6 +348,8 @@ class CodingHostedSessionV1:
             control = cast(CodingHostedSessionBindingV1, binding).control
         except BaseException:
             raise TypeError("Coding hosted Session binding is invalid") from None
+        if control is None:
+            return
         for name in (
             "subscribe_runtime_events",
             "prompt",

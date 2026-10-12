@@ -2,6 +2,10 @@
 
 ## Status
 
+- Hosted history binding: an explicit catalog `open_history_binding` entry now
+  delivers bounded selected-branch history through the existing Hosted adapter
+  without a Writer, Product factory or executable control. This does not yet
+  replace the default AppHost resume path or activate on first input.
 - Authority: descriptive — implementation design and delivery plan; accepted cross-scope contracts are normative in ARD-004/005/006.
 - Design status: proposed — ARD-004/005/006 boundaries were accepted by the project owner on 2026-10-12; further implementation detail and release evidence remain distinct.
 - Implementation status: partial — read-only Header, bounded selected-path and
@@ -909,3 +913,45 @@ This proves internal consumption and the original transport boundary. It does
 not prove production current grants or native effect settlement, Hosted submit
 deduplication/outcome lookup, restart recovery or Embedded/TUI integration.
 These production callers and the full release/performance gates remain pending.
+
+### Hosted detached history binding
+
+`CodingHostedSessionCatalogV1.open_history_binding` reads the original bounded
+selected-path snapshot and rechecks the discovered canonical identity, source
+revision and accepting owner before delivery. It bypasses writable candidate
+claiming entirely. It does not run services selection, Product preparation,
+Writer acquisition or historical startup replay. Ordinary writable open and
+idempotent create retain their existing checks.
+
+The returned `CodingHostedHistoryBindingV1` holds only a detached bounded text
+projection. The existing Hosted adapter and application binding validator admit
+an explicit absent execution control; no artificial SessionControlPort is
+created. Snapshot and subscriptions are available, prompt/steer/follow-up report
+Session unavailable, interrupt reports false, and interactions cannot approve
+historical requests. The display neither grants current actor authority nor
+provides input-outcome lookup. Existing scoped AppService read authorization
+remains required by callers. Closing the binding is idempotent and has no runtime
+or Writer to dispose.
+
+Regression coverage exercises changed composition/capability metadata through
+the actual Hosted adapter, preserves the selected left branch when a right
+branch is also present, and rejects delivery after source revision change or an
+owned catalog fence. Successful display leaves original transcript bytes intact.
+The pre-change adapter/real-session baseline passed fifteen tests with one
+existing skip. Scoped mypy for all four changed source modules and Ruff passed;
+unscoped mypy also reports pre-existing errors in imported modules and is not
+the changed-module gate.
+
+The final integrated run passed fifty-eight non-live tests with one existing
+skip across Hosted catalog, adapter, application, execution and real-session
+coverage. The owned-fence case uses the real managed catalog; the legacy
+unowned catalog's historical no-op fence is not used as shutdown evidence.
+All nine documentation checks passed.
+
+This is an explicit history entry, not yet the default LMUX/AppHost open route.
+The original real-session factory still constructs an executable runtime eagerly.
+Connecting deferred AppHost claim/profile ownership, native current policy and
+effect settlement, first-input activation, and Embedded/TUI remains required.
+The full bounded snapshot read is not a measured large-session fast-open path;
+tail paging and background-plan performance acceptance remain pending. Goal and
+Issue #696 remain incomplete.

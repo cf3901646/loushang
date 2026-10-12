@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
@@ -29,6 +30,78 @@ from loushang.harness.transcript.jsonl_file import (
     load_agent_transcript_file,
     write_agent_transcript_export,
 )
+
+
+@pytest.mark.parametrize("delivery_fault", [
+    "none", "source_changed",
+    pytest.param("fenced", marks=pytest.mark.skipif(
+        sys.platform != "linux", reason="Linux owned transcript fence",
+    )),
+])
+def test_hosted_readonly_binding_preserves_selected_branch_and_delivery_fence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, delivery_fault: str,
+) -> None:
+    from loushang.coding.appservice_adapter import CodingHostedSessionV1
+    from loushang.harness.conversation import ConversationRecord
+    from loushang.harness.transcript import AGENT_MESSAGE_KIND
+
+    async def scenario() -> None:
+        scope = _scope(tmp_path)
+        scope.session_dir.mkdir(mode=0o700, exist_ok=True)
+        catalog = CodingHostedSessionCatalogV1(
+            (scope,), owned_transcripts=delivery_fault == "fenced",
+        )
+        candidate = await catalog.create_candidate(_intent(scope))
+        await candidate.close()
+        path = next(scope.session_dir.glob("*.jsonl"))
+        header, _ = load_agent_transcript_file(path, read_only=True)
+
+        def message(record_id: str, parent_id: str | None):
+            return ConversationRecord(
+                record_id=record_id, parent_id=parent_id, kind=AGENT_MESSAGE_KIND,
+                payload_version=1, created_at=header.created_at,
+                payload=UserMessage(role="user", content=record_id, timestamp=1.0),
+            )
+
+        write_agent_transcript_export(path, header, [
+            message("root", None), message("left", "root"),
+            message("right", "root"),
+        ])
+        before = path.read_bytes()
+        rows = await catalog.list_identities((scope.discovery_scope,), limit=256)
+        original_preview = catalog.preview_history_snapshot
+
+        async def preview_with_delivery_fault(*args, **kwargs):
+            history = await original_preview(*args, **kwargs)
+            if delivery_fault == "source_changed":
+                path.write_bytes(before + b"\n")
+            elif delivery_fault == "fenced":
+                catalog.fence()
+            return history
+
+        monkeypatch.setattr(catalog, "preview_history_snapshot", preview_with_delivery_fault)
+        if delivery_fault != "none":
+            with pytest.raises(CodingHostedCatalogError):
+                await catalog.open_history_binding(
+                    rows[0].reference, max_bytes=1024 * 1024, selected_leaf_id="left",
+                )
+            await catalog.close()
+            return
+        binding = await catalog.open_history_binding(
+            rows[0].reference, max_bytes=1024 * 1024, selected_leaf_id="left",
+        )
+        hosted = CodingHostedSessionV1(binding)
+        snapshot = await hosted.snapshot()
+        assert [record.text for record in snapshot.records[:-1]] == ["root", "left"]
+        assert binding.control is None
+        assert path.read_bytes() == before
+        # Delivered display is detached, rather than a live claim or lookup grant.
+        catalog.fence()
+        assert await hosted.snapshot() == snapshot
+        await hosted.close()
+        await catalog.close()
+
+    asyncio.run(scenario())
 
 
 def _scope(
@@ -127,7 +200,7 @@ def test_G14_RECOVERY_create_identity_is_idempotent_across_catalog_instances(
 
 
 def test_canonical_hosted_history_previews_changed_environment_without_activation(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def scenario() -> None:
         scope = _scope(tmp_path)
@@ -164,6 +237,36 @@ def test_canonical_hosted_history_previews_changed_environment_without_activatio
         )
         assert comparison.status == "changed"
         assert comparison.difference_codes == ("composition.set_changed",)
+        from loushang.appserver.protocol import AppErrorCodeV1, AppServiceError
+        from loushang.coding.appservice_adapter import CodingHostedSessionV1
+
+        async def reject_writable_open(*args, **kwargs):
+            raise AssertionError("historical display acquired writable candidate")
+
+        original_open = fresh._open
+        monkeypatch.setattr(fresh, "_open", reject_writable_open)
+
+        binding = await fresh.open_history_binding(
+            rows[0].reference, max_bytes=1024 * 1024,
+        )
+        assert binding.control is None
+        hosted = CodingHostedSessionV1(binding)
+        snapshot = await hosted.snapshot()
+        assert snapshot.identity.session_id == header.conversation_id
+        assert snapshot.running is False
+        assert snapshot.records[-1].kind.value == "status"
+        with pytest.raises(AppServiceError) as unavailable:
+            await hosted.start_turn("continue")
+        assert unavailable.value.code is AppErrorCodeV1.SESSION_UNAVAILABLE
+        for operation in (hosted.steer_turn, hosted.follow_up_turn):
+            with pytest.raises(AppServiceError):
+                operation("continue")
+        assert hosted.interrupt_turn() is False
+        await hosted.close()
+        await hosted.close()
+        with pytest.raises(RuntimeError, match="closed"):
+            await hosted.snapshot()
+        monkeypatch.setattr(fresh, "_open", original_open)
         with pytest.raises(ValueError, match="unsupported capability profile"):
             await fresh.open_candidate(rows[0].reference)
         assert path.read_bytes() == before

@@ -59,6 +59,7 @@ from loushang.harness.transcript.session_catalog import (
     session_file_authority_fingerprint,
 )
 
+from .appservice_adapter import CodingHostedSessionBindingV1
 from .composition_provenance import composition_header_metadata
 from .composition_sets import resolve_coding_composition_set
 from .product_plan import CODING_TRANSCRIPT_RUNTIME
@@ -690,6 +691,30 @@ class CodingHostedSessionCatalogV1:
         ):
             raise CodingHostedCatalogError()
         return preview
+
+    async def open_history_binding(
+        self, reference: SessionCandidateRefV1, *, max_bytes: int,
+        selected_leaf_id: str | None = None,
+    ) -> CodingHostedSessionBindingV1:
+        """Open detached Hosted history without claiming a writable candidate.
+
+        Current execution compatibility is not a historical display requirement.
+        The discovered canonical identity and source revision remain required.
+        This separate entry does not change idempotent create or writable open.
+        """
+
+        from .hosted_session import CodingHostedHistoryBindingV1
+
+        preview = await self.preview_history_snapshot(
+            reference, max_bytes=max_bytes, selected_leaf_id=selected_leaf_id,
+        )
+        async with self._lock:
+            self._accepting()
+            record = self._records.get(reference)
+            if record is None or _revision(record.path) != reference.revision:
+                raise CodingHostedCatalogError()
+            identity = record.identity
+        return CodingHostedHistoryBindingV1(identity, preview)
 
     def _scope_for(self, request: SessionCreateRequestV1) -> CodingHostedScopeV1:
         if request.product_id != "coding" or request.requested_continuity_id is None:
