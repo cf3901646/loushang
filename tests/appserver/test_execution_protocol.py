@@ -41,6 +41,10 @@ from loushang.appserver.protocol import (
     SessionSnapshotRequestV1,
     SessionSnapshotV1,
 )
+from loushang.appserver.resume_model import (
+    ResumeInputLookupQueryV1,
+    ResumeInputLookupResultV1,
+)
 from tests.appservice.test_execution_snapshot import IDENTITY
 
 CONTROL = SessionSnapshotRequestV1("attachment", 1, "member")
@@ -53,6 +57,8 @@ def test_closed_execution_call_round_trip(operation):
         submission_id="submission" if operation in {ExecutionOperationV1.SUBMIT, ExecutionOperationV1.FIND} else None,
         execution_id="execution" if operation in {ExecutionOperationV1.GET, ExecutionOperationV1.INTERRUPT} else None,
         text="没有输出的命令" if operation is ExecutionOperationV1.SUBMIT else None,
+        resume_query=ResumeInputLookupQueryV1("input-1", "a" * 64)
+        if operation is ExecutionOperationV1.RESUME_INPUT_LOOKUP else None,
     )
     assert decode_call(encode_call(call)) == call
     raw = json.loads(encode_call(call))
@@ -78,6 +84,7 @@ def test_record_snapshot_and_event_round_trip():
         )),
         ExecutionFailureV1(ExecutionErrorCodeV1.INSTANCE_CHANGED),
         AppFailureV1(AppErrorCodeV1.STALE_ATTACHMENT), None,
+        ResumeInputLookupResultV1("input-1", "record-1", "committed"),
     ):
         response = ExecutionResponseV1("1", result)
         assert decode_response(encode_response(response)) == response
@@ -127,3 +134,14 @@ def test_native_client_handoff_goldens_keep_their_closed_wire_shapes():
             assert encode_call(decode_call(encoded)) == encoded
         else:
             assert encode_response(decode_response(encoded)) == encoded
+
+
+@pytest.mark.parametrize("status", ["committed", "not_committed_verified", "unknown", "conflict"])
+def test_resume_lookup_result_round_trip_has_closed_status(status):
+    result = ResumeInputLookupResultV1("input-1", "record-1", status)
+    encoded = encode_response(ExecutionResponseV1("1", result))
+    assert decode_response(encoded).result == result
+    raw = json.loads(encoded)
+    raw["result"]["status"] = "absent_in_memory"
+    with pytest.raises(InvalidAppMessageError):
+        decode_response(json.dumps(raw).encode())

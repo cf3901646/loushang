@@ -41,8 +41,8 @@
   Hosted binding forwards this observation without replacing control identity,
   and rejects lookup once close begins. Callers still need current read
   authorization. SessionManager reload tests cover committed identity with no local
-  submission ledger and partial-tail uncertainty. New/old client negotiation,
-  transport negotiation and model-attempt observation remain pending. An optional
+  submission ledger and partial-tail uncertainty. Deployment capability selection
+  and model-attempt observation remain pending. An optional
   Product-neutral AppService observation port now accepts bounded input IDs and
   record digests and returns validated durability states. Coding's Hosted
   adapter converts this port to the native query without exposing Plans or
@@ -54,7 +54,18 @@
   Product failures become Session unavailable. This read does not reserve an
   execution or change old Ack timing; current scope authority is the existing
   snapshot-read capability, not a new persistent permission grant. AppServer
-  framing, client capability negotiation, actor-policy read revocation and the
+  now carries the closed observation query/result over the existing framed
+  execution channel under the explicitly selected
+  `local-detachable-resume-execution/v1` profile. AppService and transport share
+  the same bounded data values; AppServer imports no Coding or Transcript owner.
+  Remote clients expose a separate borrowed lookup capability only after that
+  exact profile is negotiated. Old profiles reject the new operation even when
+  a peer manually encodes it; old frame goldens and operations remain unchanged.
+  The query uses existing request IDs and bounded control communication slots,
+  checks the current service instance, and grants no execution/retry authority.
+  This minimal optional profile is not yet published in local connection records
+  or selected by installed deployments; mixed discovery/managed profiles,
+  client reconnection/editor integration, actor-policy read revocation and the
   full Hosted Resume readiness/admission flow remain pending.
   Staging also closes a distinct local Runtime publication gate. That gate
   remains closed after successful input/Binding commit, including when the

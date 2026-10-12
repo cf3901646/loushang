@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import Enum
 from types import UnionType
-from typing import cast, get_args, get_origin, get_type_hints
+from typing import Literal, cast, get_args, get_origin, get_type_hints
 
 from ..protocol import (
     AckV1,
@@ -17,6 +17,7 @@ from ..protocol import (
     TranscriptRecordV1,
 )
 from ..protocol.codec import _dumps, _loads, _object, _string
+from ..resume_model import ResumeInputLookupQueryV1, ResumeInputLookupResultV1
 from .model import (
     ExecutionCallV1,
     ExecutionContentEventV1,
@@ -42,6 +43,8 @@ EXECUTION_PROTOCOL_VERSION = "loushang.execution/v1"
 # Explicit fields freeze the wire independently of future dataclass additions.
 # No arbitrary type/name lookup or untyped Product payload is admitted.
 _FIELDS: dict[type, tuple[str, ...]] = {
+    ResumeInputLookupQueryV1: ("input_id", "record_digest"),
+    ResumeInputLookupResultV1: ("input_id", "record_id", "status"),
     AckV1: (), AppFailureV1: ("code",), ExecutionFailureV1: ("code",),
     SessionIdentityV1: ("product_id", "continuity_id", "session_id", "scope", "scope_fingerprint"),
     TranscriptRecordV1: ("kind", "text"),
@@ -61,6 +64,7 @@ _FIELDS: dict[type, tuple[str, ...]] = {
     ExecutionInterruptResultV1: ("record", "disposition"),
 }
 _KINDS: dict[str, type] = {
+    "resume_input_lookup": ResumeInputLookupResultV1,
     "record": ExecutionRecordV1, "snapshot": ExecutionSessionSnapshotV1,
     "events": ExecutionEventsV1, "failure": ExecutionFailureV1,
     "app_failure": AppFailureV1,
@@ -96,6 +100,10 @@ def _decode(expected: object, raw: object) -> object:
             raise InvalidAppMessageError()
         return raw
     origin, args = get_origin(expected), get_args(expected)
+    if origin is Literal:
+        if type(raw) is not str or raw not in args:
+            raise InvalidAppMessageError()
+        return raw
     if origin is UnionType:
         for member in args:
             try:
@@ -135,6 +143,8 @@ def encode_call(call: ExecutionCallV1) -> bytes:
         body["executionId"] = call.execution_id
     if call.text is not None:
         body["text"] = call.text
+    if call.resume_query is not None:
+        body["resumeQuery"] = _encode(call.resume_query)
     return _dumps({
         "protocolVersion": EXECUTION_PROTOCOL_VERSION, "requestId": call.request_id,
         "operation": call.operation.value, "payload": body,
@@ -154,6 +164,8 @@ def decode_call(payload: bytes) -> ExecutionCallV1:
             fields.add("executionId")
         if operation is ExecutionOperationV1.SUBMIT:
             fields.add("text")
+        if operation is ExecutionOperationV1.RESUME_INPUT_LOOKUP:
+            fields.add("resumeQuery")
         body = _object(root["payload"], fields)
         return ExecutionCallV1(
             _string(root["requestId"]), operation,
@@ -162,6 +174,8 @@ def decode_call(payload: bytes) -> ExecutionCallV1:
             _string(body["submissionId"]) if "submissionId" in fields else None,
             _string(body["executionId"]) if "executionId" in fields else None,
             _string(body["text"]) if "text" in fields else None,
+            cast(ResumeInputLookupQueryV1, _decode(ResumeInputLookupQueryV1, body["resumeQuery"]))
+            if "resumeQuery" in fields else None,
         )
     except (TypeError, ValueError, KeyError, RecursionError):
         raise InvalidAppMessageError() from None

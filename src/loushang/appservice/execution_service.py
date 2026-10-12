@@ -32,6 +32,7 @@ from .execution_snapshot import (
     capture_execution_snapshot,
 )
 from .ports import HostedSessionPortV1
+from .resume_ports import ResumeInputLookupQueryV1, ResumeInputLookupResultV1
 
 if TYPE_CHECKING:
     from .client_scope import AppClientScopeV1
@@ -118,6 +119,16 @@ class ScopedExecutionClientV1:
     ) -> ExecutionRecordV1:
         session, _ = await self._resolve(control, expected_instance_id)
         return self._registry.get(session.identity, execution_id)
+
+    async def lookup_resume_input(
+        self, control: SessionSnapshotRequestV1, expected_instance_id: str,
+        query: ResumeInputLookupQueryV1,
+    ) -> ResumeInputLookupResultV1:
+        self._scope._require_open()
+        self._registry.require_instance(expected_instance_id)
+        result = await self._scope.lookup_resume_input(control, query)
+        self._registry.require_instance(expected_instance_id)
+        return result
 
     async def find_execution_by_submission(
         self, control: SessionSnapshotRequestV1, expected_instance_id: str,

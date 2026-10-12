@@ -18,6 +18,7 @@ class AppConnectionProfileV1(str, Enum):
     STDIO_DISCOVERY = "foreground-stdio-discovery/v1"
     LOCAL_DISCOVERY = "local-detachable-discovery/v1"
     LOCAL_EXECUTION = "local-detachable-execution/v1"
+    LOCAL_RESUME_EXECUTION = "local-detachable-resume-execution/v1"
     LOCAL_DISCOVERY_EXECUTION = "local-detachable-discovery-execution/v1"
     LOCAL_MANAGED = "local-detachable-managed/v1"
     LOCAL_DISCOVERY_MANAGED = "local-detachable-discovery-managed/v1"
@@ -74,12 +75,19 @@ def supports_execution(profile: AppConnectionProfileV1) -> bool:
         raise ValueError("invalid application connection profile")
     return profile in {
         AppConnectionProfileV1.LOCAL_EXECUTION,
+        AppConnectionProfileV1.LOCAL_RESUME_EXECUTION,
         AppConnectionProfileV1.LOCAL_DISCOVERY_EXECUTION,
         AppConnectionProfileV1.LOCAL_EXECUTION_MANAGED,
         AppConnectionProfileV1.LOCAL_DISCOVERY_EXECUTION_MANAGED,
         AppConnectionProfileV1.LOCAL_EXECUTION_MANAGED_CLOSE,
         AppConnectionProfileV1.LOCAL_DISCOVERY_EXECUTION_MANAGED_CLOSE,
     }
+
+
+def supports_resume_input_lookup(profile: AppConnectionProfileV1) -> bool:
+    if type(profile) is not AppConnectionProfileV1:
+        raise ValueError("invalid application connection profile")
+    return profile is AppConnectionProfileV1.LOCAL_RESUME_EXECUTION
 
 
 def supports_session_discovery(profile: AppConnectionProfileV1) -> bool:
