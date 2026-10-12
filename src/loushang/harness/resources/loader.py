@@ -144,6 +144,29 @@ class ResourceLoaderProfile:
             )
 
 
+@dataclass(frozen=True, slots=True)
+class _CatalogInputState:
+    package_mounts: tuple[PackageResourceMount, ...]
+    catalog_plugin_package_inputs: tuple[CatalogPluginPackageInput, ...]
+    user_resource_roots: tuple[Path, ...]
+    explicit_user_resource_roots: frozenset[Path]
+    additional_extension_paths: tuple[Path, ...]
+    additional_skill_paths: tuple[Path, ...]
+    additional_prompt_template_paths: tuple[Path, ...]
+    additional_theme_paths: tuple[Path, ...]
+    no_extensions: bool
+    no_skills: bool
+    no_prompt_templates: bool
+    no_themes: bool
+    no_context_files: bool
+    built_in_resource_packages: tuple[str, ...]
+    context_file_names: tuple[str, ...]
+    workspace_root: Path | None
+    project_resource_mode: Literal["standard", "legacy"]
+    system_prompt_source: str | None
+    append_system_prompt_sources: tuple[str, ...]
+
+
 class ResourceLoader:
     def __init__(
         self,
@@ -366,35 +389,9 @@ class ResourceLoader:
         self._catalog_authority_selected = True
         self._catalog_inputs_pending = True
         self._initial_resource_catalog_input_receipt = None
-        _verify_package_mounts(self._package_mounts)
+        input_state = self._catalog_input_state()
+        receipt = self._compute_catalog_input_receipt(cwd)
         target = Path(cwd)
-        project_resource_root = (
-            resolve_workspace_resource_root(self._workspace_root or target)
-            if self._project_resource_mode == "standard"
-            else None
-        )
-        receipt = prepare_resource_catalog_input_receipt(
-            cwd=target,
-            project_resource_root=project_resource_root,
-            package_mounts=self._package_mounts,
-            catalog_plugin_package_inputs=self._catalog_plugin_package_inputs,
-            user_resource_roots=self._user_resource_roots,
-            explicit_user_resource_roots=self._explicit_user_resource_roots,
-            additional_extension_paths=self._additional_extension_paths,
-            additional_skill_paths=self._additional_skill_paths,
-            additional_prompt_template_paths=(
-                self._additional_prompt_template_paths
-            ),
-            additional_theme_paths=self._additional_theme_paths,
-            no_extensions=self._no_extensions,
-            no_skills=self._no_skills,
-            no_prompt_templates=self._no_prompt_templates,
-            no_themes=self._no_themes,
-            no_context_files=self._no_context_files,
-            built_in_resource_packages=self._built_in_resource_packages,
-            context_file_names=self._context_file_names,
-        )
-        _verify_package_mounts(self._package_mounts)
         self._resolved_system_prompt = _resolve_prompt_input(
             self._system_prompt_source,
             cwd=target,
@@ -404,6 +401,87 @@ class ResourceLoader:
             for source in self._append_system_prompt_sources
             if (resolved := _resolve_prompt_input(source, cwd=target)) is not None
         )
+        if self._catalog_input_state() != input_state:
+            raise ResourceLoaderCompatibilityError("catalog_preview_stale")
+        return receipt
+
+    def preview_catalog_input_receipt(
+        self, cwd: str | Path,
+    ) -> ResourceCatalogInputReceipt:
+        """Compute the ordinary Catalog source facts without choosing authority.
+
+        The caller may discard this result. It can contain borrowed Package
+        handles, so it must not be serialized into an activation Plan or used
+        as current authority. Formal preparation calls the same computation
+        and still owns any retained handles.
+        """
+
+        if self._legacy_authority_selected:
+            raise ResourceLoaderCompatibilityError(
+                "legacy_loader_cannot_preview_catalog_inputs"
+            )
+        return self._compute_catalog_input_receipt(cwd)
+
+    def _catalog_input_state(self) -> _CatalogInputState:
+        return _CatalogInputState(
+            package_mounts=self._package_mounts,
+            catalog_plugin_package_inputs=self._catalog_plugin_package_inputs,
+            user_resource_roots=self._user_resource_roots,
+            explicit_user_resource_roots=frozenset(
+                self._explicit_user_resource_roots
+            ),
+            additional_extension_paths=self._additional_extension_paths,
+            additional_skill_paths=self._additional_skill_paths,
+            additional_prompt_template_paths=self._additional_prompt_template_paths,
+            additional_theme_paths=self._additional_theme_paths,
+            no_extensions=self._no_extensions,
+            no_skills=self._no_skills,
+            no_prompt_templates=self._no_prompt_templates,
+            no_themes=self._no_themes,
+            no_context_files=self._no_context_files,
+            built_in_resource_packages=self._built_in_resource_packages,
+            context_file_names=self._context_file_names,
+            workspace_root=self._workspace_root,
+            project_resource_mode=self._project_resource_mode,
+            system_prompt_source=self._system_prompt_source,
+            append_system_prompt_sources=self._append_system_prompt_sources,
+        )
+
+    def _compute_catalog_input_receipt(
+        self, cwd: str | Path,
+    ) -> ResourceCatalogInputReceipt:
+        state = self._catalog_input_state()
+        _verify_package_mounts(state.package_mounts)
+        target = Path(cwd)
+        project_resource_root = (
+            resolve_workspace_resource_root(state.workspace_root or target)
+            if state.project_resource_mode == "standard"
+            else None
+        )
+        receipt = prepare_resource_catalog_input_receipt(
+            cwd=target,
+            project_resource_root=project_resource_root,
+            package_mounts=state.package_mounts,
+            catalog_plugin_package_inputs=state.catalog_plugin_package_inputs,
+            user_resource_roots=state.user_resource_roots,
+            explicit_user_resource_roots=state.explicit_user_resource_roots,
+            additional_extension_paths=state.additional_extension_paths,
+            additional_skill_paths=state.additional_skill_paths,
+            additional_prompt_template_paths=(
+                state.additional_prompt_template_paths
+            ),
+            additional_theme_paths=state.additional_theme_paths,
+            no_extensions=state.no_extensions,
+            no_skills=state.no_skills,
+            no_prompt_templates=state.no_prompt_templates,
+            no_themes=state.no_themes,
+            no_context_files=state.no_context_files,
+            built_in_resource_packages=state.built_in_resource_packages,
+            context_file_names=state.context_file_names,
+        )
+        _verify_package_mounts(state.package_mounts)
+        if self._catalog_input_state() != state:
+            raise ResourceLoaderCompatibilityError("catalog_preview_stale")
         return receipt
 
     def create_catalog_session_view(self) -> CatalogSessionResourceLoaderView:
@@ -785,6 +863,11 @@ class CatalogSessionResourceLoaderView(ResourceLoader):
         cwd: str | Path,
     ) -> ResourceCatalogInputReceipt:
         return self._source_loader.prepare_catalog_input_receipt(cwd)
+
+    def preview_catalog_input_receipt(
+        self, cwd: str | Path,
+    ) -> ResourceCatalogInputReceipt:
+        return self._source_loader.preview_catalog_input_receipt(cwd)
 
     def _take_initial_resource_catalog_input_receipt(
         self,

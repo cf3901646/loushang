@@ -337,6 +337,11 @@ def test_resource_loader_authority_selection_is_monotonic(tmp_path: Path) -> Non
         match="legacy_loader_cannot_prepare_catalog_inputs",
     ):
         legacy.prepare_catalog_input_receipt(tmp_path)
+    with pytest.raises(
+        ResourceLoaderCompatibilityError,
+        match="legacy_loader_cannot_preview_catalog_inputs",
+    ):
+        legacy.preview_catalog_input_receipt(tmp_path)
 
     catalog = ResourceLoader(user_resource_roots=())
     catalog.prepare_catalog_input_receipt(tmp_path)
@@ -350,6 +355,68 @@ def test_resource_loader_authority_selection_is_monotonic(tmp_path: Path) -> Non
         match="legacy_loader_cannot_restore_catalog_projection",
     ):
         legacy.restore_catalog_projection(None)
+
+
+def test_catalog_input_preview_uses_formal_owner_selection_without_claiming_authority(
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "package"
+    extension = package / "extensions" / "would_execute.py"
+    extension.parent.mkdir(parents=True)
+    extension.write_text("raise RuntimeError('extension executed')\n", encoding="utf-8")
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "AGENTS.md").write_text("Current instructions", encoding="utf-8")
+    loader = ResourceLoader(
+        package_roots=(package,), user_resource_roots=(),
+        project_resource_mode="legacy", context_file_names=("AGENTS.md",),
+    )
+
+    preview = loader.preview_catalog_input_receipt(project)
+
+    assert preview.project_resource_root == project
+    assert loader._catalog_authority_selected is False
+    assert loader._legacy_authority_selected is False
+    assert loader._catalog_inputs_pending is False
+    assert loader._initial_resource_catalog_input_receipt is None
+    assert loader.get_system_prompt_override() is None
+    assert loader.prepare_catalog_input_receipt(project) == preview
+
+
+def test_catalog_input_preview_rejects_loader_configuration_race(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from loushang.harness.resources import loader as loader_module
+
+    loader = ResourceLoader(user_resource_roots=())
+    original = loader_module.prepare_resource_catalog_input_receipt
+
+    def change_during_scan(*args, **kwargs):
+        loader.set_runtime_options(no_skills=True)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        loader_module, "prepare_resource_catalog_input_receipt",
+        change_during_scan,
+    )
+    with pytest.raises(ResourceLoaderCompatibilityError, match="catalog_preview_stale"):
+        loader.preview_catalog_input_receipt(tmp_path)
+    assert loader._catalog_authority_selected is False
+    assert loader._legacy_authority_selected is False
+
+    formal = ResourceLoader(user_resource_roots=())
+
+    def change_formal_scan(*args, **kwargs):
+        formal.set_runtime_options(no_skills=True)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        loader_module, "prepare_resource_catalog_input_receipt",
+        change_formal_scan,
+    )
+    with pytest.raises(ResourceLoaderCompatibilityError, match="catalog_preview_stale"):
+        formal.prepare_catalog_input_receipt(tmp_path)
+    assert formal._catalog_authority_selected is True
 
 
 def test_catalog_preparation_failure_keeps_compatibility_reads_closed(
@@ -408,7 +475,10 @@ def test_resource_loader_receipt_carries_verified_package_candidate_facts(
     loader = ResourceLoader()
     loader.set_package_mounts((mount,))
     try:
+        preview = loader.preview_catalog_input_receipt(project)
+        assert handle.closed is False
         receipt = loader.prepare_catalog_input_receipt(project)
+        assert receipt == preview
 
         assert receipt.package_mounts == (mount,)
         assert receipt.package_roots == (handle.root,)
