@@ -35,7 +35,10 @@ from loushang.coding.resume_history import (
 )
 from loushang.coding.session_manager import SessionManager
 from loushang.harness.conversation import ConversationHeader
-from loushang.harness.resources.loader import ResourceLoader
+from loushang.harness.resources.loader import (
+    ResourceLoader,
+    ResourceLoaderCompatibilityError,
+)
 
 
 def _history() -> CodingResumeHistoryPreview:
@@ -427,7 +430,8 @@ def test_unavailable_async_resume_does_not_start_native_work(tmp_path, monkeypat
     assert loader._catalog_preview_tasks is None
 
 
-def test_async_resume_cancelled_view_does_not_fence_peer_planning(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("async_close", [False, True])
+def test_async_resume_cancelled_view_does_not_fence_peer_planning(tmp_path, monkeypatch, async_close) -> None:
     loader = ResourceLoader(user_resource_roots=())
     first_view = loader.create_catalog_session_view()
     peer_view = loader.create_catalog_session_view()
@@ -451,10 +455,15 @@ def test_async_resume_cancelled_view_does_not_fence_peer_planning(tmp_path, monk
             async with asyncio.timeout(5):
                 while not entered.is_set():
                     await asyncio.sleep(0.001)
-            first.cancel()
+            if async_close:
+                await first_view.aclose()
+            else:
+                first_view.close()
             with pytest.raises(asyncio.CancelledError):
                 await first
-            await first_view.aclose()
+            assert not first_view._catalog_preview_waiters
+            with pytest.raises(ResourceLoaderCompatibilityError, match="catalog_preview_view_closed"):
+                await _async_plan(first_view, tmp_path)
             assert not peer.done()
             assert calls == 1
             released.set()

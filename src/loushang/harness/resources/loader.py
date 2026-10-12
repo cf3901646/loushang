@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Collection, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, replace
@@ -938,6 +939,8 @@ class CatalogSessionResourceLoaderView(ResourceLoader):
         self._catalog_inputs_pending = True
         self._catalog_authority_selected = True
         self._legacy_authority_selected = False
+        self._catalog_preview_waiters: set[asyncio.Task[str]] = set()
+        self._catalog_preview_closed = False
 
     @property
     def input_loader(self) -> ResourceLoader:
@@ -1033,20 +1036,49 @@ class CatalogSessionResourceLoaderView(ResourceLoader):
         self, cwd: Path, *, subject_digest: str, policy_digest: str,
         max_work_units: int, time_budget_seconds: float,
     ) -> str:
-        """Borrow the shared owner's computation through the caller's Task."""
+        """Own one cancellable reference to the shared source computation."""
 
-        return await self._source_loader.preview_catalog_input_fingerprint(
+        if self._catalog_preview_closed:
+            raise ResourceLoaderCompatibilityError("catalog_preview_view_closed")
+        if len(self._catalog_preview_waiters) >= 64:
+            raise ResourceLoaderCompatibilityError("catalog_preview_view_capacity_exceeded")
+        waiter = asyncio.create_task(self._source_loader.preview_catalog_input_fingerprint(
             cwd, subject_digest=subject_digest, policy_digest=policy_digest,
             max_work_units=max_work_units, time_budget_seconds=time_budget_seconds,
-        )
+        ))
+        self._catalog_preview_waiters.add(waiter)
+        try:
+            result = await waiter
+            if self._catalog_preview_closed:
+                raise ResourceLoaderCompatibilityError("catalog_preview_view_closed")
+            return result
+        finally:
+            self._catalog_preview_waiters.discard(waiter)
 
     async def close_catalog_preview_tasks(self) -> None:
-        """The view owns no native tasks; callers release their own waiters."""
+        """Release local references; the shared owner settles native work."""
+
+        self._catalog_preview_closed = True
+        waiters = tuple(self._catalog_preview_waiters)
+        for waiter in waiters:
+            waiter.cancel()
+        cancellation: asyncio.CancelledError | None = None
+        settlement = asyncio.gather(*waiters, return_exceptions=True)
+        while not settlement.done():
+            try:
+                await asyncio.shield(settlement)
+            except asyncio.CancelledError as error:
+                cancellation = error
+        if cancellation is not None:
+            raise cancellation
 
     async def aclose(self) -> None:
         """Close the local projection without fencing the shared source owner."""
 
-        self.close()
+        try:
+            await self.close_catalog_preview_tasks()
+        finally:
+            self.close()
 
     @property
     def _package_roots(self) -> tuple[Path, ...]:
@@ -1068,6 +1100,9 @@ class CatalogSessionResourceLoaderView(ResourceLoader):
     def close(self) -> None:
         """Release only this view; the shared input loader owns source leases."""
 
+        self._catalog_preview_closed = True
+        for waiter in tuple(self._catalog_preview_waiters):
+            waiter.cancel()
         self._catalog_projection = None
         self._catalog_inputs_pending = True
 

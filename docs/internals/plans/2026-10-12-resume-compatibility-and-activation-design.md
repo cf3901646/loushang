@@ -33,10 +33,13 @@
   Resource-owned work and additionally records caller-observed subject and
   policy input digests. These digests identify dependencies, not permissions;
   refreshed domain inputs invalidate a stale Plan. Catalog Session views
-  delegate computation to their shared source owner, and closing one view
-  leaves peer computations available. Product callers must cancel their own
-  awaiting Tasks before closing the view; production close wiring is still
-  pending. Skill and other mutable
+  delegate computation to their shared source owner and retain bounded local
+  waiting Tasks. Closing a view fences new waits and cancels its references;
+  asynchronous close joins their release without waiting for native work.
+  Closing one view leaves peer computations available. The shared Resource
+  owner still joins native completion before releasing its own source leases.
+  Production Resume startup and shared-owner close wiring remain pending.
+  Skill and other mutable
   Resource content is not closed by this receipt, which cannot replace current
   owner selection. The staged first-input path is not yet armed by live Resume
   activation. Writable admission, owner selection
@@ -69,7 +72,8 @@
   pending settlement while work remains. A publication gate prevents source
   reads when native submission loses its receipt and fences further background
   submission; the ordinary on-demand path remains available. Only a redacted
-  fingerprint leaves the Resource owner. Product Session waiting references,
+  fingerprint leaves the Resource owner. Catalog Session views now own their
+  local waiting references; Product Resume invocation,
   priority, cross-ResourceLoader Workspace deduplication, caches, and production
   close wiring remain unimplemented.
 - Revision: R2.1, 2026-10-12; R2 independently rechecked, with the requested

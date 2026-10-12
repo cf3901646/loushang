@@ -18,6 +18,42 @@ async def _entered(event: threading.Event) -> None:
             await asyncio.sleep(0.001)
 
 
+def test_last_view_close_releases_waiter_before_native_settlement(tmp_path, monkeypatch) -> None:
+    loader = ResourceLoader(user_resource_roots=())
+    view = loader.create_catalog_session_view()
+    original = ResourceLoader._compute_catalog_input_receipt_from_state
+    entered, released = threading.Event(), threading.Event()
+
+    def compute(*args, **kwargs):
+        entered.set()
+        assert released.wait(5)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(ResourceLoader, "_compute_catalog_input_receipt_from_state", staticmethod(compute))
+
+    async def scenario():
+        waiter = asyncio.create_task(_request(view, tmp_path))
+        try:
+            await _entered(entered)
+            await view.aclose()
+            with pytest.raises(asyncio.CancelledError):
+                await waiter
+            assert not released.is_set()
+            assert not view._catalog_preview_waiters
+            with pytest.raises(ResourceLoaderCompatibilityError, match="settlement_pending"):
+                loader.close()
+            released.set()
+            await loader.aclose()
+            assert not loader._catalog_preview_tasks._jobs
+        finally:
+            released.set()
+            waiter.cancel()
+            await loader.aclose()
+            await asyncio.gather(waiter, return_exceptions=True)
+
+    asyncio.run(scenario())
+
+
 def _request(loader, root, *, subject="a" * 64, policy="b" * 64, units=4096):
     return loader.preview_catalog_input_fingerprint(
         root, subject_digest=subject, policy_digest=policy,
