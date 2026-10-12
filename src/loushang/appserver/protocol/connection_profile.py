@@ -28,6 +28,35 @@ class AppConnectionProfileV1(str, Enum):
     LOCAL_DISCOVERY_MANAGED_CLOSE = "local-detachable-discovery-managed/v2"
     LOCAL_EXECUTION_MANAGED_CLOSE = "local-detachable-execution-managed/v2"
     LOCAL_DISCOVERY_EXECUTION_MANAGED_CLOSE = "local-detachable-discovery-execution-managed/v2"
+    LOCAL_DISCOVERY_RESUME_EXECUTION = "local-detachable-discovery-resume-execution/v1"
+    LOCAL_RESUME_EXECUTION_MANAGED = "local-detachable-resume-execution-managed/v1"
+    LOCAL_DISCOVERY_RESUME_EXECUTION_MANAGED = "local-detachable-discovery-resume-execution-managed/v1"
+    LOCAL_RESUME_EXECUTION_MANAGED_CLOSE = "local-detachable-resume-execution-managed/v2"
+    LOCAL_DISCOVERY_RESUME_EXECUTION_MANAGED_CLOSE = "local-detachable-discovery-resume-execution-managed/v2"
+
+
+_RESUME_PROFILES = {
+    AppConnectionProfileV1.LOCAL_EXECUTION: AppConnectionProfileV1.LOCAL_RESUME_EXECUTION,
+    AppConnectionProfileV1.LOCAL_DISCOVERY_EXECUTION: AppConnectionProfileV1.LOCAL_DISCOVERY_RESUME_EXECUTION,
+    AppConnectionProfileV1.LOCAL_EXECUTION_MANAGED: AppConnectionProfileV1.LOCAL_RESUME_EXECUTION_MANAGED,
+    AppConnectionProfileV1.LOCAL_DISCOVERY_EXECUTION_MANAGED: AppConnectionProfileV1.LOCAL_DISCOVERY_RESUME_EXECUTION_MANAGED,
+    AppConnectionProfileV1.LOCAL_EXECUTION_MANAGED_CLOSE: AppConnectionProfileV1.LOCAL_RESUME_EXECUTION_MANAGED_CLOSE,
+    AppConnectionProfileV1.LOCAL_DISCOVERY_EXECUTION_MANAGED_CLOSE: AppConnectionProfileV1.LOCAL_DISCOVERY_RESUME_EXECUTION_MANAGED_CLOSE,
+}
+_RESUME_BASES = {value: key for key, value in _RESUME_PROFILES.items()}
+
+
+def resume_input_lookup_profile(profile: AppConnectionProfileV1) -> AppConnectionProfileV1:
+    """Select a closed optional profile without changing its other capabilities."""
+
+    if type(profile) is not AppConnectionProfileV1:
+        raise ValueError("invalid application connection profile")
+    if profile in _RESUME_BASES:
+        return profile
+    try:
+        return _RESUME_PROFILES[profile]
+    except KeyError:
+        raise ValueError("Resume input lookup requires an execution profile") from None
 
 
 _HELLOS = {
@@ -73,9 +102,9 @@ def connection_hello(
 def supports_execution(profile: AppConnectionProfileV1) -> bool:
     if type(profile) is not AppConnectionProfileV1:
         raise ValueError("invalid application connection profile")
+    profile = _RESUME_BASES.get(profile, profile)
     return profile in {
         AppConnectionProfileV1.LOCAL_EXECUTION,
-        AppConnectionProfileV1.LOCAL_RESUME_EXECUTION,
         AppConnectionProfileV1.LOCAL_DISCOVERY_EXECUTION,
         AppConnectionProfileV1.LOCAL_EXECUTION_MANAGED,
         AppConnectionProfileV1.LOCAL_DISCOVERY_EXECUTION_MANAGED,
@@ -87,12 +116,13 @@ def supports_execution(profile: AppConnectionProfileV1) -> bool:
 def supports_resume_input_lookup(profile: AppConnectionProfileV1) -> bool:
     if type(profile) is not AppConnectionProfileV1:
         raise ValueError("invalid application connection profile")
-    return profile is AppConnectionProfileV1.LOCAL_RESUME_EXECUTION
+    return profile in _RESUME_BASES
 
 
 def supports_session_discovery(profile: AppConnectionProfileV1) -> bool:
     if type(profile) is not AppConnectionProfileV1:
         raise ValueError("invalid application connection profile")
+    profile = _RESUME_BASES.get(profile, profile)
     return profile in {
         AppConnectionProfileV1.STDIO_DISCOVERY,
         AppConnectionProfileV1.LOCAL_DISCOVERY,
@@ -107,6 +137,7 @@ def supports_session_discovery(profile: AppConnectionProfileV1) -> bool:
 def supports_managed_mux(profile: AppConnectionProfileV1) -> bool:
     if type(profile) is not AppConnectionProfileV1:
         raise ValueError("invalid application connection profile")
+    profile = _RESUME_BASES.get(profile, profile)
     return supports_managed_mux_close(profile) or profile in {
         AppConnectionProfileV1.LOCAL_MANAGED,
         AppConnectionProfileV1.LOCAL_DISCOVERY_MANAGED,
@@ -118,6 +149,7 @@ def supports_managed_mux(profile: AppConnectionProfileV1) -> bool:
 def supports_managed_mux_close(profile: AppConnectionProfileV1) -> bool:
     if type(profile) is not AppConnectionProfileV1:
         raise ValueError("invalid application connection profile")
+    profile = _RESUME_BASES.get(profile, profile)
     return profile in {
         AppConnectionProfileV1.LOCAL_MANAGED_CLOSE,
         AppConnectionProfileV1.LOCAL_DISCOVERY_MANAGED_CLOSE,

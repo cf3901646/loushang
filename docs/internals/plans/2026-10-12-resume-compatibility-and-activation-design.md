@@ -63,9 +63,14 @@
   a peer manually encodes it; old frame goldens and operations remain unchanged.
   The query uses existing request IDs and bounded control communication slots,
   checks the current service instance, and grants no execution/retry authority.
-  This minimal optional profile is not yet published in local connection records
-  or selected by installed deployments; mixed discovery/managed profiles,
-  client reconnection/editor integration, actor-policy read revocation and the
+  Local connection records now publish this explicitly enabled capability in
+  their authenticated capability list, with closed profiles preserving the six
+  existing execution/discovery/managed/close combinations. Local clients borrow
+  the same negotiated lookup client only while connected. Authenticated loopback
+  tests cover enabled and default-disabled publication; framed queries cover all
+  six optional profiles without creating executions. Installed deployments have
+  not enabled this capability; client reconnection/editor integration,
+  actor-policy read revocation and the
   full Hosted Resume readiness/admission flow remain pending.
   Staging also closes a distinct local Runtime publication gate. That gate
   remains closed after successful input/Binding commit, including when the

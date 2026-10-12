@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import create_autospec
 
 import pytest
 
@@ -12,8 +13,14 @@ from loushang.appserver.execution.model import (
     ExecutionStatusV1,
 )
 from loushang.appserver.framing import AppFramedStreamV1
+from loushang.appserver.managed_mux import ManagedMuxCreationClientV1
+from loushang.appserver.managed_mux_close import ManagedMuxCloseClientV1
 from loushang.appserver.protocol import AppErrorCodeV1, AppServiceError
-from loushang.appserver.protocol.connection_profile import AppConnectionProfileV1
+from loushang.appserver.protocol.connection_profile import (
+    AppConnectionProfileV1,
+    supports_managed_mux,
+    supports_managed_mux_close,
+)
 from loushang.appserver.remote_client import RemoteAppClientV1
 from loushang.appserver.resume_model import (
     ResumeInputLookupQueryV1,
@@ -25,8 +32,16 @@ from tests.appservice.test_execution_service import fixture
 from .test_connection import _pair
 
 
-@pytest.mark.parametrize("enabled", [False, True])
-def test_resume_lookup_is_negotiated_and_reaches_the_existing_scoped_owner(enabled):
+@pytest.mark.parametrize("profile", [
+    AppConnectionProfileV1.LOCAL_EXECUTION,
+    AppConnectionProfileV1.LOCAL_RESUME_EXECUTION,
+    AppConnectionProfileV1.LOCAL_DISCOVERY_RESUME_EXECUTION,
+    AppConnectionProfileV1.LOCAL_RESUME_EXECUTION_MANAGED,
+    AppConnectionProfileV1.LOCAL_DISCOVERY_RESUME_EXECUTION_MANAGED,
+    AppConnectionProfileV1.LOCAL_RESUME_EXECUTION_MANAGED_CLOSE,
+    AppConnectionProfileV1.LOCAL_DISCOVERY_RESUME_EXECUTION_MANAGED_CLOSE,
+])
+def test_resume_lookup_is_negotiated_and_reaches_the_existing_scoped_owner(profile):
     async def run():
         service, owner, first, second, selector, control, product = await fixture()
         calls = []
@@ -36,11 +51,14 @@ def test_resume_lookup_is_negotiated_and_reaches_the_existing_scoped_owner(enabl
             return ResumeInputLookupResultV1(query.input_id, "record-1", "committed")
 
         product.lookup_resume_input = lookup
-        profile = (AppConnectionProfileV1.LOCAL_RESUME_EXECUTION if enabled
-                   else AppConnectionProfileV1.LOCAL_EXECUTION)
+        enabled = profile is not AppConnectionProfileV1.LOCAL_EXECUTION
         left, right = _pair()
         server = AppServerConnectionV1(
             first, AppFramedStreamV1(right), profile=profile, execution=first.execution_client,
+            managed_mux=(create_autospec(ManagedMuxCreationClientV1, instance=True)
+                         if supports_managed_mux(profile) else None),
+            managed_mux_close=(create_autospec(ManagedMuxCloseClientV1, instance=True)
+                               if supports_managed_mux_close(profile) else None),
         )
         remote = RemoteAppClientV1(AppFramedStreamV1(left), profile=profile)
         serving = asyncio.create_task(server.serve())
