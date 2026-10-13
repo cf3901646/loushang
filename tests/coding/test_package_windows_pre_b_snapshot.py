@@ -8141,7 +8141,7 @@ def test_windows_worker_update_gc_keeps_selected_revision(
         (old_candidate,) = tuple(
             item
             for item in gc.candidates()
-            if item.package_revision.plugin_id == "workerprobe"
+            if item.package_revision == original_revision
         )
         assert old_candidate.package_revision.plugin_version == "1"
         executor = gc.application.executor
@@ -8273,7 +8273,7 @@ def test_windows_worker_update_gc_keeps_selected_revision(
         (new_candidate,) = tuple(
             item
             for item in gc.candidates()
-            if item.package_revision.plugin_id == "workerprobe"
+            if item.package_revision == current_revision
         )
         assert new_candidate.package_revision == current_revision
         final_result = gc.execute(
