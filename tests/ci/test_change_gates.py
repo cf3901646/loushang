@@ -914,6 +914,9 @@ class SuiteSelectionTests(unittest.TestCase):
         self.assertEqual(sum(map(len, groups)), len(nodeids))
 
     def test_coding_risk_and_ordinary_prs_use_the_same_offline_inventory(self):
+        workflow = (ROOT / ".github/workflows/package-quality.yml").read_text()
+        coding_job = workflow.split("  coding:\n", 1)[1].split("  foundation:\n", 1)[0]
+        self.assertIn("CI_PLAN: ${{ inputs.plan }}", coding_job)
         plan = selector.select([
             "src/loushang/coding/package_product_worker_windows_crash_cleanup_review.py"
         ], pr_fast=True)
