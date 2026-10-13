@@ -23,6 +23,20 @@ MODULE_EXTRA_TESTS = {
     "harness": ["tests/examples/test_harness_tool_authoring_example.py",
                 "tests/examples/test_harness_document_product_example.py"],
 }
+HOST_RUNTIME_PR_CASES = {
+    "coding": (
+        "tests/coding/test_plugin_author_smoke.py::"
+        "test_author_worker_smoke_proves_admission_and_selection_without_use"
+    ),
+    "hosting": (
+        "tests/hosting/test_posix_release_launcher.py::"
+        "test_checked_in_launcher_build_and_native_containment"
+    ),
+    "harness": (
+        "tests/harness/transcript/test_file_store_process_exit.py::"
+        "test_file_store_async_create_allows_python_process_to_exit"
+    ),
+}
 
 
 def commands(
@@ -78,6 +92,18 @@ def commands(
             ]
         ]
     if scope == "host_runtime" and plan is not None:
+        if plan.get("host_runtime_smoke"):
+            cases = [
+                HOST_RUNTIME_PR_CASES[package]
+                for package in ("coding", "hosting", "harness")
+                if plan["checks"][package]
+            ][:2]
+            if not cases:
+                cases = [HOST_RUNTIME_PR_CASES["harness"]]
+            return [pytest + cases + [
+                "-m", "requires_host_runtime and not live", "--strict-markers",
+                "--junitxml=.artifacts/host-runtime-pr-smoke.xml", "-q",
+            ]]
         packages = (
             "coding",
             "harness",
