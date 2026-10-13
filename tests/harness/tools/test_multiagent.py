@@ -64,6 +64,37 @@ class _Factory:
         return SessionSubagentBinding(driver=driver)
 
 
+def test_spawn_schema_explains_arguments_and_admitted_types() -> None:
+    control = MultiAgentControl()
+    pack = MultiAgentToolPack(
+        runtime=SessionMultiAgentRuntime(control=control, child_factory=_Factory()),
+        caller=AgentCaller(control.root_ref),
+        agent_type_options={
+            "explorer": "read-only investigation",
+            "reviewer": "review",
+            "implementation_worker": "implementation in an isolated worktree",
+        },
+    )
+
+    spawn = next(tool for tool in pack.definitions() if tool.name == "spawn_agent")
+    properties = spawn.parameters["properties"]
+
+    assert "new child task name" in properties["name"]["description"]
+    assert "standalone" in properties["prompt"]["description"]
+    assert properties["agent_type"]["enum"] == [
+        "explorer",
+        "reviewer",
+        "implementation_worker",
+    ]
+    assert (
+        "explorer (read-only investigation)" in properties["agent_type"]["description"]
+    )
+    assert (
+        "implementation_worker (implementation in an isolated worktree)"
+        in (properties["agent_type"]["description"])
+    )
+
+
 def test_common_tool_pack_registers_and_executes_the_live_session_surface() -> None:
     async def scenario() -> None:
         control = MultiAgentControl(

@@ -13,6 +13,7 @@
     "harness",
     "harness_native",
     "hosting",
+    "hosting_sustained",
     "apphost",
     "appservice",
     "host_runtime",
@@ -107,6 +108,7 @@
         "harness",
         "harness_native",
         "hosting",
+        "hosting_sustained",
         "apphost",
         "appservice",
         "host_runtime",
@@ -229,6 +231,24 @@
         "coding"
       ],
       "reason": "Coding implementation"
+    },
+    {
+      "paths": [
+        "src/loushang/plugin/__init__.py",
+        "src/loushang/plugin/__main__.py",
+        "src/loushang/plugin/_authoring.py",
+        "src/loushang/plugin/_coding_data_scaffold.py",
+        "src/loushang/plugin/_coding_data_skill_wheel.py",
+        "src/loushang/plugin/_coding_data_wheel_validation.py",
+        "src/loushang/plugin/_coding_local_worker_wheel.py",
+        "src/loushang/plugin/_conformance.py",
+        "src/loushang/plugin/_package.py",
+        "src/loushang/plugin/_validation.py",
+        "src/loushang/plugin/_writer.py",
+        "src/loushang/plugin/provider_runtime.py"
+      ],
+      "checks": ["harness", "coding"],
+      "reason": "public Plugin SDK and its Harness and Coding consumers"
     },
     {
       "paths": [
@@ -408,6 +428,15 @@
         "windows_shell"
       ],
       "reason": "Coding Product Worker native admission and recovery"
+    },
+    {
+      "paths": [
+        "tests/coding/test_package_worker_candidate_wheel.py"
+      ],
+      "checks": [
+        "hosting_sustained"
+      ],
+      "reason": "Worker sustained native query test ownership"
     },
     {
       "paths": [
@@ -630,6 +659,9 @@
     "hosting": [
       "host_runtime"
     ],
+    "hosting_sustained": [
+      "hosting"
+    ],
     "apphost": [
       "host_runtime"
     ],
@@ -639,7 +671,6 @@
   },
   "workflows": {
     "architecture": [
-      "docs",
       "architecture"
     ],
     "ai": [
@@ -665,7 +696,8 @@
       "tui_native"
     ],
     "hosting": [
-      "hosting"
+      "hosting",
+      "hosting_sustained"
     ],
     "apphost": [
       "apphost"

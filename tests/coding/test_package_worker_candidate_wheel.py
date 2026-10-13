@@ -4041,6 +4041,41 @@ def test_worker_source_catalog_pins_explicit_product_candidate(
                                     await cli_runtime.dispose_session_runtime()
 
                             asyncio.run(exercise_cli_worker_turn())
+                            # Text mode must use the same Product-owned Worker
+                            # selection and actual Tool turn as print mode.
+                            text_cli_parent = tmp_path / "text-cli-session-store"
+                            text_cli_parent.mkdir(mode=0o700)
+                            text_cli_dir = text_cli_parent / "transcripts"
+                            text_cli_dir.mkdir(mode=0o700)
+                            text_cli_args = parse_args(
+                                [
+                                    "--mode", "text",
+                                    "--cwd", str(workspace),
+                                    "--composition-set", "coding-standard",
+                                    "--worker-query-plugin", _PLUGIN,
+                                ]
+                            )
+                            worker_turn_calls = 0
+                            with monkeypatch.context() as text_cli_builder_patch:
+                                text_cli_builder_patch.setattr(
+                                    application,
+                                    "create_agent_session_runtime",
+                                    lambda **kwargs: create_agent_session_runtime(
+                                        model=direct_model,
+                                        stream_fn=worker_turn_stream,
+                                        **kwargs,
+                                    ),
+                                )
+                                cli_runtime = application.default_runtime_builder(
+                                    args=text_cli_args,
+                                    cwd=workspace,
+                                    session_dir=text_cli_dir,
+                                    services=create_services(
+                                        settings_manager=settings
+                                    ),
+                                    tool_registry=WorkspaceToolRegistry(),
+                                )
+                            asyncio.run(exercise_cli_worker_turn())
                         worker_turn_calls = 0
                         payloads_before_direct = frozenset(
                             product.state_root.glob("worker-payload-*")

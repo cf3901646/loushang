@@ -15,6 +15,87 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+PR_ROUTING_FILES = {
+    "scripts/ci/check-scopes.json",
+    "scripts/ci/select_checks.py",
+    "scripts/ci/unit-tests.json",
+    "scripts/ci/verify_gate.py",
+    "tests/ci/test_change_gates.py",
+}
+MODULE_REGRESSION_WORKFLOW = ".github/workflows/package-unit-quality.yml"
+FAST_EXCLUDED_PACKAGES = {
+    "plugin", "hosting", "apphost", "appservice", "appserver", "foundation",
+}
+FAST_RISK_CHECKS = {
+    "registered_reboot", "windows_shell", "tui_native", "harness_native",
+    "lsp", "install", "hosting", "apphost", "appservice",
+}
+E2E_PATH_PARTS = ("/session/", "/conversation/", "/transcript/")
+FAST_RISK_RULE_REASONS = {"AI consumer contracts"}
+UNIT_SHARD_COUNTS = {"coding": 16, "harness": 4, "harnesstui": 2, "tui": 2}
+WINDOWS_GATE_INFRA = (
+    ".github/", "scripts/ci/", "tests/ci/", "Makefile", "pyproject.toml",
+    "uv.lock", "tests/conftest.py", "scripts/dev/run_pytest.py",
+    "scripts/dev/verify_pytest_xml.py",
+)
+WINDOWS_WORKER_NATIVE_PARTS = (
+    "recovery", "crash", "gc", "cleanup", "retire", "lease", "settlement",
+    "activation_state",
+)
+WINDOWS_WORKER_NATIVE_PREFIXES = (
+    "src/loushang/coding/package_product_worker_",
+    "tests/coding/test_package_product_worker_",
+    "src/loushang/coding/package_external_worker_wheel.py",
+    "src/loushang/coding/package_product_runtime.py",
+    "src/loushang/coding/cli/package_worker_native.py",
+    "src/loushang/plugin/_coding_local_worker_wheel.py",
+    "src/loushang/harness/worker/", "tests/harness/worker/",
+    "src/loushang/hosting/", "tests/hosting/",
+    "tests/coding/test_package_worker_candidate_wheel.py",
+    "tests/coding/test_package_worker_native_cli.py",
+    "tests/coding/test_package_windows_pre_b_snapshot.py",
+)
+WINDOWS_WORKER_FULL_BOUNDARIES = {
+    "src/loushang/hosting/_win32_process.py",
+    "src/loushang/hosting/_windows_process.py",
+    "tests/hosting/test_win32_process.py",
+    "tests/hosting/test_windows_process.py",
+    "tests/coding/test_package_windows_pre_b_snapshot.py",
+    "tests/coding/test_package_worker_candidate_wheel.py",
+    "tests/coding/test_package_worker_native_cli.py",
+    "tests/coding/test_plugin_author_smoke.py",
+}
+WINDOWS_WORKER_FULL_TEST_PREFIXES = (
+    "tests/coding/test_package_product_worker_windows_",
+    "tests/coding/test_package_worker_windows_",
+)
+WINDOWS_SHELL_FULL_PARTS = (
+    "private_data", "windows_private_acl", "package_pre_b_snapshot",
+    "package_epoch_", "package_installation_private_data",
+    "package_legacy_", "package_cutover", "package_gc",
+    "product_local_wheel_runtime", "plc9b_windows",
+)
+WINDOWS_SHELL_FULL_PREFIXES = (
+    "src/loushang/harness/workspace/", "tests/harness/workspace/",
+    "src/loushang/harness/resources/packages/",
+    "tests/harness/resources/packages/",
+    "src/loushang/harness/sandbox/", "tests/harness/sandbox/",
+    "src/loushang/harness/machine_resources/",
+    "tests/harness/machine_resources/",
+    "src/loushang/hosting/", "tests/hosting/",
+    "tests/coding/test_package_windows_",
+)
+WINDOWS_APPSERVICE_FULL_PARTS = (
+    "record", "security", "auth", "recovery", "native", "installed",
+)
+WINDOWS_APPSERVICE_FULL_PREFIXES = (
+    "src/loushang/appserver/", "tests/appserver/",
+    "src/loushang/hosting/", "tests/hosting/",
+    "tests/coding/_hosted_", "tests/coding/test_mux_",
+)
+WINDOWS_TUI_FULL_PARTS = (
+    "terminal_backends/", "windows_conpty", "terminal_process_support/",
+)
 
 
 def git(*args: str, root: Path = ROOT) -> bytes:
@@ -46,10 +127,15 @@ def make_paths(root: Path = ROOT) -> dict[str, list[str]]:
     }
 
 
-def select(paths: list[str], *, full: bool = False, root: Path = ROOT) -> dict:
+def select(
+    paths: list[str], *, full: bool = False, pr_fast: bool = False, root: Path = ROOT
+) -> dict:
     rules = json.loads((root / "scripts/ci/check-scopes.json").read_text())
+    unit_inventory = json.loads((root / "scripts/ci/unit-tests.json").read_text())
     checks = {name: False for name in rules["checks"]}
     reasons: dict[str, list[str]] = {name: [] for name in checks}
+    unit_packages: set[str] = set()
+    e2e = full
 
     def enable(names: list[str], reason: str) -> None:
         for name in names:
@@ -64,6 +150,12 @@ def select(paths: list[str], *, full: bool = False, root: Path = ROOT) -> dict:
         enable(list(checks), "explicit full validation")
     variables = make_paths(root)
     for path in sorted(set(paths)):
+        if (
+            path.startswith(WINDOWS_WORKER_FULL_TEST_PREFIXES)
+            or path in WINDOWS_WORKER_FULL_BOUNDARIES
+            and path.startswith("tests/coding/")
+        ):
+            enable(["windows_shell"], f"{path}: native Worker test coverage")
         if path.startswith("src/") and path.endswith(".py"):
             enable(["architecture"], f"{path}: source dependency facts")
         if (
@@ -82,6 +174,51 @@ def select(paths: list[str], *, full: bool = False, root: Path = ROOT) -> dict:
         ]:
             enable(["docs"], f"{path}: documentation")
             continue
+        if pr_fast and not full and path == MODULE_REGRESSION_WORKFLOW:
+            # This reusable workflow only runs offline module regressions. Gate
+            # changes elsewhere still retain broad native validation.
+            enable(["ci"], f"{path}: module regression workflow and Actions syntax")
+            unit_packages.update(set(unit_inventory) - FAST_EXCLUDED_PACKAGES)
+            e2e = True
+            continue
+        if pr_fast and not full and path in PR_ROUTING_FILES:
+            enable(["ci"], f"{path}: PR gate routing regression and Actions syntax")
+            continue
+        if pr_fast and not full:
+            parts = Path(path).parts
+            package = None
+            if len(parts) >= 4 and parts[:2] == ("src", "loushang"):
+                package = parts[2]
+            elif len(parts) >= 3 and parts[0] == "tests":
+                package = parts[1]
+            if package in unit_inventory and package not in FAST_EXCLUDED_PACKAGES:
+                # Test support and newly added tests require the established
+                # routing until they are explicitly classified as unit tests.
+                test_is_unit = (
+                    path.startswith("src/") and path.endswith(".py")
+                ) or path in unit_inventory[package]
+                matching_rules = [
+                    rule for rule in rules["rules"]
+                    if any(fnmatch.fnmatchcase(path, p) for p in rule["paths"])
+                ]
+                matched_checks = {
+                    check
+                    for rule in matching_rules
+                    for check in rule["checks"]
+                }
+                if (
+                    test_is_unit
+                    and not (matched_checks & FAST_RISK_CHECKS)
+                    and not (package == "coding" and "coding_ui" in matched_checks)
+                    and not any(
+                        rule["reason"] in FAST_RISK_RULE_REASONS
+                        for rule in matching_rules
+                    )
+                ):
+                    unit_packages.add(package)
+                    e2e |= any(part in path for part in E2E_PATH_PARTS)
+                    e2e |= package == "coding" and "hosted" in Path(path).name
+                    continue
         matched = False
         for rule in rules["rules"]:
             if any(fnmatch.fnmatchcase(path, pattern) for pattern in rule["paths"]):
@@ -119,11 +256,142 @@ def select(paths: list[str], *, full: bool = False, root: Path = ROOT) -> dict:
         name: any(checks[check] for check in scopes)
         for name, scopes in rules["workflows"].items()
     }
+    if pr_fast and not full:
+        # A risk path already running the complete package gate owns the same
+        # offline tests; mixed PRs must not launch that module twice.
+        unit_packages = {
+            package for package in unit_packages
+            if not checks.get("tui_unit" if package == "tui" else package, False)
+        }
+    gate_infra = any(
+        path.startswith((".github/workflows/", "scripts/ci/"))
+        for path in paths
+    )
+    if pr_fast and not full and gate_infra:
+        # Gate changes retain full checks and exercise both new workflows.
+        unit_packages.add("agent")
+        e2e = True
+    if pr_fast and not full and any(
+        path.startswith(("src/", "tests/")) and not path.endswith((".md", ".rst"))
+        for path in paths
+    ):
+        e2e = True
+    unit_jobs = [
+        {"package": package, "shard": shard,
+         "shards": UNIT_SHARD_COUNTS.get(package, 1)}
+        for package in sorted(unit_packages)
+        for shard in range(UNIT_SHARD_COUNTS.get(package, 1))
+    ]
+    workflows["units"] = bool(unit_packages)
+    workflows["e2e"] = e2e
+    windows = {
+        "smoke": False,
+        "worker_pr": False,
+        "worker_full": False,
+        "shell_full": False,
+        "appservice_full": False,
+        "tui_full": False,
+    }
+    if not pr_fast or full:
+        windows.update({
+            "worker_full": checks["windows_shell"],
+            "shell_full": checks["windows_shell"],
+            "appservice_full": checks["appservice"],
+            "tui_full": checks["tui_native"] or checks["tui_playback"],
+        })
+    else:
+        windows["smoke"] = checks["windows_shell"]
+        for path in paths:
+            # Unknown and gate-infrastructure paths retain the complete native
+            # matrix. New Windows owners must be classified before fast routing.
+            known = any(
+                any(fnmatch.fnmatchcase(path, pattern) for pattern in rule["paths"])
+                for rule in rules["rules"]
+            ) or any(
+                path == entry or path.startswith(entry + "/")
+                for entries in variables.values() for entry in entries
+            )
+            broad = (
+                path.startswith(WINDOWS_GATE_INFRA[:3])
+                or path in WINDOWS_GATE_INFRA[3:]
+                or (not known and not path.endswith((".md", ".rst")))
+            )
+            if broad:
+                windows.update({
+                    "worker_full": checks["windows_shell"],
+                    "shell_full": checks["windows_shell"],
+                    "appservice_full": checks["appservice"],
+                    "tui_full": checks["tui_native"] or checks["tui_playback"],
+                })
+                continue
+            if checks["windows_shell"]:
+                worker_native = (
+                    path.startswith(WINDOWS_WORKER_NATIVE_PREFIXES)
+                    or path.startswith(WINDOWS_WORKER_FULL_TEST_PREFIXES)
+                    or path in WINDOWS_WORKER_FULL_BOUNDARIES
+                    or ("worker" in path and any(
+                        part in path for part in WINDOWS_WORKER_NATIVE_PARTS
+                    ))
+                )
+                if worker_native:
+                    if (
+                        path in WINDOWS_WORKER_FULL_BOUNDARIES
+                        or path.startswith(WINDOWS_WORKER_FULL_TEST_PREFIXES)
+                        or (path.startswith("tests/harness/worker/")
+                            and "windows" in Path(path).name)
+                    ):
+                        windows["worker_full"] = True
+                    else:
+                        windows["worker_pr"] = True
+                windows["shell_full"] |= (
+                    path.startswith(WINDOWS_SHELL_FULL_PREFIXES)
+                    or any(part in path for part in WINDOWS_SHELL_FULL_PARTS)
+                )
+            if checks["appservice"]:
+                windows["appservice_full"] |= (
+                    path.startswith(WINDOWS_APPSERVICE_FULL_PREFIXES)
+                    or any(part in path for part in WINDOWS_APPSERVICE_FULL_PARTS)
+                )
+            if checks["tui_native"]:
+                windows["tui_full"] |= any(
+                    part in path for part in WINDOWS_TUI_FULL_PARTS
+                )
+        if windows["worker_full"]:
+            windows["worker_pr"] = False
+    host_runtime_smoke = (
+        checks["host_runtime"] and pr_fast and not full and not gate_infra
+        and not windows["worker_full"]
+        and not any(
+            path.startswith("tests/hosting/")
+            or path in {
+                "tests/coding/test_package_worker_candidate_wheel.py",
+                "tests/coding/test_package_worker_native_cli.py",
+                "tests/coding/test_plugin_author_smoke.py",
+                "tests/harness/conversation/test_json_index.py",
+                "tests/harness/transcript/test_file_store_process_exit.py",
+                "tests/harness/transcript/test_model_input.py",
+            }
+            for path in paths
+        )
+    )
+    hosting_worker_pr_smoke = (
+        host_runtime_smoke and checks["hosting"]
+        and not any(path.startswith((
+            "src/loushang/hosting/", "tests/hosting/",
+            "src/loushang/harness/worker/", "tests/harness/worker/",
+        )) for path in paths)
+    )
     return {
         "version": 1,
         "paths": sorted(set(paths)),
         "checks": checks,
         "workflows": workflows,
+        "unit_packages": sorted(unit_packages),
+        "unit_jobs": unit_jobs,
+        "e2e": e2e,
+        "windows": windows,
+        "host_runtime_smoke": host_runtime_smoke,
+        "hosting_worker_pr_smoke": hosting_worker_pr_smoke,
         "reasons": reasons,
     }
 
@@ -138,7 +406,8 @@ def workflow_plan(plan: dict) -> dict:
     receive only the executable portion.
     """
     return {
-        key: plan[key] for key in ("version", "paths", "checks", "workflows")
+        key: plan[key]
+        for key in ("version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "windows", "host_runtime_smoke", "hosting_worker_pr_smoke")
     }
 
 
@@ -168,6 +437,7 @@ def main() -> None:
     parser.add_argument("--base", default="origin/main")
     parser.add_argument("--head")
     parser.add_argument("--full", action="store_true")
+    parser.add_argument("--pr-fast", action="store_true")
     parser.add_argument("--event", action="store_true")
     parser.add_argument("--paths", nargs="+")
     parser.add_argument("--output", type=Path)
@@ -187,7 +457,14 @@ def main() -> None:
         paths = []
     else:
         paths = local_paths(args.base)
-    plan = select(paths, full=full)
+    plan = select(
+        paths, full=full,
+        pr_fast=args.pr_fast or (
+            # Post-merge pushes reuse the checked PR route. Scheduled and
+            # manual runs retain the complete native and package matrix.
+            args.event and os.environ["GITHUB_EVENT_NAME"] in {"pull_request", "push"}
+        ),
+    )
     if args.output:
         args.output.write_text(json.dumps(plan, indent=2) + "\n")
     print(json.dumps(plan, indent=2))

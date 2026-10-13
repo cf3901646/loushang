@@ -18,7 +18,13 @@ def verify(
         )
     errors = []
     for job, scope in jobs.items():
-        selected = plan[section].get(scope)
+        job_section, separator, job_scope = scope.partition(".")
+        if separator:
+            if job_section not in {"checks", "workflows", "windows"}:
+                raise ValueError(f"unknown selection section {job_section!r}")
+            selected = plan.get(job_section, {}).get(job_scope)
+        else:
+            selected = plan[section].get(scope)
         if not isinstance(selected, bool):
             raise ValueError(f"missing boolean selection for {scope}")
         expected = "success" if selected else "skipped"
@@ -33,10 +39,13 @@ def verify(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--jobs", required=True, help="JSON map of job IDs to scopes")
-    parser.add_argument("--section", choices=("checks", "workflows"), default="checks")
+    parser.add_argument("--section", choices=("checks", "workflows", "windows"), default="checks")
+    parser.add_argument("--require-changes", action="store_true")
     args = parser.parse_args()
     needs = json.loads(os.environ["CI_NEEDS"])
-    if args.section == "workflows":
+    if args.require_changes:
+        if args.section != "workflows":
+            raise ValueError("selector dependency requires workflow aggregation")
         changes = needs.pop("changes", {})
         if changes.get("result") != "success":
             raise ValueError("change selection failed or did not run")

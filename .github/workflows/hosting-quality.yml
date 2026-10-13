@@ -355,7 +355,21 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --extra dev
 
-      - name: Run installed Product ordinary Session gate
+      - name: Run hosted Worker Session PR smoke
+        if: ${{ fromJSON(inputs.plan).hosting_worker_pr_smoke }}
+        env:
+          PYTHONUNBUFFERED: "1"
+          PYTEST_ADDOPTS: >-
+            --junitxml=.artifacts/worker-p4-ordinary.xml
+        run: |
+          mkdir -p .artifacts
+          uv run --extra dev python scripts/dev/run_pytest.py \
+            tests/coding/test_package_worker_candidate_wheel.py::test_explicit_worker_hosted_first_session_reaches_installed_product \
+            -m 'not live' \
+            -vv
+
+      - name: Run installed Product ordinary Session full gate
+        if: ${{ !fromJSON(inputs.plan).hosting_worker_pr_smoke }}
         env:
           PYTHONUNBUFFERED: "1"
           PYTEST_ADDOPTS: >-
@@ -370,7 +384,15 @@ jobs:
             -m 'not live' \
             -vv
 
-      - name: Reject empty, skipped, or failing P4 ordinary report
+      - name: Reject empty, skipped, or failing P4 PR smoke report
+        if: ${{ fromJSON(inputs.plan).hosting_worker_pr_smoke }}
+        run: >-
+          uv run python scripts/dev/verify_pytest_xml.py
+          .artifacts/worker-p4-ordinary.xml
+          --require-tests-count 1
+
+      - name: Reject empty, skipped, or failing P4 full report
+        if: ${{ !fromJSON(inputs.plan).hosting_worker_pr_smoke }}
         run: >-
           uv run python scripts/dev/verify_pytest_xml.py
           .artifacts/worker-p4-ordinary.xml
@@ -385,7 +407,7 @@ jobs:
           if-no-files-found: error
 
   worker-sustained:
-    if: ${{ fromJSON(inputs.plan).checks.hosting }}
+    if: ${{ fromJSON(inputs.plan).checks.hosting_sustained }}
     name: Worker sustained Product query (Linux)
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -435,4 +457,4 @@ jobs:
           CI_NEEDS: ${{ toJSON(needs) }}
         run: >-
           python scripts/ci/verify_gate.py
-          --jobs '{"hosting-quality":"hosting","worker-p4-ordinary":"hosting","worker-sustained":"hosting"}'
+          --jobs '{"hosting-quality":"hosting","worker-p4-ordinary":"hosting","worker-sustained":"hosting_sustained"}'

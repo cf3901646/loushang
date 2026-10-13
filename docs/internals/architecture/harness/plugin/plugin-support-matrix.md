@@ -22,7 +22,7 @@ does not add a second Plugin registry or change a default route.
 Ordinary Windows Coding Sessions select the fenced B Product in Direct,
 Session Runtime, and Hosted construction. This does not activate Worker queries.
 The Windows AMD64 `--worker-query-plugin` route requires an explicit persisted
-`coding-standard` print-mode Session, exact Product selection, approved native
+`coding-standard` print- or text-mode Session, exact Product selection, approved native
 release, and per-install opt-in. It adds only one read-only query Tool; default
 Worker routing remains closed. PR #662 records the earlier ordinary B Session
 acceptance, separate from this Worker route.
@@ -109,7 +109,8 @@ Desired State drift as stale. See the
 and [read SDK](../../../../../src/loushang/coding/plugin_management_read_sdk.py).
 
 The explicit `loushang-worker-windows-candidate` command is gated to Windows
-AMD64 and `--windows-candidate`. It captures an inert Wheel, installs, updates,
+AMD64; its old `--windows-candidate` switch remains accepted but is optional.
+It captures an inert Wheel, installs, updates,
 enables, disables, and removes an exact candidate through Product management;
 update and removal require revoked opt-in. Removal leaves Package retirement
 as a separate operation. The command reviews and approves the current Loushang backend

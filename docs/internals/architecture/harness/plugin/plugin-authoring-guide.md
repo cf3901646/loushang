@@ -285,9 +285,9 @@ amd64, it must be an accepted PE executable. The current profile contains one
 read-only `capability.query` Provider with no requested authorities. An
 optional, repeatable `--dependency dependency==1` writes up to three distinct
 exact pins into Wheel metadata in canonical order.
-The [standalone Linux query Worker example](../../../../../examples/plugins/coding_worker_query/README.md)
-contains author-facing source plus compile, Wheel build, and disposable Product
-smoke commands. It uses no test fixture import.
+The [standalone query Worker example](../../../../../examples/plugins/coding_worker_query/README.md)
+contains author-facing source plus Linux and Windows compile, Wheel build, and
+disposable Product smoke commands. It uses no test fixture import.
 
 ```text
 loushang-plugin build-coding-worker-candidate build/query-worker \
@@ -477,8 +477,9 @@ that deletion. An unsettled attempt or retained reference keeps GC closed; the
 operator must use the exact review and repair path for that debt.
 
 On Windows AMD64, the same candidate update, disable, and remove arguments are
-available through `loushang-worker-windows-candidate --workspace PATH
---windows-candidate`. Revoke the per-install opt-in before update or removal,
+available through `loushang-worker-windows-candidate --workspace PATH`.
+The older `--windows-candidate` spelling remains accepted by that command.
+Revoke the per-install opt-in before update or removal,
 pass the current inventory revision to each mutation, and use the new digest
 returned by `candidate-capture` for an update. The command returns the Product
 operation or exact update replay; `candidate-remove` still leaves Package
@@ -505,7 +506,8 @@ CLI route below is not encoded in its value. RPC and Screen do not offer a
 Worker selection switch.
 
 The P4 ordinary-turn route adds `--worker-query-plugin PLUGIN_ID` for a new,
-persisted `coding-standard` Session on Linux or Windows x86-64. Its Linux opt-in scope was
+persisted `coding-standard` print- or text-mode Session on Linux or Windows
+x86-64. Its Linux opt-in scope was
 approved after [PR #653](https://github.com/zhnt/loushang/pull/653) passed native,
 ordinary-turn, lifecycle, and cross-platform checks and independent security,
 platform, and lifecycle reviews. This approval is not general Worker admission;
@@ -522,6 +524,9 @@ loushang --mode print --cwd PATH --composition-set coding-standard \
   --worker-query-plugin reviewworker \
   "Use worker_query_symbol to query the review symbol."
 ```
+
+The same explicit selection is available with `--mode text` for a new
+persisted Session; Worker selection remains absent by default.
 
 The four checks are separate: builder/validator proves inert Wheel bytes;
 native `review`/`approve`/`install` proves the exact H6 release; Product

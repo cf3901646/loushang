@@ -27,8 +27,13 @@ jobs:
 
   coding:
     if: ${{ fromJSON(inputs.plan).checks.coding }}
+    name: Coding regression (shard ${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -36,8 +41,24 @@ jobs:
           python-version: "3.11"
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --locked --extra dev
+      - run: mkdir -p .artifacts
       - name: Offline package regression
-        run: uv run python scripts/ci/run_checks.py coding
+        env:
+          PYTEST_ADDOPTS: >-
+            --junitxml=.artifacts/coding-${{ matrix.shard }}.xml --durations=20
+        run: >-
+          uv run python scripts/ci/run_checks.py coding
+          --shard ${{ matrix.shard }} --shards 16
+      - name: Verify nonempty passing shard
+        run: >-
+          uv run python scripts/dev/verify_pytest_xml.py
+          .artifacts/coding-${{ matrix.shard }}.xml --allow-skipped
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coding-${{ matrix.shard }}-pytest-report
+          path: .artifacts/coding-${{ matrix.shard }}.xml
+          if-no-files-found: warn
 
   foundation:
     if: ${{ fromJSON(inputs.plan).checks.foundation }}

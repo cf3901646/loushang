@@ -520,6 +520,7 @@ def _spec(
     )
 
 
+@pytest.mark.e2e_smoke
 @_async_test
 async def test_G12_VERTICAL_CANARY_crosses_real_composition_create_turn_resume_close() -> None:
     environment = await _environment()
@@ -556,6 +557,18 @@ async def test_G12_VERTICAL_CANARY_crosses_real_composition_create_turn_resume_c
     assert environment.sessions.list_scopes[-1] == (
         SessionDiscoveryScope.CURRENT_DIRECTORY,
     )
+
+    await controller.submit("after resume")
+    await controller.poll()
+    assert controller.state is not None
+    assert controller.state.windows[0].session_id == created_id
+    assert controller.state.windows[0].records[-1] == TranscriptRecordV1(
+        TranscriptRecordKindV1.ASSISTANT,
+        "after resume",
+    )
+    assert environment.session_factory.bindings[1].control.prompts == [
+        "after resume"
+    ]
 
     await controller.close()
     await client.close_mux(MuxCloseV1(MuxSelectorV1(name="dev")))
