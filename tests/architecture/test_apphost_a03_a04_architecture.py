@@ -135,6 +135,7 @@ def test_a0_4_hosted_binder_stays_wiring_only_after_g11_consumers() -> None:
             consumer == Path("src/loushang/coding/appservice_adapter.py")
             or consumer == Path("src/loushang/coding/hosted_application.py")
             or consumer == Path("src/loushang/coding/hosted_catalog.py")
+            or consumer == Path("src/loushang/coding/hosted_resume.py")
             or consumer == Path("src/loushang/coding/managed_catalog.py")
             or consumer == Path("src/loushang/coding/managed_bootstrap.py")
             or consumer == Path("src/loushang/coding/managed_local.py")

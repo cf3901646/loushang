@@ -7,6 +7,7 @@ installed Coding code, not a transport, process owner or installed command.
 from __future__ import annotations
 
 import hashlib
+import sys
 from dataclasses import dataclass, field
 from importlib.metadata import version
 from pathlib import Path
@@ -161,6 +162,11 @@ def create_coding_hosted_attempt(
     """Bind real Coding/G13 once; test seams never enter command-line input."""
     if type(session_discovery) is not bool:
         raise TypeError("invalid discovery activation")
+    if type(owned_transcripts) is not bool:
+        raise TypeError("invalid owned transcript activation")
+    # Keep Product execution negotiation cross-platform while retaining the
+    # existing native Writer support boundary used by Embedded Coding.
+    owned_transcripts = owned_transcripts and sys.platform == "linux"
     generation = token_hex(16)
     catalog = CodingHostedSessionCatalogV1(launch.scopes, owned_transcripts=owned_transcripts)
     return _create_coding_attempt(

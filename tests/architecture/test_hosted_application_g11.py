@@ -50,7 +50,10 @@ def _imports_prefix(imports: set[str], prefix: str) -> bool:
 def test_G17_controller_borrows_only_appserver_semantics() -> None:
     imports = _imports(HARNESSTUI_MUX / "controller.py")
     assert {name for name in imports if name.startswith("loushang.appserver")} == {
-        "loushang.appserver.client", "loushang.appserver.protocol",
+        "loushang.appserver.client",
+        "loushang.appserver.execution.client",
+        "loushang.appserver.execution.recovery",
+        "loushang.appserver.protocol",
     }
 
 
@@ -127,11 +130,14 @@ def test_G11_PRODUCT_ADAPTER_is_the_only_product_harness_bridge() -> None:
         CODING_ADAPTER,
         Path("src/loushang/apphost/application.py"),
         Path("src/loushang/apphost/continuity.py"),
+        Path("src/loushang/apphost/foreground.py"),
         Path("src/loushang/coding/hosted_application.py"),
         Path("src/loushang/coding/hosted_continuity.py"),
         Path("src/loushang/coding/hosted_bootstrap.py"),
         Path("src/loushang/coding/hosted_catalog.py"),
         Path("src/loushang/coding/hosted_execution.py"),
+        Path("src/loushang/coding/hosted_resume.py"),
+        Path("src/loushang/coding/hosted_session.py"),
         Path("src/loushang/coding/_hosted_execution_work.py"),
         Path("src/loushang/apphost/managed/bootstrap.py"),
         Path("src/loushang/apphost/managed/mux_creation.py"),
@@ -151,10 +157,26 @@ def test_G11_PRODUCT_ADAPTER_is_the_only_product_harness_bridge() -> None:
     # a default Product or by altering the legacy Hosted Session port.
     for path in (
         CODING_ADAPTER,
-        Path("src/loushang/coding/hosted_bootstrap.py"),
         Path("src/loushang/coding/__init__.py"),
     ):
         assert "hosted_execution" not in _read(path)
+    bootstrap = ast.parse(_read(Path("src/loushang/coding/hosted_bootstrap.py")))
+    bootstrap_execution_imports = {
+        node
+        for node in ast.walk(bootstrap)
+        if isinstance(node, ast.ImportFrom) and node.module == "hosted_execution"
+    }
+    bootstrap_guarded_imports = {
+        imported
+        for node in ast.walk(bootstrap)
+        if isinstance(node, ast.If) and ast.unparse(node.test) == "not managed_selection"
+        for statement in node.body
+        for imported in ast.walk(statement)
+        if isinstance(imported, ast.ImportFrom)
+        and imported.module == "hosted_execution"
+    }
+    assert len(bootstrap_execution_imports) == 1
+    assert bootstrap_execution_imports == bootstrap_guarded_imports
     # The foreground owner may select the optional adapter, but only within
     # its explicit execution branch. Default construction must not import it.
     composition = ast.parse(_read(Path("src/loushang/coding/hosted_application.py")))
@@ -273,9 +295,9 @@ def test_g11_package_budgets_keep_new_owners_reviewable() -> None:
         # Optional execution adds omission metadata and a synchronous projection
         # seam; its two owners have a separate budget in the Wave A contract.
         "coding-adapter": 420,
-        # Reviewed neutral capability projection +41 versus da820585;
-        # retain the original 21-line margin and exact six-file group.
-        "harnesstui-mux": 600 + 41,
+        # Reviewed neutral capability projection, stable execution recovery,
+        # and explicit profile wiring add 87 lines versus da820585.
+        "harnesstui-mux": 600 + 87,
     }
     for name, paths in groups.items():
         lines = sum(len(_read(path).splitlines()) for path in paths)

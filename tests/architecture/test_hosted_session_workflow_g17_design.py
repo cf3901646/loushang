@@ -141,6 +141,7 @@ def test_G17_LAUNCH_owner_has_exact_optional_imports_and_reviewability_budget() 
     allowed = {
         "loushang.hosting.contracts",
         "loushang.appserver.client",
+        "loushang.appserver.execution.client",
         "loushang.appserver.framing",
         "loushang.appserver.remote_client",
         "loushang.appserver.protocol",

@@ -88,22 +88,23 @@ def test_coding_product_slices_stay_within_wave_a_budget() -> None:
     # ARD-004/005/006 R2.1: detached history, source-fenced recovery reads,
     # stable first-input execution and narrow adapter data validation stay on
     # these same original owners. Exact net delta from current main: catalog
-    # +316, session +195 and CLI +34.
+    # +334, session +195 and CLI +34. The catalog delta includes the
+    # lifecycle-observation proxies required by the Resume wrapper.
     # See foreground-stdio-hosted-app-g14.md, R2.1 reviewability supplement.
-    assert sum(groups["g14"].values()) <= 1_300 + 205 + 8 + 3 + 316 + 195 + 34, groups["g14"]
+    assert sum(groups["g14"].values()) <= 1_300 + 205 + 8 + 3 + 334 + 195 + 34, groups["g14"]
     for path, limit in {
         "cli/hosted.py": 290,
-        "hosted_catalog.py": 1_202,
+        "hosted_catalog.py": 1_220,
         "hosted_session.py": 569,
     }.items():
         assert groups["g14"][path] <= limit, (path, groups["g14"][path], limit)
     # R2.1 extends the existing detachable owners with explicit execution
     # composition and admitted owned-root preparation. Exact net delta from
-    # current main: mux +1, bootstrap +29 and local command +15.
-    assert sum(groups["g16"].values()) <= 900 + 45, groups["g16"]
+    # current main: mux +1, bootstrap +35 and local command +15.
+    assert sum(groups["g16"].values()) <= 900 + 51, groups["g16"]
     for path, limit in {
         "cli/mux.py": 258,
-        "hosted_bootstrap.py": 280,
+        "hosted_bootstrap.py": 286,
         "hosted_local.py": 402,
     }.items():
         assert groups["g16"][path] <= limit, (path, groups["g16"][path], limit)

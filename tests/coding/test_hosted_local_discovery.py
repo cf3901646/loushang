@@ -90,7 +90,9 @@ def test_G17_PRODUCT_local_discovery_views_resume_interact_and_detach(
                 name = scope.scope.value
                 await connection.client.create_mux(MuxCreateV1(name))
                 controller = await open_hosted_mux_profile(
-                    connection.client, selector=MuxSelectorV1(name=name)
+                    connection.client,
+                    selector=MuxSelectorV1(name=name),
+                    execution_client=connection.execution_client,
                 )
                 controllers.append(controller)
                 identity = page.candidates[0].identity
