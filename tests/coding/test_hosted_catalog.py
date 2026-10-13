@@ -123,6 +123,7 @@ def _intent(scope: CodingHostedScopeV1) -> SessionCreateIntentV1:
     )
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux owned transcript Writer")
 def test_hosted_resume_catalog_transfers_history_and_original_writer_owner(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -141,22 +141,24 @@ class HostedMuxControllerV1:
         state, window = self._active()
         selected = window.draft if text is None else text
         revision = window.draft_revision
-        if self._execution_client is None:
-            request = TurnTextV1(
-                state.attachment_id,
-                state.controller_generation,
-                window.member_id,
-                selected,
-            )
+        request = TurnTextV1(
+            state.attachment_id,
+            state.controller_generation,
+            window.member_id,
+            selected,
+        )
+        use_execution = False
+        try:
             await self._client.start_turn(request)
-        else:
+        except AppServiceError as error:
+            if (
+                error.code is not AppErrorCodeV1.OPERATION_UNAVAILABLE
+                or self._execution_client is None
+            ):
+                raise
+            use_execution = True
+        if use_execution:
             # Keep the v1 validation bound while changing only delivery semantics.
-            TurnTextV1(
-                state.attachment_id,
-                state.controller_generation,
-                window.member_id,
-                selected,
-            )
             key = (window.identity, selected)
             recovery = self._submissions.get(key)
             if recovery is not None and recovery.delivery not in {

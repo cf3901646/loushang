@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from dataclasses import replace
 
 import pytest
@@ -46,6 +47,7 @@ def test_G17_COMPAT_local_launch_requires_exact_activation(tmp_path, value):
     assert not tuple(tmp_path.iterdir())
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux writable Hosted Resume")
 def test_G17_PRODUCT_local_discovery_views_resume_interact_and_detach(
     tmp_path, monkeypatch
 ):
@@ -161,6 +163,7 @@ def test_G17_PRODUCT_local_discovery_views_resume_interact_and_detach(
     asyncio.run(asyncio.wait_for(scenario(), 120))
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux writable Hosted Resume")
 def test_G17_PRODUCT_picker_resumes_both_scopes_interacts_and_retains_history(
     tmp_path, monkeypatch
 ):

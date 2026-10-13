@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 
 import pytest
 
@@ -114,6 +115,7 @@ def test_G17_COMPAT_installed_stdio_discovers_and_resumes_admitted_history(
     asyncio.run(asyncio.wait_for(scenario(), 60))
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux writable Hosted Resume")
 def test_G17_PRODUCT_stdio_resume_uses_stable_execution_and_commits_once(tmp_path):
     async def scenario():
         launch, _ = parse_launch(_argv(tmp_path))

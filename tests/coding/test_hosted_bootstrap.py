@@ -63,7 +63,9 @@ def test_hosted_owned_writer_keeps_the_embedded_platform_boundary(
             _launch(tmp_path), owned_transcripts=True
         )
         sessions = attempt._request.foreground.sessions
-        assert isinstance(sessions, CodingHostedResumeCatalogV1) is owned
+        assert isinstance(sessions, CodingHostedResumeCatalogV1)
+        assert (sessions._owned_factory is not None) is owned
+        assert (attempt._request.foreground.session_owner is sessions) is owned
         await attempt.close()
 
     asyncio.run(scenario())

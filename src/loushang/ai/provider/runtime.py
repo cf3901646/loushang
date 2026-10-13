@@ -397,7 +397,54 @@ async def _emit_terminal_part_and_record_outcome(
         call_id,
         assembler.result_nowait(),
     )
-    if assembler.usage_observed and isinstance(
+    if not (
+        (
+            assembler.usage_observed
+            and isinstance(committer, PreparedModelCallAttemptUsageRecorder)
+        )
+        or isinstance(committer, PreparedModelCallOutcomeRecorder)
+    ):
+        return
+    # Once a terminal provider fact is visible, its durable observation must
+    # finish before caller cancellation is propagated. Otherwise the Agent's
+    # bounded force-cancel can turn an observed abort into an unknown outcome.
+    recording = asyncio.create_task(
+        _record_terminal_observations(
+            outcome,
+            usage_observed=assembler.usage_observed,
+            committer=committer,
+            options=options,
+            request=request,
+            model=model,
+            call_id=call_id,
+        )
+    )
+    cancellation: asyncio.CancelledError | None = None
+    caller = asyncio.current_task()
+    while not recording.done():
+        try:
+            await asyncio.shield(recording)
+        except asyncio.CancelledError as error:
+            if caller is None or caller.cancelling() == 0:
+                recording.result()
+                return
+            cancellation = error
+    recording.result()
+    if cancellation is not None:
+        raise cancellation
+
+
+async def _record_terminal_observations(
+    outcome: PreparedModelCallOutcome,
+    *,
+    usage_observed: bool,
+    committer: object,
+    options: object | None,
+    request: ProviderRequest,
+    model: object,
+    call_id: str,
+) -> None:
+    if usage_observed and isinstance(
         committer, PreparedModelCallAttemptUsageRecorder
     ):
         await _record_attempt_usage(

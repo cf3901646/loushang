@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from dataclasses import replace
 
 import pytest
@@ -38,6 +39,7 @@ from .test_hosted_discovery import _create
 from .test_hosted_session import _model, _stream
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux writable Hosted Resume")
 def test_hosted_resume_activates_once_from_stable_execution_input(
     tmp_path, monkeypatch,
 ):

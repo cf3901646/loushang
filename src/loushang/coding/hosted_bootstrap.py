@@ -164,6 +164,7 @@ def create_coding_hosted_attempt(
         raise TypeError("invalid discovery activation")
     if type(owned_transcripts) is not bool:
         raise TypeError("invalid owned transcript activation")
+    resume_history = owned_transcripts
     # Keep Product execution negotiation cross-platform while retaining the
     # existing native Writer support boundary used by Embedded Coding.
     owned_transcripts = owned_transcripts and sys.platform == "linux"
@@ -173,6 +174,7 @@ def create_coding_hosted_attempt(
         application_root=launch.application_root, application_id=launch.application_id,
         catalog=catalog, generation=generation, model=model, stream_fn=stream_fn, tools=tools,
         session_discovery=session_discovery, owned_transcripts=owned_transcripts,
+        resume_history=resume_history,
         profile_id=CODING_HOSTED_APPLICATION_PROFILE_ID,
         package_product_runtime_factory_for_session=(
             package_product_runtime_factory_for_session
@@ -192,7 +194,7 @@ def _create_coding_attempt(
     *, application_root: Path, application_id: str, catalog: CodingHostedSessionCatalogV1,
     generation: str, model: Model | ModelSelection | None, stream_fn: StreamFn | None,
     tools: list[ToolDefinition] | None, session_discovery: bool, owned_transcripts: bool,
-    profile_id: str, managed_selection: bool = False,
+    profile_id: str, resume_history: bool = False, managed_selection: bool = False,
     managed_mux: ManagedMuxServiceBindingV1 | None = None,
     output_capture_factory: ExecCaptureFactory | None = None,
     package_product_runtime_factory_for_session: (
@@ -210,7 +212,7 @@ def _create_coding_attempt(
     sessions = (
         CodingHostedResumeCatalogV1(catalog)
         if (
-            owned_transcripts
+            resume_history
             and not managed_selection
             and package_product_runtime_factory_for_session is None
         )

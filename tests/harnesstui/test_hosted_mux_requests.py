@@ -9,7 +9,13 @@ from loushang.appserver.execution.model import (
     ExecutionStateV1,
     ExecutionStatusV1,
 )
-from loushang.appserver.protocol import AckV1, MuxSelectorV1, SessionScopeV1
+from loushang.appserver.protocol import (
+    AckV1,
+    AppErrorCodeV1,
+    AppServiceError,
+    MuxSelectorV1,
+    SessionScopeV1,
+)
 from loushang.harnesstui.mux.shell import HostedMuxShellV1
 from loushang.tui import RenderConstraints
 from loushang.tui.input import InputEvent
@@ -53,7 +59,13 @@ class _ExecutionClient:
         )
 
 
-def _execution_shell(client, execution):
+def _execution_shell(client, execution, *, deferred=True):
+    if deferred:
+        async def unavailable(request):
+            client.calls.append(("start", request))
+            raise AppServiceError(AppErrorCodeV1.OPERATION_UNAVAILABLE)
+
+        client.start_turn = unavailable
     return HostedMuxShellV1(
         client,
         selector=MuxSelectorV1(name="dev"),
@@ -91,7 +103,27 @@ def test_execution_submission_clears_exact_draft_only_after_stable_acceptance():
             )
             assert instance == "instance" and len(submission) == 32
             assert text == "resume exactly once"
-            assert [name for name, _ in client.calls] == ["attach"]
+            assert [name for name, _ in client.calls] == ["attach", "start"]
+        finally:
+            await shell.close()
+
+    asyncio.run(scenario())
+
+
+def test_execution_capability_preserves_ordinary_legacy_submission():
+    async def scenario():
+        client = _Client()
+        identity = client.attachments[0].sessions[0].member.session
+        execution = _ExecutionClient(identity)
+        shell = _execution_shell(client, execution, deferred=False)
+        await shell.start()
+        try:
+            send(shell, "ordinary turn")
+            await settle(shell)
+            window = shell.state.active_window
+            assert window.request_presentation.state == "acknowledged"
+            assert execution.calls == []
+            assert [name for name, _ in client.calls] == ["attach", "start"]
         finally:
             await shell.close()
 

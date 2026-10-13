@@ -100,11 +100,11 @@ def test_coding_product_slices_stay_within_wave_a_budget() -> None:
         assert groups["g14"][path] <= limit, (path, groups["g14"][path], limit)
     # R2.1 extends the existing detachable owners with explicit execution
     # composition and admitted owned-root preparation. Exact net delta from
-    # current main: mux +1, bootstrap +35 and local command +15.
-    assert sum(groups["g16"].values()) <= 900 + 51, groups["g16"]
+    # current main: mux +1, bootstrap +37 and local command +15.
+    assert sum(groups["g16"].values()) <= 900 + 53, groups["g16"]
     for path, limit in {
         "cli/mux.py": 258,
-        "hosted_bootstrap.py": 286,
+        "hosted_bootstrap.py": 288,
         "hosted_local.py": 402,
     }.items():
         assert groups["g16"][path] <= limit, (path, groups["g16"][path], limit)
