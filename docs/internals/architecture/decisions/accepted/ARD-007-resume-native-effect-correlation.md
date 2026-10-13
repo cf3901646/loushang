@@ -6,7 +6,7 @@
 - Scope: Loushang
 - Authority: normative — accepted cross-scope contract
 - Design status: accepted
-- Implementation status: not-started
+- Implementation status: partial
 - Owner: Loushang architecture, Coding, Harness Approval and native Worker owners
 - Tracking: [Issue #696](https://github.com/zhnt/loushang/issues/696)
 - Source review: `e072a764`, 2026-10-12
@@ -363,8 +363,8 @@ above have explicit mechanisms; no unresolved design finding requires waiting
 for a human approver. Implementations lacking those mechanisms still refuse
 writable activation.
 
-Implementation findings remain: native journals have no parent enrollment or
-sealed membership; Worker attempts have no Resume context; the continuation
+At acceptance, implementation findings were: native journals had no parent
+enrollment or sealed membership; Worker attempts had no Resume context; the continuation
 still takes an injected settlement callback; released artifact and old-writer
 capability coverage are incomplete. The new pre-repair semantic-validation
 regressions are useful journal evidence, not evidence for native v2 recovery.
@@ -375,3 +375,30 @@ native use, cannot fence late starters and enumerate retained operations, or
 cannot retain evidence across its custody lifetime. Changes to the accepted
 scope or supported downgrade contract require a revised decision; they must
 not be inferred from passing fixture callbacks or a new implementation version.
+
+
+## Implementation Progress: Definition Journal
+
+The original Definition Approval journal now stores explicit v2 enrollment and
+seal events. Its v2 consumed-use event co-commits the exact parent context with
+the native decision consumption and reservation. Existing v1 events and native
+reservation/receipt identities remain explicit; v1 event payloads are unchanged.
+The shared parent context is strict, immutable, 2 KiB bounded and contains only
+the accepted lookup fields. Its digest is domain separated.
+
+The journal validates its own scope and contract, rejects rebinding an existing
+attempt to another intent, and exposes exact original native use membership.
+Seal membership is sorted and digest checked. Original CAS serialization fences
+registration versus seal; native STARTING transitions and replay reject a sealed
+parent. An unresolved STARTING use prevents seal, including after a different
+boot. Missing parent enrollment and unresolved starts refuse before partial-tail
+repair. Native evaluated or failed facts do not settle external domain effects.
+
+This is original-journal protocol infrastructure. The original Definition evaluator accepts an explicit typed parent context and
+co-consumes it before import. The production Product selection has not yet
+propagated that context from the committed v2 intent. Product owner
+participation, component/Worker native correlation, retained custody and domain
+reconciliation still require implementation and integration. The parent
+snapshot is not proof of complete Product startup participation, current
+admission or external settlement. Default writable Resume remains unavailable
+until those remaining obligations and the release gates are satisfied.

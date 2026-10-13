@@ -833,6 +833,7 @@ def _consume(
     expected_revocation_epoch: int = 0,
     current_policy_revision: str = "policy-1",
     current_source_trust_policy_revision: str = "trust-1",
+    parent_context=None,
 ):
     return journal.consume_execution_decision(
         subject,
@@ -845,6 +846,7 @@ def _consume(
         current_policy_revision=current_policy_revision,
         current_source_trust_policy_revision=(current_source_trust_policy_revision),
         expected_journal_revision=expected_journal_revision,
+        parent_context=parent_context,
     )
 
 

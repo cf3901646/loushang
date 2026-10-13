@@ -2667,3 +2667,60 @@ uses `PYTEST_ADDOPTS='-m "not live" --skip-host-runtime' make test-harness`
 outside the sandbox and was still running at this checkpoint. It is not yet a
 passing full-suite result. Host-runtime follow-up remains excluded from this
 non-live run and is still required for the final delivery scope.
+
+
+#### Definition original-journal Resume registration
+
+The prior non-live Harness test completed: **5712 passed, 124 skipped,
+33 warnings in 1611.25 seconds**. This covers the prior `f812e14e` runtime
+repair scope. The newly added context module had not been exercised by that
+run, and the later Definition enrollment/registration/seal implementation is
+not covered by that earlier full-suite result.
+
+The Definition original journal now persists owner-validated enrollment,
+parent context atomically with native consume/reserve, and a digest-checked seal
+of exact native use membership. Existing native decisions, instance revisions,
+Host/import-realm identities, transitions and original lock/CAS remain the
+state authority. No second effect ledger or new permission issuer was added.
+V1 payloads stay unchanged; explicit v2 event types refuse unsupported decoding.
+The parent value uses the accepted exact fields and a 2 KiB encoded limit.
+
+New regressions cover durable consumption followed by lost Ack, one native use
+on retry, unknown/missing enrollment, scope and contract mismatch, conflicting
+intent under one attempt, multiple native uses, seal/consume contention,
+late-start fencing in both the API and semantic replay, cross-boot STARTING
+remaining unknown, strict context decoding, and partial-tail byte preservation.
+The final focused run included all Approval tests, the real Definition
+evaluator, component Host, shared journal and context tests:
+The 202-test protocol run passed in 5.22 seconds, outside the sandbox with
+`not live` and `--skip-host-runtime`. The later evaluator integration adds two
+actual import-sentinel cases; its final result is recorded below. Ruff, focused
+mypy and dependency-fact checks passed.
+
+The change plan still selects Harness and host-runtime follow-up. The new
+protocol has not passed a final full-tree Harness/release matrix; the earlier
+5712-test result is not substituted for that requirement. Integration and the
+remaining original owners must be completed, then the selected final gates
+must run before delivery. The production Product selection has not been wired to supply the committed
+Resume parent context, and no default writable route or supported downgrade is
+claimed from these tests. Next implement component/native Worker association
+and trusted original-owner participation from the committed v2 intent; then
+join those facts to the existing continuation coordinator.
+
+
+The original Definition evaluator now takes an optional typed parent context.
+Its initial original-journal snapshot requires that exact parent to be enrolled
+and open before any tail repair; consume repeats the same parent validation in
+its atomic owner transaction. Ordinary non-Resume evaluation keeps its existing
+v1 route. Actual existing synthetic-plugin import sentinels verify that missing
+enrollment leaves the complete/partial native source unchanged and performs no
+Definition import, while enrolled evaluation persists the original parent and
+native use, runs verified source, and returns the original EVALUATED fact.
+These invocation-return facts still do not settle arbitrary external effects.
+Product selection/committed-intent propagation remains outstanding.
+
+
+The final focused evaluator/owner run completed with **204 passed in 5.97
+seconds**. Focused mypy covered the journal, shared parent context and actual
+Definition evaluator. The selected full Harness check for this new protocol is
+launched separately; it is not replaced by the earlier tail-repair gate.
