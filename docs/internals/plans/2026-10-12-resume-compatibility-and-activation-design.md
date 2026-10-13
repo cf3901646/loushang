@@ -3323,6 +3323,30 @@ boundary. Released N/N+1 artifacts, Windows native host execution, multi-host
 load evidence and the final selected-tree gates remain separate acceptance
 work.
 
+The final Hosted route changes the earlier G14 reviewability checkpoint. Against
+current `main` at `b53afcb0`, the three original G14 owners now measure CLI
+290 lines (+34), catalog 1,202 (+316) and Session binding 569 (+195): 2,061
+total against the 1,516-line pre-Resume baseline. The additional 207 lines
+beyond the earlier 1,854 checkpoint are the explicit execution negotiation,
+owned transcript preparation, admitted activation and committed-input handoff
+implemented by the later Hosted slices. The G14 architecture supplement and
+Wave A file ceilings now record those exact values; no new file or partition
+exemption was added.
+
+The writable route also adds 45 net lines to the existing G16 owners against
+the same `main`: detachable CLI +1, shared bootstrap +29 and local command
++15. They carry execution negotiation, local execution composition and
+post-admission owned-root preparation through the already accepted native
+route. The Wave A gate records a 45-line reviewed allowance above its prior
+900-line ceiling plus exact per-file ceilings; it does not add a G16 file or
+move code out of the counted partition.
+
+Two smaller boundary deltas remain within their existing partitions. Deferred
+Product binding grows `hosted_execution.py` to 256 lines while the two-module
+execution total remains 389/400. Installed LMUX propagation and the managed
+startup override add 1 and 7 lines respectively, so the prior exact LMUX
+aggregate receives an 8-line allowance plus ceilings on the two changed files.
+
 #### Instrumented interactive Resume pilot
 
 The Linux interactive startup observer now has an explicit `--resume` mode for
