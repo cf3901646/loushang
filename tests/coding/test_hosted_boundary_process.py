@@ -61,7 +61,13 @@ def _assert_inputs(records, expected):
         assert next(row for row in related if row["phase"] == "product_entered")[
             "input"
         ] == text_shape(text)
-        reply = "waiting" if text == "hold" else "真实跨进程回复\nG14"
+        reply = (
+            "waiting"
+            if text == "hold"
+            else "真实跨进程恢复回复\nG14"
+            if text == "fresh-after-restart"
+            else "真实跨进程回复\nG14"
+        )
         assert any(
             row["phase"] == "projection"
             and row["kind"] == "assistant_delta"
@@ -157,13 +163,14 @@ def test_boundary_native_two_turn_crash_recovery(
         _assert_inputs(related, [expected])
         phases = [row["phase"] for row in related]
         assert phases.index("rpc_received") < phases.index("product_entered"), related
-        assert "rpc_returned" in phases, related
         if expected != "hold":
+            assert "rpc_returned" in phases, related
             assert (
                 phases.index("agent_run_released")
                 < phases.index("product_returned")
             ), related
         else:
+            assert "rpc_returned" not in phases, related
             assert "agent_run_released" not in phases, related
             assert "product_returned" not in phases, related
     assert len([row for row in rows if row["phase"] == "model_input"]) == 3, rows

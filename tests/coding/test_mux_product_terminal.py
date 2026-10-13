@@ -115,9 +115,9 @@ def _see(driver, text, *, after=0):
     )
 
 
-def _completed_reply_seen(output):
+def _completed_reply_seen(output, reply_text="真实跨进程回复"):
     plain = strip_control_sequences(output)
-    reply = plain.rfind("真实跨进程回复")
+    reply = plain.rfind(reply_text)
     # A text delta is not turn settlement. The member's idle projection must
     # follow the reply, not come from the initial, pre-submission screen.
     return reply >= 0 and plain.rfind("*1 |") > reply
@@ -274,7 +274,9 @@ def test_G16_PRODUCT_TERMINAL_process_death_recovers_history_not_execution(
             execution_checkpoint = len(recovered.raw_output)
             recovered.write("/approve\r")
             recovered.read_until(
-                lambda output: _completed_reply_seen(output[execution_checkpoint:]),
+                lambda output: _completed_reply_seen(
+                    output[execution_checkpoint:], "真实跨进程恢复回复"
+                ),
                 timeout=30,
             )
             recovered.write("\x02d")
