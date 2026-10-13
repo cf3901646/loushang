@@ -59,6 +59,14 @@ def review_coding_windows_worker_history_cutover_candidate(
             )
             if current != persisted.checkpoint:
                 raise ValueError("Windows Worker cutover source changed")
+            with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
+                reread, marker = (
+                    _read_coding_windows_worker_persisted_bases_under_gc_guard(
+                        product, root, require_cutover=False
+                    )
+                )
+            if marker is not None or reread != persisted:
+                raise ValueError("Windows Worker cutover bases changed")
             product.assert_root_gc_authority_current()
             return CodingWindowsWorkerHistoryCutoverRecordV1.from_persisted_bases(
                 persisted

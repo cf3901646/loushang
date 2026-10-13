@@ -4205,6 +4205,24 @@ def _assert_windows_worker_retired_history_allows_gc(
             persisted
         )
         assert review_coding_windows_worker_history_cutover_candidate(product) == marker
+        base_path = product.state_root / "worker-history-base-opt-in-v1.json"
+        base_bytes = base_path.read_bytes()
+
+        def tamper_base_after_source_review(*_args, **_kwargs):
+            base_path.write_bytes(b"changed")
+            return checkpoint
+
+        try:
+            with (
+                patch(
+                    "loushang.coding.package_product_worker_windows_history_cutover_preflight._current_checkpoint_under_guard",
+                    side_effect=tamper_base_after_source_review,
+                ),
+                pytest.raises(ValueError, match="base"),
+            ):
+                review_coding_windows_worker_history_cutover_candidate(product)
+        finally:
+            base_path.write_bytes(base_bytes)
         marker_path = product.state_root / WINDOWS_WORKER_HISTORY_CUTOVER_NAME
         write_windows_private_receipt(marker_path, marker.to_bytes())
         try:
