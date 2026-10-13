@@ -1087,6 +1087,22 @@ Ruff, mypy and nine documentation checks passed.
 The previously running Coding gate began before this change and cannot prove
 this new refusal behavior; its result is tracked separately.
 
+#### Latest main synchronization
+
+After saving the continuation refusal as `48f8a3a8`, the task branch merged
+control-lane `main` at `34e2c8f9` in `24909a12`. An explicit `git fetch origin main`
+observed upstream `1f1ba1d1`; both revisions are ancestors of the task HEAD.
+The merge brought the accepted Coding inventory/CI route changes without
+conflict. `tests/ci/test_change_gates.py` completed with **85 passed in 4.02
+seconds** under non-live/skip-host-runtime selectors.
+
+The whole-branch plan against this latest `main` selects broad Product,
+Harness, hosting and platform checks, including full-validation fallback for
+unclassified benchmark/architecture-test paths. These remain final-delivery
+obligations. The earlier Coding gate still runs under its original selected
+inventory and source observation; it does not prove the newly synchronized
+whole branch or any pending architecture/runtime integration.
+
 ### Strict historical load performance follow-up
 
 Profiling the failed original strict load identified inline Model Input JSON
