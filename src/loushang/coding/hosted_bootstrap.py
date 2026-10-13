@@ -31,6 +31,7 @@ from loushang.appservice.discovery_ports import (
 )
 from loushang.appservice.managed_mux import ManagedMuxServiceBindingV1
 from loushang.harness.config.agent import SettingsManager
+from loushang.harness.machine_resources import prepare_private_directory_chain
 from loushang.harness.tools.core import ToolDefinition
 from loushang.harness.workspace.exec.capture_lease import ExecCaptureFactory
 
@@ -173,6 +174,14 @@ def create_coding_hosted_attempt(
     )
 
 
+def prepare_coding_hosted_session_roots(launch: CodingHostedLaunchV1) -> None:
+    """Prepare owned Session leaves only after an explicit startup is admitted."""
+    if type(launch) is not CodingHostedLaunchV1:
+        raise TypeError("invalid hosted launch")
+    for scope in launch.scopes:
+        prepare_private_directory_chain(scope.session_dir)
+
+
 def _create_coding_attempt(
     *, application_root: Path, application_id: str, catalog: CodingHostedSessionCatalogV1,
     generation: str, model: Model | ModelSelection | None, stream_fn: StreamFn | None,
@@ -264,4 +273,8 @@ def _services(cwd: Path) -> BootstrapServices:
     )
 
 
-__all__ = ["CodingHostedLaunchV1", "create_coding_hosted_attempt"]
+__all__ = [
+    "CodingHostedLaunchV1",
+    "create_coding_hosted_attempt",
+    "prepare_coding_hosted_session_roots",
+]

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from loushang.appserver.protocol import TranscriptRecordV1
+from loushang.appserver.protocol import SessionIdentityV1, TranscriptRecordV1
 
 from ..conversation.request_presentation import ConversationRequestPresentation
 
@@ -17,6 +17,7 @@ class HarnessWindowState:
     member_id: str
     session_id: str
     title: str
+    identity: SessionIdentityV1 = field(kw_only=True)
     records: list[TranscriptRecordV1] = field(default_factory=list)
     last_cursor: int = 0
     unread: bool = False

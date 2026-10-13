@@ -255,10 +255,19 @@ class CodingDeferredHostedSessionV1:
     def project_event(
         self, event: RuntimeEvent[object],
     ) -> CodingHostedEventProjectionV1 | None:
+        payload = event if isinstance(event, Mapping) else None
+        if (
+            payload is not None
+            and payload.get("hosted_resume_committed_input") is True
+            and isinstance(payload.get("text"), str)
+        ):
+            return CodingHostedEventProjectionV1(
+                SessionEventKindV1.USER_MESSAGE,
+                cast(str, payload["text"]),
+            )
         active = self._active
         if active is not None:
             return active.project_event(event)
-        payload = event if isinstance(event, Mapping) else None
         if payload is not None and payload.get("hosted_presentation") is True:
             kind = payload.get("type")
             if kind in {"tool_approval_requested", "tool_approval_resolved"}:
@@ -608,6 +617,14 @@ class CodingDeferredHostedSessionV1:
                 )
                 self._control.activate(real.control)
                 self._active = real
+                # The input was durably committed while the real adapter did
+                # not yet exist. Publish its UI projection after the in-place
+                # handoff; this event performs no transcript write or replay.
+                await self._control.emit(cast(RuntimeEvent[object], {
+                    "type": "hosted_resume_committed_input",
+                    "hosted_resume_committed_input": True,
+                    "text": text,
+                }))
             except BaseException:
                 await continuation.session.dispose()
                 raise

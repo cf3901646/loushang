@@ -4,11 +4,17 @@ import asyncio
 
 import pytest
 
-from loushang.appserver.protocol import AckV1
+from loushang.appserver.execution.model import (
+    ExecutionRecordV1,
+    ExecutionStateV1,
+    ExecutionStatusV1,
+)
+from loushang.appserver.protocol import AckV1, MuxSelectorV1, SessionScopeV1
+from loushang.harnesstui.mux.shell import HostedMuxShellV1
 from loushang.tui import RenderConstraints
 from loushang.tui.input import InputEvent
 
-from .test_hosted_mux_profile import _Client
+from .test_hosted_mux_profile import FINGERPRINT, _Client
 from .test_hosted_mux_shell import _shell
 
 
@@ -21,6 +27,125 @@ async def settle(shell):
 def send(shell, text):
     shell.handle(InputEvent(kind="text", text=text))
     shell.handle(InputEvent(kind="key", key="enter"))
+
+
+class _ExecutionClient:
+    service_instance_id = "instance"
+
+    def __init__(self, identity, *, fail_once=False, wait=None):
+        self.identity = identity
+        self.fail_once = fail_once
+        self.wait = wait
+        self.calls = []
+
+    async def submit_execution(self, control, instance, submission, text):
+        self.calls.append((control, instance, submission, text))
+        if self.wait is not None:
+            await self.wait.wait()
+        if self.fail_once:
+            self.fail_once = False
+            raise RuntimeError("private transport failure")
+        return ExecutionRecordV1(
+            instance,
+            self.identity,
+            submission,
+            ExecutionStateV1("execution", ExecutionStatusV1.ACCEPTED, 1),
+        )
+
+
+def _execution_shell(client, execution):
+    return HostedMuxShellV1(
+        client,
+        selector=MuxSelectorV1(name="dev"),
+        product_id="coding",
+        scopes=(
+            (SessionScopeV1.CWD, FINGERPRINT),
+            (SessionScopeV1.USER_HOME, FINGERPRINT),
+        ),
+        execution_client=execution,
+    )
+
+
+def test_execution_submission_clears_exact_draft_only_after_stable_acceptance():
+    async def scenario():
+        client = _Client()
+        identity = client.attachments[0].sessions[0].member.session
+        release = asyncio.Event()
+        execution = _ExecutionClient(identity, wait=release)
+        shell = _execution_shell(client, execution)
+        await shell.start()
+        try:
+            send(shell, "resume exactly once")
+            window = shell.state.active_window
+            assert window.draft == shell.screen.composer.value == "resume exactly once"
+            assert window.request_presentation.state == "pending"
+            release.set()
+            await settle(shell)
+            assert window.draft == shell.screen.composer.value == ""
+            assert window.request_presentation.state == "acknowledged"
+            assert len(execution.calls) == 1
+            control, instance, submission, text = execution.calls[0]
+            assert (control.attachment_id, control.member_id) == (
+                "attachment-1",
+                "member-1",
+            )
+            assert instance == "instance" and len(submission) == 32
+            assert text == "resume exactly once"
+            assert [name for name, _ in client.calls] == ["attach"]
+        finally:
+            await shell.close()
+
+    asyncio.run(scenario())
+
+
+def test_execution_unknown_keeps_draft_and_explicit_retry_reuses_submission_id():
+    async def scenario():
+        client = _Client()
+        identity = client.attachments[0].sessions[0].member.session
+        execution = _ExecutionClient(identity, fail_once=True)
+        shell = _execution_shell(client, execution)
+        await shell.start()
+        try:
+            send(shell, "retry same input")
+            await settle(shell)
+            window = shell.state.active_window
+            assert window.draft == shell.screen.composer.value == "retry same input"
+            assert window.request_presentation.state == "unknown"
+            shell.handle(InputEvent(kind="key", key="enter"))
+            await settle(shell)
+            assert window.draft == shell.screen.composer.value == ""
+            assert window.request_presentation.state == "acknowledged"
+            assert len(execution.calls) == 2
+            assert execution.calls[0][2] == execution.calls[1][2]
+            assert execution.calls[0][3] == execution.calls[1][3] == "retry same input"
+        finally:
+            await shell.close()
+
+    asyncio.run(scenario())
+
+
+def test_execution_acceptance_never_erases_a_newer_draft():
+    async def scenario():
+        client = _Client()
+        identity = client.attachments[0].sessions[0].member.session
+        release = asyncio.Event()
+        execution = _ExecutionClient(identity, wait=release)
+        shell = _execution_shell(client, execution)
+        await shell.start()
+        try:
+            send(shell, "submitted")
+            shell.handle(InputEvent(kind="text", text=" plus newer text"))
+            release.set()
+            await settle(shell)
+            window = shell.state.active_window
+            assert window.draft == shell.screen.composer.value == (
+                "submitted plus newer text"
+            )
+            assert window.request_presentation.state == "acknowledged"
+        finally:
+            await shell.close()
+
+    asyncio.run(scenario())
 
 
 def test_ack_clears_pending_without_claiming_execution_completed():

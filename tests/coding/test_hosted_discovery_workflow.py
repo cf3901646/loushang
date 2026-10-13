@@ -222,11 +222,35 @@ def test_G17_PRODUCT_discover_resume_interact_and_recover_without_replay(
                     state = await controller.open_member(spec)
                     assert state.windows[0].records[0].text == "before resume"
                     await controller.submit("after resume")
-                    await controller.poll()
+                    if scoped:
+                        approval = None
+                        async with asyncio.timeout(45):
+                            while not any(
+                                record.kind.value == "assistant"
+                                for record in state.windows[0].records
+                            ):
+                                await controller.poll()
+                                interaction_id = (
+                                    state.windows[0].pending_interaction_id
+                                )
+                                if approval is None and interaction_id is not None:
+                                    approval = asyncio.create_task(
+                                        controller.respond_interaction(
+                                            interaction_id,
+                                            InteractionOutcomeV1.APPROVE,
+                                        )
+                                    )
+                                await asyncio.sleep(0.001)
+                        if approval is not None:
+                            await approval
+                    else:
+                        await controller.poll()
                 assert controller.state is not None
-                assert [record.text for record in controller.state.windows[0].records] == [
-                    "before resume", "after resume", "real Coding response",
-                ]
+                assert [
+                    record.text
+                    for record in controller.state.windows[0].records
+                    if record.kind.value != "status"
+                ] == ["before resume", "after resume", "real Coding response"]
                 await controller.close()
                 controller = None
                 if client_scope is not None:

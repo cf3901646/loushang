@@ -24,6 +24,7 @@ def state_from_attachment(attachment: MuxAttachmentV1) -> HostedMuxState:
             member_id=item.member.member_id,
             session_id=item.member.session.session_id,
             title=item.member.title,
+            identity=item.member.session,
             records=list(item.snapshot.records),
             last_cursor=item.snapshot.cursor,
             running=item.snapshot.running,

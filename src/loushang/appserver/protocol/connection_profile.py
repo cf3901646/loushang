@@ -14,6 +14,8 @@ LOCAL_HELLO_V1 = (
 
 class AppConnectionProfileV1(str, Enum):
     STDIO = "foreground-stdio/v1"
+    STDIO_EXECUTION = "foreground-stdio-execution/v1"
+    STDIO_DISCOVERY_EXECUTION = "foreground-stdio-discovery-execution/v1"
     LOCAL = LOCAL_PROFILE_V1
     STDIO_DISCOVERY = "foreground-stdio-discovery/v1"
     LOCAL_DISCOVERY = "local-detachable-discovery/v1"
@@ -104,6 +106,8 @@ def supports_execution(profile: AppConnectionProfileV1) -> bool:
         raise ValueError("invalid application connection profile")
     profile = _RESUME_BASES.get(profile, profile)
     return profile in {
+        AppConnectionProfileV1.STDIO_EXECUTION,
+        AppConnectionProfileV1.STDIO_DISCOVERY_EXECUTION,
         AppConnectionProfileV1.LOCAL_EXECUTION,
         AppConnectionProfileV1.LOCAL_DISCOVERY_EXECUTION,
         AppConnectionProfileV1.LOCAL_EXECUTION_MANAGED,
@@ -125,6 +129,7 @@ def supports_session_discovery(profile: AppConnectionProfileV1) -> bool:
     profile = _RESUME_BASES.get(profile, profile)
     return profile in {
         AppConnectionProfileV1.STDIO_DISCOVERY,
+        AppConnectionProfileV1.STDIO_DISCOVERY_EXECUTION,
         AppConnectionProfileV1.LOCAL_DISCOVERY,
         AppConnectionProfileV1.LOCAL_DISCOVERY_EXECUTION,
         AppConnectionProfileV1.LOCAL_DISCOVERY_MANAGED,
