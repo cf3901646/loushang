@@ -1210,6 +1210,9 @@ class _ReplayedActivationJournal:
     unfenced_recovered_uses: set[str]
 
 
+_RESUME_WRITER_CAPABILITIES = frozenset({"harness.plugin-activation.resume-context/v1"})
+
+
 class PluginActivationDecisionJournal:
     """Workspace-scoped durable activation decision and attempt authority."""
 
@@ -1218,6 +1221,7 @@ class PluginActivationDecisionJournal:
         path: str | Path,
         *,
         scope_id: str,
+        required_writer_capabilities: frozenset[str] = frozenset(),
         identity_factory: Callable[[], str] = lambda: secrets.token_hex(24),
         clock: Callable[[], int] = lambda: time_ns() // 1_000_000,
         retained_authority_validator: Callable[
@@ -1226,12 +1230,27 @@ class PluginActivationDecisionJournal:
     ) -> None:
         _require_nonempty(scope_id, name="Plugin activation journal scope id")
         self._path = Path(path)
+        if type(required_writer_capabilities) is not frozenset or any(
+            type(item) is not str for item in required_writer_capabilities
+        ):
+            raise TypeError("Writer capabilities require an exact frozenset of strings")
+        if not required_writer_capabilities <= _RESUME_WRITER_CAPABILITIES:
+            raise self._error(
+                "Required native Writer protocol is unsupported",
+                code="plugin_activation_writer_protocol_unsupported",
+            )
         self._scope_id = scope_id
         self._identity_factory = identity_factory
         self._clock = clock
         self._retained_authority_validator = retained_authority_validator
         self._unlocked_durability = replace(DURABLE_LOCKED_JOURNAL, locking=False)
         self._load_policy = JournalLoadPolicy(partial_tail="repair")
+
+    @property
+    def writer_protocol_capabilities(self) -> frozenset[str]:
+        """Implemented wire support only; this value grants no authority."""
+
+        return _RESUME_WRITER_CAPABILITIES
 
     @property
     def path(self) -> Path:

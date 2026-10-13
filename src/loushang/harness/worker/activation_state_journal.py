@@ -126,19 +126,41 @@ _CODEC = FunctionalJournalRecordCodec(
 )
 
 
+_RESUME_WRITER_CAPABILITIES = frozenset({"harness.worker-activation.resume-context/v1"})
+
+
 class WorkerActivationStateJournal:
     """One private append-only state history with cross-process revision CAS."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        required_writer_capabilities: frozenset[str] = frozenset(),
+    ) -> None:
         if (
             not isinstance(path, Path)
             or not path.is_absolute()
             or path.name != ("worker-activation-state.jsonl")
         ):
             raise ValueError("Worker activation state path is invalid")
+        if type(required_writer_capabilities) is not frozenset or any(
+            type(item) is not str for item in required_writer_capabilities
+        ):
+            raise TypeError("Writer capabilities require an exact frozenset of strings")
+        if not required_writer_capabilities <= _RESUME_WRITER_CAPABILITIES:
+            raise WorkerActivationStateJournalError(
+                "worker_activation_writer_protocol_unsupported"
+            )
         self._path = path
         self._durability = replace(DURABLE_LOCKED_JOURNAL, locking=False)
         self._load_policy = JournalLoadPolicy(partial_tail="raise", create_lock=False)
+
+    @property
+    def writer_protocol_capabilities(self) -> frozenset[str]:
+        """Implemented wire support only; this value grants no authority."""
+
+        return _RESUME_WRITER_CAPABILITIES
 
     @property
     def path(self) -> Path:

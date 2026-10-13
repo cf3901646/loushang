@@ -1113,6 +1113,9 @@ class _ReplayedExecutionJournal:
     resume_seals: dict[str, _ResumeParentSealedV1]
 
 
+_RESUME_WRITER_CAPABILITIES = frozenset({"harness.plugin-execution.resume-context/v1"})
+
+
 class PluginExecutionDecisionJournal:
     """Installation/workspace-scoped durable Plugin execution authority."""
 
@@ -1121,6 +1124,7 @@ class PluginExecutionDecisionJournal:
         path: str | Path,
         *,
         scope_kind: PluginExecutionJournalScopeKind,
+        required_writer_capabilities: frozenset[str] = frozenset(),
         scope_id: str,
         decision_id_factory: Callable[[], str] = lambda: secrets.token_hex(24),
         execution_use_id_factory: Callable[[], str] = lambda: secrets.token_hex(24),
@@ -1133,6 +1137,15 @@ class PluginExecutionDecisionJournal:
             raise ValueError("Unsupported Plugin execution journal scope")
         _require_nonempty(scope_id, name="Plugin execution journal scope id")
         self._path = Path(path)
+        if type(required_writer_capabilities) is not frozenset or any(
+            type(item) is not str for item in required_writer_capabilities
+        ):
+            raise TypeError("Writer capabilities require an exact frozenset of strings")
+        if not required_writer_capabilities <= _RESUME_WRITER_CAPABILITIES:
+            raise self._error(
+                "Required native Writer protocol is unsupported",
+                code="plugin_execution_writer_protocol_unsupported",
+            )
         self._scope_kind = scope_kind
         self._scope_id = scope_id
         self._decision_id_factory = decision_id_factory
@@ -1141,6 +1154,12 @@ class PluginExecutionDecisionJournal:
         self._retained_authority_validator = retained_authority_validator
         self._unlocked_durability = replace(DURABLE_LOCKED_JOURNAL, locking=False)
         self._load_policy = JournalLoadPolicy(partial_tail="repair")
+
+    @property
+    def writer_protocol_capabilities(self) -> frozenset[str]:
+        """Implemented wire support only; this value grants no authority."""
+
+        return _RESUME_WRITER_CAPABILITIES
 
     @property
     def path(self) -> Path:

@@ -1103,6 +1103,34 @@ obligations. The earlier Coding gate still runs under its original selected
 inventory and source observation; it does not prove the newly synchronized
 whole branch or any pending architecture/runtime integration.
 
+### Original native Writer protocol negotiation
+
+Definition/Component decision journals and the original Worker C5 state journal
+now declare their implemented `writer_protocol_capabilities`. Trusted callers
+may supply an exact `required_writer_capabilities` frozenset at original owner
+construction. Each original owner compares against its compiled support before
+opening, locking, loading, repairing, enrolling or appending anything. A future
+requirement refuses with an owner-specific protocol error; coercible/malformed
+requirements reject. An overridden advertised property cannot expand compiled
+support. The existing event v2 / Worker record v2 and state v3 remain the original
+owner version boundary; no Coding sidecar or extra authority record was added.
+
+The original protocol/journal regression completed with **112 passed in 9.87
+seconds**; three changed implementation files passed mypy and Ruff. The new
+negotiation tests preserve the exact fixture file set and bytes for complete
+and partial-tail state. Supported negotiation reads actual upgraded native
+history without supplying an admission or settlement grant. The final native
+negotiation suite completed with **21 passed in 4.36 seconds**, including actual
+upgraded-history reads and rejection despite an overridden advertisement.
+Nine documentation checks and dependency facts passed.
+
+This is source-level negotiation for the three native backends. Product must
+still aggregate all four accepted capabilities before its first Transcript
+Writer and compute complete trusted participation before Definition evaluation.
+`coding.resume-continuation/v2` is not implemented or advertised. Existing
+previously released unfenced writers are still unsupported on upgraded native
+state; these constructor tests are not installed-version rollback evidence.
+
 ### Strict historical load performance follow-up
 
 Profiling the failed original strict load identified inline Model Input JSON
