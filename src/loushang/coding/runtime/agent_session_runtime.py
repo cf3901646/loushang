@@ -52,6 +52,7 @@ from .resume_planning import ResumePlanningSlot
 _ResumePreview = TypeVar("_ResumePreview", CodingResumeHistoryPreview, CodingResumeRecentPage)
 
 if TYPE_CHECKING:
+    from loushang.agent import ThinkingLevel
     from loushang.ai.model import Model, ModelSelection
     from loushang.ai.types import ImagePart
     from loushang.harness.approval import InteractiveApprovalResolver
@@ -343,6 +344,7 @@ class AgentSessionRuntime(
         images: list[ImagePart] | None = None,
         services: BootstrapServices | None = None,
         model: Model | ModelSelection | None = None,
+        thinking_level: ThinkingLevel | None = None,
         no_tools: NoToolsMode | bool | None = None,
         approval_resolver: InteractiveApprovalResolver | None = None,
         tool_policy_evaluator: PolicyEvaluator | None = None,
@@ -439,6 +441,7 @@ class AgentSessionRuntime(
                 require_current_admission=admit,
                 require_current_epoch_settlement=require_current_epoch_settlement,
                 images=images, services=services, model=model, no_tools=no_tools,
+                thinking_level=thinking_level,
                 approval_resolver=approval_resolver, tool_policy_evaluator=tool_policy_evaluator,
                 observe_input_identity=observe_input_identity,
                 product_owner_selection=selection, worker_candidates=worker_candidates,

@@ -229,6 +229,7 @@ async def run_screen_first_cli(
                 services=context.state.services,
                 policy_evaluator=context.state.tool_policy_evaluator,
                 model=resume.model,
+                thinking_level=context.args.thinking,
                 no_tools=no_tools,
                 worker_candidate_plugin_id=context.args.worker_query_plugin,
             )

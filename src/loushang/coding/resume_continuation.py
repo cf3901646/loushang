@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import cast
 
+from loushang.agent import ThinkingLevel
 from loushang.ai.model import Model, ModelSelection
 from loushang.ai.types import ImagePart, UserMessage
 from loushang.harness.approval import InteractiveApprovalResolver
@@ -189,6 +190,7 @@ async def prepare_coding_resume_continuation(
     images: list[ImagePart] | None = None,
     services: BootstrapServices | None = None,
     model: Model | ModelSelection | None = None,
+    thinking_level: ThinkingLevel | None = None,
     no_tools: NoToolsMode | bool | None = None,
     approval_resolver: InteractiveApprovalResolver | None = None,
     tool_policy_evaluator: PolicyEvaluator | None = None,
@@ -328,7 +330,8 @@ async def prepare_coding_resume_continuation(
             session_manager=manager, attempt_id=attempt.attempt_id,
             composition_set=resolve_coding_composition_set(plan.composition_comparison.candidate_set_id),
             require_current_admission=require_current_admission,
-            services=services, model=model, no_tools=no_tools,
+            services=services, model=model, thinking_level=thinking_level,
+            no_tools=no_tools,
             approval_resolver=approval_resolver, tool_policy_evaluator=tool_policy_evaluator,
             product_owner_selection=product_owner_selection, worker_candidates=worker_candidates,
             worker_candidate_plugin_id=worker_candidate_plugin_id,

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
+from loushang.agent import ThinkingLevel
 from loushang.ai.model import Model, ModelSelection
 from loushang.coding._capability_plugin_composition import (
     prepare_coding_resume_plugin_effect_owners,
@@ -205,6 +206,7 @@ class EmbeddedResumeInputCoordinator:
     services: BootstrapServices
     policy_evaluator: NativeResumePolicy
     model: Model | ModelSelection | None = None
+    thinking_level: ThinkingLevel | None = None
     no_tools: NoToolsMode | bool | None = None
     worker_candidate_plugin_id: str | None = None
     workspace_writable: bool = True
@@ -371,6 +373,7 @@ class EmbeddedResumeInputCoordinator:
                 require_current_epoch_settlement=settle,
                 services=self.services,
                 model=self.model,
+                thinking_level=self.thinking_level,
                 no_tools=self.no_tools,
                 approval_resolver=approval_owner,
                 tool_policy_evaluator=self.policy_evaluator,

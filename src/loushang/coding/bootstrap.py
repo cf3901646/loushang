@@ -2621,6 +2621,7 @@ async def _create_resume_agent_session(
     require_current_admission: Callable[[CodingActivationAttemptV1], None],
     services: BootstrapServices | None = None,
     model: Model | ModelSelection | None = None,
+    thinking_level: ThinkingLevel | None = None,
     stream_fn: StreamFn | None = None,
     no_tools: NoToolsMode | bool | None = None,
     agent_factory: AgentFactory = Agent,
@@ -2678,7 +2679,8 @@ async def _create_resume_agent_session(
         session = _create_agent_session(
             session_manager=session_manager, composition_set=composition,
             composition_set_explicit=True, services=services, model=model,
-            stream_fn=stream_fn, no_tools=no_tools, agent_factory=agent_factory,
+            stream_fn=stream_fn, thinking_level=thinking_level,
+            no_tools=no_tools, agent_factory=agent_factory,
             approval_resolver=approval_resolver, tool_policy_evaluator=tool_policy_evaluator,
             package_product_runtime_factory=selected_factory,
             worker_candidate_plugin_id=worker_candidate_plugin_id,

@@ -121,6 +121,7 @@ def test_embedded_coordinator_prepares_exact_v2_input_from_current_root(
             services=services,
             policy_evaluator=policy,
             no_tools=no_tools,
+            thinking_level="high",
             now=lambda: datetime(2026, 10, 13, tzinfo=UTC),
             id_factory=lambda: next(ids),
         )
@@ -144,6 +145,7 @@ def test_embedded_coordinator_prepares_exact_v2_input_from_current_root(
             assert captured["current_owner_inputs"] == plan.owner_inputs
             assert captured["approval_resolver"] is approval
             assert captured["tool_policy_evaluator"] is policy
+            assert captured["thinking_level"] == "high"
             state_id = hashlib.sha256(
                 b"loushang.coding-capability-plugin-state/v1\0"
                 + plan.session_id.encode()

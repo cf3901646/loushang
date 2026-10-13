@@ -3207,6 +3207,9 @@ starts the configured data-only Plan, and supplies a placeholder only to the
 CLI phase adapter. The screen receives no Agent or writable Session until its
 first prompt calls the Embedded coordinator. Model selection, Tools mode,
 current services and Policy are forwarded to that coordinator.
+The same route now also forwards the parsed thinking level through Runtime,
+continuation and the resumed Agent constructor instead of silently reverting
+to the service default.
 
 The original Root resolver is presented through a generation-safe Embedded
 interaction adapter. Approval decisions use that resolver before Session birth;
