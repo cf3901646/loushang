@@ -24,6 +24,7 @@ from loushang.appserver.protocol import (
     MuxSelectorV1,
     SessionOpenSpecV1,
     SessionSnapshotRequestV1,
+    SessionSubmissionModeV1,
     TurnInterruptV1,
     TurnTextV1,
 )
@@ -147,17 +148,12 @@ class HostedMuxControllerV1:
             window.member_id,
             selected,
         )
-        execution_client: ExecutionClientV1 | None = None
-        try:
+        if window.submission_mode is SessionSubmissionModeV1.LEGACY:
             await self._client.start_turn(request)
-        except AppServiceError as error:
+        else:
             execution_client = self._execution_client
-            if (
-                error.code is not AppErrorCodeV1.OPERATION_UNAVAILABLE
-                or execution_client is None
-            ):
-                raise
-        if execution_client is not None:
+            if execution_client is None:
+                raise AppServiceError(AppErrorCodeV1.OPERATION_UNAVAILABLE)
             # Keep the v1 validation bound while changing only delivery semantics.
             key = (window.identity, selected)
             recovery = self._submissions.get(key)

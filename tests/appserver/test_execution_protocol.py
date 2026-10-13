@@ -40,6 +40,7 @@ from loushang.appserver.protocol import (
     SessionEventV1,
     SessionSnapshotRequestV1,
     SessionSnapshotV1,
+    SessionSubmissionModeV1,
 )
 from loushang.appserver.resume_model import (
     ResumeInputLookupQueryV1,
@@ -88,6 +89,34 @@ def test_record_snapshot_and_event_round_trip():
     ):
         response = ExecutionResponseV1("1", result)
         assert decode_response(encode_response(response)) == response
+
+
+def test_execution_snapshot_preserves_optional_submission_mode():
+    observation = ExecutionObservationV1()
+    source = ExecutionSourceSnapshotV1(
+        SessionSnapshotV1(
+            IDENTITY,
+            "title",
+            0,
+            0,
+            False,
+            (),
+            SessionSubmissionModeV1.EXECUTION,
+        ),
+        observation,
+    )
+    snapshot = ExecutionSessionSnapshotV1(
+        "instance", source, ExecutionSessionViewV1(IDENTITY, 0, observation)
+    )
+    encoded = encode_response(ExecutionResponseV1("1", snapshot))
+    assert json.loads(encoded)["result"]["source"]["source"]["submissionMode"] == (
+        "execution"
+    )
+    assert decode_response(encoded).result == snapshot
+    noncanonical = json.loads(encoded)
+    noncanonical["result"]["source"]["source"]["submissionMode"] = "legacy"
+    with pytest.raises(InvalidAppMessageError):
+        decode_response(json.dumps(noncanonical).encode())
 
 
 @pytest.mark.parametrize("mutation", ["bool_counter", "missing_outcome", "unknown_status", "extra_field"])

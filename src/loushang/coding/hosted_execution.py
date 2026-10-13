@@ -82,7 +82,7 @@ class CodingHostedExecutionSessionV1(CodingHostedSessionV1):
         self._truncated = False
         self._closing = False
         self._execution_close_task: asyncio.Task[None] | None = None
-        super().__init__(binding if owner is None else owner)
+        super().__init__(binding if owner is None else owner, execution_submission=type(binding) is CodingDeferredHostedSessionV1)
         self._projection = binding.project_snapshot()
         self._guard = ExecutionGuardV1(source_cursor=self._complete_source)
 
@@ -243,7 +243,7 @@ def create_leased_coding_execution_session(
     binding: object, owner: CodingHostedSessionBindingV1,
 ) -> CodingHostedSessionV1:
     if type(binding) is CodingHostedHistoryBindingV1:
-        return CodingHostedSessionV1(owner)
+        return CodingHostedSessionV1(owner, execution_submission=True)
     if type(binding) not in {
         CodingRealHostedSessionV1,
         CodingDeferredHostedSessionV1,

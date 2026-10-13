@@ -28,6 +28,7 @@ def state_from_attachment(attachment: MuxAttachmentV1) -> HostedMuxState:
             records=list(item.snapshot.records),
             last_cursor=item.snapshot.cursor,
             running=item.snapshot.running,
+            submission_mode=item.snapshot.submission_mode,
         )
         for item in attachment.sessions
     ]
@@ -51,7 +52,7 @@ def preserve_local_state(fresh: HostedMuxState, previous: HostedMuxState) -> Non
         if source is None:
             continue
         item.draft, item.draft_revision = source.draft, source.draft_revision
-        item.scroll_anchor, item.unread = source.scroll_anchor, source.unread
+        item.scroll_anchor, item.unread, item.submission_mode = source.scroll_anchor, source.unread, source.submission_mode
         if source is previous.active_window:
             fresh.active_index = index
 

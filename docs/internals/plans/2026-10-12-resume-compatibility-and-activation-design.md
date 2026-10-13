@@ -3469,3 +3469,24 @@ revalidation remains capped at 8 MiB of selected history, so an uncompact
 the bounded preview and fails closed for continuation until its selected
 history fits the verified range. This is the published support boundary rather
 than a silent full replay or an unmeasured large-session write claim.
+
+#### Hosted submission-mode compatibility closure
+
+The final Hosted compatibility pass separates connection capability from the
+delivery contract of one Session binding. `SessionSnapshotV1` defaults to
+`legacy`; its encoder omits the field and retains the original App v1 snapshot
+shape for every ordinary Session. Deferred and read-only Resume bindings under
+the explicit execution profile emit the canonical optional
+`submissionMode: execution` value. Both the App and execution codecs accept the
+old shape as legacy, accept the execution extension, and reject an explicit
+noncanonical `legacy` extension or unknown value.
+
+HarnessTUI now routes ordinary bindings directly through `start_turn` and
+clears their exact draft as soon as the bounded action task is published. It
+routes only execution-marked Resume bindings through the stable submission
+ledger, retaining their draft until known acceptance and reusing the same
+submission ID after unknown delivery. This restores G16 approval interaction:
+the exact two-Mux approval, detach, reattach and interrupt terminal scenario
+passed locally in 58.47 seconds. The protocol, execution-codec, request and
+controller regression set passed 85 tests in 40.95 seconds; scoped Ruff, mypy
+and the affected architecture budgets also passed.

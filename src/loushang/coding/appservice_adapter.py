@@ -19,6 +19,7 @@ from loushang.appserver.protocol import (
     SessionIdentityV1,
     SessionOpenSpecV1,
     SessionSnapshotV1,
+    SessionSubmissionModeV1,
     TranscriptRecordV1,
 )
 from loushang.appservice import HostedSessionEventListenerV1, HostedSessionPortV1
@@ -123,6 +124,7 @@ class CodingHostedSessionV1:
         "_listeners",
         "_operations",
         "_settled",
+        "_submission_mode",
         "_unsubscribe",
         "_unsubscribed",
         "identity",
@@ -139,8 +141,12 @@ class CodingHostedSessionV1:
             raise AppServiceError(AppErrorCodeV1.SESSION_UNAVAILABLE)
         return await _lookup_coding_resume_input(self._binding, query)
 
-    def __init__(self, binding: CodingHostedSessionBindingV1) -> None:
+    def __init__(self, binding: CodingHostedSessionBindingV1, *,
+        execution_submission: bool = False,
+    ) -> None:
         self._require_binding(binding)
+        if type(execution_submission) is not bool:
+            raise TypeError("Coding hosted submission mode is invalid")
         identity = binding.identity
         if type(identity) is not SessionIdentityV1 or identity.product_id != (
             CODING_PRODUCT_ID
@@ -148,6 +154,8 @@ class CodingHostedSessionV1:
             raise TypeError("Coding hosted Session identity is invalid")
         self.identity = identity
         self._binding = binding
+        self._submission_mode = (SessionSubmissionModeV1.EXECUTION if execution_submission
+                                 else SessionSubmissionModeV1.LEGACY)
         control = binding.control
         self._operations = (
             None if control is None else SessionOperationRuntime(control)
@@ -186,6 +194,7 @@ class CodingHostedSessionV1:
             revision=projection.revision,
             running=projection.running,
             records=projection.records,
+            submission_mode=self._submission_mode,
         )
 
     def subscribe(

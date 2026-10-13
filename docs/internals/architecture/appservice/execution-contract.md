@@ -198,12 +198,13 @@ cursor domain; execution-history persistence remains an AppService concern.
 
 The two optional Coding modules retain their combined 400-line ceiling. R2.1
 extends the execution facade to deferred Product bindings, raising its exact
-per-module ceiling from 250 to 256 lines; the work module remains below that
+per-module ceiling from 250 to 258 lines; the work module remains below that
 ceiling. The legacy G11 adapter allowance increases from
 400 to 420 lines for bounded omission metadata and one synchronous projection
-observation seam. Default import/activation assertions and the unchanged wire
-schema constrain that shared addition. The AppHost/AppService test inventories
-include the new real Product tests and implementation modules.
+observation seam. Default import/activation assertions, the unchanged legacy
+snapshot shape, and the optional execution-only submission-mode field constrain
+that shared addition. The AppHost/AppService test inventories include the new
+real Product tests and implementation modules.
 
 ## Local Verification Record — 2026-09-08
 

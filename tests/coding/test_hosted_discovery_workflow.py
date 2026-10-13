@@ -23,6 +23,7 @@ from loushang.appserver.protocol import (
     SessionOpenSpecV1,
     SessionScopeV1,
     SessionSnapshotRequestV1,
+    SessionSubmissionModeV1,
     TurnTextV1,
 )
 from loushang.appservice.discovery_ports import HostedSessionDiscoveryScopeV1
@@ -94,6 +95,9 @@ def test_hosted_resume_activates_once_from_stable_execution_input(
                 ),
             ))
             attachment = await client.attach_mux(MuxAttachV1(selector))
+            assert attachment.sessions[0].snapshot.submission_mode is (
+                SessionSubmissionModeV1.EXECUTION
+            )
             control = SessionSnapshotRequestV1(
                 attachment.attachment_id,
                 attachment.controller_generation,
@@ -137,6 +141,7 @@ def test_hosted_resume_activates_once_from_stable_execution_input(
                 await asyncio.sleep(0)
             assert current.state.status is ExecutionStatusV1.SUCCEEDED
             snapshot = await client.snapshot_session(control)
+            assert snapshot.submission_mode is SessionSubmissionModeV1.EXECUTION
             assert [record.text for record in snapshot.records if record.kind.value != "status"] == [
                 "before resume",
                 "after resume",
@@ -196,6 +201,9 @@ def test_hosted_execution_profile_recovers_cross_platform_readonly_history(
             ))
             attachment = await client.attach_mux(MuxAttachV1(selector))
             session = attachment.sessions[0]
+            assert session.snapshot.submission_mode is (
+                SessionSubmissionModeV1.EXECUTION
+            )
             assert [record.text for record in session.snapshot.records] == [
                 "cross-platform history",
                 "Historical session is read-only; continuing requires current runtime activation.",

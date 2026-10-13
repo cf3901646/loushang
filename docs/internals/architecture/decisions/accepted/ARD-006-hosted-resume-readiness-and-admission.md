@@ -65,6 +65,16 @@ completion and error timing; no earlier Ack is reinterpreted as a durable
 commit acknowledgement. If a confirmation or retry contract cannot be
 represented for that client, admission returns a typed unsupported reason.
 
+The Session snapshot therefore carries a typed submission mode. `legacy` is
+the default and retains the original App v1 wire shape; ordinary Sessions keep
+their existing `start_turn` path and client-side immediate draft clearing even
+when the connection also negotiated execution. A deferred or read-only Resume
+binding emits the optional `submissionMode: execution` field only through an
+explicit execution profile. A capable client then submits directly through
+the stable execution ledger and clears the exact draft only after acceptance.
+An older strict decoder fails closed on that new Resume-only snapshot instead
+of treating a long-running legacy Ack as stable admission.
+
 New clients generate a stable logical input ID and keep the frozen text until
 the Product reports a durable result. Reconnection first queries the Product
 authority store for that ID and its model attempt, under current read

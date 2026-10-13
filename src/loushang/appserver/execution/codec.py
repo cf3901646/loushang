@@ -14,6 +14,7 @@ from ..protocol import (
     SessionIdentityV1,
     SessionSnapshotRequestV1,
     SessionSnapshotV1,
+    SessionSubmissionModeV1,
     TranscriptRecordV1,
 )
 from ..protocol.codec import _dumps, _loads, _object, _string
@@ -87,7 +88,13 @@ def _encode(value: object) -> object:
     fields = _FIELDS.get(type(value))
     if fields is None:
         raise InvalidAppMessageError()
-    return {_camel(name): _encode(getattr(value, name)) for name in fields}
+    encoded = {_camel(name): _encode(getattr(value, name)) for name in fields}
+    if (
+        type(value) is SessionSnapshotV1
+        and value.submission_mode is SessionSubmissionModeV1.EXECUTION
+    ):
+        encoded["submissionMode"] = value.submission_mode.value
+    return encoded
 
 
 def _decode(expected: object, raw: object) -> object:
@@ -120,11 +127,24 @@ def _decode(expected: object, raw: object) -> object:
     if not isinstance(expected, type) or expected not in _FIELDS:
         raise InvalidAppMessageError()
     fields = _FIELDS[expected]
-    value = _object(raw, {_camel(name) for name in fields})
+    wire_fields = {_camel(name) for name in fields}
+    if expected is SessionSnapshotV1 and type(raw) is dict and "submissionMode" in raw:
+        wire_fields.add("submissionMode")
+    value = _object(raw, wire_fields)
     annotations = get_type_hints(expected)
-    return expected(**{
+    values = {
         name: _decode(annotations[name], value[_camel(name)]) for name in fields
-    })
+    }
+    if expected is SessionSnapshotV1:
+        mode = (
+            _decode(SessionSubmissionModeV1, value["submissionMode"])
+            if "submissionMode" in value
+            else SessionSubmissionModeV1.LEGACY
+        )
+        if "submissionMode" in value and mode is not SessionSubmissionModeV1.EXECUTION:
+            raise InvalidAppMessageError()
+        values["submission_mode"] = mode
+    return expected(**values)
 
 
 def is_execution_frame(payload: bytes) -> bool:

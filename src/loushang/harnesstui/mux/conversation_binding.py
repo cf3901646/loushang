@@ -20,6 +20,7 @@ from loushang.appserver.protocol import (
     AppFailureV1,
     AppServiceError,
     SessionSnapshotRequestV1,
+    SessionSubmissionModeV1,
     TurnInterruptV1,
     TurnTextV1,
 )
@@ -98,41 +99,15 @@ class HostedExecutionSubmitBinding:
     """Submit one stable input through the optional execution profile."""
 
     def __init__(
-        self,
-        client: ExecutionClientV1,
-        recovery: SubmissionRecoveryV1,
-        *,
-        legacy: Callable[[], Awaitable[AckV1]],
-        control: SessionSnapshotRequestV1,
-        present: Callable[[RequestDeliveryState], None],
+        self, client: ExecutionClientV1, recovery: SubmissionRecoveryV1, *,
+        control: SessionSnapshotRequestV1, present: Callable[[RequestDeliveryState], None],
         acknowledged: Callable[[], None],
     ) -> None:
-        self._client = client
-        self._recovery = recovery
-        self._legacy = legacy
-        self._control = control
-        self._present = present
+        self._client, self._recovery = client, recovery
+        self._control, self._present = control, present
         self._acknowledged = acknowledged
 
     async def submit(self) -> None:
-        try:
-            result = await self._legacy()
-            if type(result) is not AckV1:
-                raise ValueError("invalid request acknowledgement")
-        except AppServiceError as error:
-            if error.code is not AppErrorCodeV1.OPERATION_UNAVAILABLE:
-                self._present("unknown")
-                return
-        except asyncio.CancelledError:
-            self._present("unknown")
-            raise
-        except Exception:
-            self._present("unknown")
-            return
-        else:
-            self._present("acknowledged")
-            self._acknowledged()
-            return
         try:
             await self._recovery.submit(self._client, self._control)
             record = self._recovery.record
@@ -182,7 +157,11 @@ def submit_hosted_conversation_action(
     deferred_clear = False
     if mode == "interrupt":
         actions.submit(port.abort, control=True)
-    elif mode == "start" and execution_client is not None:
+    elif mode == "start" and window.submission_mode is (
+        SessionSubmissionModeV1.EXECUTION
+    ):
+        if execution_client is None:
+            raise AppServiceError(AppErrorCodeV1.OPERATION_UNAVAILABLE)
         if execution_submissions is None or execution_acknowledged is None:
             raise ValueError("execution submission ownership is unavailable")
         action = ConversationTextAction(text)
@@ -207,9 +186,6 @@ def submit_hosted_conversation_action(
         execution = HostedExecutionSubmitBinding(
             execution_client,
             recovery,
-            legacy=lambda: client.start_turn(
-                TurnTextV1(attachment, generation, member, text)
-            ),
             control=SessionSnapshotRequestV1(attachment, generation, member),
             present=present,
             acknowledged=lambda: execution_acknowledged(recovery),

@@ -56,6 +56,13 @@ The optional functions bind to the same scope instance; they keep no separate
 controller table, execution ledger or permission state. Coding consumes the
 borrow at its existing optional Hosted execution bridge.
 
+`SessionSnapshotV1.submission_mode` selects the client delivery contract for
+that exact binding. Ordinary Sessions default to `legacy` and serialize with
+the original snapshot fields. Resume bindings under the explicit execution
+profile serialize the optional `submissionMode: execution` field, allowing
+reattached clients to use the stable submission ledger without probing the
+wait-until-complete legacy operation.
+
 ## Purpose
 
 AppService is the transport-neutral hosted application boundary over injected
