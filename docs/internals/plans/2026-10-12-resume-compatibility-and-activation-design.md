@@ -1063,6 +1063,30 @@ wrapper then removed its own temporary run, leaving 164 MiB available. A fresh
 Coding gate was started with the same non-live/skip-host-runtime selectors;
 its terminal result remains pending.
 
+### Continuation protocol refusal before Writer acquisition
+
+`CodingActivationAttemptV2` inherits the common v1 value fields. The original
+continuation's `isinstance` check previously admitted that value through
+current actor callbacks and Writer acquisition, then failed only when its
+explicit v1 record builder rejected the v2 wire. Writer restore can repair a
+partial tail, so this late rejection did not establish the required ordering.
+
+The v1 continuation now rejects other intent implementations with
+`writer.resume_protocol_unsupported` before admission callbacks and Writer
+acquisition. Tests use an actual historical transcript and application-owned
+factory with complete and unterminated-tail variants; neither the original
+Writer nor actor/settlement callbacks may run, no pending preparation remains,
+and the complete set of fixture files retains its exact bytes.
+
+This is an early refusal at the existing v1 entry, not the accepted four
+capabilities or a v2 writable implementation. Full native capability checks,
+trusted participation/enrollment and default Product continuation remain
+unfinished. The two version-refusal cases and fourteen original continuation
+owner-order/failure cases completed with **16 passed in 227.58 seconds**.
+Ruff, mypy and nine documentation checks passed.
+The previously running Coding gate began before this change and cannot prove
+this new refusal behavior; its result is tracked separately.
+
 ### Strict historical load performance follow-up
 
 Profiling the failed original strict load identified inline Model Input JSON

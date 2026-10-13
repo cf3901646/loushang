@@ -90,6 +90,12 @@ async def prepare_coding_resume_continuation(
 
     if not isinstance(manager_type, type) or not issubclass(manager_type, SessionManager):
         raise TypeError("Coding Resume requires its original SessionManager type")
+    if isinstance(attempt, CodingActivationAttemptV1) and type(attempt) is not CodingActivationAttemptV1:
+        # This original continuation still commits the explicit v1 protocol.
+        # V2 facts inherit the common value fields, but that does not establish
+        # support for v2 owner enrollment/settlement or Writer capabilities.
+        # Refuse before admission callbacks and acquisition can repair history.
+        raise CodingResumeRecoveryRequired("writer.resume_protocol_unsupported")
     if product_owner_selection is not None and not isinstance(
         product_owner_selection, CodingFencedProductApplicationSelection,
     ):
