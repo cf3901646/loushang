@@ -48,21 +48,27 @@ definitions, test runners, build dependencies, and new unclassified test files
 still select the complete gate.
 
 Windows jobs have a second selection within their affected scope. An ordinary
-PR or main push selected for Windows Shell runs three native cases: shell execution, an
-ordinary Session, and a hosted Worker query with clean exit evidence.
+PR or main push selected for Windows Shell runs native shell execution and an
+ordinary Session. Worker-native changes add one hosted Worker query with clean
+exit evidence. Crash, recovery, GC, fence, and C5 scenarios run in scheduled or
+manual full validation; changing several Worker risk paths together does not
+expand an ordinary PR to the full native matrix.
 AppService runs one authenticated local request and one native console entry
 case; TUI runs one ConPTY startup and
-exit case. Windows Worker recovery and GC changes retain the full Worker jobs;
-private data, ACL, and native package or platform changes retain their affected
-full Windows jobs. Other gate infrastructure and unknown paths retain the complete
+exit case. Changes to the native Worker test suite itself and Windows Job/process
+ownership retain the full Worker matrix. Private data, ACL, and other native
+platform code retain their affected full Windows jobs. Other gate infrastructure and unknown paths retain the complete
 Windows matrix. Scheduled/manual validation uses the full Windows suites.
 The Windows summary verifies each selected full or smoke job,
 including expected skips, against the same change plan.
 
-The host-runtime workflow also limits collection to affected package test
-directories. A Coding-only plan collects Coding host-runtime tests, not Harness
-tests. Full validation preserves the original repository-wide host-runtime
-collection.
+The host-runtime workflow runs at most two explicit Linux smoke cases on an
+ordinary PR: Worker candidate admission for Coding, native launcher containment
+for Hosting, or transcript process exit for Harness and other scopes. Its pytest
+XML report must contain passing cases with no skips. Changes to the native
+host-runtime tests, Windows Worker platform boundaries, or gate infrastructure
+retain the affected full collection. Scheduled/manual validation preserves the
+original repository-wide host-runtime collection.
 
 Coding backend collection excludes the Coding UI test inventory already owned
 by the separate adapter job. This avoids rerunning that UI suite indirectly
