@@ -3054,3 +3054,37 @@ This remains a restricted internal continuation path. Product application
 operation reconciliation, native Worker participation and domain-specific
 external effect settlement are not implemented, so default Embedded/Hosted
 writable v2 Resume remains unavailable.
+
+#### Worker C5 parent propagation in the restricted continuation
+
+The restricted v2 continuation can now select one exact Worker plugin rather
+than treating the presence of Worker candidates as a selection. Its frozen
+owner set must include `harness.worker-activation` with the exact native scope
+and contract digests and the fixed `reservation`/`start` phases. The current
+composition recheck includes that owner alongside any selected Definition and
+Component owners. A v1 intent, an omitted Worker owner, a Worker owner without
+an exact selected plugin, or an unsupported phase/effect class still refuses.
+
+The selected Worker bootstrap carries the parent into the original C5 owner on
+both POSIX and Windows. Enrollment and current C5 admission occur before Worker
+payload materialization; native attempt registration then co-commits the parent
+association before effect start. The existing graph publication callback
+publishes the native attempt and seals the complete original membership. The
+ordinary path retains its prior ordering and uses no Resume state. Windows uses
+a pre-materialization view of the same stable cleanup evidence domain only for
+parent enrollment; the exact request-bound evidence authority still owns all
+attempt settlement.
+
+Enrollment is idempotent across retry and re-reads the original journal after a
+lost durable acknowledgement. A lost seal acknowledgement is recovered from
+the committed original state on retry. Focused parent, native C5 and v2 tests
+passed: **21 passed in 11.29 seconds** outside the managed sandbox with
+`not live` and `--skip-host-runtime`. The existing Linux Worker candidate
+regression passed its non-host case with **1 passed, 7 skipped in 19.86
+seconds**. Ruff, focused mypy, compile checks and `git diff --check` passed.
+
+This slice does not provide the remaining application-operation reconciliation,
+external-effect disposition, default Embedded/Hosted entry, background planning
+integration, Windows host-runtime execution, release artifact matrix or final
+full-tree gate. The pre-existing broader continuation `/skill` assertion
+failures also remain unresolved. Default writable Resume stays unavailable.

@@ -296,6 +296,7 @@ class AgentSessionRuntime(
         tool_policy_evaluator: PolicyEvaluator | None = None,
         observe_input_identity: Callable[[CodingResumeInputLookupQueryV1], None] | None = None,
         worker_candidates: bool = False,
+        worker_candidate_plugin_id: str | None = None,
     ) -> CodingRuntimePreparedResume:
         """Retain native Resume preparation until original consume or abort.
 
@@ -389,6 +390,7 @@ class AgentSessionRuntime(
                 approval_resolver=approval_resolver, tool_policy_evaluator=tool_policy_evaluator,
                 observe_input_identity=observe_input_identity,
                 product_owner_selection=selection, worker_candidates=worker_candidates,
+                worker_candidate_plugin_id=worker_candidate_plugin_id,
             )
             # Native model transport checks the original Root's actual slot.
             try:

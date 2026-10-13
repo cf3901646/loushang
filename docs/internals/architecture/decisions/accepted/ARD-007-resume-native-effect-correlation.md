@@ -452,8 +452,16 @@ attempt through the original owner. Publication and cleanup do not settle
 arbitrary external domain effects. Current native facet admission remains
 required after historical startup facts.
 
-Product intent propagation and trusted participation are still outstanding:
-the existing Coding Worker canary continues to use its ordinary admission
-route. Segmented/checkpoint retention, custody retirement, installed writer
-capability boundaries, domain reconciliation and Embedded/Hosted integration
-remain required. This native protocol does not enable default writable Resume.
+The restricted Coding continuation now propagates an exact selected Worker
+plugin and its committed v2 parent into both POSIX and Windows C5 preparation.
+C5 enrollment precedes payload materialization, native admission atomically
+registers the attempt association before effect start, and graph publication
+seals original membership. Retry reuses exact enrollment and recovers committed
+enrollment or seal records after lost acknowledgements. Ordinary activation
+continues through its context-free path.
+
+This is restricted Product integration rather than default activation.
+Segmented/checkpoint retention, custody retirement, installed writer capability
+boundaries, domain reconciliation, Windows host-runtime evidence and
+Embedded/Hosted integration remain required. The native protocol and this
+propagation slice do not enable default writable Resume.

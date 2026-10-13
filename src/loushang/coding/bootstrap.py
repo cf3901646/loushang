@@ -203,6 +203,7 @@ from loushang.harness.resources.packages.product_contract import (
 )
 from loushang.harness.resources.packages.roots import SelectedPluginPackageInput
 from loushang.harness.resources.types import ResourceBundle
+from loushang.harness.resume_effects import ResumeEffectParentContextV1
 from loushang.harness.session import (
     AgentProductConstructionBinding,
     AgentSessionServices,
@@ -606,6 +607,7 @@ def _create_agent_session(
     invocation_product_profile: CodingAgentInvocationProductProfile | None = None,
     _resume_bootstrap_admission: _CodingResumeBootstrapAdmission | None = None,
     _resume_plugin_parents: CodingResumePluginParents | None = None,
+    _resume_worker_parent: ResumeEffectParentContextV1 | None = None,
     _resume_effect_owner_ids: frozenset[str] | None = None,
 ) -> AgentSession:
     if _resume_bootstrap_admission is None:
@@ -617,6 +619,13 @@ def _create_agent_session(
         or _resume_bootstrap_admission is None
     ):
         raise TypeError("Coding Resume Plugin parents require current Resume admission")
+    if _resume_worker_parent is not None and (
+        type(_resume_worker_parent) is not ResumeEffectParentContextV1
+        or _resume_worker_parent.owner_id != "harness.worker-activation"
+        or _resume_bootstrap_admission is None
+        or worker_candidate_plugin_id is None
+    ):
+        raise TypeError("Coding Resume Worker parent requires one selected Worker")
     if _resume_effect_owner_ids is not None and (
         type(_resume_effect_owner_ids) is not frozenset
         or any(type(item) is not str for item in _resume_effect_owner_ids)
@@ -846,6 +855,8 @@ def _create_agent_session(
             if capability_plugins_enabled_for_session
             else frozenset()
         )
+        if worker_candidate_plugin_id is not None:
+            expected_plugin_owners |= frozenset({"harness.worker-activation"})
         if _resume_effect_owner_ids != expected_plugin_owners:
             raise CodingResourceCatalogAdmissionError(
                 ("resume_plugin_participation_changed",)
@@ -2208,6 +2219,7 @@ def _create_agent_session(
                 plugin_id=worker_candidate_plugin_id,
                 ordinary=product_base_session_assembly,
                 clock=coding_plugin_clock,
+                resume_parent_context=_resume_worker_parent,
             )
         worker_turn_tool = None
         worker_tool_registry = registry
@@ -2616,7 +2628,9 @@ async def _create_resume_agent_session(
     tool_policy_evaluator: PolicyEvaluator | None = None,
     product_owner_selection: CodingFencedProductApplicationSelection | None = None,
     worker_candidates: bool = False,
+    worker_candidate_plugin_id: str | None = None,
     resume_plugin_parents: CodingResumePluginParents | None = None,
+    resume_worker_parent: ResumeEffectParentContextV1 | None = None,
     resume_effect_owner_ids: frozenset[str] | None = None,
 ) -> AgentSession:
     """Construct a fenced current candidate for a locally committed Resume Plan.
@@ -2630,8 +2644,21 @@ async def _create_resume_agent_session(
         product_owner_selection, CodingFencedProductApplicationSelection,
     ):
         raise TypeError("Coding Resume Product application owner is invalid")
-    if type(worker_candidates) is not bool or (worker_candidates and product_owner_selection is None):
+    if (
+        type(worker_candidates) is not bool
+        or (
+            worker_candidate_plugin_id is not None
+            and (
+                not isinstance(worker_candidate_plugin_id, str)
+                or not worker_candidate_plugin_id
+                or worker_candidate_plugin_id != worker_candidate_plugin_id.strip()
+            )
+        )
+        or ((worker_candidates or worker_candidate_plugin_id is not None) and product_owner_selection is None)
+        or (resume_worker_parent is not None and worker_candidate_plugin_id is None)
+    ):
         raise ValueError("Coding Resume Worker requires its application Product owner")
+    include_worker_candidates = worker_candidates or worker_candidate_plugin_id is not None
     composition = _canonical_coding_composition_set(composition_set)
     admission = _CodingResumeBootstrapAdmission(
         session_manager, attempt_id, composition, require_current_admission,
@@ -2640,7 +2667,7 @@ async def _create_resume_agent_session(
     selected_factory = (
         _borrow_application_coding_product_factory(
             product_owner_selection, session_manager, services=services,
-            worker_candidates=worker_candidates,
+            worker_candidates=include_worker_candidates,
         ) if product_owner_selection is not None else _select_direct_coding_product_factory(
             session_manager, services=services, windows_candidate=sys.platform == "win32",
         )
@@ -2654,8 +2681,10 @@ async def _create_resume_agent_session(
             stream_fn=stream_fn, no_tools=no_tools, agent_factory=agent_factory,
             approval_resolver=approval_resolver, tool_policy_evaluator=tool_policy_evaluator,
             package_product_runtime_factory=selected_factory,
+            worker_candidate_plugin_id=worker_candidate_plugin_id,
             _resume_bootstrap_admission=admission,
             _resume_plugin_parents=resume_plugin_parents,
+            _resume_worker_parent=resume_worker_parent,
             _resume_effect_owner_ids=resume_effect_owner_ids,
         )
         admission.require(session_manager, composition)

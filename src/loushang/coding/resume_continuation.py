@@ -27,6 +27,7 @@ from loushang.harness.approval.plugin_execution import (
     PluginExecutionJournalError,
 )
 from loushang.harness.policy import PolicyEvaluator
+from loushang.harness.resume_effects import ResumeEffectParentContextV1
 from loushang.harness.worker.activation_state_journal import (
     WorkerActivationStateJournal,
     WorkerActivationStateJournalError,
@@ -91,7 +92,8 @@ class CodingResumePreparedContinuation:
 
 def _prepare_v2_plugin_parents(
     attempt: CodingActivationAttemptV2,
-) -> CodingResumePluginParents | None:
+    *, worker_candidate_plugin_id: str | None,
+) -> tuple[CodingResumePluginParents | None, ResumeEffectParentContextV1 | None]:
     owners = {owner.owner_id: owner for owner in attempt.effect_owners}
     plugin_ids = {
         "harness.plugin-execution",
@@ -100,21 +102,34 @@ def _prepare_v2_plugin_parents(
     selected_plugin_ids = plugin_ids & owners.keys()
     if selected_plugin_ids and selected_plugin_ids != plugin_ids:
         raise CodingResumeRecoveryRequired("input.effect_owner_set_unsupported")
-    unsupported = set(owners) - plugin_ids
+    worker_owner_id = "harness.worker-activation"
+    supported = plugin_ids | ({worker_owner_id} if worker_candidate_plugin_id else set())
+    unsupported = set(owners) - supported
     if unsupported or attempt.effect_classes or any(
         owner.effect_classes for owner in attempt.effect_owners
     ):
         raise CodingResumeRecoveryRequired("input.effect_owner_set_unsupported")
+    worker_owner = owners.get(worker_owner_id)
+    if (worker_candidate_plugin_id is None) != (worker_owner is None):
+        raise CodingResumeRecoveryRequired("input.effect_owner_set_unsupported")
+    worker_parent = None
+    if worker_owner is not None:
+        if worker_owner.phases != ("reservation", "start"):
+            raise CodingResumeRecoveryRequired("input.effect_owner_set_unsupported")
+        worker_parent = attempt.parent_context(worker_owner)
     if not selected_plugin_ids:
-        return None
+        return None, worker_parent
     if (
         owners["harness.plugin-execution"].phases != ("declaration",)
         or owners["harness.plugin-activation"].phases != ("activation",)
     ):
         raise CodingResumeRecoveryRequired("input.effect_owner_set_unsupported")
-    return CodingResumePluginParents(
-        definition=attempt.parent_context(owners["harness.plugin-execution"]),
-        activation=attempt.parent_context(owners["harness.plugin-activation"]),
+    return (
+        CodingResumePluginParents(
+            definition=attempt.parent_context(owners["harness.plugin-execution"]),
+            activation=attempt.parent_context(owners["harness.plugin-activation"]),
+        ),
+        worker_parent,
     )
 
 
@@ -176,6 +191,7 @@ async def prepare_coding_resume_continuation(
     observe_input_identity: Callable[[CodingResumeInputLookupQueryV1], None] | None = None,
     product_owner_selection: CodingFencedProductApplicationSelection | None = None,
     worker_candidates: bool = False,
+    worker_candidate_plugin_id: str | None = None,
 ) -> CodingResumePreparedContinuation:
     """Prepare one initial input, commit it once, then publish original owners.
 
@@ -195,14 +211,30 @@ async def prepare_coding_resume_continuation(
         product_owner_selection, CodingFencedProductApplicationSelection,
     ):
         raise TypeError("Coding Resume Product application owner is invalid")
-    if type(worker_candidates) is not bool or (worker_candidates and product_owner_selection is None):
+    if (
+        type(worker_candidates) is not bool
+        or (
+            worker_candidate_plugin_id is not None
+            and (
+                not isinstance(worker_candidate_plugin_id, str)
+                or not worker_candidate_plugin_id
+                or worker_candidate_plugin_id != worker_candidate_plugin_id.strip()
+            )
+        )
+        or ((worker_candidates or worker_candidate_plugin_id is not None) and product_owner_selection is None)
+    ):
         raise ValueError("Coding Resume Worker requires its application Product owner")
     resume_plugin_parents: CodingResumePluginParents | None = None
+    resume_worker_parent: ResumeEffectParentContextV1 | None = None
     if type(attempt) is CodingActivationAttemptV2:
-        if worker_candidates:
+        if worker_candidates and worker_candidate_plugin_id is None:
             raise CodingResumeRecoveryRequired("input.effect_owner_set_unsupported")
-        resume_plugin_parents = _prepare_v2_plugin_parents(attempt)
+        resume_plugin_parents, resume_worker_parent = _prepare_v2_plugin_parents(
+            attempt, worker_candidate_plugin_id=worker_candidate_plugin_id,
+        )
         _require_v2_native_writer_protocols(manager_type)
+    elif worker_candidate_plugin_id is not None:
+        raise CodingResumeRecoveryRequired("input.effect_owner_set_unsupported")
     if (
         not isinstance(plan, SessionActivationPlanV1)
         or not isinstance(attempt, CodingActivationAttemptV1)
@@ -291,7 +323,9 @@ async def prepare_coding_resume_continuation(
             services=services, model=model, no_tools=no_tools,
             approval_resolver=approval_resolver, tool_policy_evaluator=tool_policy_evaluator,
             product_owner_selection=product_owner_selection, worker_candidates=worker_candidates,
+            worker_candidate_plugin_id=worker_candidate_plugin_id,
             resume_plugin_parents=resume_plugin_parents,
+            resume_worker_parent=resume_worker_parent,
             resume_effect_owner_ids=(
                 frozenset(owner.owner_id for owner in attempt.effect_owners)
                 if type(attempt) is CodingActivationAttemptV2

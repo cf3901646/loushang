@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -16,6 +17,7 @@ from loushang.coding.resume_activation_attempt_v2 import (
 from loushang.coding.resume_activation_plan import build_session_activation_plan
 from loushang.coding.resume_binding_v2 import CodingRuntimeBindingV2
 from loushang.coding.resume_continuation import (
+    _prepare_v2_plugin_parents,
     _require_v2_native_writer_protocols,
     prepare_coding_resume_continuation,
 )
@@ -30,6 +32,39 @@ from loushang.harness.worker import activation_state_journal
 pytestmark = pytest.mark.skipif(
     sys.platform != "linux", reason="Linux owned Resume Writer"
 )
+
+
+def test_v2_worker_owner_requires_exact_selection_and_phases():
+    worker = CodingResumeEffectOwnerV1(
+        "harness.worker-activation",
+        "c" * 64,
+        "d" * 64,
+        ("reservation", "start"),
+    )
+    attempt = CodingActivationAttemptV2(
+        attempt_id="attempt-2",
+        request_id="input-2",
+        session_id="session-2",
+        original_leaf_id=None,
+        ancestry_digest="a" * 64,
+        plan_fingerprint="b" * 64,
+        epoch_fingerprint="e" * 64,
+        subject_digest="f" * 64,
+        effect_owners=(worker,),
+    )
+
+    plugins, parent = _prepare_v2_plugin_parents(
+        attempt, worker_candidate_plugin_id="worker.example",
+    )
+    assert plugins is None
+    assert parent == attempt.parent_context(worker)
+    with pytest.raises(CodingResumeRecoveryRequired):
+        _prepare_v2_plugin_parents(attempt, worker_candidate_plugin_id=None)
+    with pytest.raises(CodingResumeRecoveryRequired):
+        _prepare_v2_plugin_parents(
+            replace(attempt, effect_owners=(replace(worker, phases=("start",)),)),
+            worker_candidate_plugin_id="worker.example",
+        )
 
 
 def test_v2_capability_aggregation_refuses_missing_native_writer_without_io(

@@ -13,6 +13,7 @@ from loushang.harness.capabilities.provider_admission import (
 from loushang.harness.capabilities.provider_selection import (
     ResolvedCapabilityProviderSet,
 )
+from loushang.harness.resume_effects import ResumeEffectParentContextV1
 from loushang.harness.runtime._owned_tasks import _await_cancellation_atomic
 from loushang.harness.session.capability_composition_inputs import (
     SessionCapabilityCompositionInputs,
@@ -63,6 +64,10 @@ from .package_product_worker_query_consumer import (
     coding_worker_query_owner_authority,
 )
 from .package_product_worker_receipt import CodingWorkerProductReceiptOwner
+from .package_product_worker_resume import (
+    enroll_coding_worker_resume_parent,
+    seal_coding_worker_resume_parent,
+)
 from .package_product_worker_session_composition import (
     prepare_coding_product_worker_session_inputs,
 )
@@ -86,6 +91,7 @@ class CodingProductWorkerPendingHost:
     binding: CapabilityWorkerBindingV1
     base_policy_binding: CodingWorkerBaseCompositionPolicyBinding
     clock: Callable[[], int]
+    resume_parent_context: ResumeEffectParentContextV1 | None = None
 
     async def prepare(self, graph_generation: int) -> CodingPreparedWorkerProvider:
         """Own all effects from payload creation through graph disposal."""
@@ -146,6 +152,28 @@ class CodingProductWorkerPendingHost:
             await _await_cancellation_atomic(task)
 
         try:
+            if self.resume_parent_context is not None:
+                cleanup_evidence = CodingPosixWorkerCleanupEvidenceAuthority(
+                    self.receipt_owner.product_owner
+                )
+                coordinator = ProductWorkerActivationCoordinator(
+                    authority=self.receipt_owner,
+                    evidence_authority=cleanup_evidence,
+                    trusted_evidence_authority_id=cleanup_evidence.authority_id,
+                    trusted_evidence_authority_fingerprint=cleanup_evidence.authority_fingerprint,
+                    state_store=open_coding_product_worker_activation_state_store(
+                        self.receipt_owner.product_owner
+                    ),
+                )
+                if coordinator.evaluate(self.receipt.policy, self.receipt).get("reason") != "admitted":
+                    raise CodingWorkerPendingHostError(
+                        "coding_worker_pending_c5_admission_refused"
+                    )
+                enroll_coding_worker_resume_parent(
+                    coordinator=coordinator,
+                    receipt=self.receipt,
+                    context=self.resume_parent_context,
+                )
             payload = stack.enter_context(
                 materialize_coding_product_worker_payload(
                     receipt_owner=self.receipt_owner,
@@ -217,27 +245,24 @@ class CodingProductWorkerPendingHost:
                             await supervisor.settle_failed_process()
 
             stack.push_async_callback(settle_supervisor)
-            cleanup_evidence = CodingPosixWorkerCleanupEvidenceAuthority(
-                self.receipt_owner.product_owner
-            )
-            coordinator = ProductWorkerActivationCoordinator(
-                authority=self.receipt_owner,
-                evidence_authority=cleanup_evidence,
-                trusted_evidence_authority_id=cleanup_evidence.authority_id,
-                trusted_evidence_authority_fingerprint=(
-                    cleanup_evidence.authority_fingerprint
-                ),
-                state_store=open_coding_product_worker_activation_state_store(
+            if coordinator is None:
+                cleanup_evidence = CodingPosixWorkerCleanupEvidenceAuthority(
                     self.receipt_owner.product_owner
-                ),
-            )
-            if (
-                coordinator.evaluate(self.receipt.policy, self.receipt).get("reason")
-                != "admitted"
-            ):
-                raise CodingWorkerPendingHostError(
-                    "coding_worker_pending_c5_admission_refused"
                 )
+                coordinator = ProductWorkerActivationCoordinator(
+                    authority=self.receipt_owner,
+                    evidence_authority=cleanup_evidence,
+                    trusted_evidence_authority_id=cleanup_evidence.authority_id,
+                    trusted_evidence_authority_fingerprint=cleanup_evidence.authority_fingerprint,
+                    state_store=open_coding_product_worker_activation_state_store(
+                        self.receipt_owner.product_owner
+                    ),
+                )
+                if coordinator.evaluate(self.receipt.policy, self.receipt).get("reason") != "admitted":
+                    raise CodingWorkerPendingHostError(
+                        "coding_worker_pending_c5_admission_refused"
+                    )
+            assert cleanup_evidence is not None
             host_identity = cleanup_evidence.host_identity
             boot_identity = cleanup_evidence.boot_identity
             with coordinator.admission(
@@ -248,6 +273,7 @@ class CodingProductWorkerPendingHost:
                 host_identity=host_identity,
                 boot_identity=boot_identity,
                 cleanup_contract_version=profile.cleanup_contract_version,
+                parent_context=self.resume_parent_context,
             ) as admission:
                 admission.begin_effect()
                 effect_started = True
@@ -307,6 +333,10 @@ class CodingProductWorkerPendingHost:
                     ),
                     native_profile_id=profile.native_profile_id,
                 )
+                seal_coding_worker_resume_parent(
+                    coordinator=coordinator,
+                    context=self.resume_parent_context,
+                )
 
             [resolved] = self.resolved_providers.entries
             return prepare_coding_worker_provider_binding(
@@ -344,11 +374,16 @@ def prepare_coding_product_worker_pending_session_inputs(
     evaluated_at: int,
     clock: Callable[[], int],
     base_policy_binding: CodingWorkerBaseCompositionPolicyBinding,
+    resume_parent_context: ResumeEffectParentContextV1 | None = None,
 ) -> SessionCapabilityCompositionInputs:
     """Compile a Worker request whose native effects start during graph prepare."""
 
     if (
         not isinstance(pending_launch, CodingProductWorkerPendingLaunchV1)
+        or (
+            resume_parent_context is not None
+            and type(resume_parent_context) is not ResumeEffectParentContextV1
+        )
         or pending_launch.receipt_fingerprint != receipt.fingerprint
         or not isinstance(base_policy_binding, CodingWorkerBaseCompositionPolicyBinding)
         or len(resolved_providers.entries) != 1
@@ -393,6 +428,7 @@ def prepare_coding_product_worker_pending_session_inputs(
         binding=binding,
         base_policy_binding=base_policy_binding,
         clock=clock,
+        resume_parent_context=resume_parent_context,
     )
     return prepare_coding_product_worker_session_inputs(
         resolved_providers=resolved_providers,

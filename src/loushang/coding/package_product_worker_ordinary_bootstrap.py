@@ -24,6 +24,7 @@ from loushang.harness.package_product.product_runtime import (
 from loushang.harness.plugin_management.current_preview import (
     plugin_package_revision_fingerprint,
 )
+from loushang.harness.resume_effects import ResumeEffectParentContextV1
 from loushang.harness.transcript.directory import AgentTranscriptDirectoryRuntime
 
 from ._base_product_composition import CodingBaseProductSessionAssembly
@@ -74,6 +75,7 @@ def prepare_coding_product_worker_ordinary_binding(
     plugin_id: str,
     ordinary: CodingBaseProductSessionAssembly,
     clock: Callable[[], int],
+    resume_parent_context: ResumeEffectParentContextV1 | None = None,
 ) -> CodingProductWorkerOrdinarySessionBinding:
     """Join exact Product, transcript, base graph, and Worker authorities.
 
@@ -94,6 +96,10 @@ def prepare_coding_product_worker_ordinary_binding(
         or not plugin_id
         or plugin_id != plugin_id.strip()
         or not callable(clock)
+        or (
+            resume_parent_context is not None
+            and type(resume_parent_context) is not ResumeEffectParentContextV1
+        )
     ):
         raise TypeError("Coding Worker ordinary Product inputs are invalid")
     if not session_manager.is_persisted():
@@ -242,6 +248,7 @@ def prepare_coding_product_worker_ordinary_binding(
             evaluated_at=evaluated_at,
             clock=clock,
             base_policy_binding=base_policy,
+            resume_parent_context=resume_parent_context,
         )
     else:
         assert type(receipt_owner) is CodingWorkerProductReceiptOwner
@@ -259,6 +266,7 @@ def prepare_coding_product_worker_ordinary_binding(
             evaluated_at=evaluated_at,
             clock=clock,
             base_policy_binding=base_policy,
+            resume_parent_context=resume_parent_context,
         )
     definitions = {
         item.capability_id: item
