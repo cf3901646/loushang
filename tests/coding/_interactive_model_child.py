@@ -11,6 +11,7 @@ import hashlib
 import importlib.machinery
 import json
 import os
+import resource
 import runpy
 import sys
 import time
@@ -25,6 +26,11 @@ def run(wrapper: Path, trace: Path, argv: list[str]) -> None:
         raise RuntimeError("Product must not be preloaded in the synthetic child")
     fd = os.open(trace, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     records = 0
+    resume_probe = any(
+        argument == "--resume" or argument.startswith("--resume=")
+        for argument in argv
+    )
+    process_started = time.process_time()
 
     def emit(phase: str, **values) -> None:
         nonlocal records
@@ -99,6 +105,9 @@ def run(wrapper: Path, trace: Path, argv: list[str]) -> None:
         def find_spec(self, fullname, path=None, target=None):
             if fullname not in {
                 "loushang.agent.agent",
+                "loushang.coding.interaction.resume_history",
+                "loushang.coding.runtime.agent_session_runtime",
+                "loushang.coding.session.agent_session",
                 "loushang.harness.session.agent_product",
             }:
                 return None
@@ -113,7 +122,11 @@ def run(wrapper: Path, trace: Path, argv: list[str]) -> None:
 
                 def exec_module(self, module):
                     original.exec_module(module)
-                    emit("hook_installed", module=fullname, origin=module.__file__)
+                    if fullname in {
+                        "loushang.agent.agent",
+                        "loushang.harness.session.agent_product",
+                    }:
+                        emit("hook_installed", module=fullname, origin=module.__file__)
                     if fullname == "loushang.agent.agent":
                         from loushang.agent.model_transport import (
                             synthetic_model_transport,
@@ -130,7 +143,7 @@ def run(wrapper: Path, trace: Path, argv: list[str]) -> None:
                             init(self, **{**kwargs, "stream_fn": stream})
 
                         module.Agent.__init__ = initialize
-                    else:
+                    elif fullname == "loushang.harness.session.agent_product":
                         prompt = module.AgentProductSession.prompt
 
                         async def observed(self, *args, **kwargs):
@@ -144,6 +157,75 @@ def run(wrapper: Path, trace: Path, argv: list[str]) -> None:
                             return value
 
                         module.AgentProductSession.prompt = observed
+                    elif (
+                        resume_probe
+                        and fullname
+                        == "loushang.coding.runtime.agent_session_runtime"
+                    ):
+                        runtime = module.AgentSessionRuntime
+                        preview = runtime.preview_resume_history
+                        start_plan = runtime.start_configured_resume_planning
+                        prepare_plan = runtime.prepare_configured_resume_plan
+
+                        async def observed_preview(self, *args, **kwargs):
+                            value = await preview(self, *args, **kwargs)
+                            emit("resume_history_ready")
+                            return value
+
+                        async def observed_start_plan(self, *args, **kwargs):
+                            value = await start_plan(self, *args, **kwargs)
+                            emit("resume_plan_started", configured=value is True)
+                            task = self._resume_planning._task
+                            if task is not None:
+                                def plan_done(done):
+                                    emit(
+                                        "resume_background_plan_ready",
+                                        status=(
+                                            "cancelled"
+                                            if done.cancelled()
+                                            else "failed"
+                                            if done.exception() is not None
+                                            else "ready"
+                                        ),
+                                    )
+
+                                task.add_done_callback(plan_done)
+                            return value
+
+                        async def observed_prepare_plan(self, *args, **kwargs):
+                            value = await prepare_plan(self, *args, **kwargs)
+                            emit("resume_plan_ready")
+                            return value
+
+                        runtime.preview_resume_history = observed_preview
+                        runtime.start_configured_resume_planning = observed_start_plan
+                        runtime.prepare_configured_resume_plan = observed_prepare_plan
+                    elif (
+                        resume_probe
+                        and fullname == "loushang.coding.session.agent_session"
+                    ):
+                        session = module.AgentSession
+                        commit = session._commit_resume_first_user_input
+
+                        async def observed_commit(self, *args, **kwargs):
+                            value = await commit(self, *args, **kwargs)
+                            emit("resume_input_durable")
+                            return value
+
+                        session._commit_resume_first_user_input = observed_commit
+                    elif (
+                        resume_probe
+                        and fullname == "loushang.coding.interaction.resume_history"
+                    ):
+                        actions = module._HistoryActions
+                        submit = actions.submit
+
+                        async def observed_submit(self, action):
+                            if action.text == INPUT:
+                                emit("resume_input_accepted")
+                            return await submit(self, action)
+
+                        actions.submit = observed_submit
 
             spec.loader = Loader()
             return spec
@@ -160,6 +242,14 @@ def run(wrapper: Path, trace: Path, argv: list[str]) -> None:
         runpy.run_path(str(wrapper), run_name="__main__")
     finally:
         sys.meta_path.remove(hook)
+        if resume_probe:
+            usage = resource.getrusage(resource.RUSAGE_SELF)
+            emit(
+                "resume_process_resources",
+                cpu_seconds=time.process_time() - process_started,
+                peak_rss_kib=usage.ru_maxrss,
+                open_fds=len(tuple(Path("/proc/self/fd").iterdir())),
+            )
         os.close(fd)
 
 

@@ -3286,3 +3286,85 @@ ancestor during security path validation, then all **5 passed** with a private
 `0700` basetemp under `/tmp`. Ruff, scoped mypy and `git diff --check` passed.
 Hosted adoption, Windows native host execution, background latency and the
 remaining release gates are pending.
+
+#### Hosted stable first input and explicit stdio execution
+
+Commit `40399e8e` routes the default Coding Hosted client through an explicit
+discovery-and-execution stdio profile. The foreground AppHost retains the
+authenticated `AppClientScopeV1` used by execution, closes that scope before
+the application, and exposes no execution capability to the existing discovery
+only profiles. Direct `loushang-hosted` callers remain on their prior stdio
+profile unless they explicitly request `--session-execution`; this preserves
+the old wire contract while the first-party Hosted client opts into the new
+capability.
+
+The Hosted Local Product now owns its transcript roots and exposes its existing
+native Session execution registry. Managed Local retains its previous owners
+and does not acquire that registry. LMUX stores the complete
+`SessionIdentityV1` for each window and submits the first input through one
+stable 32-hex submission identity. Known acceptance clears only the exact draft
+that was submitted. Unknown delivery retains the draft and recovery state; an
+explicit retry of the unchanged text reuses the same identity, while a later
+edit cannot be erased by a delayed acceptance. Existing start, steer,
+follow-up and interrupt routes keep their previous behavior.
+
+Coding's Hosted Resume handoff projects an input already committed by the
+native continuation as one `USER_MESSAGE` event. It does not create a second
+Writer or append the input again. The true stdio subprocess case verifies
+history selection, approval, one committed user input, one model reply and
+idempotent duplicate submission. The complete Hosted subprocess and discovery
+subprocess files passed **14 tests in 322.34 seconds** outside the managed
+sandbox. The focused connection, foreground, launcher, Hosted bootstrap/CLI,
+discovery command and LMUX request set passed **642 tests in 63.27 seconds**.
+Ruff and scoped mypy passed for the touched source.
+
+This closes the first-party Hosted writable route and stable submission
+boundary. Released N/N+1 artifacts, Windows native host execution, multi-host
+load evidence and the final selected-tree gates remain separate acceptance
+work.
+
+#### Instrumented interactive Resume pilot
+
+The Linux interactive startup observer now has an explicit `--resume` mode for
+a seeded synthetic installed entrypoint. It preserves the transcript's
+canonical file name, gives transcript data, machine state and blob/Writer
+authority distinct private domains, enters the real history-first screen,
+submits one input, confirms the rendered approval and observes one synthetic
+model result. Test-only import observers record the production history preview,
+background Plan completion, host input entry, foreground Plan return, durable
+input commit and model transport without adding a Product callback. Duplicate,
+missing or non-monotonic milestones invalidate the report. The child records
+process CPU, Linux peak RSS and open FDs at settled exit.
+
+One local current-checkout sample (`resume696-probe-run-8`) completed with:
+
+| Observed milestone | Result |
+| --- | ---: |
+| First completed terminal frame from spawn | 12.554 s |
+| Authoritative history ready from spawn | 13.943 s |
+| History screen ready from spawn | 14.029 s |
+| Input accepted after external submit | 0.034 s |
+| Foreground Plan ready after external submit | 0.046 s |
+| Approval surface visible after external submit | 18.275 s |
+| Input durable after external submit | 38.550 s |
+| Model transport entered after external submit | 45.257 s |
+| First rendered reply after external submit | 45.977 s |
+| Background Plan status | ready before input |
+| Process CPU / peak RSS / open FDs at exit | 17.142 s / 126352 KiB / 6 |
+
+The milestone observer regression passed **28 tests in 13.32 seconds** outside
+the managed sandbox. Separately, the current `verify_resume_scale.py` print-mode
+baseline passed with two 1 MiB sparse Catalog fixtures and one valid 40.008 MiB
+transcript: cold bounded listing 14.144 s, bounded rebuild 0.022 s, steady query
+0.006 s, fresh-process ordinary Resume 23.643 s and model transport entry
+8.875 s after the worker began. That print-mode measurement exercises the
+ordinary restore route and is retained only as a large-transcript comparison;
+it is not evidence for the history-first writable path.
+
+Both results are local single samples from the editable current checkout and
+remain classified as pilots. They establish named phase observability and show
+that input entry and cached Plan return are distinct from the much longer
+approval, Writer, publication and model path. They do not establish fixed
+latency thresholds, released-installation comparison, 1/2/8 concurrent
+history-first activations, 10k/100k writable continuations, Writer wait/fsync
+breakdown or cross-platform resource acceptance.
