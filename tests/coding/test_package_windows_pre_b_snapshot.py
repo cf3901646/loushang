@@ -3899,6 +3899,9 @@ def _assert_windows_worker_retired_history_allows_gc(
         publish_coding_windows_worker_history_bases,
         read_coding_windows_worker_history_bases,
     )
+    from loushang.coding.package_product_worker_windows_history_cutover_preflight import (
+        review_coding_windows_worker_history_cutover_candidate,
+    )
     from loushang.coding.package_product_worker_windows_history_cutover_record import (
         WINDOWS_WORKER_HISTORY_CUTOVER_NAME,
         CodingWindowsWorkerHistoryCutoverRecordV1,
@@ -4201,9 +4204,12 @@ def _assert_windows_worker_retired_history_allows_gc(
         marker = CodingWindowsWorkerHistoryCutoverRecordV1.from_persisted_bases(
             persisted
         )
+        assert review_coding_windows_worker_history_cutover_candidate(product) == marker
         marker_path = product.state_root / WINDOWS_WORKER_HISTORY_CUTOVER_NAME
         write_windows_private_receipt(marker_path, marker.to_bytes())
         try:
+            with pytest.raises(ValueError, match="state owner is unrecognized"):
+                review_coding_windows_worker_history_cutover_candidate(product)
             with pytest.raises(ValueError, match="state owner is unrecognized"):
                 read_coding_windows_worker_persisted_bases(product)
             assert read_coding_windows_worker_persisted_cutover(product) == (
@@ -4227,6 +4233,8 @@ def _assert_windows_worker_retired_history_allows_gc(
         )
         checkpoint_stage.write_bytes(b"unpublished")
         try:
+            with pytest.raises(ValueError, match="persisted stage remains"):
+                review_coding_windows_worker_history_cutover_candidate(product)
             with pytest.raises(RuntimeError, match="unexpected stage"):
                 read_coding_windows_worker_history_checkpoint(product)
         finally:
