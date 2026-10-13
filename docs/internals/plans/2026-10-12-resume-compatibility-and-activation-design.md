@@ -961,6 +961,54 @@ The full bounded snapshot read is not a measured large-session fast-open path;
 tail paging and background-plan performance acceptance remain pending. Goal and
 Issue #696 remain incomplete.
 
+#### Component full-gate outcome and exact failed-test rerun
+
+At `6b62dd9b`, docs, dependency facts, full Harness Ruff and mypy (772 files)
+passed. Full Harness testing completed with **5 failed, 5756 passed, 124 skipped,
+33 warnings in 1867.28 seconds**, and the gate exited 1. All five failures first
+encountered disk quota exhaustion: four native containment fixture compilations
+could not write compiler intermediates in `/tmp`; the large Exec output artifact
+could not be written, followed by a bad-file-descriptor cleanup error. A
+temporary full source copy created during that run exhausted the quota and was
+deleted; candidate verification switched to a small source overlay.
+
+Without changing that commit's source, the exact four C52 native cases
+(`C52-EXACT-CLOSURE`, `C52-FD-SUBSTITUTION`, `C52-CANCEL-POST-EFFECT`,
+`C52-DESCENDANT-CLEANUP`) and
+`test_exec_service_streams_output_larger_than_asyncio_line_limit` were rerun
+outside the sandbox with the same non-live/host-runtime exclusions: **5 passed
+in 5.68 seconds**, exit 0. These are separate full-run and rerun observations;
+the failed full command is not relabelled as a single green run.
+
+#### Worker original C5 Resume registration
+
+Worker enrollment, native key registration and sealed enumeration now live in
+the original C5 CAS state. Opt-in state version 3 uses explicit journal record
+version 2; ordinary state version 2/record version 1 retain their original shape.
+Contextual admission requires the supported native containment cleanup v2
+contract. Original native key identity and authority rechecks remain in force.
+
+History replay and CAS reject loss/rebinding of parent enrollment or native
+association, seal removal/reopening, retroactive or late registration, sealed
+late effect start and state downgrade. Original linked settled attempts are
+retained through compaction; capacity exhaustion refuses admission. Started
+unknown effects and cleanup debt prevent seal. Publication and exact native
+settlement retain their original meanings and do not prove arbitrary domain
+effect completion.
+
+The staged implementation passed **220 tests, 30 skipped in 27.71 seconds**
+through an independent source overlay, then **220 passed, 30 skipped in 11.06
+seconds** after integration into the actual task worktree. The subsequent
+registration acknowledgement-loss test and all native parent protocol faults
+completed with **12 passed in 1.22 seconds** before commit.
+Both affected implementation files passed mypy, and Ruff passed. Full selected
+gates and release evidence remain distinct from these focused results.
+
+The Coding canary has not yet propagated committed Resume parent context.
+Trusted participation computation, intent/Binding v2, writer capabilities,
+custody/segmented retention, domain reconciliation, Embedded/Hosted/background
+integration and final release/Issue delivery remain unfinished.
+
 ### Hosted history claim and profile ownership
 
 The catalog's explicit `open_history_candidate` entry now wraps the detached

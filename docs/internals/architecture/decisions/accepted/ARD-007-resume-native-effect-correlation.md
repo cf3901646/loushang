@@ -397,7 +397,7 @@ repair. Native evaluated or failed facts do not settle external domain effects.
 This is original-journal protocol infrastructure. The original Definition evaluator accepts an explicit typed parent context and
 co-consumes it before import. The production Product selection has not yet
 propagated that context from the committed v2 intent. Product owner
-participation, Worker native correlation, retained custody and domain
+participation, retained custody and domain
 reconciliation still require implementation and integration. The parent
 snapshot is not proof of complete Product startup participation, current
 admission or external settlement. Default writable Resume remains unavailable
@@ -427,3 +427,33 @@ custodian retention and domain reconciliation. They do not enable default
 writable Resume. Focused tests exercise the actual Component factory, native
 journal recovery and durable acknowledgement loss; release and full Product
 integration evidence remain required.
+
+## Implementation Progress: Worker C5 State
+
+The original C5 CAS aggregate now supports an explicit Resume state version 3
+and journal record version 2. Existing state version 2 and record version 1
+remain on the ordinary path. Enrollment freezes the exact parent descriptor;
+native admission co-commits its original receipt/attempt/owner-generation key
+and parent association in one state revision. Contextual admission requires
+cleanup contract v2, including native containment evidence.
+
+Sealing enumerates sorted original keys and fences new registration and late
+effect start. An effect-started or cleanup-unknown attempt prevents sealing;
+published startup and original no-effect/cleanup settlement retain their native
+meanings. Cross-process CAS and complete-history replay reject deletion or
+rebinding of registration evidence, removal or reopening of seals, retroactive
+registration and downgrade from Resume state. Linked settled attempts are
+excluded from native compaction; exhausted capacity refuses new admission.
+
+The coordinator and durable journal preserve original outcome authority.
+Registration acknowledgement loss retains the original parent/key and does not
+enter the effect body. A known durable no-effect settlement may then close that
+attempt through the original owner. Publication and cleanup do not settle
+arbitrary external domain effects. Current native facet admission remains
+required after historical startup facts.
+
+Product intent propagation and trusted participation are still outstanding:
+the existing Coding Worker canary continues to use its ordinary admission
+route. Segmented/checkpoint retention, custody retirement, installed writer
+capability boundaries, domain reconciliation and Embedded/Hosted integration
+remain required. This native protocol does not enable default writable Resume.
