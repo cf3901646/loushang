@@ -55,10 +55,11 @@ if TYPE_CHECKING:
     from loushang.ai.model import Model, ModelSelection
     from loushang.ai.types import ImagePart
     from loushang.harness.approval import InteractiveApprovalResolver
+    from loushang.harness.config.agent import SettingsManager
     from loushang.harness.policy import PolicyEvaluator
     from loushang.harness.resources.loader import ResourceLoader
 
-    from ..bootstrap import BootstrapServices
+    from ..bootstrap import BootstrapServices, NoToolsMode
     from ..composition_sets import CodingCompositionSetPlan
     from ..resume_activation_attempt import CodingActivationAttemptV1
     from ..resume_activation_plan import (
@@ -259,6 +260,45 @@ class AgentSessionRuntime(
                 raise TypeError("Coding Resume view check must return None")
         return self._current_embedded_resume_subject_digest()
 
+    def embedded_resume_approval_owner(self) -> InteractiveApprovalResolver:
+        """Borrow the original native Approval owner from the current history input."""
+
+        # Reuse the view and Root lifetime checks instead of exposing the
+        # retained owner as general application state.
+        self.embedded_resume_subject_digest()
+        owner = self._embedded_resume_approval_owner
+        assert owner is not None
+        return owner
+
+    def prepare_embedded_resume_epoch(
+        self,
+        workspace: Path,
+        *,
+        settings_manager: SettingsManager | None = None,
+    ) -> str:
+        """Select the native Product epoch from the current history input.
+
+        Epoch initialization can write Product state, so it is deliberately
+        separate from history display and background planning. The original
+        Root is checked before, during and after the Product selection entry.
+        """
+
+        self.embedded_resume_subject_digest()
+        selection = self._product_owner_selection
+        if selection is None:
+            raise RuntimeError("Coding Resume Product owner is unavailable")
+
+        def current() -> None:
+            self.embedded_resume_subject_digest()
+
+        epoch = selection.prepare_resume_epoch(
+            workspace,
+            require_current_admission=current,
+            settings_manager=settings_manager,
+        )
+        current()
+        return epoch
+
     def require_current_embedded_resume_subject(
         self, attempt: CodingActivationAttemptV1, *, approval_owner: InteractiveApprovalResolver | None = None,
     ) -> None:
@@ -303,7 +343,7 @@ class AgentSessionRuntime(
         images: list[ImagePart] | None = None,
         services: BootstrapServices | None = None,
         model: Model | ModelSelection | None = None,
-        no_tools: bool | None = None,
+        no_tools: NoToolsMode | bool | None = None,
         approval_resolver: InteractiveApprovalResolver | None = None,
         tool_policy_evaluator: PolicyEvaluator | None = None,
         observe_input_identity: Callable[[CodingResumeInputLookupQueryV1], None] | None = None,

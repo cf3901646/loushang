@@ -43,6 +43,7 @@ from ._resume_cleanup import (
 )
 from .bootstrap import (
     BootstrapServices,
+    NoToolsMode,
     _coding_capability_plugin_state_root,
     _create_resume_agent_session,
 )
@@ -188,7 +189,7 @@ async def prepare_coding_resume_continuation(
     images: list[ImagePart] | None = None,
     services: BootstrapServices | None = None,
     model: Model | ModelSelection | None = None,
-    no_tools: bool | None = None,
+    no_tools: NoToolsMode | bool | None = None,
     approval_resolver: InteractiveApprovalResolver | None = None,
     tool_policy_evaluator: PolicyEvaluator | None = None,
     observe_input_identity: Callable[[CodingResumeInputLookupQueryV1], None] | None = None,

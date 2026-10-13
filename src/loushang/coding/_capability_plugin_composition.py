@@ -2181,5 +2181,7 @@ __all__ = [
     "CodingCapabilityPluginCompositionPreparation",
     "CodingCapabilityPluginCompositionRequest",
     "create_coding_capability_plugin_composition_request",
+    "prepare_coding_resume_plugin_effect_owners",
     "prepare_coding_capability_plugin_composition",
+    "require_coding_resume_plugin_effect_settlement",
 ]

@@ -1,0 +1,292 @@
+"""Production Embedded first-input coordination for Coding Resume."""
+
+from __future__ import annotations
+
+import hashlib
+import time
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import cast
+from uuid import uuid4
+
+from loushang.ai.model import Model, ModelSelection
+from loushang.coding._capability_plugin_composition import (
+    prepare_coding_resume_plugin_effect_owners,
+    require_coding_resume_plugin_effect_settlement,
+)
+from loushang.coding._capability_plugin_specs import CODING_CAPABILITY_PLUGIN_IDS
+from loushang.coding._product_capability_plugin_composition import (
+    prepare_coding_product_approval_state_root,
+)
+from loushang.coding.bootstrap import BootstrapServices, NoToolsMode
+from loushang.coding.capabilities import (
+    CODING_ARCH_CAPABILITY,
+    CODING_LSP_CAPABILITY,
+    coding_capability_mount_mode,
+)
+from loushang.coding.resume_activation_attempt import (
+    CodingActivationAttemptV1,
+    CodingResumeRecoveryRequired,
+)
+from loushang.coding.resume_activation_attempt_v2 import CodingActivationAttemptV2
+from loushang.coding.resume_history import CodingResumeHistoryPreview
+from loushang.coding.resume_input_lookup import CodingResumeInputLookupQueryV1
+from loushang.coding.resume_permission_confirmation import (
+    CodingResumePermissionConfirmation,
+    NativeResumePolicy,
+    coding_resume_permission_request,
+)
+from loushang.coding.runtime.agent_session_runtime import (
+    AgentSessionRuntime,
+    CodingRuntimePreparedResume,
+)
+from loushang.coding.sandbox import coding_workspace_execution_profile
+from loushang.harness.session.bootstrap_utils import normalize_no_tools
+from loushang.harnesstui.conversation.agent_binding import (
+    agent_image_parts_from_prompt_attachments,
+)
+from loushang.harnesstui.conversation.control import ConversationTextAction
+
+
+def _resume_plugin_state_root(
+    runtime: AgentSessionRuntime, *, session_id: str
+) -> Path:
+    state_id = hashlib.sha256(
+        b"loushang.coding-capability-plugin-state/v1\0"
+        + session_id.encode("utf-8")
+    ).hexdigest()
+    return (
+        Path(runtime.session_dir)
+        / "plugin-state"
+        / "coding-capability-plugins"
+        / state_id
+    )
+
+
+def _capability_plugins_enabled(
+    *,
+    plan_set_id: str,
+    settings_manager: object | None,
+    no_tools: NoToolsMode | bool | None,
+) -> bool:
+    mode = normalize_no_tools(no_tools)
+    if mode == "all":
+        return False
+    if plan_set_id == "coding-minimal":
+        return False
+    lsp = coding_capability_mount_mode(settings_manager, CODING_LSP_CAPABILITY)
+    if plan_set_id == "coding-standard":
+        return lsp != "disabled"
+    if plan_set_id == "coding-architecture":
+        arch = coding_capability_mount_mode(
+            settings_manager, CODING_ARCH_CAPABILITY
+        )
+        return lsp != "disabled" or arch != "disabled"
+    raise ValueError("Coding Resume composition set is unsupported")
+
+
+def _require_no_capability_plugin_effects(
+    attempt: CodingActivationAttemptV2,
+    receipt: Mapping[str, object],
+    *,
+    expected_set_id: str,
+) -> None:
+    if attempt.effect_owners or attempt.effect_classes:
+        raise CodingResumeRecoveryRequired("input.effect_owner_set_unsupported")
+    revisions = receipt.get("selectedRevisions")
+    if receipt.get("setId") != expected_set_id or not isinstance(revisions, list):
+        raise CodingResumeRecoveryRequired("input.effect_settlement_unknown")
+    for raw in revisions:
+        if not isinstance(raw, Mapping):
+            raise CodingResumeRecoveryRequired("input.effect_settlement_unknown")
+        if raw.get("pluginId") in CODING_CAPABILITY_PLUGIN_IDS:
+            raise CodingResumeRecoveryRequired("input.effect_settlement_unknown")
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddedResumeInputCoordinator:
+    """Join current Embedded owners for exactly one history-screen input."""
+
+    runtime: AgentSessionRuntime
+    services: BootstrapServices
+    policy_evaluator: NativeResumePolicy
+    model: Model | ModelSelection | None = None
+    no_tools: NoToolsMode | bool | None = None
+    worker_candidate_plugin_id: str | None = None
+    workspace_writable: bool = True
+    now: Callable[[], datetime] = lambda: datetime.now(UTC)
+    clock_ms: Callable[[], int] = lambda: time.time_ns() // 1_000_000
+    id_factory: Callable[[], str] = lambda: uuid4().hex
+
+    def __post_init__(self) -> None:
+        if type(self.runtime) is not AgentSessionRuntime:
+            raise TypeError("Embedded Resume requires the native Coding Root")
+        if not isinstance(self.services, BootstrapServices):
+            raise TypeError("Embedded Resume services are invalid")
+        if type(self.workspace_writable) is not bool:
+            raise TypeError("Embedded Resume workspace mode is invalid")
+        if self.worker_candidate_plugin_id is not None:
+            # C5 requires Worker readiness/no-start/cleanup reconciliation in
+            # addition to the Plugin journal adapter implemented here.
+            raise CodingResumeRecoveryRequired("input.effect_owner_set_unsupported")
+
+    async def prepare_input(
+        self,
+        *,
+        session_file: str | Path,
+        history: CodingResumeHistoryPreview,
+        action: ConversationTextAction,
+        observe_input_identity: Callable[[CodingResumeInputLookupQueryV1], None],
+    ) -> CodingRuntimePreparedResume:
+        plan = await self.runtime.prepare_configured_resume_plan(history)
+        if plan.status != "needs_final_validation" or plan.ancestry_digest is None:
+            raise CodingResumeRecoveryRequired("input.plan_unavailable")
+        workspace = Path(plan.workspace_root)
+        subject_digest = self.runtime.embedded_resume_subject_digest()
+        approval_owner = self.runtime.embedded_resume_approval_owner()
+        epoch_fingerprint = self.runtime.prepare_embedded_resume_epoch(
+            workspace,
+            settings_manager=self.services.settings_manager,
+        )
+        plugins_enabled = _capability_plugins_enabled(
+            plan_set_id=plan.composition_comparison.candidate_set_id,
+            settings_manager=self.services.settings_manager,
+            no_tools=self.no_tools,
+        )
+        plugin_state_root = _resume_plugin_state_root(
+            self.runtime, session_id=plan.session_id
+        )
+        owners = (
+            prepare_coding_resume_plugin_effect_owners(
+                session_id=plan.session_id,
+                state_root=plugin_state_root,
+            )
+            if plugins_enabled
+            else ()
+        )
+        attempt = CodingActivationAttemptV2(
+            attempt_id=f"resume-attempt:{self.id_factory()}",
+            request_id=f"resume-input:{self.id_factory()}",
+            session_id=plan.session_id,
+            original_leaf_id=plan.selected_leaf_id,
+            ancestry_digest=plan.ancestry_digest,
+            plan_fingerprint=plan.plan_id,
+            epoch_fingerprint=epoch_fingerprint,
+            subject_digest=subject_digest,
+            effect_owners=owners,
+        )
+        execution_profile = coding_workspace_execution_profile(
+            workspace, writable=self.workspace_writable
+        )
+        confirmation = await approval_owner.confirm(
+            coding_resume_permission_request(
+                attempt,
+                actor_id="root",
+                expansion_codes=("authority.unknown",),
+                execution_profile=execution_profile,
+                policy_evaluator=self.policy_evaluator,
+                embedded_subject_root=self.runtime,
+            )
+        )
+        if confirmation is None:
+            raise PermissionError("Coding Resume permission was not confirmed")
+        permission = CodingResumePermissionConfirmation(
+            attempt,
+            "root",
+            ("authority.unknown",),
+            approval_owner,
+            confirmation,
+            execution_profile=execution_profile,
+            policy_evaluator=self.policy_evaluator,
+            embedded_subject_root=self.runtime,
+        )
+
+        def current_policy() -> NativeResumePolicy:
+            # Rebuild through the same settings owner so a changed profile or
+            # Tool policy cannot reuse the earlier confirmation.
+            from loushang.harness.tools.workspace.factory import (
+                workspace_tool_runtime_settings,
+            )
+
+            return cast(
+                NativeResumePolicy,
+                workspace_tool_runtime_settings(
+                    self.services.settings_manager
+                ).policy_engine,
+            )
+
+        def admit(observed: CodingActivationAttemptV1) -> None:
+            if type(observed) is not CodingActivationAttemptV2:
+                raise CodingResumeRecoveryRequired(
+                    "input.effect_owner_set_unsupported"
+                )
+            permission.require_current(
+                observed,
+                current_execution_profile=coding_workspace_execution_profile(
+                    workspace, writable=self.workspace_writable
+                ),
+                current_policy_evaluator=current_policy(),
+            )
+
+        def settle(
+            observed: CodingActivationAttemptV1,
+            receipt: Mapping[str, object],
+        ) -> None:
+            if type(observed) is not CodingActivationAttemptV2:
+                raise CodingResumeRecoveryRequired(
+                    "input.effect_owner_set_unsupported"
+                )
+            if owners:
+                require_coding_resume_plugin_effect_settlement(
+                    observed,
+                    receipt,
+                    state_root=prepare_coding_product_approval_state_root(
+                        plugin_state_root
+                    ),
+                    clock=self.clock_ms,
+                )
+            else:
+                _require_no_capability_plugin_effects(
+                    observed,
+                    receipt,
+                    expected_set_id=plan.composition_comparison.candidate_set_id,
+                )
+
+        created_at = self.now()
+        if not isinstance(created_at, datetime) or created_at.tzinfo is None:
+            raise TypeError("Embedded Resume clock must be timezone-aware")
+        try:
+            return await self.runtime.prepare_resume_continuation(
+                session_file=session_file,
+                plan=plan,
+                current_owner_inputs=plan.owner_inputs,
+                attempt=attempt,
+                input_record_id=f"resume-record:{self.id_factory()}",
+                text=action.text,
+                images=(
+                    list(
+                        agent_image_parts_from_prompt_attachments(
+                            action.attachments
+                        )
+                        or ()
+                    )
+                    or None
+                ),
+                created_at=created_at,
+                require_current_admission=admit,
+                require_current_epoch_settlement=settle,
+                services=self.services,
+                model=self.model,
+                no_tools=self.no_tools,
+                approval_resolver=approval_owner,
+                tool_policy_evaluator=self.policy_evaluator,
+                observe_input_identity=observe_input_identity,
+            )
+        except BaseException:
+            approval_owner.release_confirmation(confirmation)
+            raise
+
+
+__all__ = ["EmbeddedResumeInputCoordinator"]

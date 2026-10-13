@@ -3178,3 +3178,23 @@ Focused original-journal and v2 continuation validation passed **14 tests in
 `--skip-host-runtime`; Ruff and scoped mypy passed. The default Embedded
 coordinator has not yet invoked this adapter, and Worker C5 settlement remains
 a separate native obligation, so writable Resume is still unavailable.
+
+#### Embedded first-input owner coordinator
+
+The Embedded Root now has a production coordinator for the first input shown
+over Resume history. It promotes the configured foreground Plan, formally
+selects the Product epoch through the retained application owner, obtains an
+exact confirmation from the original Root approval owner, rechecks the current
+execution profile and Policy, and submits one v2 intent through the existing
+single-input continuation. Capability Plugin participation is frozen before the
+Writer and reconciled through the audited native journal adapter; an exact
+no-participant receipt is required for minimal or Tools-disabled activation.
+
+The coordinator does not create Plugin approval storage while it freezes owner
+obligations. A failed continuation releases its retained confirmation. Worker
+selection remains fail-closed until C5 readiness, no-start and cleanup
+settlement is implemented. Default CLI history routing and Hosted adoption are
+still pending. The Embedded coordinator, history screen, v2 continuation and
+native Plugin journal suites passed **28 tests in 55.96 seconds** outside the
+managed sandbox with `not live` and `--skip-host-runtime`; Ruff, scoped mypy
+and `git diff --check` passed.
