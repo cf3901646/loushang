@@ -4,18 +4,20 @@
 
 - ID: ARD-007
 - Scope: Loushang
-- Authority: normative — candidate cross-scope contract
-- Design status: proposed
+- Authority: normative — accepted cross-scope contract
+- Design status: accepted
 - Implementation status: not-started
 - Owner: Loushang architecture, Coding, Harness Approval and native Worker owners
 - Tracking: [Issue #696](https://github.com/zhnt/loushang/issues/696)
 - Source review: `e072a764`, 2026-10-12
-- Proposal revision: `2026-10-12-r2`
+- Accepted contract revision: `2026-10-12-r2`
+- Acceptance review: `bf29c05d`, 2026-10-13
+- Accepting role: Codex implementation agent, delegated Loushang common-parent responsibilities for Issue #696
 
-This proposal refines the external-effect prerequisite in
+This decision refines the external-effect prerequisite in
 [ARD-005](../accepted/ARD-005-resume-continuation-commit.md). It does not replace
-its accepted message commit or writer capability contract. No acceptance or
-implemented settlement protocol is claimed here.
+its accepted message commit or writer capability contract. Design acceptance
+establishes the contract below; no implemented settlement protocol is claimed here.
 
 ## Question And Current Evidence
 
@@ -62,7 +64,7 @@ prove complete enumeration, and regenerating IDs after different preparation
 orders cannot establish which effects started. IDs may aid lookup, but their
 original owner must persist the exact causal association.
 
-## Recommended Contract
+## Decision And Contract
 
 ### Parent context and native registration
 
@@ -111,7 +113,7 @@ it does not retrospectively prove completion or absence.
 An explicit disposition must identify the exact native operations, uncovered
 obligations, current authorized actor and policy revision. Its original domain
 owner persists it; Coding and UI cannot manufacture it from a checkbox or a
-receipt. This proposal does not introduce a generic force-retry flag.
+receipt. This decision does not introduce a generic force-retry flag.
 
 ### Coordination and lifetime
 
@@ -134,7 +136,7 @@ unavailability, but formal reconciliation belongs to admitted activation.
 Embedded and Hosted use this same coordinator; Hosted additionally retains
 its existing subject/controller generation and single Product binding.
 
-## Proposed Wire And Owner Protocol
+## Accepted Wire And Owner Protocol
 
 ### Complete participation before evaluation
 
@@ -145,7 +147,7 @@ entries containing `ownerId`, `scopeDigest`, `contractDigest`, `phases` and
 `effectClasses`. Enforce an 8 KiB total encoded intent budget and strict field,
 identifier and digest validation. v1 remains historical input; it cannot prove
 this v2 participation contract. The final message keeps the accepted single-record commit and RuntimeBinding
-semantics. Its proposed `coding.runtimeBindingV2` metadata carries the v1 fields
+semantics. Its `coding.runtimeBindingV2` metadata carries the v1 fields
 plus `intentDigest`, with `version: 2`; it has an 8 KiB encoded budget. v1 stays
 readable. A decoder must not synthesize the new digest from a current graph or
 accept a v1 Binding as proof of v2 participation. Unknown metadata stays inert
@@ -266,7 +268,7 @@ settlement/disposition data. Keep legacy decoding explicit. A legacy use
 without a complete parent association cannot supply verified absence or full
 settlement for a Resume intent.
 
-The proposed writer capabilities are `coding.resume-continuation/v2`,
+The required writer capabilities are `coding.resume-continuation/v2`,
 `harness.plugin-execution.resume-context/v1`,
 `harness.plugin-activation.resume-context/v1` and
 `harness.worker-activation.resume-context/v1`. They identify protocol support,
@@ -290,32 +292,32 @@ The first shipping build for each capability must be identified by released
 artifact version and source revision after implementation. `0.1.0` alone does
 not distinguish these builds. Release remains gated on installed N/N+1 history
 reader/export, new writer, supported rollback refusal and explicit unsupported
-old-writer evidence. Neither this proposal nor a source checkout supplies those
+old-writer evidence. Neither this decision nor a source checkout supplies those
 release results.
 
 ## Review And Acceptance Gates
 
 The implementation-session source review identified a specific unresolved
-association between Transcript intent and original native operations. This is
-an author review, not independent review or acceptance. The proposal belongs
-to the common parent of Coding and Harness. The project governance profile
+association between Transcript intent and original native operations. The original
+proposal review was an author review; the acceptance record below identifies
+the later delegated technical review. No independent reviewer is claimed. The
+decision belongs to the common parent of Coding and Harness. The project governance profile
 requires owner acceptance of this exact contract; it creates no blanket
 customer-confirmation requirement.
 
-The four initial design findings are addressed by the exact proposal above:
+The four initial design findings are addressed by the accepted contract above:
 
-| Finding | Proposed closure | Implementation/release evidence still required |
+| Finding | Accepted design closure | Implementation/release evidence still required |
 | --- | --- | --- |
 | Complete owner enumeration before Definition evaluation | Frozen v2 owner obligations from verified inert Product closure; enrollment and sealed native membership | Unknown/omitted domain, late discovery and unsealed/partial enumeration fault tests |
 | Atomic registration and native outcome meaning | Context co-committed with consume/reserve; separate Definition, component and Worker obligations | Actual native CAS/ack-loss, late-start fence and cross-boot containment tests |
 | Original disposition authority | Existing domain issuer required; missing issuer remains unknown; no UI/Coding force retry | Authorization/revocation and incomplete compensation tests with original owners |
 | Version, old writer and retention | Named capabilities; explicit v1/v2 decoding; unsupported unfenced old writers; original-owner retention | Installed artifact identities and complete/partial-tail downgrade behavior |
 
-This closes the proposal's missing design detail, not its implementation or
-release findings. The selected scope and native writer compatibility policy
-still require common-parent owner acceptance. The accepted ARD-005 v1 paths
-remain effective until an explicit accepted extension and implemented gates
-replace the affected clauses. No runtime activation is enabled by this review.
+These mechanisms resolve the design findings for revision `2026-10-12-r2`.
+Their implementation and release evidence remain outstanding. ARD-005 v1
+paths remain effective until the accepted extension has implemented gates for
+the affected clauses. No runtime activation is enabled by this review.
 
 Required implementation evidence includes crash/ack loss at intent,
 registration, start, completion, input commit and publication; recovery under
@@ -326,6 +328,50 @@ reader and writer artifacts. Tests must use actual owner journals and retain
 unknown results. A green callback fixture is not acceptance evidence.
 
 The [accepted governance profile](../../governance-profile.md#target-acceptance-in-loushang)
-and [decision catalog](../README.md) govern promotion. Until acceptance and
-implementation evidence, default writable Resume and the full Issue remain
+and [decision catalog](../README.md) govern promotion. Until implementation and
+release evidence, default writable Resume and the full Issue remain
 incomplete. Independent quality gates and existing accepted work may continue.
+
+## Acceptance Record
+
+- Date: 2026-10-13.
+- Reviewed revision: proposal `2026-10-12-r2` in task source `bf29c05d`.
+- Reviewer and accepting role: Codex implementation agent acting under the
+  already authorized Issue #696 task and the project's delegated Loushang
+  common-parent responsibilities. This is an agent technical review and
+  acceptance; it does not attribute approval to the user or a separate reviewer.
+- Method consulted: local archmethod `master`,
+  `0f9bd3ff51afabeaaf76cc38dff1ceb279b7d37e`.
+- Accepted scope: parent context, frozen owner obligations, atomic native
+  registration, fenced sealed enumeration, original-owner outcomes and
+  disposition, retention, and the named intent/Binding/native writer versions
+  defined above. ARD-005's v1 input commit remains effective; this decision
+  accepts its explicit v2 extension without enabling a writable route.
+- Rationale: exact causal association belongs with native consume/reserve and
+  outcome authority. A new graph receipt cannot reconcile prior effects, and
+  another Coding ledger would introduce a second effect authority. Frozen
+  participation and fenced seals distinguish complete enumeration from a
+  partial or empty observation.
+
+The review checked the original Definition evaluator's consume/transition and
+failed-start paths, the component Host's start/commit/failure transitions,
+Approval journal replay and scope checks, Worker C5's native attempt keys,
+CAS, effect-start and versioned cleanup validation, Product composition's
+original journals/custodians, and the Coding continuation's committed-intent,
+current-admission and settlement callback boundaries. The four design findings
+above have explicit mechanisms; no unresolved design finding requires waiting
+for a human approver. Implementations lacking those mechanisms still refuse
+writable activation.
+
+Implementation findings remain: native journals have no parent enrollment or
+sealed membership; Worker attempts have no Resume context; the continuation
+still takes an injected settlement callback; released artifact and old-writer
+capability coverage are incomplete. The new pre-repair semantic-validation
+regressions are useful journal evidence, not evidence for native v2 recovery.
+All required fault tests and release gates above remain mandatory.
+
+Reconsider this decision if an original owner cannot atomically register its
+native use, cannot fence late starters and enumerate retained operations, or
+cannot retain evidence across its custody lifetime. Changes to the accepted
+scope or supported downgrade contract require a revised decision; they must
+not be inferred from passing fixture callbacks or a new implementation version.

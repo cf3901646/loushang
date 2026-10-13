@@ -1610,13 +1610,31 @@ class PluginExecutionDecisionJournal:
     def _load_and_replay_unlocked(self) -> _ReplayedExecutionJournal:
         if not self._path.exists():
             return _empty_replay()
+        replayed = _empty_replay()
+
+        def validate_snapshot(
+            snapshot: JsonlSnapshot[None, _PluginExecutionJournalEventV1],
+        ) -> None:
+            nonlocal replayed
+            replayed = _replay(snapshot.records, path=self._path)
+            if any(
+                decision.scope_kind != self._scope_kind
+                or decision.scope_id != self._scope_id
+                for decision in replayed.decisions.values()
+            ):
+                raise self._error(
+                    "Plugin execution journal contains another durable scope",
+                    code="plugin_execution_journal_corrupt",
+                )
+
         try:
-            snapshot: JsonlSnapshot[None, _PluginExecutionJournalEventV1] = load_jsonl(
+            load_jsonl(
                 self._path,
                 record_codec=_PLUGIN_EXECUTION_EVENT_CODEC,
                 format_profile=SORTED_UNICODE_JSONL_FORMAT,
                 durability=self._unlocked_durability,
                 load_policy=self._load_policy,
+                validate_snapshot=validate_snapshot,
             )
         except JournalFileError as exc:
             code = (
@@ -1632,16 +1650,6 @@ class PluginExecutionDecisionJournal:
                 "Plugin execution journal cannot be decoded",
                 code=code,
             ) from exc
-        replayed = _replay(snapshot.records, path=self._path)
-        if any(
-            decision.scope_kind != self._scope_kind
-            or decision.scope_id != self._scope_id
-            for decision in replayed.decisions.values()
-        ):
-            raise self._error(
-                "Plugin execution journal contains another durable scope",
-                code="plugin_execution_journal_corrupt",
-            )
         return replayed
 
     def _error(self, message: str, *, code: str) -> PluginExecutionJournalError:

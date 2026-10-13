@@ -1590,30 +1590,36 @@ class PluginActivationDecisionJournal:
     def _load_and_replay_unlocked(self) -> _ReplayedActivationJournal:
         if not self._path.exists():
             return _empty_replay()
-        try:
-            snapshot: JsonlSnapshot[None, _PluginActivationJournalEventV1] = (
-                load_jsonl(
-                    self._path,
-                    record_codec=_ACTIVATION_EVENT_CODEC,
-                    format_profile=SORTED_UNICODE_JSONL_FORMAT,
-                    durability=self._unlocked_durability,
-                    load_policy=self._load_policy,
+        replayed = _empty_replay()
+
+        def validate_snapshot(
+            snapshot: JsonlSnapshot[None, _PluginActivationJournalEventV1],
+        ) -> None:
+            nonlocal replayed
+            replayed = _replay(snapshot.records, path=self._path)
+            if any(
+                decision.scope_id != self._scope_id
+                for decision in replayed.decisions.values()
+            ):
+                raise self._error(
+                    "Plugin activation journal contains another durable scope",
+                    code="plugin_activation_journal_corrupt",
                 )
+
+        try:
+            load_jsonl(
+                self._path,
+                record_codec=_ACTIVATION_EVENT_CODEC,
+                format_profile=SORTED_UNICODE_JSONL_FORMAT,
+                durability=self._unlocked_durability,
+                load_policy=self._load_policy,
+                validate_snapshot=validate_snapshot,
             )
         except JournalFileError as exc:
             raise self._error(
                 "Plugin activation journal cannot be decoded",
                 code="plugin_activation_journal_corrupt",
             ) from exc
-        replayed = _replay(snapshot.records, path=self._path)
-        if any(
-            decision.scope_id != self._scope_id
-            for decision in replayed.decisions.values()
-        ):
-            raise self._error(
-                "Plugin activation journal contains another durable scope",
-                code="plugin_activation_journal_corrupt",
-            )
         return replayed
 
     def _error(self, message: str, *, code: str) -> PluginActivationJournalError:

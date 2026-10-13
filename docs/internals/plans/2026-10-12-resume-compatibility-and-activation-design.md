@@ -2302,7 +2302,7 @@ Worker attempts retain original identities but do not record a complete parent
 Resume intent association. New COMMITTED component-use checks cannot settle
 older started attempts. A deterministic use-ID sequence alone would not prove
 complete enumeration after changed preparation order. The candidate
-[ARD-007](../architecture/decisions/proposed/ARD-007-resume-native-effect-correlation.md)
+[ARD-007](../architecture/decisions/accepted/ARD-007-resume-native-effect-correlation.md)
 records the original-journal association option, outcome semantics, version and
 retention requirements, and four specific review findings. It is proposed,
 not accepted Target or implemented recovery. Existing accepted ARDs and their
@@ -2620,3 +2620,50 @@ read/export claim cannot be used to promise that an unfenced old binary refuses
 new records. These Transcript probes do not cover ARD-007's native owner
 journals, cross-boot effect correlation or default writable activation. No
 existing accepted contract, default activation or release policy was changed.
+
+
+#### Resumed implementation: native journal validation and ARD-007 acceptance
+
+On 2026-10-13 the existing clean `resume-696` worktree was resumed from
+`bf29c05d`. Fetch confirmed remote main remained `f7d18114`; local main
+`99886830` was already merged. No replacement worktree was required.
+
+ARD-007 revision `2026-10-12-r2` is now accepted through the delegated technical
+review recorded in the decision. The earlier waiting-for-acceptance paragraph
+above describes the prior state. There is no outstanding personal-approval
+requirement for this internal contract. Native protocol implementation and
+release verification remain required before default writable Resume.
+
+A native Approval regression exposed destructive repair before semantic replay:
+a codec-valid noncontiguous event chain or a journal opened under another owner
+scope could lose its incomplete tail even though the owner refused the snapshot
+or consume operation. Complete unknown event versions were already rejected by
+the codec before repair. The original journal loader now accepts an optional
+owner snapshot validator, invoked under the same lock before repair. Execution
+and component Approval owners replay and validate their scope there, reusing
+the resulting replay instead of rereading or adding another effect ledger.
+
+The regression covers snapshot and consume refusals for semantic chain errors,
+wrong scope and unknown complete event versions, checking exact source bytes.
+A shared-journal test checks lock ownership, failure byte preservation and
+successful repair after validation. The two Approval modules and shared
+journal tests passed together: **118 passed in 2.65 seconds**, outside the
+managed sandbox with `not live` and `--skip-host-runtime`.
+
+This preserves existing v1 recovery when the complete prefix is valid. It does
+not add native Resume enrollment, parent registration, sealed enumeration,
+v2 event writers, new admission grants or a production settlement adapter.
+Unfenced installed old writers remain unsupported; this source fix cannot
+retroactively change their repair behavior.
+
+
+The change-specific check plan (`--base bf29c05d`) selected documentation,
+architecture dependency facts, Harness and host-runtime follow-up. Documentation
+checks (9), dependency-fact regeneration checks, Harness Ruff and Harness mypy
+(771 source files) passed. The initial Make test invocation was interrupted
+because its legacy entry did not attach the safety selectors; no result from
+that interrupted run is claimed. The remaining full Harness test invocation
+uses `PYTEST_ADDOPTS='-m "not live" --skip-host-runtime' make test-harness`
+outside the sandbox and was still running at this checkpoint. It is not yet a
+passing full-suite result. Host-runtime follow-up remains excluded from this
+non-live run and is still required for the final delivery scope.
