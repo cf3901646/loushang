@@ -160,6 +160,9 @@ from loushang.coding.package_product_worker_opt_in import (
 from loushang.coding.package_product_worker_opt_in_owner import (
     CodingWorkerProductOptInError,
 )
+from loushang.coding.package_product_worker_ordinary_error import (
+    CodingWorkerOrdinaryBootstrapError,
+)
 from loushang.coding.package_product_worker_policy import (
     CodingWorkerOptInV1,
     coding_worker_session_scope_id,
@@ -451,11 +454,17 @@ def _grant_windows_world_read(path: Path) -> None:
                 assert not acl._kernel.LocalFree(descriptor)
 
 
-def _compile_windows_query_worker(build_root: Path, executable: Path) -> None:
-    """Build the same bounded protocol fixture used by the Linux Product gate."""
+def _compile_windows_query_worker(
+    build_root: Path, executable: Path, *, author_example: bool = False
+) -> None:
+    """Build the bounded protocol fixture or the public author example."""
 
     source = (
-        Path(__file__).resolve().parents[1] / "fixtures/worker/contained_query_worker.c"
+        Path(__file__).resolve().parents[2]
+        / "examples/plugins/coding_worker_query/query_worker.c"
+        if author_example
+        else Path(__file__).resolve().parents[1]
+        / "fixtures/worker/contained_query_worker.c"
     )
     compiler = shutil.which("cl")
     arguments = (
@@ -3238,6 +3247,7 @@ def test_windows_worker_public_coding_session_reaches_selected_product(
         "windows-amd64",
         owner_id="coding",
         ordinary_entry_kind="direct",
+        author_example=True,
     )
 
 
@@ -3252,6 +3262,7 @@ def test_windows_worker_hosted_first_session_reaches_selected_product(
         "windows-amd64",
         owner_id="coding",
         ordinary_entry_kind="hosted",
+        author_example=True,
     )
 
 
@@ -3267,6 +3278,7 @@ def test_windows_worker_public_session_disable_fences_pinned_product(
         owner_id="coding",
         ordinary_entry_kind="direct",
         disable_while_ordinary_session_open=True,
+        author_example=True,
     )
 
 
@@ -3289,6 +3301,7 @@ module = runpy.run_path(sys.argv[1])
 module["_exercise_windows_worker_wheel_transaction"](
     Path(sys.argv[2]), "windows-amd64", owner_id="coding",
     ordinary_entry_kind=sys.argv[3], crash_after_ordinary_query=True,
+    author_example=True,
 )
 """
     child_stdout = tmp_path / f"public-{entry_kind}-crash.stdout"
@@ -3730,7 +3743,7 @@ def test_windows_worker_clean_retirement_allows_fresh_product_launch(
         pytest.skip("native Windows backend review is required")
     tmp_path = windows_worker_test_root
     _exercise_windows_worker_wheel_transaction(
-        tmp_path, "windows-amd64", clean_rotation=True
+        tmp_path, "windows-amd64", clean_rotation=True, author_example=True
     )
     _assert_windows_worker_retired_history_allows_gc(
         tmp_path, partial_attempt_id="b" * 32
@@ -4274,7 +4287,10 @@ def test_windows_worker_native_normal_exit_c5_cleanup_evidence(
     if os.name != "nt" or os.environ.get("LOUSHANG_WINDOWS_BACKEND_REVIEW") != "1":
         pytest.skip("native Windows backend review is required")
     _exercise_windows_worker_wheel_transaction(
-        windows_worker_test_root, "windows-amd64", c5_cleanup_review=True
+        windows_worker_test_root,
+        "windows-amd64",
+        c5_cleanup_review=True,
+        author_example=True,
     )
 
 
@@ -4290,6 +4306,7 @@ def _exercise_windows_worker_wheel_transaction(
     owner_id: str = "coding",
     ordinary_entry_kind: str | None = None,
     disable_while_ordinary_session_open: bool = False,
+    author_example: bool = False,
 ) -> None:
     """Only the explicit Product opener reads the inert Worker candidate."""
 
@@ -4353,7 +4370,9 @@ def _exercise_windows_worker_wheel_transaction(
             build_root = tmp_path / "worker-native-build"
             build_root.mkdir()
             compiled = tmp_path / "compiled-worker.exe"
-            _compile_windows_query_worker(build_root, compiled)
+            _compile_windows_query_worker(
+                build_root, compiled, author_example=author_example
+            )
             executable = bytearray(compiled.read_bytes())
         payload = build_coding_local_worker_candidate_wheel(
             plugin_id="workerprobe",
@@ -7941,10 +7960,15 @@ def test_windows_coding_product_gc_reclaims_only_removed_builtin_root(
 def test_windows_worker_update_gc_keeps_selected_revision(
     windows_worker_test_root: Path,
 ) -> None:
-    if os.name != "nt":
-        pytest.skip("native Windows Product path is required")
+    if os.name != "nt" or os.environ.get("LOUSHANG_WINDOWS_BACKEND_REVIEW") != "1":
+        pytest.skip("native Windows backend review is required")
+    _exercise_windows_worker_wheel_transaction(
+        windows_worker_test_root,
+        "windows-amd64",
+        ordinary_entry_kind="hosted",
+        author_example=True,
+    )
     workspace = windows_worker_test_root / "workspace"
-    workspace.mkdir()
     lifecycle = resolve_ephemeral_coding_plugin_lifecycle_state_layout(
         windows_worker_test_root / "session-state", cwd=workspace
     )
@@ -7952,59 +7976,66 @@ def test_windows_worker_update_gc_keeps_selected_revision(
         global_settings_path=windows_worker_test_root / "global" / "settings.json",
         project_settings_path=workspace / ".loushang" / "settings.json",
     )
-    cutover = prepare_and_cutover_coding_package_store_from_legacy(
+    authored = subprocess.run(
+        (
+            sys.executable,
+            "-m",
+            "loushang.plugin",
+            "build-coding-worker-candidate",
+            str(windows_worker_test_root / "worker-query.exe"),
+            "--plugin-id",
+            "workerprobe",
+            "--version",
+            "2",
+            "--contribution-id",
+            "query-provider",
+            "--owner-id",
+            "coding",
+            "--native-platform",
+            "windows-amd64",
+            "--output-dir",
+            str(windows_worker_test_root),
+        ),
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    assert authored.returncode == 0, authored.stderr
+    author_result = json.loads(authored.stdout)
+    source = Path(author_result["artifactPath"])
+    assert author_result["sha256"] == sha256(source.read_bytes()).hexdigest()
+    assert author_result["productAdmission"] == "not_checked"
+    assert author_result["productUse"] == "not_checked"
+    updated_record = admit_coding_external_worker_wheel(
         lifecycle,
-        settings,
-        namespace_id="d" * 64,
-        minimum_runtime_version="2.0.0",
-        minimum_runtime_protocol_epoch=2,
-    )
-    assert cutover.attempt.result.disposition == "fenced"
-    assert bootstrap_coding_builtin_product_plugins(
-        lifecycle,
-        settings,
-        workspace=workspace,
-        runtime_version="2.0.0",
-        runtime_protocol_epoch=2,
-        windows_candidate=True,
-    )
-    executable = bytearray(512)
-    executable[:2] = b"MZ"
-    pack_into("<I", executable, 0x3C, 0x80)
-    executable[0x80:0x84] = b"PE\x00\x00"
-    pack_into("<H", executable, 0x84, 0x8664)
-    pack_into("<H", executable, 0x86, 1)
-    pack_into("<H", executable, 0x94, 112)
-    pack_into("<H", executable, 0x96, 0x0002)
-    pack_into("<H", executable, 0x98, 0x20B)
-    admission = PackageProductLocalWorkerAdmissionV1(
-        contribution_id="query-provider",
-        owner_id="coding",
-        native_platform="windows-amd64",
-    )
-    records = []
-    for version_number in ("1", "2"):
-        payload = build_coding_local_worker_candidate_wheel(
-            plugin_id="workerprobe",
-            version=version_number,
+        source=source,
+        admission=PackageProductLocalWorkerAdmissionV1(
             contribution_id="query-provider",
             owner_id="coding",
             native_platform="windows-amd64",
-            wheel_tag="py3-none-win_amd64",
-            executable=bytes(executable),
-        )
-        source = (
-            windows_worker_test_root
-            / f"workerprobe-{version_number}-py3-none-win_amd64.whl"
-        )
-        source.write_bytes(payload)
-        records.append(
-            admit_coding_external_worker_wheel(
-                lifecycle,
-                source=source,
-                admission=admission,
-            )
-        )
+        ),
+    )
+
+    def retire_closed_attempts(product: WindowsLocalWheelProductSessionOwner) -> None:
+        attempts = inspect_coding_windows_product_worker_recovery_inventory(product)
+        for attempt in attempts:
+            if attempt.payload_directory_identity is None:
+                continue
+            review = execute_windows_worker_candidate_command(
+                product,
+                Namespace(action="review-normal", attempt_id=attempt.attempt_id),
+            )["normalStageReview"]
+            result = execute_windows_worker_candidate_command(
+                product,
+                Namespace(
+                    action="retire-normal",
+                    attempt_id=attempt.attempt_id,
+                    review_id=review["reviewId"],
+                ),
+            )["normalStageRetirement"]
+            assert result["reviewId"] == review["reviewId"]
+
     owner = open_coding_fenced_product_application_owner(
         lifecycle,
         workspace=workspace,
@@ -8017,10 +8048,7 @@ def test_windows_worker_update_gc_keeps_selected_revision(
     try:
         product = owner.runtime_owner.product_owner
         assert isinstance(product, WindowsLocalWheelProductSessionOwner)
-        sources = tuple(
-            record.policy_binding(product.policy.source_root).source_identity
-            for record in records
-        )
+        retire_closed_attempts(product)
         factory = product.factory_for_session(
             session_id="windows-worker-update",
             cwd=workspace,
@@ -8034,34 +8062,15 @@ def test_windows_worker_update_gc_keeps_selected_revision(
             )
         )
         runtime.activate()
-        installed = runtime.lifecycle.route(
-            PackageProductLifecycleIntentV1(
-                operation_id="windows-worker-install-v1",
-                action="install",
-                source=sources[0],
-                scope="project",
-            ),
-            entrypoint="cli",
-        )
-        assert installed.handled and installed.record is not None
-        assert installed.record.lifecycle == "installed"
         snapshot = product.desired_state.snapshot()
         installation = next(
             item
             for item in snapshot.installations
             if item.installation_key.plugin_id == "workerprobe"
         )
-        enabled = execute_windows_worker_candidate_command(
-            product,
-            Namespace(
-                action="candidate-enable",
-                plugin_id="workerprobe",
-                artifact_digest=records[0].artifact_digest,
-                operation_id="windows-worker-enable-v1",
-                expected_inventory_revision=snapshot.inventory_revision,
-            ),
-        )
-        assert enabled["candidateManagementOperation"]["status"] == "terminal"
+        original_revision = installation.selection.package_revision
+        assert original_revision is not None
+        original_digest = original_revision.package_content_digest
         old_selected = runtime.capture_selected_plugin_manifest_for(
             "workerprobe",
             max_files=16,
@@ -8071,8 +8080,8 @@ def test_windows_worker_update_gc_keeps_selected_revision(
         update_args = Namespace(
             action="candidate-update",
             plugin_id="workerprobe",
-            from_artifact_digest=records[0].artifact_digest,
-            artifact_digest=records[1].artifact_digest,
+            from_artifact_digest=original_digest,
+            artifact_digest=updated_record.artifact_digest,
             operation_id="windows-worker-update-v2",
             expected_inventory_revision=product.desired_state.snapshot().inventory_revision,
         )
@@ -8081,17 +8090,32 @@ def test_windows_worker_update_gc_keeps_selected_revision(
                 product,
                 Namespace(**{**vars(update_args), "expected_inventory_revision": 0}),
             )
+        with pytest.raises(ValueError, match="opt-in must be revoked"):
+            execute_windows_worker_candidate_command(product, update_args)
+        opt_in_owner = CodingWindowsWorkerProductOptInOwner(product)
+        allowed = opt_in_owner.current("workerprobe")
+        assert allowed is not None and allowed.action == "allow"
+        revoked = opt_in_owner.revoke(
+            plugin_id="workerprobe",
+            operation_id="windows-worker-update-revoke-v1",
+            expected_generation=allowed.generation,
+        )
         updated = execute_windows_worker_candidate_command(product, update_args)
         assert updated["candidateUpdate"]["alreadyUpdated"] is False
         replayed = execute_windows_worker_candidate_command(product, update_args)
         assert replayed["candidateUpdate"]["alreadyUpdated"] is True
+        with pytest.raises(PackageProductRuntimeReadError):
+            runtime.assert_selected_plugin_manifest_current(old_selected)
         current = product.desired_state.snapshot().installation(
             installation.installation_key
         )
         assert current is not None
         current_revision = current.selection.package_revision
         assert current_revision is not None and current_revision.plugin_version == "2"
-        gc = open_windows_local_wheel_product_root_gc(product)
+        gc = open_windows_local_wheel_product_root_gc(
+            product,
+            worker_history_authority=CodingWindowsWorkerGcHistoryAuthority(product),
+        )
         with pytest.raises(PackageProductGcExecutionError) as active:
             gc.prepare()
         assert active.value.code == "plugin_package_gc_runtime_active"
@@ -8109,12 +8133,15 @@ def test_windows_worker_update_gc_keeps_selected_revision(
     )
     try:
         product = reopened.runtime_owner.product_owner
-        gc = open_windows_local_wheel_product_root_gc(product)
+        gc = open_windows_local_wheel_product_root_gc(
+            product,
+            worker_history_authority=CodingWindowsWorkerGcHistoryAuthority(product),
+        )
         gc.prepare()
         (old_candidate,) = tuple(
             item
             for item in gc.candidates()
-            if item.package_revision.plugin_id == "workerprobe"
+            if item.package_revision == original_revision
         )
         assert old_candidate.package_revision.plugin_version == "1"
         executor = gc.application.executor
@@ -8164,10 +8191,68 @@ def test_windows_worker_update_gc_keeps_selected_revision(
             fresh.assert_selected_plugin_manifest_current(selected)
         finally:
             fresh.dispose_runtime()
+
+        async def query_updated_session() -> None:
+            manager = await SessionManager.new_with_composition(
+                session_dir=windows_worker_test_root / "updated-worker-transcripts",
+                cwd=str(workspace),
+                composition_set="coding-standard",
+                defer_materialization=False,
+            )
+            session = create_agent_session(
+                session_manager=manager,
+                model=Model(
+                    id="windows-authored-worker-query",
+                    name="Windows Authored Worker Query",
+                    provider="test",
+                    endpoint="test",
+                    capabilities=Capabilities(
+                        input=("text",), context_window=128_000, max_tokens=4_096
+                    ),
+                ),
+                services=create_services(settings_manager=settings),
+                worker_candidate_plugin_id="workerprobe",
+            )
+            try:
+                await session.prepare_model_call_runtime()
+                assert await session.query_worker_symbol("review") == "Review symbol"
+            finally:
+                await session.dispose()
+
+        with (
+            patch(
+                "loushang.coding.package_product_runtime.version", return_value="2.0.0"
+            ),
+            patch(
+                "loushang.coding.package_product_runtime.resolve_coding_plugin_lifecycle_state_layout",
+                return_value=lifecycle,
+            ),
+        ):
+            with pytest.raises(
+                CodingWorkerOrdinaryBootstrapError,
+                match="coding_worker_ordinary_candidate_not_allowed",
+            ):
+                asyncio.run(query_updated_session())
+            opt_in_owner = CodingWindowsWorkerProductOptInOwner(product)
+            allowed_v2 = opt_in_owner.allow(
+                plugin_id="workerprobe",
+                operation_id="windows-worker-update-allow-v2",
+                expected_generation=revoked.generation,
+                require_worker=False,
+            )
+            assert allowed_v2.opt_in is not None
+            assert allowed_v2.opt_in.artifact_digest == updated_record.artifact_digest
+            asyncio.run(query_updated_session())
+        retire_closed_attempts(product)
+        opt_in_owner.revoke(
+            plugin_id="workerprobe",
+            operation_id="windows-worker-update-revoke-v2",
+            expected_generation=allowed_v2.generation,
+        )
         disable_args = Namespace(
             action="candidate-disable",
             plugin_id="workerprobe",
-            artifact_digest=records[1].artifact_digest,
+            artifact_digest=updated_record.artifact_digest,
             operation_id="windows-worker-disable-v2",
             expected_inventory_revision=product.desired_state.snapshot().inventory_revision,
         )
@@ -8176,7 +8261,7 @@ def test_windows_worker_update_gc_keeps_selected_revision(
         remove_args = Namespace(
             action="candidate-remove",
             plugin_id="workerprobe",
-            artifact_digest=records[1].artifact_digest,
+            artifact_digest=updated_record.artifact_digest,
             operation_id="windows-worker-remove-v2",
             expected_inventory_revision=product.desired_state.snapshot().inventory_revision,
         )
@@ -8184,6 +8269,24 @@ def test_windows_worker_update_gc_keeps_selected_revision(
         assert removed["candidateManagementOperation"]["status"] == "terminal"
         assert removed["packageRetirement"] == "not_checked"
         assert execute_windows_worker_candidate_command(product, remove_args) == removed
+        gc.prepare()
+        (new_candidate,) = tuple(
+            item
+            for item in gc.candidates()
+            if item.package_revision == current_revision
+        )
+        assert new_candidate.package_revision == current_revision
+        final_result = gc.execute(
+            PackageProductRootGcCommandV1(
+                candidate=new_candidate,
+                reservation_operation_id="windows-worker-gc-reserve-v2",
+                reservation_idempotency_key="windows-worker-gc-reserve-v2",
+                attempt_operation_id="windows-worker-gc-delete-v2",
+                attempt_idempotency_key="windows-worker-gc-delete-v2",
+            )
+        )
+        assert final_result.disposition == "succeeded"
+        assert not roots[0].exists() and not roots[1].exists()
     finally:
         reopened.close()
 

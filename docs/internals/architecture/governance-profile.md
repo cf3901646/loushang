@@ -140,13 +140,43 @@ whole-record rejections. The scope index groups records by state.
 Cross-scope records belong to the nearest common parent; the
 [cross-scope catalog](decisions/README.md) owns top-level decisions.
 
-The scope owner records acceptance; changes crossing scopes retain the affected
-owners and common-parent review requirements. A small decision may use one
-owner's recorded self-review and acceptance. For a customer-facing adoption,
-the project's participation policy must identify the contracts requiring
-customer confirmation, the confirming role and the recorded revision/scope.
-This profile creates no blanket customer-confirmation requirement for Loushang
-internal decisions. Review completion never substitutes for acceptance.
+### Acceptance Responsibilities And User Confirmation
+
+Within an already authorized task, the implementation agent must complete the
+required technical review, record internal design acceptance and continue the
+work, unless an applicable policy explicitly reserves that decision for another
+accepting role. The agent acts within the task's delegated project
+responsibilities. Record the actual agent/reviewer, the responsible scope,
+the reviewed revision, the decision and the evidence; do not attribute an
+acceptance statement to the user unless the user made it.
+
+For cross-scope decisions, review the affected owners' contracts and record the
+decision at their nearest common parent. Owner and common-parent terminology
+identifies responsibility and the location of the record. It does not itself
+require a separate human approver or another user confirmation. Review depth
+follows the change's risk; material findings must be resolved before acceptance.
+Separate reviewers are required only when an applicable policy says so.
+
+Wait for user confirmation only when:
+
+- an applicable project policy or task instruction explicitly requires user
+  confirmation for this contract, revision and scope; or
+- the proposed decision requires authorization beyond the existing task,
+  including an action requiring approval under the governing permissions.
+
+When confirmation is required, cite the specific instruction or policy, name
+the decision and confirming role, and present the concrete reviewed proposal.
+Existing task authorization and user decisions remain effective; request a new
+decision only for a material change outside their accepted scope. Continue
+independent authorized work while that decision is pending.
+
+An ARD's `proposed` status, a new protocol/schema version, a cross-scope change
+or incomplete acceptance paperwork is not by itself a reason to wait for the
+user or mark a task blocked. Complete the internal decision record as part of
+the authorized work. Unresolved technical findings still prevent design
+acceptance; passing review alone does not create an acceptance record. Design
+acceptance does not establish implementation completion, runtime activation
+permission or delivery acceptance.
 
 Existing root-level or scope-local ARDs and unresolved material keep their
 canonical paths and recorded status until migrated. The cross-scope catalog

@@ -581,6 +581,17 @@ class ScopeTests(unittest.TestCase):
             {"direct": 1, "recovery_hosted": 2, "recovery_direct": 2, "lifecycle": 12},
         )
         self.assertEqual(set(matrix), set(groups))
+
+        update_gc = pre_b + "test_windows_worker_update_gc_keeps_selected_revision"
+        gc_job = workflow.split("  windows-worker-gc-normal:", 1)[1].split(
+            "\n  windows-worker-gc-crash:", 1
+        )[0]
+        shell_job = workflow.split("  windows-shell:", 1)[1].split(
+            "\n  summary:", 1
+        )[0]
+        self.assertIn(update_gc, gc_job)
+        self.assertIn('LOUSHANG_WINDOWS_BACKEND_REVIEW: "1"', gc_job)
+        self.assertIn("--deselect=" + update_gc, shell_job)
         self.assertEqual(sum(matrix.values()), 17)
         self.assertEqual(worker_sessions.PR_CASES, {
             "query": (pre_b + "test_windows_worker_hosted_first_session_reaches_selected_product",)

@@ -9,6 +9,9 @@ This directory contains implementation plans for documentation and development w
 
 ## Current Plans
 
+- [Third-party Worker Admission Delivery](./2026-10-13-third-party-worker-admission-goal2.md)
+  tracks Goal 2's explicit native author/operator flow, real Session lifecycle
+  evidence and remaining delivery gates.
 - [Resume Compatibility And Background Activation Design](./2026-10-12-resume-compatibility-and-activation-design.md)
   proposes ordinary resume under the current environment, background pure
   planning, reuse of existing prepare owners, and shared Embedded/LMUX

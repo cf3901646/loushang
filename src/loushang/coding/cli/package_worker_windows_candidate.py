@@ -96,6 +96,14 @@ _SAFE_ERROR_CODE = re.compile(r"[a-z][a-z0-9_]{1,127}\Z")
 _MAX_WHEEL_BYTES = 64 * 1024 * 1024
 
 
+class WindowsWorkerCandidateCommandError(ValueError):
+    """A classified operator refusal; no state transition is implied."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="loushang-worker-windows-candidate")
     parser.add_argument("--workspace", required=True, help="fenced Coding workspace")
@@ -688,7 +696,10 @@ def _change_candidate(
             or selected.selection.desired_state
             not in {"installed_enabled", "installed_disabled"}
         ):
-            raise ValueError("Windows Worker candidate update selection changed")
+            raise WindowsWorkerCandidateCommandError(
+                "windows_worker_candidate_update_selection_stale",
+                "Windows Worker candidate update selection changed",
+            )
         _require_candidate_revoked(product, args.plugin_id)
         session_id = f"worker-candidate-update-{secrets.token_hex(16)}"
         factory = product.factory_for_session(
@@ -823,7 +834,10 @@ def _require_candidate_revoked(
 ) -> None:
     decision = CodingWindowsWorkerProductOptInOwner(product).current(plugin_id)
     if decision is not None and decision.action == "allow":
-        raise ValueError("Windows Worker candidate opt-in must be revoked")
+        raise WindowsWorkerCandidateCommandError(
+            "windows_worker_candidate_opt_in_revoke_required",
+            "Windows Worker candidate opt-in must be revoked",
+        )
 
 
 def _read_wheel(path: Path) -> bytes:

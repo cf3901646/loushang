@@ -375,6 +375,7 @@ jobs:
           tests/coding/test_package_private_data_windows_backup_expiry_owner.py
           tests/coding/test_hosted_session.py::test_hosted_default_refuses_effective_old_settings_before_plugin_writes
           --deselect=tests/coding/test_package_windows_pre_b_snapshot.py::test_windows_worker_clean_retirement_allows_fresh_product_launch
+          --deselect=tests/coding/test_package_windows_pre_b_snapshot.py::test_windows_worker_update_gc_keeps_selected_revision
           --deselect=tests/coding/test_package_windows_pre_b_snapshot.py::test_windows_worker_host_crash_reopens_and_retires_product_attempt
           --deselect=tests/coding/test_package_windows_pre_b_snapshot.py::test_windows_worker_public_coding_session_reaches_selected_product
           --deselect=tests/coding/test_package_windows_pre_b_snapshot.py::test_windows_worker_hosted_first_session_reaches_selected_product

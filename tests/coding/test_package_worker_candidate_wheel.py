@@ -453,6 +453,10 @@ _H6_WHEEL_BUILDER = (
 _QUERY_WORKER_SOURCE = (
     Path(__file__).resolve().parents[1] / "fixtures/worker/contained_query_worker.c"
 )
+_AUTHOR_WORKER_SOURCE = (
+    Path(__file__).resolve().parents[2]
+    / "examples/plugins/coding_worker_query/query_worker.c"
+)
 
 
 def _run_independent_product_worker_crash(
@@ -556,6 +560,10 @@ def _run_independent_ordinary_worker_turn_crash(
 
     from loushang.coding import package_product_runtime
 
+    def report_stage(stage: str) -> None:
+        print(f"independent-worker-crash:{stage}", flush=True)
+
+    report_stage("imports-ready")
     workspace = Path(workspace_path)
     package_product_runtime.version = lambda _distribution: "2.0.0"
     os.environ["LOUSHANG_HOME"] = str(workspace.parent / "private-home")
@@ -572,6 +580,7 @@ def _run_independent_ordinary_worker_turn_crash(
         )
     )
     assert manager.get_session_file() is not None
+    report_stage("transcript-ready")
     model = Model(
         id="independent-ordinary-worker",
         name="Independent Ordinary Worker",
@@ -597,6 +606,7 @@ def _run_independent_ordinary_worker_turn_crash(
                 )
                 for message in context.messages
             )
+            report_stage("tool-result-observed" if answered else "tool-result-missing")
             os._exit(0 if answered else 92)
         message = AssistantMessage(
             endpoint="test",
@@ -637,9 +647,11 @@ def _run_independent_ordinary_worker_turn_crash(
         worker_candidate_plugin_id=_PLUGIN,
         worker_query_turn_tool=True,
     )
+    report_stage("session-created")
 
     async def run_turn() -> None:
         await session.prepare_model_call_runtime()
+        report_stage("runtime-prepared")
         await session.prompt("Query review before independent crash")
 
     asyncio.run(run_turn())
@@ -694,25 +706,31 @@ def _verify_independent_ordinary_worker_turn_crash_recovery(
     recovered = None
     boot_patch = None
     try:
-        child = subprocess.run(
-            (
-                sys.executable,
-                "-c",
+        try:
+            child = subprocess.run(
                 (
-                    "from tests.coding.test_package_worker_candidate_wheel "
-                    "import _run_independent_ordinary_worker_turn_crash; "
-                    "import sys; "
-                    "_run_independent_ordinary_worker_turn_crash(*sys.argv[1:])"
+                    sys.executable,
+                    "-c",
+                    (
+                        "from tests.coding.test_package_worker_candidate_wheel "
+                        "import _run_independent_ordinary_worker_turn_crash; "
+                        "import sys; "
+                        "_run_independent_ordinary_worker_turn_crash(*sys.argv[1:])"
+                    ),
+                    str(workspace),
+                    str(transcript_dir),
                 ),
-                str(workspace),
-                str(transcript_dir),
-            ),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=90,
-            check=False,
-        )
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=90,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise AssertionError(
+                "Independent ordinary Worker crash exceeded its 90 second deadline; "
+                f"stdout={error.stdout!r}; stderr={error.stderr!r}"
+            ) from error
         assert child.returncode == 0, child.stderr
         transcripts = tuple(transcript_dir.glob("*.jsonl"))
         assert len(transcripts) == 1
@@ -1063,10 +1081,12 @@ def test_worker_source_catalog_pins_explicit_product_candidate(
     hosted_entry_only: bool = False,
     disable_while_direct_session_open: bool = False,
     update_while_direct_session_open: bool = False,
+    author_with_public_cli: bool = False,
 ) -> None:
     assert not disable_while_direct_session_open or direct_entry_only
     assert not update_while_direct_session_open or direct_entry_only
     assert not (disable_while_direct_session_open and update_while_direct_session_open)
+    assert not author_with_public_cli or native_mode == "installed-protocol"
     installed_native = native_mode in {
         "installed-release",
         "repaired-release",
@@ -1124,7 +1144,11 @@ def test_worker_source_catalog_pins_explicit_product_candidate(
                 "-Werror",
                 "-o",
                 str(executable),
-                str(_QUERY_WORKER_SOURCE),
+                str(
+                    _AUTHOR_WORKER_SOURCE
+                    if author_with_public_cli
+                    else _QUERY_WORKER_SOURCE
+                ),
             ),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -1133,18 +1157,53 @@ def test_worker_source_catalog_pins_explicit_product_candidate(
             check=False,
         )
         assert built_worker.returncode == 0, built_worker.stderr
-        payload = build_coding_local_worker_candidate_wheel(
-            plugin_id=_PLUGIN,
-            version=_VERSION,
-            contribution_id=_CONTRIBUTION,
-            owner_id=_OWNER,
-            native_platform="linux-x86_64",
-            wheel_tag=_TAG,
-            executable=executable.read_bytes(),
-        )
+        if author_with_public_cli:
+            authored = subprocess.run(
+                (
+                    sys.executable,
+                    "-m",
+                    "loushang.plugin",
+                    "build-coding-worker-candidate",
+                    str(executable),
+                    "--plugin-id",
+                    _PLUGIN,
+                    "--version",
+                    _VERSION,
+                    "--contribution-id",
+                    _CONTRIBUTION,
+                    "--owner-id",
+                    _OWNER,
+                    "--native-platform",
+                    "linux-x86_64",
+                    "--output-dir",
+                    str(tmp_path),
+                ),
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                timeout=30,
+                check=False,
+            )
+            assert authored.returncode == 0, authored.stderr
+            author_result = json.loads(authored.stdout)
+            assert author_result["artifactPath"] == str(source)
+            assert author_result["productAdmission"] == "not_checked"
+            assert author_result["productUse"] == "not_checked"
+            payload = source.read_bytes()
+            assert author_result["sha256"] == sha256(payload).hexdigest()
+        else:
+            payload = build_coding_local_worker_candidate_wheel(
+                plugin_id=_PLUGIN,
+                version=_VERSION,
+                contribution_id=_CONTRIBUTION,
+                owner_id=_OWNER,
+                native_platform="linux-x86_64",
+                wheel_tag=_TAG,
+                executable=executable.read_bytes(),
+            )
     else:
         payload = _worker_wheel(linger=has_native_release)
-    source.write_bytes(payload)
+    if not author_with_public_cli:
+        source.write_bytes(payload)
     admission = PackageProductLocalWorkerAdmissionV1(
         contribution_id=_CONTRIBUTION,
         owner_id=_OWNER,
@@ -6102,6 +6161,7 @@ def test_explicit_worker_public_coding_session_reaches_installed_product(
         "installed-protocol",
         monkeypatch,
         direct_entry_only=True,
+        author_with_public_cli=True,
     )
     workspace = tmp_path / "workspace"
     lifecycle = resolve_coding_plugin_lifecycle_state_layout(workspace)
@@ -7478,6 +7538,7 @@ def test_explicit_worker_public_coding_session_disable_fences_pinned_product(
         monkeypatch,
         direct_entry_only=True,
         disable_while_direct_session_open=True,
+        author_with_public_cli=True,
     )
 
 
@@ -7492,6 +7553,7 @@ def test_explicit_worker_public_coding_session_update_fences_pinned_product(
         monkeypatch,
         direct_entry_only=True,
         update_while_direct_session_open=True,
+        author_with_public_cli=True,
     )
 
 
@@ -7505,6 +7567,7 @@ def test_explicit_worker_hosted_first_session_reaches_installed_product(
         "installed-protocol",
         monkeypatch,
         hosted_entry_only=True,
+        author_with_public_cli=True,
     )
 
 
