@@ -355,7 +355,21 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --extra dev
 
-      - name: Run installed Product ordinary Session gate
+      - name: Run hosted Worker Session PR smoke
+        if: ${{ fromJSON(inputs.plan).hosting_worker_pr_smoke }}
+        env:
+          PYTHONUNBUFFERED: "1"
+          PYTEST_ADDOPTS: >-
+            --junitxml=.artifacts/worker-p4-ordinary.xml
+        run: |
+          mkdir -p .artifacts
+          uv run --extra dev python scripts/dev/run_pytest.py \
+            tests/coding/test_package_worker_candidate_wheel.py::test_explicit_worker_hosted_first_session_reaches_installed_product \
+            -m 'not live' \
+            -vv
+
+      - name: Run installed Product ordinary Session full gate
+        if: ${{ !fromJSON(inputs.plan).hosting_worker_pr_smoke }}
         env:
           PYTHONUNBUFFERED: "1"
           PYTEST_ADDOPTS: >-
@@ -370,7 +384,15 @@ jobs:
             -m 'not live' \
             -vv
 
-      - name: Reject empty, skipped, or failing P4 ordinary report
+      - name: Reject empty, skipped, or failing P4 PR smoke report
+        if: ${{ fromJSON(inputs.plan).hosting_worker_pr_smoke }}
+        run: >-
+          uv run python scripts/dev/verify_pytest_xml.py
+          .artifacts/worker-p4-ordinary.xml
+          --require-tests-count 1
+
+      - name: Reject empty, skipped, or failing P4 full report
+        if: ${{ !fromJSON(inputs.plan).hosting_worker_pr_smoke }}
         run: >-
           uv run python scripts/dev/verify_pytest_xml.py
           .artifacts/worker-p4-ordinary.xml

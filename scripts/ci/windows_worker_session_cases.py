@@ -36,18 +36,6 @@ PR_CASES = {
     "query": (
         PRE_B + "test_windows_worker_hosted_first_session_reaches_selected_product",
     ),
-    "crash": (
-        PRE_B + "test_windows_worker_public_session_crash_reopens_and_retires_product_attempt[hosted]",
-    ),
-    "gc_normal": (
-        PRE_B + "test_windows_worker_clean_retirement_allows_fresh_product_launch",
-    ),
-    "fence": (
-        PRE_B + "test_windows_worker_public_session_disable_fences_pinned_product",
-    ),
-    "c5": (
-        PRE_B + "test_windows_worker_native_normal_exit_c5_cleanup_evidence",
-    ),
 }
 
 

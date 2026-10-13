@@ -85,42 +85,6 @@ jobs:
           path: .artifacts/windows-worker-pr-query.xml
           if-no-files-found: warn
 
-  windows-worker-pr-extra:
-    if: ${{ fromJSON(inputs.plan).windows.worker_pr_extra }}
-    runs-on: windows-2022
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - uses: astral-sh/setup-uv@v5
-      - run: uv sync --locked --extra dev
-      - run: uv run python -c "from pathlib import Path; Path('.artifacts').mkdir(exist_ok=True)"
-      - name: Build current Loushang Wheel
-        run: |
-          uv build --sdist --quiet --out-dir .artifacts/windows-backend-source
-          $source = @(Get-ChildItem .artifacts/windows-backend-source/*.tar.gz)
-          if ($source.Count -ne 1) { throw 'Expected one Loushang source archive' }
-          uv build $source[0].FullName --wheel --quiet --out-dir .artifacts/windows-backend-wheel
-      - name: Verify changed native Worker lifecycle
-        env:
-          LOUSHANG_WINDOWS_BACKEND_REVIEW: "1"
-          PYTEST_ADDOPTS: --tb=short --junitxml=.artifacts/windows-worker-pr-extra.xml
-        run: >-
-          uv run python scripts/ci/windows_worker_session_cases.py
-          ${{ fromJSON(inputs.plan).windows.worker_pr_scenario }}
-      - name: Verify one passing lifecycle case
-        run: >-
-          uv run python scripts/dev/verify_pytest_xml.py
-          .artifacts/windows-worker-pr-extra.xml --require-tests-count 1
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: windows-worker-pr-extra-pytest-report
-          path: .artifacts/windows-worker-pr-extra.xml
-          if-no-files-found: warn
-
   windows-worker:
     if: ${{ fromJSON(inputs.plan).windows.worker_full }}
     runs-on: windows-2022
@@ -549,7 +513,7 @@ jobs:
   selected-checks:
     name: Selected checks
     if: always()
-    needs: [windows-pr-smoke, windows-worker-pr-query, windows-worker-pr-extra, windows-shell, windows-worker, windows-worker-session, windows-worker-gc-normal, windows-worker-gc-crash]
+    needs: [windows-pr-smoke, windows-worker-pr-query, windows-shell, windows-worker, windows-worker-session, windows-worker-gc-normal, windows-worker-gc-crash]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -560,4 +524,4 @@ jobs:
         run: >-
           python scripts/ci/verify_gate.py
           --section windows
-          --jobs '{"windows-pr-smoke":"smoke","windows-worker-pr-query":"worker_pr","windows-worker-pr-extra":"worker_pr_extra","windows-shell":"shell_full","windows-worker":"worker_full","windows-worker-session":"worker_full","windows-worker-gc-normal":"worker_full","windows-worker-gc-crash":"worker_full"}'
+          --jobs '{"windows-pr-smoke":"smoke","windows-worker-pr-query":"worker_pr","windows-shell":"shell_full","windows-worker":"worker_full","windows-worker-session":"worker_full","windows-worker-gc-normal":"worker_full","windows-worker-gc-crash":"worker_full"}'

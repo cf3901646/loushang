@@ -366,8 +366,8 @@ class ScopeTests(unittest.TestCase):
                 )
                 self.assertFalse(any(
                     plan["windows"][scope]
-                    for scope in ("smoke", "worker_pr", "worker_pr_extra",
-                                  "worker_full", "shell_full", "appservice_full", "tui_full")
+                    for scope in ("smoke", "worker_pr", "worker_full",
+                                  "shell_full", "appservice_full", "tui_full")
                 ))
 
     def test_pr_routing_exception_keeps_build_and_other_ci_files_full(self):
@@ -392,6 +392,7 @@ class ScopeTests(unittest.TestCase):
             {"docs"},
         )
         self.assertFalse(any(plan["workflows"].values()))
+        self.assertFalse(plan["host_runtime_smoke"])
 
     def test_pr_code_paths_run_resume_turn_e2e_on_all_platforms(self):
         for path in (
@@ -434,7 +435,7 @@ class ScopeTests(unittest.TestCase):
         compact = selector.workflow_plan(plan)
 
         self.assertEqual(
-            set(compact), {"version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "windows"}
+            set(compact), {"version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "windows", "host_runtime_smoke", "hosting_worker_pr_smoke"}
         )
         self.assertEqual(compact["paths"], plan["paths"])
         self.assertEqual(compact["checks"], plan["checks"])
@@ -443,6 +444,8 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(compact["unit_jobs"], plan["unit_jobs"])
         self.assertEqual(compact["windows"], plan["windows"])
         self.assertEqual(compact["e2e"], plan["e2e"])
+        self.assertEqual(compact["host_runtime_smoke"], plan["host_runtime_smoke"])
+        self.assertEqual(compact["hosting_worker_pr_smoke"], plan["hosting_worker_pr_smoke"])
         self.assertNotIn("reasons", compact)
 
     def test_pr_windows_smoke_and_full_domains(self):
@@ -456,8 +459,7 @@ class ScopeTests(unittest.TestCase):
             ["src/loushang/coding/package_product_worker_windows_crash_cleanup_review.py"],
             pr_fast=True,
         )["windows"]
-        self.assertTrue(worker["smoke"] and worker["worker_pr"] and worker["worker_pr_extra"])
-        self.assertEqual(worker["worker_pr_scenario"], "crash")
+        self.assertTrue(worker["smoke"] and worker["worker_pr"])
         self.assertFalse(worker["worker_full"])
         self.assertFalse(worker["shell_full"])
 
@@ -484,31 +486,28 @@ class ScopeTests(unittest.TestCase):
             [".github/workflows/windows-shell-compatibility.yml"], pr_fast=True
         )["windows"]
         self.assertTrue(gate["smoke"] and gate["worker_full"] and gate["shell_full"])
-        self.assertFalse(gate["worker_pr"] or gate["worker_pr_extra"])
-        self.assertEqual(gate["worker_pr_scenario"], "none")
+        self.assertFalse(gate["worker_pr"])
         full = selector.select([], full=True, pr_fast=True)["windows"]
         self.assertFalse(full["smoke"])
-        self.assertFalse(full["worker_pr"] or full["worker_pr_extra"])
-        self.assertEqual(full["worker_pr_scenario"], "none")
+        self.assertFalse(full["worker_pr"])
         self.assertTrue(all(full[name] for name in ("worker_full", "shell_full", "appservice_full", "tui_full")))
 
-    def test_pr_windows_worker_risk_selects_one_extra_or_full_matrix(self):
-        cases = (
-            ("src/loushang/coding/package_product_worker_windows_launch_intent.py", "none"),
-            ("src/loushang/coding/package_product_worker_native_release.py", "none"),
-            ("src/loushang/coding/package_product_worker_policy.py", "fence"),
-            ("src/loushang/plugin/_coding_local_worker_wheel.py", "none"),
-            ("src/loushang/coding/package_product_worker_windows_gc_history.py", "gc_normal"),
-            ("src/loushang/coding/package_product_worker_windows_opt_in_owner.py", "fence"),
-            ("src/loushang/coding/package_product_worker_windows_activation_state_journal.py", "c5"),
+    def test_pr_windows_worker_risk_selects_one_native_query(self):
+        paths = (
+            "src/loushang/coding/package_product_worker_windows_launch_intent.py",
+            "src/loushang/coding/package_product_worker_native_release.py",
+            "src/loushang/coding/package_product_worker_policy.py",
+            "src/loushang/plugin/_coding_local_worker_wheel.py",
+            "src/loushang/coding/package_product_worker_windows_gc_history.py",
+            "src/loushang/coding/package_product_worker_windows_opt_in_owner.py",
+            "src/loushang/coding/package_product_worker_windows_activation_state_journal.py",
+            "src/loushang/coding/package_product_worker_windows_crash_cleanup_review.py",
         )
-        for path, scenario in cases:
+        for path in paths:
             with self.subTest(path=path):
                 windows = selector.select([path], pr_fast=True)["windows"]
                 self.assertTrue(windows["worker_pr"])
                 self.assertFalse(windows["worker_full"])
-                self.assertEqual(windows["worker_pr_scenario"], scenario)
-                self.assertEqual(windows["worker_pr_extra"], scenario != "none")
         mixed = selector.select(
             [
                 "src/loushang/coding/package_product_worker_windows_crash_cleanup_review.py",
@@ -516,14 +515,33 @@ class ScopeTests(unittest.TestCase):
             ],
             pr_fast=True,
         )["windows"]
-        self.assertTrue(mixed["worker_full"])
-        self.assertFalse(mixed["worker_pr"] or mixed["worker_pr_extra"])
+        self.assertTrue(mixed["worker_pr"])
+        self.assertFalse(mixed["worker_full"])
         combined_name = selector.select(
             ["src/loushang/coding/package_product_worker_windows_crash_stage_retirement.py"],
             pr_fast=True,
         )["windows"]
-        self.assertTrue(combined_name["worker_full"])
-        self.assertFalse(combined_name["worker_pr"] or combined_name["worker_pr_extra"])
+        self.assertTrue(combined_name["worker_pr"])
+        self.assertFalse(combined_name["worker_full"])
+
+    def test_pr_worker_platform_boundaries_keep_full_native_matrix(self):
+        for path in (
+            "src/loushang/hosting/_win32_process.py",
+            "src/loushang/hosting/_windows_process.py",
+            "tests/hosting/test_win32_process.py",
+            "tests/hosting/test_windows_process.py",
+            "tests/coding/test_package_windows_pre_b_snapshot.py",
+            "tests/coding/test_package_product_worker_windows_activation_state.py",
+            "tests/coding/test_package_worker_windows_candidate_cli.py",
+            "tests/harness/worker/test_coding_product_worker_windows_canary.py",
+            "tests/coding/test_package_worker_candidate_wheel.py",
+            "tests/coding/test_package_worker_native_cli.py",
+            "tests/coding/test_plugin_author_smoke.py",
+        ):
+            with self.subTest(path=path):
+                windows = selector.select([path], pr_fast=True)["windows"]
+                self.assertTrue(windows["worker_full"])
+                self.assertFalse(windows["worker_pr"])
 
     def test_windows_worker_session_shards_preserve_every_native_case(self):
         pre_b = worker_sessions.PRE_B
@@ -550,6 +568,8 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(len(actual), len(set(actual)))
         self.assertEqual(set(actual), expected)
         workflow = (ROOT / ".github/workflows/windows-shell-compatibility.yml").read_text()
+        self.assertNotIn("  windows-worker-pr-extra:", workflow)
+        self.assertIn("  windows-worker-gc-crash:", workflow)
         matrix = dict(
             (group, int(count))
             for group, count in re.findall(
@@ -562,10 +582,9 @@ class ScopeTests(unittest.TestCase):
         )
         self.assertEqual(set(matrix), set(groups))
         self.assertEqual(sum(matrix.values()), 17)
-        self.assertEqual(
-            {name: len(cases) for name, cases in worker_sessions.PR_CASES.items()},
-            {"query": 1, "crash": 1, "gc_normal": 1, "fence": 1, "c5": 1},
-        )
+        self.assertEqual(worker_sessions.PR_CASES, {
+            "query": (pre_b + "test_windows_worker_hosted_first_session_reaches_selected_product",)
+        })
         smoke = workflow.split("  windows-pr-smoke:", 1)[1].split("  windows-worker:", 1)[0]
         self.assertNotIn("test_windows_worker_hosted_first_session_reaches_selected_product", smoke)
         self.assertIn("--require-tests-count 2", smoke)
@@ -899,6 +918,60 @@ class SuiteSelectionTests(unittest.TestCase):
             "host_runtime", plan=selector.select([], full=True)
         )
         self.assertIn("tests", command)
+
+    def test_pr_host_runtime_uses_two_explicit_smokes_and_checks_xml(self):
+        plan = selector.select(
+            ["src/loushang/coding/package_product_worker_windows_crash_cleanup_review.py"],
+            pr_fast=True,
+        )
+        self.assertTrue(plan["host_runtime_smoke"])
+        (command,) = runner.commands("host_runtime", plan=plan)
+        self.assertEqual(
+            [item for item in command if "::test_" in item],
+            [runner.HOST_RUNTIME_PR_CASES["coding"],
+             runner.HOST_RUNTIME_PR_CASES["hosting"]],
+        )
+        self.assertIn("--junitxml=.artifacts/host-runtime-pr-smoke.xml", command)
+        workflow = (ROOT / ".github/workflows/host-runtime-quality.yml").read_text()
+        self.assertIn("verify_pytest_xml.py", workflow)
+        self.assertIn("fromJSON(inputs.plan).host_runtime_smoke", workflow)
+
+    def test_pr_host_runtime_keeps_full_native_test_and_gate_coverage(self):
+        for path in (
+            "tests/coding/test_package_worker_candidate_wheel.py",
+            "tests/hosting/test_posix_release_launcher.py",
+            "tests/harness/transcript/test_file_store_process_exit.py",
+            ".github/workflows/host-runtime-quality.yml",
+        ):
+            with self.subTest(path=path):
+                plan = selector.select([path], pr_fast=True)
+                self.assertFalse(plan["host_runtime_smoke"])
+        plan = selector.select([], full=True, pr_fast=True)
+        self.assertFalse(plan["host_runtime_smoke"])
+
+    def test_pr_linux_worker_uses_one_hosted_session_without_losing_full_suite(self):
+        worker = selector.select(
+            ["src/loushang/coding/package_product_worker_windows_crash_cleanup_review.py"],
+            pr_fast=True,
+        )
+        self.assertTrue(worker["hosting_worker_pr_smoke"])
+        for path in (
+            "src/loushang/hosting/_posix_process.py",
+            "tests/hosting/test_posix_release_launcher.py",
+            "tests/coding/test_package_worker_candidate_wheel.py",
+            ".github/workflows/hosting-quality.yml",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(selector.select([path], pr_fast=True)["hosting_worker_pr_smoke"])
+        self.assertFalse(selector.select([], full=True, pr_fast=True)["hosting_worker_pr_smoke"])
+        workflow = (ROOT / ".github/workflows/hosting-quality.yml").read_text()
+        self.assertIn("fromJSON(inputs.plan).hosting_worker_pr_smoke", workflow)
+        self.assertIn("--require-tests-count 1", workflow)
+        self.assertIn("--require-tests-count 4", workflow)
+        self.assertIn(
+            "test_explicit_worker_hosted_first_session_reaches_installed_product",
+            workflow,
+        )
 
     def test_coding_host_runtime_does_not_collect_harness_tests(self):
         plan = selector.select(["src/loushang/coding/lsp/client.py"])
