@@ -7553,6 +7553,7 @@ def test_explicit_worker_hosted_first_session_reaches_installed_product(
         "installed-protocol",
         monkeypatch,
         hosted_entry_only=True,
+        author_with_public_cli=True,
     )
 
 

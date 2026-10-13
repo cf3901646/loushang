@@ -61,14 +61,11 @@ from loushang.harness.resources.packages.plugin_lifecycle.store_settlements impo
 )
 from loushang.harness.session import AgentProductSession
 from loushang.harness.worker.contracts import WorkerLaunchIdentityV1
-from loushang.plugin._coding_local_worker_wheel import (
-    build_coding_local_worker_candidate_wheel,
-)
-from tests.coding.test_package_worker_candidate_wheel import _QUERY_WORKER_SOURCE
 
 _ROOT = Path(__file__).resolve().parents[2]
 _BUILDER = _ROOT / "scripts/dev/build_posix_containment_launcher.py"
 _WHEEL_BUILDER = _ROOT / "scripts/dev/build_posix_native_release_wheel.py"
+_AUTHOR_WORKER_SOURCE = _ROOT / "examples/plugins/coding_worker_query/query_worker.c"
 
 
 def test_worker_candidate_status_marks_changed_desired_revision_stale() -> None:
@@ -554,7 +551,7 @@ def test_worker_native_operator_cli_reopens_product_across_processes(
             "-Werror",
             "-o",
             str(executable),
-            str(_QUERY_WORKER_SOURCE),
+            str(_AUTHOR_WORKER_SOURCE),
         ),
         stdin=subprocess.DEVNULL,
         capture_output=True,
@@ -562,17 +559,42 @@ def test_worker_native_operator_cli_reopens_product_across_processes(
         check=False,
     )
     assert built_worker.returncode == 0, built_worker.stderr
-    source.write_bytes(
-        build_coding_local_worker_candidate_wheel(
-            plugin_id="reviewworker",
-            version="1",
-            contribution_id="query-provider",
-            owner_id="coding",
-            native_platform="linux-x86_64",
-            wheel_tag="py3-none-manylinux_2_17_x86_64",
-            executable=executable.read_bytes(),
+
+    def build_author_wheel(version_number: str) -> Path:
+        result = subprocess.run(
+            (
+                sys.executable,
+                "-m",
+                "loushang.plugin",
+                "build-coding-worker-candidate",
+                str(executable),
+                "--plugin-id",
+                "reviewworker",
+                "--version",
+                version_number,
+                "--contribution-id",
+                "query-provider",
+                "--owner-id",
+                "coding",
+                "--native-platform",
+                "linux-x86_64",
+                "--output-dir",
+                str(tmp_path),
+            ),
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            timeout=30,
+            check=False,
         )
-    )
+        assert result.returncode == 0, result.stderr
+        document = json.loads(result.stdout)
+        artifact = Path(document["artifactPath"])
+        assert document["sha256"] == sha256(artifact.read_bytes()).hexdigest()
+        assert document["productAdmission"] == "not_checked"
+        assert document["productUse"] == "not_checked"
+        return artifact
+
+    assert build_author_wheel("1") == source
     release = tmp_path / "release"
     built = subprocess.run(
         (sys.executable, str(_BUILDER), "--output-dir", str(release)),
@@ -1066,18 +1088,7 @@ def test_worker_native_operator_cli_reopens_product_across_processes(
         tuple(sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*")))
         == before_candidate_status
     )
-    update_source = tmp_path / "reviewworker-2-py3-none-manylinux_2_17_x86_64.whl"
-    update_source.write_bytes(
-        build_coding_local_worker_candidate_wheel(
-            plugin_id="reviewworker",
-            version="2",
-            contribution_id="query-provider",
-            owner_id="coding",
-            native_platform="linux-x86_64",
-            wheel_tag="py3-none-manylinux_2_17_x86_64",
-            executable=executable.read_bytes(),
-        )
-    )
+    update_source = build_author_wheel("2")
     captured_update, update_capture_output = run(
         "candidate-capture",
         "--wheel",

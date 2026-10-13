@@ -486,6 +486,60 @@ operation or exact update replay; `candidate-remove` still leaves Package
 retirement and GC to their separate Product commands. This remains an explicit
 candidate route and does not grant general Worker admission.
 
+Windows uses separate native-release subcommands. Review the trusted Loushang
+runtime Wheel, rather than the author's Worker Wheel, and retain the returned
+review ID and current approval generation:
+
+```text
+loushang-worker-windows-candidate --workspace PATH release-status
+loushang-worker-windows-candidate --workspace PATH release-review --wheel RELEASE_WHEEL
+loushang-worker-windows-candidate --workspace PATH release-approve \
+  --wheel RELEASE_WHEEL --review-id REVIEW_ID \
+  --operation-id approve-native-release-1 --expected-generation GENERATION
+loushang-worker-windows-candidate --workspace PATH release-install \
+  --wheel RELEASE_WHEEL --review-id REVIEW_ID
+loushang-worker-windows-candidate --workspace PATH candidate-allow \
+  --plugin-id reviewworker --operation-id allow-reviewworker-1 \
+  --expected-generation OPT_IN_GENERATION
+```
+
+Native approval and per-install opt-in have separate generations. Use
+`release-status` for the former and `candidate-status --plugin-id reviewworker`
+for the latter. Updating the Worker requires revoking its old per-install
+decision and granting the selected new digest a fresh decision; native release
+approval alone does not authorize that new Worker revision.
+
+After Session disposal, Windows retains an attempt's private stage until an
+offline operator verifies and retires it. All Product Sessions must be closed
+before these operations:
+
+```text
+loushang-worker-windows-candidate --workspace PATH list-attempts
+loushang-worker-windows-candidate --workspace PATH inspect --attempt-id ATTEMPT_ID
+loushang-worker-windows-candidate --workspace PATH review-normal --attempt-id ATTEMPT_ID
+loushang-worker-windows-candidate --workspace PATH retire-normal \
+  --attempt-id ATTEMPT_ID --review-id REVIEW_ID
+```
+
+The Windows command reports `windows_worker_candidate_opt_in_revoke_required`
+when an update or removal still has an allow decision. Revoke that decision
+using its current generation before retrying. An update with a changed selected
+revision or inventory CAS reports
+`windows_worker_candidate_update_selection_stale`; reread the Product inventory
+and verify both old and new digests. Neither refusal commits an update. Other
+unproved recovery conditions continue to report unavailable rather than claiming
+successful cleanup.
+
+A crashed attempt uses `recover-crash --attempt-id ATTEMPT_ID`; it must not be
+treated as a normal exit. If recovery refuses or native termination is
+unproved, retain the reported debt and keep Package GC closed. Once all retained
+attempts are settled and retired, use `loushang-package-gc --workspace PATH
+--worker-candidates prepare`, `list`, and `delete` as separate offline operations.
+On Windows these commands select the admitted Windows Product owner; the old
+`--windows-candidate` option remains accepted. A successful disable or remove
+does not establish native process termination, stage retirement, or Package
+deletion.
+
 On Linux, a Product operator can inspect or change per-install Worker opt-in
 with `loushang-worker-native --workspace PATH candidate-status`,
 `candidate-allow`, and `candidate-revoke`, each with `--plugin-id PLUGIN`.
