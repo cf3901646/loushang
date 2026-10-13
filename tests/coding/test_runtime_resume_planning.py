@@ -138,9 +138,18 @@ def test_configured_background_plan_starts_from_history_preview_inputs(
                 priority="foreground",
                 **_inputs(tmp_path, loader),
             )
-            assert root.current_resume_plan(
+            cached = root.current_resume_plan(
                 history, current_owner_inputs=fresh.owner_inputs
-            ) == fresh
+            )
+            assert cached == fresh
+            assert await root.prepare_configured_resume_plan(history) is cached
+            (tmp_path / "AGENTS.md").write_text("changed instructions")
+            changed = await root.prepare_configured_resume_plan(history)
+            assert changed != cached
+            assert changed.owner_inputs != cached.owner_inputs
+            assert root.current_resume_plan(
+                history, current_owner_inputs=changed.owner_inputs
+            ) is None
         finally:
             await root.dispose_session_runtime()
             await loader.aclose()

@@ -3128,3 +3128,19 @@ publication preflight variant then passed with **22 passed, 23 deselected in
 `--skip-host-runtime`. Ruff and `git diff --check` passed. This closes the
 previous `/skill` test failures but does not provide Embedded foreground Plan
 consumption, Hosted planning, performance evidence or a writable default route.
+
+#### Foreground promotion and fresh Plan input check
+
+The native Root now exposes one configured foreground Plan entry for the first
+continuation input. It submits through the same Resource owner with foreground
+priority, which promotes matching in-flight background work. A completed
+background Plan is returned only after fresh Resource, subject and Policy input
+observations match it; changed inputs invalidate the cached value and return the
+fresh foreground Plan. This comparison grants no Writer, approval, settlement
+or execution authority.
+
+All **10 Resume planning tests passed in 4.30 seconds** outside the managed
+sandbox with `not live` and `--skip-host-runtime`. Ruff, focused mypy and
+`git diff --check` passed. The entry is ready for the Embedded history input
+coordinator, but that production coordinator, Hosted invocation and latency
+evidence remain outstanding.

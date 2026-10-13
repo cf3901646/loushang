@@ -615,6 +615,43 @@ class AgentSessionRuntime(
         )
         return True
 
+    async def prepare_configured_resume_plan(
+        self, history: CodingResumeHistoryPreview,
+    ) -> SessionActivationPlanV1:
+        """Promote current planning work and return one freshly checked Plan.
+
+        A completed background Plan is reused only after the original Resource,
+        subject and Policy inputs have been observed again. If those inputs or
+        the selected history changed, the fresh foreground Plan is returned.
+        Matching in-flight Resource work is promoted by its original owner.
+        """
+
+        from ..resume_activation_plan import plan_coding_resume_async
+
+        configured = self._configured_resume_planning
+        if (
+            configured is None
+            or self._resume_history_closed
+            or self.current_session is not None
+        ):
+            raise RuntimeError("coding_resume_planning_unavailable")
+        fresh = await plan_coding_resume_async(
+            history,
+            configured.current_composition,
+            workspace_root=configured.workspace_root,
+            resource_loader=configured.resource_loader,
+            subject_digest=configured.subject_digest(),
+            policy_digest=configured.policy_digest(),
+            max_work_units=configured.max_work_units,
+            time_budget_seconds=configured.time_budget_seconds,
+            priority="foreground",
+        )
+        cached = self.current_resume_plan(
+            history,
+            current_owner_inputs=fresh.owner_inputs,
+        )
+        return fresh if cached is None else cached
+
     def current_resume_plan(
         self, history: CodingResumeHistoryPreview, *,
         current_owner_inputs: Sequence[ActivationOwnerInputRefV1],
