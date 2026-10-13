@@ -3392,3 +3392,80 @@ approval, Writer, publication and model path. They do not establish fixed
 latency thresholds, released-installation comparison, 1/2/8 concurrent
 history-first activations, 10k/100k writable continuations, Writer wait/fsync
 breakdown or cross-platform resource acceptance.
+
+#### Final installed upgrade, bounded scale and rollback evidence
+
+The final Product tree at `1b9bae91` was built as an isolated wheel and installed
+with its declared dependencies. Its SHA-256 was
+`73db3cd52ce85597f2ceeb585b804d0d13a4ffc20345a80a20355c12a1cc289c`.
+The immutable R2.1 design-merge baseline `e0878dfa` was independently built and
+installed; its wheel SHA-256 was
+`90f429bbab12fd3cf9114cb208cbe5e4c7353fa07f1fa4dd32a256414c2028bc`.
+Both artifacts currently carry package version `0.1.0`, and the repository has
+no published GitHub Release. This is commit-pinned installed-artifact evidence,
+not a claim about an absent public release.
+
+The baseline wheel created a 32-message legacy Session. The final installed
+wheel then entered the real history-first TUI, completed background planning,
+obtained confirmation, committed exactly one v2-bound input, invoked one
+synthetic model transport and rendered its reply under the original same
+Session identity. The instrumented sample reported:
+
+| Installed upgrade milestone | Result |
+| --- | ---: |
+| First completed terminal frame | 5.095 s |
+| Authoritative history ready | 5.732 s |
+| Input accepted after submit | 0.0145 s |
+| Foreground Plan ready after submit | 0.0221 s |
+| Resume Writer acquisition and revalidation | 0.120 s |
+| Input durable after submit | 14.605 s |
+| Model transport entered after submit | 17.257 s |
+| First rendered reply after submit | 17.486 s |
+| Process-wide fsync calls / elapsed | 339 / 0.350 s |
+| Unrelated full Model Input rebuilds | 0 |
+| Process CPU / peak RSS / open FDs at exit | 14.011 s / 128228 KiB / 6 |
+
+The fsync observation covers the complete installed Product process, including
+owner journals; it is not attributed only to the Transcript input commit. The
+Writer observation covers source verification, original Writer acquisition and
+restore. These are one-machine baselines. The accepted deterministic gates are
+the existing byte/work/concurrency limits and lifecycle assertions; no fixed
+millisecond service objective is introduced from one sample.
+
+The bounded recent-history benchmark then exercised 10,000 and 100,000-record
+fixtures at 1, 2 and 8 independent Roots, with three reads per case:
+
+| Records | Roots | First batch | Repeated median | Max bytes / Root | Max rows / Root | Traced Python peak |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10,000 | 1 | 11.21 ms | 6.65 ms | 131,072 | 52 | 517,985 B |
+| 10,000 | 2 | 16.15 ms | 15.30 ms | 131,072 | 52 | 951,726 B |
+| 10,000 | 8 | 74.76 ms | 57.24 ms | 131,072 | 52 | 2,076,160 B |
+| 100,000 | 1 | 7.78 ms | 7.62 ms | 131,072 | 52 | 517,745 B |
+| 100,000 | 2 | 15.24 ms | 13.34 ms | 131,072 | 52 | 985,072 B |
+| 100,000 | 8 | 63.80 ms | 61.68 ms | 131,072 | 52 | 2,237,242 B |
+
+Every source retained identical device/inode/size/mtime facts. The 10,000 and
+100,000-record files were 12,578,257 and 125,978,257 bytes. Fixture creation
+warmed the OS cache; the first column is a fresh-Root data read, not an OS-cold
+storage claim. A shared background Resource computation used one native scan;
+cancelling one waiter released its reference in 0.063 ms while the peer stayed
+pending and completed normally. Resource functional gates separately enforce
+the 8 MiB package-text budget, 64 KiB read checkpoints, work limits, priority,
+subject/Workspace/Policy isolation and last-reference cleanup.
+
+For rollback, the baseline reader loaded the resulting 35-record v2 transcript,
+retained the unknown `coding.runtimeBindingV2` metadata, exported and reloaded
+an equal JSONL stream, and left the 20,523-byte source unchanged at SHA-256
+`a61cd85997b4c0e6394daf43fc1ad5dd6803d055d9faca922b6926731f7c29a2`.
+Older writable rollback is intentionally unsupported because an old process
+cannot enforce protocols it predates. The minimum writable contract is
+`coding.resume-continuation/v2` plus the selected Definition, Component and
+Worker `resume-context/v1` capabilities. Operators may inspect/export with the
+baseline reader, but must upgrade forward before another write.
+
+The large matrix measures bounded unverified display. Final writable
+revalidation remains capped at 8 MiB of selected history, so an uncompact
+100,000-record Session is not claimed as writable. It stays readable through
+the bounded preview and fails closed for continuation until its selected
+history fits the verified range. This is the published support boundary rather
+than a silent full replay or an unmeasured large-session write claim.

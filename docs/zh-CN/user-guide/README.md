@@ -79,6 +79,16 @@ loushang --export
 
 交互式 `loushang --resume` 和无参数 `/resume` 会打开全屏、可搜索的 continuity 选择器。默认按键中，空格按需加载预览；安装多个 Provider 时 Ctrl+P 切换 Provider、Tab 切换 Domain；Ctrl+S 切换公共排序。`--continue` 恢复当前项目最新会话，`--resume <session-id-or-path>` 和 `/resume <session-id-or-path>` 直接恢复指定会话。非交互模式必须使用这些显式形式之一。
 
+Resume 会先显示兼容的已保存历史，再创建当前可写 Session。新输入始终使用当前安装的
+Policy、Approval、Sandbox、Plugin、Tool 和资源状态。大历史最初可能只提供有界、未经
+验证的尾部；在所选历史通过当前限制内的验证前，可写 continuation 保持 unavailable。
+
+可写 continuation 要求当前 Resume writer 协议：
+`coding.resume-continuation/v2`，以及被选择原 owner 的
+`resume-context/v1` capability。早于这些协议的 runtime 可以只读检查或导出 v2
+Transcript，但不支持在安装回滚后继续写入。应停止所有 Loushang 进程、保留
+Transcript，并升级回新版本后再继续。
+
 在交互界面中，内置 slash commands 包括 `/session`、`/resume`、`/fork`、`/clone`、`/branch`、`/tree`、`/tools`、`/extensions`、`/export`、`/compact`、`/reload` 和 `/quit`。`/fork` 把当前 chat 复制为一个新会话，`/clone` 是兼容别名，`/branch` 则打开 prompt 选择器，从较早的用户消息创建分支。
 
 ## 工具

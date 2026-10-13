@@ -380,6 +380,14 @@ def resume_milestones(
         "cpu_seconds": resources["cpu_seconds"],
         "peak_rss_kib": resources["peak_rss_kib"],
         "open_fds_at_exit": resources["open_fds"],
+        "fsync_calls": resources.get("fsync_calls"),
+        "fsync_seconds": resources.get("fsync_seconds"),
+        "resume_writer_acquire_seconds": resources.get(
+            "resume_writer_acquire_seconds"
+        ),
+        "full_model_input_rebuilds": resources.get(
+            "full_model_input_rebuilds"
+        ),
     }
 
 

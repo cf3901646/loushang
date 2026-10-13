@@ -63,6 +63,10 @@ def test_resume_milestones_require_unique_monotonic_durable_path():
         "cpu_seconds": 0.5,
         "peak_rss_kib": 123,
         "open_fds_at_exit": 7,
+        "fsync_calls": None,
+        "fsync_seconds": None,
+        "resume_writer_acquire_seconds": None,
+        "full_model_input_rebuilds": None,
     }
     with pytest.raises(RuntimeError, match="duplicate"):
         resume_milestones(
