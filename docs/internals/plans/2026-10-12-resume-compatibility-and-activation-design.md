@@ -1009,6 +1009,49 @@ Trusted participation computation, intent/Binding v2, writer capabilities,
 custody/segmented retention, domain reconciliation, Embedded/Hosted/background
 integration and final release/Issue delivery remain unfinished.
 
+### Explicit v2 intent, single-message Binding and path correspondence
+
+The task branch now contains explicit `coding.activation-attempt/v2` and
+`coding.runtimeBindingV2` codecs. The intent freezes at most eight sorted,
+unique original-owner obligations and their scope/contract digests within an
+8 KiB document. Its canonical digest is carried by the Binding alongside the
+unchanged common identity fields. A typed parent context derives only from an
+exact frozen obligation; it does not enroll an original owner or grant effects.
+
+The ordinary fixed-ID UserMessage record carries both Binding and resource
+metadata. Original FileConversationStore tests cover durable append, lost
+acknowledgement, identical retry and changed-intentDigest conflict refusal:
+readonly reload retains exactly one UserMessage and the original resource
+metadata. These are original storage tests, not evidence that the Product
+continuation or current actor admission is integrated.
+
+A separate selected-path projector supports exact v1/v2 correspondence,
+requires persisted v2 intent for v2 Binding and rejects a v1 Binding closing a
+v2 intent. It checks complete ancestry, payload and frozen intent identity;
+unknown schemas remain unknown. Historical correspondence is not present
+permission or original effect settlement.
+
+The legacy reader now treats reserved future Binding keys as unknown rather
+than absent. An unknown schema remains unavailable throughout the selected
+path, including when a later known v1 Binding appears. The previous test that
+allowed that later Binding to replace the unknown observation was tightened;
+a known legacy record cannot establish understanding of the earlier schema.
+
+Initial integrated codec/projection tests completed with **93 passed in 38.41
+seconds**, and three implementation files passed mypy. After the reader guard,
+the first combined run had **96 passed, one failed in 41.89 seconds** at the
+old supersession expectation just described. After tightening that expectation,
+the actual worktree regression completed with **97 passed in 25.35 seconds**;
+all four implementation files passed mypy. The augmented original-store conflict/acknowledgement tests separately
+completed with **2 passed, 22 deselected in 6.62 seconds**.
+
+The continuation still writes v1. Trusted participation computation, original
+owner enrollment/settlement wiring, writer capabilities and Embedded/Hosted
+entry integration remain required before default writable v2 recovery. The
+Worker selected gate started at `04b66cc7` remains a separate live observation;
+new Coding modules and the legacy reader guard were added while that gate ran,
+so its terminal result must not be presented as a gate over this final tree.
+
 ### Hosted history claim and profile ownership
 
 The catalog's explicit `open_history_candidate` entry now wraps the detached

@@ -1271,9 +1271,12 @@ def test_runtime_binding_projection_fails_closed_on_unknown_or_corrupt_path() ->
         later_binding, message, commit_parent_id=unknown.record_id,
         created_at=datetime(2026, 10, 12, tzinfo=UTC),
     )
-    assert project_coding_runtime_binding_path(
+    later_projection = project_coding_runtime_binding_path(
         (bound, unknown, later), current_session_id=binding.session_id,
-    ).binding == later_binding
+    )
+    assert later_projection.status == "unknown_version"
+    assert later_projection.binding is None
+    assert later_projection.record_id == unknown.record_id
 
     with pytest.raises(ValueError, match="payload digest"):
         project_coding_runtime_binding_path(

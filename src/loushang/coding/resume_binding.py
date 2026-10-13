@@ -178,7 +178,7 @@ def project_coding_runtime_binding_path(
         binding = validate_coding_runtime_binding_record(
             record, expected_session_id=observed_binding.session_id,
         )
-        if binding.session_id == current_session_id:
+        if binding.session_id == current_session_id and status != "unknown_version":
             status = "bound"
             selected_binding = binding
             selected_record_id = record.record_id
@@ -193,6 +193,12 @@ def inspect_coding_runtime_binding(
 ) -> CodingRuntimeBindingObservation:
     """Decode known metadata; leave later schema versions inert in history."""
 
+    if any(
+        key.startswith("coding.runtimeBinding")
+        and key != CODING_RUNTIME_BINDING_METADATA_KEY
+        for key in metadata
+    ):
+        return CodingRuntimeBindingObservation("unknown_version")
     if CODING_RUNTIME_BINDING_METADATA_KEY not in metadata:
         return CodingRuntimeBindingObservation("absent")
     raw = metadata[CODING_RUNTIME_BINDING_METADATA_KEY]
