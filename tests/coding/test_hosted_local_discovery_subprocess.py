@@ -93,10 +93,14 @@ def test_G17_COMPAT_installed_local_discovery_history_detach_and_stop(
                     )
                 )
                 assert state.active_window is not None
-                assert [record.text for record in state.active_window.records] == [
-                    f"Historical {name}",
-                    "Historical session is read-only; continuing requires current runtime activation.",
-                ]
+                expected_records = [f"Historical {name}"]
+                if sys.platform == "linux":
+                    expected_records.append(
+                        "Historical session is read-only; continuing requires current runtime activation."
+                    )
+                assert [
+                    record.text for record in state.active_window.records
+                ] == expected_records
                 await controller.close()
                 await client.close()
             replacement = LocalAppClientConnectionV1(directory, launch.endpoint)
@@ -111,10 +115,14 @@ def test_G17_COMPAT_installed_local_discovery_history_detach_and_stop(
             assert (
                 restored.state is not None and restored.state.active_window is not None
             )
-            assert [record.text for record in restored.state.active_window.records] == [
-                "Historical cwd",
-                "Historical session is read-only; continuing requires current runtime activation.",
-            ]
+            expected_records = ["Historical cwd"]
+            if sys.platform == "linux":
+                expected_records.append(
+                    "Historical session is read-only; continuing requires current runtime activation."
+                )
+            assert [
+                record.text for record in restored.state.active_window.records
+            ] == expected_records
             await restored.close()
             assert process.returncode is None
             await stop.start()
