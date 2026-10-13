@@ -115,6 +115,39 @@ def test_runtime_background_plan_reuses_only_with_fresh_resource_owner_inputs(
     asyncio.run(scenario())
 
 
+def test_configured_background_plan_starts_from_history_preview_inputs(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
+
+    async def scenario():
+        root, history, loader, path = await _root(tmp_path)
+        try:
+            root.configure_resume_planning(
+                current_composition=resolve_coding_composition_set("coding-standard"),
+                workspace_root=tmp_path,
+                resource_loader=loader,
+                subject_digest=lambda: "a" * 64,
+                policy_digest=lambda: "b" * 64,
+            )
+            assert await root.start_configured_resume_planning(history)
+            await _completed(root)
+            fresh = await plan_coding_resume_async(
+                history,
+                resolve_coding_composition_set("coding-standard"),
+                priority="foreground",
+                **_inputs(tmp_path, loader),
+            )
+            assert root.current_resume_plan(
+                history, current_owner_inputs=fresh.owner_inputs
+            ) == fresh
+        finally:
+            await root.dispose_session_runtime()
+            await loader.aclose()
+
+    asyncio.run(scenario())
+
+
 def test_runtime_changed_history_invalidates_completed_plan(tmp_path, monkeypatch):
     monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
 

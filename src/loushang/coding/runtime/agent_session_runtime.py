@@ -96,6 +96,17 @@ class CodingRuntimePreparedResume:
 
 
 @dataclass(frozen=True, slots=True)
+class _ConfiguredResumePlanning:
+    current_composition: CodingCompositionSetPlan
+    workspace_root: Path
+    resource_loader: ResourceLoader
+    subject_digest: Callable[[], str]
+    policy_digest: Callable[[], str]
+    max_work_units: int
+    time_budget_seconds: float
+
+
+@dataclass(frozen=True, slots=True)
 class _ResumeHistoryViewScope:
     runtime: AgentSessionRuntime
     target: Path
@@ -175,6 +186,7 @@ class AgentSessionRuntime(
         self._resume_history_loop: asyncio.AbstractEventLoop | None = None
         self._resume_history_closed = False
         self._resume_planning = ResumePlanningSlot()
+        self._configured_resume_planning: _ConfiguredResumePlanning | None = None
         self._resume_activation_tasks: set[asyncio.Task[CodingRuntimePreparedResume]] = set()
         self._resume_delivery_tasks: dict[
             PreparedSessionLifecycleOperation[AgentSession, str],
@@ -548,6 +560,60 @@ class AgentSessionRuntime(
             policy_digest=policy_digest, max_work_units=max_work_units,
             time_budget_seconds=time_budget_seconds,
         )
+
+    def configure_resume_planning(
+        self, *, current_composition: CodingCompositionSetPlan,
+        workspace_root: Path, resource_loader: ResourceLoader,
+        subject_digest: Callable[[], str], policy_digest: Callable[[], str],
+        max_work_units: int = 200, time_budget_seconds: float = 5.0,
+    ) -> None:
+        """Bind data-only planning inputs retained by the existing Root owners."""
+
+        from loushang.coding.composition_sets import CodingCompositionSetPlan
+        from loushang.harness.resources.loader import ResourceLoader
+
+        if (
+            self._resume_history_closed or self.current_session is not None
+            or not isinstance(current_composition, CodingCompositionSetPlan)
+            or not isinstance(resource_loader, ResourceLoader)
+            or not isinstance(workspace_root, Path) or not workspace_root.is_absolute()
+            or not callable(subject_digest) or not callable(policy_digest)
+            or type(max_work_units) is not int or max_work_units < 1
+            or type(time_budget_seconds) not in {int, float}
+            or not 0 < time_budget_seconds <= 60
+        ):
+            raise ValueError("Coding Resume planning configuration is invalid")
+        if self._configured_resume_planning is not None:
+            raise RuntimeError("coding_resume_planning_already_configured")
+        self._configured_resume_planning = _ConfiguredResumePlanning(
+            current_composition=current_composition,
+            workspace_root=workspace_root,
+            resource_loader=resource_loader,
+            subject_digest=subject_digest,
+            policy_digest=policy_digest,
+            max_work_units=max_work_units,
+            time_budget_seconds=time_budget_seconds,
+        )
+
+    async def start_configured_resume_planning(
+        self, history: CodingResumeHistoryPreview,
+    ) -> bool:
+        """Start the configured pure Plan while a history preview is visible."""
+
+        configured = self._configured_resume_planning
+        if configured is None:
+            return False
+        await self.start_resume_planning(
+            history,
+            configured.current_composition,
+            workspace_root=configured.workspace_root,
+            resource_loader=configured.resource_loader,
+            subject_digest=configured.subject_digest(),
+            policy_digest=configured.policy_digest(),
+            max_work_units=configured.max_work_units,
+            time_budget_seconds=configured.time_budget_seconds,
+        )
+        return True
 
     def current_resume_plan(
         self, history: CodingResumeHistoryPreview, *,

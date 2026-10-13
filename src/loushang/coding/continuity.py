@@ -478,6 +478,17 @@ class CodingContinuityProvider:
                             history_changed = True
                         else:
                             history_text = _readonly_history_text(snapshot.selected_records)
+                            start_planning = getattr(
+                                self._runtime, "start_configured_resume_planning", None
+                            )
+                            if callable(start_planning):
+                                try:
+                                    planning_started = await start_planning(snapshot)
+                                except (OSError, RuntimeError, TypeError, ValueError):
+                                    rows.append(("Resume preparation", "Unavailable"))
+                                else:
+                                    if planning_started is True:
+                                        rows.append(("Resume preparation", "In progress"))
         inspect_assets = getattr(
             self._runtime,
             "inspect_discovered_session_assets",

@@ -400,6 +400,7 @@ def default_runtime_builder(
         "capabilities",
         {},
     )
+    selected_composition_set: str | None = None
     if invocation_product_profile is None:
         selected_composition_set = resolve_cli_composition_choice(
             getattr(args, "composition_set", None), configured_capabilities
@@ -434,6 +435,21 @@ def default_runtime_builder(
 
         if type(runtime) is AgentSessionRuntime:
             runtime._bind_embedded_resume_approval_owner(approval_resolver)
+            policy_fingerprint = getattr(
+                tool_policy_evaluator, "configuration_fingerprint", None
+            )
+            if callable(policy_fingerprint):
+                if selected_composition_set is None:
+                    raise RuntimeError("Coding Resume composition is unavailable")
+                runtime.configure_resume_planning(
+                    current_composition=resolve_coding_composition_set(
+                        selected_composition_set
+                    ),
+                    workspace_root=cwd.resolve(strict=True),
+                    resource_loader=services.resource_loader,
+                    subject_digest=runtime._current_embedded_resume_subject_digest,
+                    policy_digest=policy_fingerprint,
+                )
     resource_layout = resolve_machine_resource_layout(cwd=cwd)
     platform_sessions = resource_layout.sessions
     if session_dir.expanduser().resolve(strict=False) == platform_sessions:

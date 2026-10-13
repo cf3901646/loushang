@@ -33,11 +33,14 @@ def test_embedded_resume_subject_uses_default_cli_root_and_original_approval(tmp
         assert path is not None
         owner = InteractiveApprovalResolver(fallback=DenyApprovalResolver())
         foreign = InteractiveApprovalResolver(fallback=DenyApprovalResolver())
+        policy = workspace_tool_runtime_settings(None).policy_engine
         runtime = default_runtime_builder(
             args=parse_args(["--no-tools", "--composition-set", "coding-minimal"]), cwd=tmp_path,
             session_dir=tmp_path / "sessions", services=create_services(),
             tool_registry=WorkspaceToolRegistry(), approval_resolver=owner,
+            tool_policy_evaluator=policy,
         )
+        assert runtime._configured_resume_planning is not None
         other_runtime = None
         try:
             before = path.read_bytes()

@@ -3088,3 +3088,25 @@ external-effect disposition, default Embedded/Hosted entry, background planning
 integration, Windows host-runtime execution, release artifact matrix or final
 full-tree gate. The pre-existing broader continuation `/skill` assertion
 failures also remain unresolved. Default writable Resume stays unavailable.
+
+#### Embedded history starts bounded background planning
+
+The default Embedded CLI/TUI Root now retains the selected current composition,
+its original ResourceLoader, workspace root and live native subject/policy
+fingerprint readers as data-only planning inputs. After the continuity provider
+has loaded and revalidated a full selected-branch history snapshot for display,
+it starts the existing bounded Resume planning slot. An unconfigured Root does
+not report preparation, and an unavailable planner is projected as a display
+status without failing historical access.
+
+Planning still constructs no Agent, Runtime, Writer, Package selection,
+approval fact or execution grant. The slot continues to revalidate fresh owner
+inputs before returning a cached Plan and closes only its own waiter reference.
+The focused planning, continuity and Embedded Root tests passed: **22 passed in
+11.55 seconds** outside the managed sandbox with `not live` and
+`--skip-host-runtime`. Ruff, focused mypy and `git diff --check` passed.
+
+This first production trigger does not yet consume the completed Plan during
+foreground admission, provide the corresponding Hosted history trigger, or
+establish the required latency measurements. Default writable Resume remains
+unavailable.

@@ -143,6 +143,13 @@ def test_coding_provider_projects_common_summary_preview_and_activation(
     tmp_path: Path,
 ) -> None:
     runtime = _Runtime(tmp_path)
+    planned = []
+
+    async def start_planning(history):
+        planned.append(history)
+        return True
+
+    runtime.start_configured_resume_planning = start_planning
     transcript = tmp_path / "session-1.jsonl"
     write_agent_transcript_export(
         transcript,
@@ -171,6 +178,8 @@ def test_coding_provider_projects_common_summary_preview_and_activation(
         assert ("Messages", "1") in preview.sections[1].rows
         assert ("Storage", "Custom canonical") in preview.sections[1].rows
         assert ("Assets", "None") in preview.sections[1].rows
+        assert ("Resume preparation", "In progress") in preview.sections[1].rows
+        assert len(planned) == 1
 
         lease = await composition.hub.prepare(summary.target)
         assert runtime.prepared == [str(transcript)]
