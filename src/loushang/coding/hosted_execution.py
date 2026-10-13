@@ -50,10 +50,8 @@ from .appservice_adapter import (
     CodingHostedSessionBindingV1,
     CodingHostedSessionV1,
 )
-from .hosted_session import (
-    CodingDeferredHostedSessionV1,
-    CodingRealHostedSessionV1,
-)
+from .hosted_resume import CodingDeferredHostedSessionV1
+from .hosted_session import CodingRealHostedSessionV1
 
 
 class CodingHostedExecutionSessionV1(CodingHostedSessionV1):
