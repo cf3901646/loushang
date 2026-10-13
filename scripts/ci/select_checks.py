@@ -374,6 +374,13 @@ def select(
             for path in paths
         )
     )
+    hosting_worker_pr_smoke = (
+        host_runtime_smoke and checks["hosting"]
+        and not any(path.startswith((
+            "src/loushang/hosting/", "tests/hosting/",
+            "src/loushang/harness/worker/", "tests/harness/worker/",
+        )) for path in paths)
+    )
     return {
         "version": 1,
         "paths": sorted(set(paths)),
@@ -384,6 +391,7 @@ def select(
         "e2e": e2e,
         "windows": windows,
         "host_runtime_smoke": host_runtime_smoke,
+        "hosting_worker_pr_smoke": hosting_worker_pr_smoke,
         "reasons": reasons,
     }
 
@@ -399,7 +407,7 @@ def workflow_plan(plan: dict) -> dict:
     """
     return {
         key: plan[key]
-        for key in ("version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "windows", "host_runtime_smoke")
+        for key in ("version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "windows", "host_runtime_smoke", "hosting_worker_pr_smoke")
     }
 
 

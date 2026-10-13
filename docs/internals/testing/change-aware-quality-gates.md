@@ -53,6 +53,9 @@ ordinary Session. Worker-native changes add one hosted Worker query with clean
 exit evidence. Crash, recovery, GC, fence, and C5 scenarios run in scheduled or
 manual full validation; changing several Worker risk paths together does not
 expand an ordinary PR to the full native matrix.
+The Linux Hosting Worker gate likewise runs one hosted Session on an ordinary
+PR; its four direct, hosted, disable-fence, and update-fence cases remain in
+scheduled/manual validation and on native boundary or test changes.
 AppService runs one authenticated local request and one native console entry
 case; TUI runs one ConPTY startup and
 exit case. Changes to the native Worker test suite itself and Windows Job/process

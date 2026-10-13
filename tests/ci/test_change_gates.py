@@ -435,7 +435,7 @@ class ScopeTests(unittest.TestCase):
         compact = selector.workflow_plan(plan)
 
         self.assertEqual(
-            set(compact), {"version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "windows", "host_runtime_smoke"}
+            set(compact), {"version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "windows", "host_runtime_smoke", "hosting_worker_pr_smoke"}
         )
         self.assertEqual(compact["paths"], plan["paths"])
         self.assertEqual(compact["checks"], plan["checks"])
@@ -445,6 +445,7 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(compact["windows"], plan["windows"])
         self.assertEqual(compact["e2e"], plan["e2e"])
         self.assertEqual(compact["host_runtime_smoke"], plan["host_runtime_smoke"])
+        self.assertEqual(compact["hosting_worker_pr_smoke"], plan["hosting_worker_pr_smoke"])
         self.assertNotIn("reasons", compact)
 
     def test_pr_windows_smoke_and_full_domains(self):
@@ -947,6 +948,30 @@ class SuiteSelectionTests(unittest.TestCase):
                 self.assertFalse(plan["host_runtime_smoke"])
         plan = selector.select([], full=True, pr_fast=True)
         self.assertFalse(plan["host_runtime_smoke"])
+
+    def test_pr_linux_worker_uses_one_hosted_session_without_losing_full_suite(self):
+        worker = selector.select(
+            ["src/loushang/coding/package_product_worker_windows_crash_cleanup_review.py"],
+            pr_fast=True,
+        )
+        self.assertTrue(worker["hosting_worker_pr_smoke"])
+        for path in (
+            "src/loushang/hosting/_posix_process.py",
+            "tests/hosting/test_posix_release_launcher.py",
+            "tests/coding/test_package_worker_candidate_wheel.py",
+            ".github/workflows/hosting-quality.yml",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(selector.select([path], pr_fast=True)["hosting_worker_pr_smoke"])
+        self.assertFalse(selector.select([], full=True, pr_fast=True)["hosting_worker_pr_smoke"])
+        workflow = (ROOT / ".github/workflows/hosting-quality.yml").read_text()
+        self.assertIn("fromJSON(inputs.plan).hosting_worker_pr_smoke", workflow)
+        self.assertIn("--require-tests-count 1", workflow)
+        self.assertIn("--require-tests-count 4", workflow)
+        self.assertIn(
+            "test_explicit_worker_hosted_first_session_reaches_installed_product",
+            workflow,
+        )
 
     def test_coding_host_runtime_does_not_collect_harness_tests(self):
         plan = selector.select(["src/loushang/coding/lsp/client.py"])
