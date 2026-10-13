@@ -913,6 +913,21 @@ class SuiteSelectionTests(unittest.TestCase):
         self.assertEqual(set().union(*groups), set(nodeids))
         self.assertEqual(sum(map(len, groups)), len(nodeids))
 
+    def test_coding_risk_and_ordinary_prs_use_the_same_offline_inventory(self):
+        workflow = (ROOT / ".github/workflows/package-quality.yml").read_text()
+        coding_job = workflow.split("  coding:\n", 1)[1].split("  foundation:\n", 1)[0]
+        self.assertIn("CI_PLAN: ${{ inputs.plan }}", coding_job)
+        plan = selector.select([
+            "src/loushang/coding/package_product_worker_windows_crash_cleanup_review.py"
+        ], pr_fast=True)
+        ordinary, = runner.commands("unit_coding", shard=0, shards=16)
+        risk, = runner.commands("coding", plan=plan, shard=0, shards=16)
+        self.assertEqual(risk, ordinary)
+        self.assertIn("tests/examples/test_coding_examples.py", risk)
+        full, = runner.commands("coding")
+        self.assertIn("tests/examples/test_coding_examples.py", full)
+        self.assertNotIn("not e2e_smoke", full[full.index("-m") + 1])
+
     def test_full_host_runtime_keeps_the_original_repository_wide_collection(self):
         (command,) = runner.commands(
             "host_runtime", plan=selector.select([], full=True)
