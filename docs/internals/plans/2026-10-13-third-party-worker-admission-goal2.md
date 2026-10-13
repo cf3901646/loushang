@@ -61,5 +61,10 @@ Direct run exceeded its unchanged 90-second crash-child deadline; the passing
 rerun retains stage diagnostics and does not establish the earlier timeout's
 cause. This checkpoint is not final Windows admission or PR acceptance.
 
-Goal 3 remains paused. This delivery neither accepts the separately proposed
-Windows journal authority-cutover stack nor closes Issue #509.
+## Final delivery
+
+PR #678 merged as `b53afcb0`. Its final PR checks passed, including the
+non-skipped native Linux and Windows Worker journeys. The merged main push
+requires its own integrated quality-gate report before PLC9 can close. This
+delivery does not accept the separately proposed Windows journal authority
+cutover or close Issue #509.

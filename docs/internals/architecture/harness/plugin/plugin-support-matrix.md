@@ -16,7 +16,7 @@ does not add a second Plugin registry or change a default route.
 | Data Skill Wheel | `build-coding-skill` | Fenced Coding Product admits the constrained document-only profile | Enabled selected revision appears in a new Session; `/skill:<name>` reaches persisted prepared model input | Linux/POSIX Product path verified; not a default global Plugin selection | Per-workspace install/enable and exact Session proof |
 | Data Prompt Wheel | `build-coding-prompt` | Same constrained data profile | Enabled selected revision expands `/<name>` into persisted prepared model input | Linux/POSIX Product path verified | Per-workspace install/enable and exact Session proof |
 | Screen Theme Wheel | `init-coding-theme` then `build-coding-theme`; disposable Screen smoke | Explicit Coding Screen candidate profile | Exact selected revision and `theme: plugin:<name>` setting change a new Screen; no model-input use | Candidate route; Hosted Mux and live refresh excluded | Separate Product rollout decision |
-| Native Worker Wheel | `build-coding-worker-candidate`; disposable Linux or Windows smoke proves only artifact admission and selection | Explicit Product `candidate-capture`, install, enable, update, disable, remove, native release, per-install allow/revoke, and separate offline Package GC within each accepted platform route | An explicit Linux Python SDK query or persisted `coding-standard` ordinary turn using `--worker-query-plugin`; the Windows AMD64 candidate adds the same read-only ordinary turn behind its Product release and opt-in | The Linux x86-64 route was approved after [PR #653](https://github.com/zhnt/loushang/pull/653) passed native and independent reviews. It requires `posix-static-query-contained-elf-v1`. The Windows explicit turn requires `windows-lpac-contained-pe-v1` and native acceptance; ordinary Windows B Sessions were admitted by PR #662. Default Worker routing stays closed | Each installation needs exact native release approval, current Product selection, and per-install opt-in. macOS ordinary turns, dependency execution, effectful Tools, general self-service, and default Worker routing remain closed; PR #660 verifies Linux registered-before-effect recovery across a real reboot |
+| Native Worker Wheel | `build-coding-worker-candidate`; disposable Linux or Windows smoke proves only artifact admission and selection | Explicit Product `candidate-capture`, install, enable, update, disable, remove, native release, per-install allow/revoke, and separate offline Package GC within each accepted platform route | An independently authored self-contained read-only query Wheel reaches a real Direct or Hosted Coding Session through explicit `--worker-query-plugin` selection; Linux Python SDK use is also evidenced | Linux x86-64 requires `posix-static-query-contained-elf-v1`; Windows AMD64 requires `windows-lpac-contained-pe-v1`. PR #678 merged the bounded author/operator flow with non-skipped native evidence on both platforms. Default Worker routing stays closed | Each installation needs exact native release approval, current Product selection, and per-install opt-in. macOS ordinary turns, dependency execution, effectful Tools, and default Worker routing remain closed; PR #660 verifies Linux registered-before-effect recovery across a real reboot |
 | Other declared Resource kinds | Declaration/IR may exist | No corresponding public Coding Wheel profile for Method, Asset, or Source | No Product consumer proof from declaration alone | None claimed | Open each kind only with its Product owner and evidence |
 
 Ordinary Windows Coding Sessions select the fenced B Product in Direct,
@@ -27,7 +27,7 @@ release, and per-install opt-in. It adds only one read-only query Tool; default
 Worker routing remains closed. PR #662 records the earlier ordinary B Session
 acceptance, separate from this Worker route.
 
-The Linux Worker decision covers one locally installed immutable static Wheel,
+The Linux Worker decision covers locally installed immutable static Wheels,
 one read-only `coding.worker.query` facet, and an explicit new Session. The
 Product rechecks the current release, selected revision, and opt-in for use;
 the Host enforces the approved containment profile when launching. Native
@@ -126,7 +126,7 @@ at injected partial-settlement boundaries, then completes recovery through the
 command. The earlier exact code head `cd25e160` passed the seven-case native
 Windows Session gate with no skipped cases. The later operator actions await
 their own exact-head native CI result. The candidate command does not open
-unflagged Windows Session routing or general third-party Worker admission.
+unflagged Windows Worker routing or broader executable Worker admission.
 
 `loushang-worker-native candidate-status` reads the retained per-install Worker
 opt-in decision and observes an exact selected Worker candidate through the

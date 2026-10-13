@@ -18,8 +18,9 @@
   route retains its own Product gate. Explicit Windows candidate first-B,
   Worker, and GC native journeys passed at the final PLC9 code head. Ordinary
   unflagged Windows B Session selection is implemented in PR #662; Windows
-  Worker query CLI, general third-party Worker admission, and Windows
-  private-data production use retain separate gates. The final
+  Worker query CLI and bounded third-party read-only Worker admission are
+  implemented through the explicit Product route; Windows private-data
+  production use retains a separate gate. The final
   Coding offline package regression passed. The
   [closure ledger](plugin-experience-and-plc9-closure-design.md) records the
   exact-head evidence and limits.
@@ -32,8 +33,8 @@
   reconstructed. A real installed Product Worker case passed owner commit,
   physical retirement, a fresh Session query, and Package GC preparation after
   retirement. This is candidate evidence for that Linux path. Windows V2,
-  backup/restore and wider crash-boundary evidence, general third-party Worker
-  routing, and default activation retain their separate gates.
+  backup/restore and wider crash-boundary evidence, dependency-bearing or
+  effectful Worker routing, and default activation retain their separate gates.
 - Workspace boundary: on 2026-10-01 the Product owner ended pre-B workspace
   compatibility for this delivery. Fresh and verifiable B-fenced workspaces
   remain in scope; unfenced pre-B Plugin inputs must refuse without writes.
@@ -49,9 +50,11 @@
   Product-backed management, data Wheel authoring, POSIX root/shared-dependency
   GC, and Arch private-data owners have implemented routes; explicit Windows
   Worker Session and GC candidate journeys passed native CI.
-- Worker canary boundary: explicit Linux/Windows AMD64 Coding Product opt-in
-  only; Current remains the default; no general third-party Worker
-  authoring/admission surface is published.
+- Worker boundary: independently authored, self-contained read-only query
+  Wheels can enter explicit Linux x86-64 and Windows AMD64 Coding Product
+  Sessions after exact native release approval and per-install opt-in. Current
+  remains the default; dependency-bearing, effectful, macOS, and default Worker
+  routes remain closed.
 - Owner: `loushang.harness` Plugin architecture scope; contribution runtime
   authority remains with each exact domain owner.
 
@@ -736,9 +739,9 @@ Neither may silently override a narrower implemented owner contract.
 
 These contracts refine the architecture only inside their stated versions and
 implemented slices. The implemented public SDK, managed Skill actions, and
-explicit Worker canaries grant no unstated author/runtime authority; an
-unimplemented general Worker authoring path or `remote_service` shape cannot be
-inferred from them.
+explicit Worker canaries grant no unstated author/runtime authority; broader
+executable Worker shapes or a `remote_service` route cannot be inferred from
+them.
 The [default-route rollout decision](plugin-default-route-rollout-decision.md)
 currently holds the ordinary route while Product and platform evidence remains
 incomplete.
