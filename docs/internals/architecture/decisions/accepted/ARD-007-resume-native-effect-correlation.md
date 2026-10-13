@@ -397,8 +397,33 @@ repair. Native evaluated or failed facts do not settle external domain effects.
 This is original-journal protocol infrastructure. The original Definition evaluator accepts an explicit typed parent context and
 co-consumes it before import. The production Product selection has not yet
 propagated that context from the committed v2 intent. Product owner
-participation, component/Worker native correlation, retained custody and domain
+participation, Worker native correlation, retained custody and domain
 reconciliation still require implementation and integration. The parent
 snapshot is not proof of complete Product startup participation, current
 admission or external settlement. Default writable Resume remains unavailable
 until those remaining obligations and the release gates are satisfied.
+
+## Implementation Progress: Component Journal
+
+The original Activation Approval journal now persists explicit v2 parent
+enrollment and sealed membership. Contextual native consumption records the
+parent and the original decision/reservation in one event. Legacy v1 event
+payloads and native use identities remain unchanged. Both in-process Component
+Hosts accept the typed context through their shared native lifecycle; they
+require original enrollment before consumption, recovery or import. Contextual
+recovery only changes native uses registered under that exact parent.
+
+Original CAS and replay fence further consumption and late STARTING after a
+seal. Active STARTING or STARTED uses refuse sealing. Cross-boot recovery may
+retain the original v1 FAILED state, but replay also retains the fact that the
+factory was recovered without a stop fence. Those uses remain unresolved and
+prevent sealing. A rejected seal or sealed late start preserves partial-tail
+bytes. COMMITTED records graph publication; it does not prove completion of
+external domain effects or custody retention.
+
+These opt-in native protocols still need propagation from a committed Product
+intent, complete trusted owner participation, Worker containment settlement,
+custodian retention and domain reconciliation. They do not enable default
+writable Resume. Focused tests exercise the actual Component factory, native
+journal recovery and durable acknowledgement loss; release and full Product
+integration evidence remain required.

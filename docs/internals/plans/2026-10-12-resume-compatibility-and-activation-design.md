@@ -2724,3 +2724,40 @@ The final focused evaluator/owner run completed with **204 passed in 5.97
 seconds**. Focused mypy covered the journal, shared parent context and actual
 Definition evaluator. The selected full Harness check for this new protocol is
 launched separately; it is not replaced by the earlier tail-repair gate.
+
+That exact Definition implementation (`28803be8`) completed its selected gate:
+docs, dependency facts, Harness Ruff and mypy (772 source files), followed by
+**5751 passed, 124 skipped, 33 warnings in 2051.84 seconds**. The command exited
+0. This is local non-live evidence with host-runtime checks excluded; Actions
+must still cover platform, installation and real-LSP checks. It does not cover
+the subsequent Component protocol implementation below.
+
+#### Component original-journal Resume registration
+
+The original Activation journal now has explicit v2 enrollment, atomic
+contextual consumption and sealed membership. Native reservations and legacy
+v1 payloads retain their existing identities and shapes. Both in-process Hosts
+propagate optional typed context through their shared lifecycle, validate exact
+enrollment before recovery/consumption/import, and recover only that parent's
+registered native uses. Enrollment remains inert and grants no execution.
+
+Native CAS/replay fence new registrations and late starts after seal. STARTING
+and STARTED refuse sealing. Cross-boot recovery preserves the legacy FAILED
+fact but additionally projects the original recovery of a possibly running
+factory: no new boot identifier proves the old factory stopped. Those recovered
+uses remain unfenced and prevent seal. Rejected sealing and sealed late starts
+preserve the incomplete journal tail byte for byte.
+
+Focused original-journal/evaluator/Component Host/shared-loader tests completed
+with **218 passed in 6.60 seconds**, including actual factory import/publication,
+unknown enrollment with partial tails, durable consume acknowledgement loss,
+exact recovery scope and both STARTING/STARTED cross-boot recovery. Ruff and
+mypy over the four affected implementation files passed. The selected full
+gate for this Component change is separate and must be observed to completion.
+
+Remaining delivery requirements include committed v2 intent and Binding
+propagation, complete trusted startup owner participation, Worker containment
+settlement, original custodian retention/domain reconciliation, Embedded and
+Hosted integration, background planning/performance, released artifact
+compatibility, PR merge and Issue backwrite. Default writable Resume and
+Issue #696 remain incomplete.

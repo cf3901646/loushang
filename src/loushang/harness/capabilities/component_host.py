@@ -44,6 +44,7 @@ from loushang.harness.resources.plugins.selection import (
     PluginSourceTrustSnapshotV1,
 )
 from loushang.harness.resources.plugins.types import PublishedPluginPackage
+from loushang.harness.resume_effects import ResumeEffectParentContextV1
 
 _PROVIDER_HOST_API_PREFIXES: tuple[str, ...] = ()
 _PROVIDER_HOST_API_EXPORTS = {
@@ -94,6 +95,7 @@ class CapabilityComponentHost:
         distribution_evidence_resolver: (
             InstalledPythonDistributionEvidenceResolver | None
         ) = None,
+        resume_parent_context: ResumeEffectParentContextV1 | None = None,
     ) -> None:
         if not isinstance(decision_journal, PluginActivationDecisionJournal):
             raise TypeError("Component Host requires an activation decision journal")
@@ -127,6 +129,7 @@ class CapabilityComponentHost:
             import_realm_id=import_realm.import_realm_id,
             clock=clock,
             error_factory=_component_host_error,
+            resume_parent_context=resume_parent_context,
         )
         self._lifecycle.recover_incomplete_uses()
         self._admission_starts: dict[object, tuple[str, str, int, bool]] = {}
@@ -157,7 +160,7 @@ class CapabilityComponentHost:
         decision = next(
             (
                 item
-                for item in self._lifecycle.journal.snapshot().decisions
+                for item in self._lifecycle.snapshot(require_open=True).decisions
                 if item.decision_id == decision_id
             ),
             None,
@@ -193,7 +196,10 @@ class CapabilityComponentHost:
     def abort_admission_start(self, start: CapabilityComponentAdmissionStart) -> None:
         """Release a witness after graph construction or failed preparation."""
 
-        if type(start) is not CapabilityComponentAdmissionStart or start.host is not self:
+        if (
+            type(start) is not CapabilityComponentAdmissionStart
+            or start.host is not self
+        ):
             _raise_host(
                 "capability_provider_admission_start_invalid",
                 "Component admission start witness is invalid.",
@@ -233,8 +239,7 @@ class CapabilityComponentHost:
             now = self._now()
             if (
                 now < start.started_at
-                or now - start.started_at
-                >= _MAX_COMPONENT_ADMISSION_START_MS
+                or now - start.started_at >= _MAX_COMPONENT_ADMISSION_START_MS
             ):
                 _raise_host(
                     "capability_provider_admission_start_expired",
@@ -538,7 +543,8 @@ class _PreparedComponentAttempt:
             )
         self.validate_current_authorities()
         self.lifecycle.validate_current(
-            self.reservation, expected_state="COMMITTED",
+            self.reservation,
+            expected_state="COMMITTED",
             started_at_unix_ms=self.admission_started_at,
         )
         realm = self.import_realm.snapshot()
