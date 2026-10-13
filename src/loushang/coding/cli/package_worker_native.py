@@ -108,6 +108,12 @@ _MAX_WHEEL_BYTES = 4 * 1024 * 1024
 _SAFE_ERROR_CODE = re.compile(r"[a-z][a-z0-9_]{1,127}\Z")
 
 
+class CodingWorkerNativeCandidateCommandError(ValueError):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="loushang-worker-native")
     parser.add_argument("--workspace", default=".", help="fenced Coding workspace")
@@ -460,7 +466,10 @@ def _execute(
                     args.plugin_id
                 )
                 if current_opt_in is not None and current_opt_in.action == "allow":
-                    raise ValueError("Coding Worker candidate opt-in must be revoked")
+                    raise CodingWorkerNativeCandidateCommandError(
+                        "coding_worker_candidate_opt_in_revoke_required",
+                        "Coding Worker candidate opt-in must be revoked",
+                    )
                 return {
                     "candidateUpdate": {
                         "pluginId": args.plugin_id,
@@ -483,12 +492,18 @@ def _execute(
                 or selected.selection.desired_state
                 not in {"installed_enabled", "installed_disabled"}
             ):
-                raise ValueError("Coding Worker candidate update selection changed")
+                raise CodingWorkerNativeCandidateCommandError(
+                    "coding_worker_candidate_update_selection_stale",
+                    "Coding Worker candidate update selection changed",
+                )
             current_opt_in = CodingWorkerProductOptInOwner(product).current(
                 args.plugin_id
             )
             if current_opt_in is not None and current_opt_in.action == "allow":
-                raise ValueError("Coding Worker candidate opt-in must be revoked")
+                raise CodingWorkerNativeCandidateCommandError(
+                    "coding_worker_candidate_opt_in_revoke_required",
+                    "Coding Worker candidate opt-in must be revoked",
+                )
             session_id = f"worker-candidate-update-{secrets.token_hex(16)}"
             factory = product.factory_for_session(
                 session_id=session_id,
@@ -537,7 +552,10 @@ def _execute(
                     or updated[0].selection.package_revision.package_content_digest
                     != binding.artifact_digest
                 ):
-                    raise ValueError("Coding Worker candidate update selection changed")
+                    raise CodingWorkerNativeCandidateCommandError(
+                        "coding_worker_candidate_update_selection_stale",
+                        "Coding Worker candidate update selection changed",
+                    )
                 return {
                     "candidateUpdate": {
                         "pluginId": args.plugin_id,
@@ -644,7 +662,10 @@ def _execute(
                 args.plugin_id
             )
             if current_opt_in is not None and current_opt_in.action == "allow":
-                raise ValueError("Coding Worker candidate opt-in must be revoked")
+                raise CodingWorkerNativeCandidateCommandError(
+                    "coding_worker_candidate_opt_in_revoke_required",
+                    "Coding Worker candidate opt-in must be revoked",
+                )
         if selected is None:
             raise ValueError("Coding Worker candidate installation changed")
         if selected_revision is None:
