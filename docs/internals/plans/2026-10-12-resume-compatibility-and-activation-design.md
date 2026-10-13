@@ -3144,3 +3144,37 @@ sandbox with `not live` and `--skip-host-runtime`. Ruff, focused mypy and
 `git diff --check` passed. The entry is ready for the Embedded history input
 coordinator, but that production coordinator, Hosted invocation and latency
 evidence remain outstanding.
+
+#### Audited first-party Plugin startup settlement adapter
+
+The Coding Product now freezes the exact Definition and Component original-
+journal obligations from their native scope and contract digests without
+opening or creating either journal. After graph preparation, its first-party
+settlement adapter accepts only sealed exact membership, `EVALUATED`
+Definition uses, `COMMITTED` Component uses, no unfenced recovered factory,
+and a one-for-one match with the current Product receipt's selected LSP or
+Architecture instance revisions. Missing enrollment, an empty or partial
+membership, failed or starting uses, a changed revision, an unknown Plugin, or
+a declared external effect remains `input.effect_settlement_unknown` or an
+unsupported owner set.
+
+This is a narrow audited closure. The checked-in LSP factory constructs a lazy
+runtime and cannot launch a server until later Tool use; the checked-in
+Architecture factory constructs an unloaded cache and cannot read or write it
+until later analysis or Tool use. The current Session independently
+revalidates that these instance revisions still belong to the exact
+Product-selected first-party Wheels before and after the adapter. The native
+terminal states therefore cover the startup contract for these two exact
+implementations; they are not generalized into settlement for arbitrary
+Plugin code, filesystem, network, process or publication effects.
+
+The continuation also canonicalizes the Product approval state root before
+parent enrollment. This preserves the POSIX path and uses the Windows
+`product-private` root selected by the original Product owner, avoiding a
+second parent journal location on Windows.
+
+Focused original-journal and v2 continuation validation passed **14 tests in
+11.12 seconds** outside the managed sandbox with `not live` and
+`--skip-host-runtime`; Ruff and scoped mypy passed. The default Embedded
+coordinator has not yet invoked this adapter, and Worker C5 settlement remains
+a separate native obligation, so writable Resume is still unavailable.

@@ -7,7 +7,11 @@ from datetime import UTC, datetime
 import pytest
 
 from loushang.ai.types import UserMessage
-from loushang.coding._capability_plugin_composition import CodingResumePluginParents
+from loushang.coding._capability_plugin_composition import (
+    CodingResumePluginParents,
+    prepare_coding_resume_plugin_effect_owners,
+    require_coding_resume_plugin_effect_settlement,
+)
 from loushang.coding._product_capability_plugin_composition import (
     _prepare_product_approval_state_root,
 )
@@ -29,7 +33,13 @@ from loushang.coding.session_manager import (
 )
 from loushang.harness.approval.plugin_activation import PluginActivationDecisionJournal
 from loushang.harness.approval.plugin_execution import (
+    PluginApprovalAuthorizationV1,
     PluginExecutionDecisionJournal,
+)
+from loushang.harness.resources.plugins.selection import (
+    PluginDeclarationSource,
+    PluginExecutionApprovalSubject,
+    PluginInstanceRevisionRef,
 )
 from loushang.harness.resume_effects import ResumeEffectParentContextV1
 
@@ -99,6 +109,210 @@ def test_product_parent_enrollment_is_retryable_and_seals_exact_empty_membership
     assert activation_seal.activation_uses == ()
     assert definition.resume_parent_snapshot(parents.definition) == definition_seal
     assert activation.resume_parent_snapshot(parents.activation) == activation_seal
+
+
+def test_product_freezes_exact_native_plugin_owner_obligations_without_io(tmp_path):
+    state_root = (tmp_path / "state").resolve()
+
+    owners = prepare_coding_resume_plugin_effect_owners(
+        session_id="session-1", state_root=state_root
+    )
+
+    assert tuple(owner.owner_id for owner in owners) == (
+        "harness.plugin-activation",
+        "harness.plugin-execution",
+    )
+    assert tuple(owner.phases for owner in owners) == (
+        ("activation",),
+        ("declaration",),
+    )
+    assert not state_root.exists()
+
+
+def test_product_reconciles_audited_builtin_plugin_startup_in_original_journals(
+    tmp_path,
+):
+    state_root = _prepare_product_approval_state_root(tmp_path / "state")
+    session_id = "session-1"
+    owners = prepare_coding_resume_plugin_effect_owners(
+        session_id=session_id, state_root=state_root
+    )
+    attempt = CodingActivationAttemptV2(
+        attempt_id="intent-1",
+        request_id="input-1",
+        session_id=session_id,
+        original_leaf_id=None,
+        ancestry_digest="1" * 64,
+        plan_fingerprint="2" * 64,
+        epoch_fingerprint="3" * 64,
+        subject_digest="4" * 64,
+        effect_owners=owners,
+    )
+    owner_by_id = {owner.owner_id: owner for owner in owners}
+    definition_context = attempt.parent_context(
+        owner_by_id["harness.plugin-execution"]
+    )
+    activation_context = attempt.parent_context(
+        owner_by_id["harness.plugin-activation"]
+    )
+    revision = PluginInstanceRevisionRef(
+        instance_id="coding.lsp.default@session:session-1",
+        plugin_id="coding.lsp.default",
+        revision=1,
+    )
+
+    definition = PluginExecutionDecisionJournal(
+        state_root / "definition-decisions.jsonl",
+        scope_kind="workspace",
+        scope_id=f"session:{session_id}",
+        clock=lambda: 2_500,
+    )
+    definition_subject = PluginExecutionApprovalSubject(
+        plugin_id=revision.plugin_id,
+        package_content_digest="5" * 64,
+        dependency_lock_digest="6" * 64,
+        entrypoint="definition.py:declare",
+        package_source_identity="product:first-party",
+        source_trust_class="host-equivalent-local",
+        source_trust_policy_revision="trust-1",
+        product_id="coding",
+        scope_id=f"session:{session_id}",
+        policy_revision="policy-1",
+        ambient_host_authority=True,
+        configuration_map_fingerprint="7" * 64,
+        requested_authorities=("filesystem", "process"),
+        allowed_authority_ceiling=("filesystem", "process"),
+        reservation_closure_fingerprint="8" * 64,
+        source_descriptor_fingerprint=PluginDeclarationSource.in_process(
+            "definition.py:declare"
+        ).fingerprint,
+        instance_revision_ref=revision,
+    )
+    decision = definition.issue_execution_decision(
+        definition_subject,
+        disposition="approved",
+        authorization=PluginApprovalAuthorizationV1.direct(
+            actor_id="product:coding", source="first-party-policy"
+        ),
+        revocation_epoch=0,
+        issued_at_unix_ms=1_000,
+        expires_at_unix_ms=3_000,
+        expected_journal_revision=0,
+    )
+    definition.enroll_resume_parent(
+        definition_context, expected_journal_revision=1
+    )
+    use = definition.consume_execution_decision(
+        definition_subject,
+        decision_id=decision.decision_id,
+        preflight_use_id="a" * 48,
+        source_group_id="b" * 64,
+        host_boot_id="c" * 32,
+        import_realm_id="d" * 32,
+        expected_revocation_epoch=0,
+        current_policy_revision="policy-1",
+        current_source_trust_policy_revision="trust-1",
+        expected_journal_revision=2,
+        parent_context=definition_context,
+    )
+    definition.transition_execution_use(
+        use.execution_use_id,
+        expected_state="CONSUMED_NOT_STARTED",
+        target_state="STARTING",
+        host_boot_id="c" * 32,
+        import_realm_id="d" * 32,
+        transitioned_at_unix_ms=2_100,
+        expected_journal_revision=3,
+    )
+    definition.transition_execution_use(
+        use.execution_use_id,
+        expected_state="STARTING",
+        target_state="EVALUATED",
+        host_boot_id="c" * 32,
+        import_realm_id="d" * 32,
+        transitioned_at_unix_ms=2_200,
+        expected_journal_revision=4,
+    )
+    definition.seal_resume_parent(
+        definition_context, expected_journal_revision=5
+    )
+
+    activation = PluginActivationDecisionJournal(
+        state_root / "activation-decisions.jsonl",
+        scope_id=f"session:{session_id}",
+        clock=lambda: 2_500,
+    )
+    from tests.harness.approval.test_plugin_activation_journal import (
+        _subject as activation_subject_fixture,
+    )
+
+    activation_subject = replace(
+        activation_subject_fixture(),
+        plugin_id=revision.plugin_id,
+        product_id="coding",
+        scope_id=f"session:{session_id}",
+        instance_revision_ref=revision,
+    )
+    activation_decision = activation.issue_activation_decision(
+        activation_subject,
+        disposition="approved",
+        authorization=PluginApprovalAuthorizationV1.direct(
+            actor_id="product:coding", source="first-party-policy"
+        ),
+        issued_at_unix_ms=1_000,
+        expires_at_unix_ms=3_000,
+        expected_journal_revision=0,
+    )
+    activation.enroll_resume_parent(
+        activation_context, expected_journal_revision=1
+    )
+    activation_use = activation.consume_activation_decision(
+        activation_subject,
+        decision_id=activation_decision.decision_id,
+        host_boot_id="c" * 32,
+        import_realm_id="d" * 32,
+        expected_journal_revision=2,
+        parent_context=activation_context,
+    )
+    for expected, target, journal_revision in (
+        ("CONSUMED_NOT_STARTED", "STARTING", 3),
+        ("STARTING", "STARTED", 4),
+        ("STARTED", "COMMITTED", 5),
+    ):
+        activation.transition_activation_use(
+            activation_use.activation_use_id,
+            expected_state=expected,
+            target_state=target,
+            host_boot_id="c" * 32,
+            import_realm_id="d" * 32,
+            transitioned_at_unix_ms=2_100 + journal_revision,
+            expected_journal_revision=journal_revision,
+        )
+    activation.seal_resume_parent(
+        activation_context, expected_journal_revision=6
+    )
+
+    receipt = {
+        "selectedRevisions": [
+            {
+                "pluginId": revision.plugin_id,
+                "packageRevisionFingerprint": "e" * 64,
+                "instanceRevisionRef": revision.to_dict(),
+            }
+        ]
+    }
+    require_coding_resume_plugin_effect_settlement(
+        attempt, receipt, state_root=state_root, clock=lambda: 2_500
+    )
+
+    activation_path = state_root / "activation-decisions.jsonl"
+    original = activation_path.read_bytes()
+    activation_path.write_bytes(original.replace(b'"COMMITTED"', b'"FAILED"'))
+    with pytest.raises(CodingResumeRecoveryRequired) as caught:
+        require_coding_resume_plugin_effect_settlement(
+            attempt, receipt, state_root=state_root, clock=lambda: 2_500
+        )
+    assert caught.value.reason_code == "input.effect_settlement_unknown"
 
 
 @pytest.mark.parametrize("missing_owner", ["definition", "activation"])

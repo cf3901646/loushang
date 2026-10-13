@@ -34,6 +34,9 @@ from loushang.harness.worker.activation_state_journal import (
 )
 
 from ._capability_plugin_composition import CodingResumePluginParents
+from ._product_capability_plugin_composition import (
+    prepare_coding_product_approval_state_root,
+)
 from ._resume_cleanup import (
     CodingResumeContinuationCleanupFailure,
     retain_resume_cleanup_failure,
@@ -270,6 +273,7 @@ async def prepare_coding_resume_continuation(
 
     manager: SessionManager | None = None
     session: AgentSession | None = None
+    resume_plugin_state_root: Path | None = None
     observed_input = False
     phase = "writer_preparation"
     current()  # Confirmation/current caller admission precedes Writer acquisition.
@@ -307,11 +311,14 @@ async def prepare_coding_resume_continuation(
         if resume_plugin_parents is not None:
             phase = "native_owner_enrollment"
             current()
+            resume_plugin_state_root = prepare_coding_product_approval_state_root(
+                _coding_capability_plugin_state_root(
+                    manager, session_id=attempt.session_id
+                )
+            )
             resume_plugin_parents.enroll(
                 session_id=attempt.session_id,
-                state_root=_coding_capability_plugin_state_root(
-                    manager, session_id=attempt.session_id
-                ),
+                state_root=resume_plugin_state_root,
                 clock=lambda: int(created_at.timestamp() * 1000),
             )
             current()
@@ -338,11 +345,10 @@ async def prepare_coding_resume_continuation(
         if resume_plugin_parents is not None:
             phase = "native_owner_seal"
             current()
+            assert resume_plugin_state_root is not None
             resume_plugin_parents.seal(
                 session_id=attempt.session_id,
-                state_root=_coding_capability_plugin_state_root(
-                    manager, session_id=attempt.session_id
-                ),
+                state_root=resume_plugin_state_root,
                 clock=lambda: int(created_at.timestamp() * 1000),
             )
             current()

@@ -92,7 +92,9 @@ _MAX_FILES = 64
 _MAX_BYTES = 1024 * 1024
 
 
-def _prepare_product_approval_state_root(state_root: Path) -> Path:
+def prepare_coding_product_approval_state_root(state_root: Path) -> Path:
+    """Prepare the canonical native approval root on this host platform."""
+
     if os.name == "nt":
         return _prepare_windows_product_approval_state_root(state_root)
     if os.name != "posix":
@@ -106,6 +108,12 @@ def _prepare_product_approval_state_root(state_root: Path) -> Path:
     ):
         raise ValueError("Coding Product approval state is not private")
     return root
+
+
+def _prepare_product_approval_state_root(state_root: Path) -> Path:
+    """Compatibility alias for existing internal callers and tests."""
+
+    return prepare_coding_product_approval_state_root(state_root)
 
 
 def _prepare_windows_product_approval_state_root(state_root: Path) -> Path:
