@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -43,11 +43,103 @@ from loushang.coding.runtime.agent_session_runtime import (
     CodingRuntimePreparedResume,
 )
 from loushang.coding.sandbox import coding_workspace_execution_profile
+from loushang.harness.approval import (
+    ApprovalOutcome,
+    ApprovalPermissionsSnapshot,
+    InteractiveApprovalResolver,
+)
+from loushang.harness.config.agent import SettingsManager
+from loushang.harness.permissions import (
+    PermissionProfileScope,
+    PermissionProfileSnapshot,
+    permission_profile,
+)
 from loushang.harness.session.bootstrap_utils import normalize_no_tools
 from loushang.harnesstui.conversation.agent_binding import (
     agent_image_parts_from_prompt_attachments,
 )
 from loushang.harnesstui.conversation.control import ConversationTextAction
+
+
+@dataclass(slots=True)
+class _EmbeddedApprovalPresentationLease:
+    interaction: EmbeddedResumeApprovalInteraction
+    generation: int
+    closed: bool = False
+
+    def close(
+        self,
+        reason: str = "Approval presenter closed before approval was resolved",
+    ) -> None:
+        if self.closed:
+            return
+        self.closed = True
+        self.interaction._close_presenter(self.generation)
+
+
+@dataclass(slots=True)
+class EmbeddedResumeApprovalInteraction:
+    """Screen interaction over the retained Root resolver before Session birth."""
+
+    resolver: InteractiveApprovalResolver
+    settings_manager: SettingsManager
+    _presenter_generation: int = 0
+
+    def bind_presenter(
+        self,
+        presenter: Callable[[dict[str, object]], Awaitable[None] | None],
+        *,
+        dismisser: Callable[[str], Awaitable[None] | None] | None = None,
+    ) -> _EmbeddedApprovalPresentationLease:
+        self._presenter_generation += 1
+        generation = self._presenter_generation
+        self.resolver.set_request_presenter(presenter, dismisser=dismisser)
+        self.resolver.open_session()
+        self.resolver.represent_pending_requests()
+        return _EmbeddedApprovalPresentationLease(self, generation)
+
+    async def respond(
+        self,
+        action_id: str,
+        *,
+        outcome: ApprovalOutcome,
+        reason: str | None = None,
+    ) -> bool:
+        return await self.resolver.handle_result(
+            action_id, outcome=outcome, reason=reason
+        )
+
+    def permissions_snapshot(self) -> ApprovalPermissionsSnapshot:
+        return self.resolver.permissions_snapshot()
+
+    def permission_profile_snapshot(self) -> PermissionProfileSnapshot:
+        return self.settings_manager.get_permission_profile_snapshot()
+
+    async def apply_permission_action(self, action: str) -> bool:
+        kind, separator, value = action.partition(":")
+        if not separator or not value:
+            return False
+        if kind == "set-profile":
+            scope, scope_separator, profile_id = value.partition(":")
+            if not scope_separator or scope not in {"session", "project", "user"}:
+                return False
+            self.settings_manager.set_permission_profile(
+                permission_profile(profile_id).profile_id,
+                scope=cast(PermissionProfileScope, scope),
+            )
+            return True
+        if kind == "revoke":
+            return self.resolver.revoke_grant(value)
+        if kind == "revoke-policy":
+            return self.resolver.revoke_policy_rule(value)
+        if kind == "reopen":
+            return await self.resolver.represent_request(value)
+        return False
+
+    def _close_presenter(self, generation: int) -> None:
+        if generation != self._presenter_generation:
+            return
+        self.resolver.set_request_presenter(None)
 
 
 def _resume_plugin_state_root(
@@ -289,4 +381,7 @@ class EmbeddedResumeInputCoordinator:
             raise
 
 
-__all__ = ["EmbeddedResumeInputCoordinator"]
+__all__ = [
+    "EmbeddedResumeApprovalInteraction",
+    "EmbeddedResumeInputCoordinator",
+]

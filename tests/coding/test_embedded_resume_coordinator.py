@@ -10,7 +10,10 @@ import pytest
 from loushang.ai.types import UserMessage
 from loushang.coding import bootstrap
 from loushang.coding.composition_sets import resolve_coding_composition_set
-from loushang.coding.embedded_resume import EmbeddedResumeInputCoordinator
+from loushang.coding.embedded_resume import (
+    EmbeddedResumeApprovalInteraction,
+    EmbeddedResumeInputCoordinator,
+)
 from loushang.coding.package_product_runtime import (
     CodingFencedProductApplicationSelection,
 )
@@ -103,13 +106,15 @@ def test_embedded_coordinator_prepares_exact_v2_input_from_current_root(
             root, "prepare_resume_continuation", prepare_continuation
         )
 
+        interaction = EmbeddedResumeApprovalInteraction(approval, settings)
+
         async def confirm(payload):
             assert root.current_session is None
-            assert await approval.handle_result(
+            assert await interaction.respond(
                 payload["action_id"], outcome="allow_once"
             )
 
-        approval.set_request_presenter(confirm)
+        presentation = interaction.bind_presenter(confirm)
         ids = iter(("a", "b", "c"))
         coordinator = EmbeddedResumeInputCoordinator(
             runtime=root,
@@ -157,6 +162,7 @@ def test_embedded_coordinator_prepares_exact_v2_input_from_current_root(
                     {"setId": composition_id, "selectedRevisions": []},
                 )
         finally:
+            presentation.close()
             await root.dispose_session_runtime()
             approval.dispose()
 

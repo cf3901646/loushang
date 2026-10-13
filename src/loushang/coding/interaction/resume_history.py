@@ -10,7 +10,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Literal, TextIO
+from typing import Literal, TextIO, cast
 
 from loushang.coding.resume_activation_attempt import CodingResumeRecoveryRequired
 from loushang.coding.resume_history import CodingResumeHistoryPreview
@@ -30,10 +30,15 @@ from loushang.coding.ui.product_binding import (
 from loushang.coding.ui.screen_app import ScreenCodingTuiApp
 from loushang.coding.ui.screen_input import CODING_SCREEN_RUN_PROFILE
 from loushang.harness.host.types import HostActionResult
+from loushang.harness.session.facade import SessionApprovalInteractionPort
 from loushang.harness.session.model_selection import model_identity_data
 from loushang.harnesstui.conversation.action_presentation import (
     ConversationActionResultPresenter,
     ConversationTracebackPolicy,
+)
+from loushang.harnesstui.conversation.agent_application import (
+    AgentScreenApprovalSurface,
+    bind_agent_screen_approval_presenter,
 )
 from loushang.harnesstui.conversation.agent_binding import (
     agent_session_history_records,
@@ -258,6 +263,7 @@ def build_coding_resume_history_screen(
     history: CodingResumeHistoryPreview, app: ScreenCodingTuiApp,
     prepare_input: PrepareHistoryInput, surface: PreparedScreenSurfacePort,
     stderr: TextIO,
+    approval_interaction: SessionApprovalInteractionPort | None = None,
 ) -> PreparedScreenConversationRun:
     """Prepare real history without an Agent or eager model preparation.
 
@@ -275,7 +281,19 @@ def build_coding_resume_history_screen(
     )
 
     def bind() -> Callable[[], None]:
-        return actions.close
+        approval_cleanup = bind_agent_screen_approval_presenter(
+            approval_interaction,
+            cast(AgentScreenApprovalSurface, surface),
+            default_action="Approve resumed session",
+        )
+
+        def cleanup() -> None:
+            try:
+                approval_cleanup()
+            finally:
+                actions.close()
+
+        return cleanup
 
     return PreparedScreenConversationRun(
         app=app, action_host=actions, surface=surface, event_source=events,

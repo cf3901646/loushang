@@ -6,7 +6,7 @@ import asyncio
 import inspect
 import os
 import sys
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, TextIO, cast
 
@@ -19,6 +19,13 @@ from loushang.harnesstui.conversation.startup_host import (
     startup_failure_summary,
 )
 from loushang.tui import strip_control_sequences
+
+
+@dataclass(slots=True)
+class _EmbeddedResumeStartup:
+    target: str
+    history: Any
+    model: Any = None
 
 
 def _threaded_loading_supported(stdin: TextIO) -> bool:
@@ -111,6 +118,7 @@ async def run_screen_first_cli(
         binding: Any, host_binding: Any, host_runners: Any
     ) -> int:
         from loushang.harness.cli.application import (
+            CliPhaseResult,
             invoke_agent_cli_runtime_builder,
             run_agent_cli_application,
         )
@@ -121,16 +129,183 @@ async def run_screen_first_cli(
             owned_runtime = await result if inspect.isawaitable(result) else result
             return owned_runtime
 
-        prepared_binding = replace(
-            binding,
-            runtime_builder=build_runtime,
-            host_lifecycle=ProductHostLifecycle.resolve(
+        supports_resume_history = all(
+            hasattr(binding, name)
+            for name in (
+                "pre_session_bootstrap",
+                "configure_session",
+                "session_operations",
+            )
+        )
+        original_pre_session = getattr(binding, "pre_session_bootstrap", None)
+        original_configure = getattr(
+            binding, "configure_session", lambda _context: None
+        )
+        original_operations = getattr(
+            binding, "session_operations", lambda _context: None
+        )
+        ordinary_host = host_binding.bind(replace(host_runners, tui=run_tui))
+
+        async def pre_session(context: Any) -> Any:
+            resume = context.state.args.resume
+            if isinstance(resume, str):
+                from loushang.coding.runtime.agent_session_runtime import (
+                    AgentSessionRuntime,
+                )
+
+                if type(context.runtime) is not AgentSessionRuntime:
+                    raise RuntimeError(
+                        "Embedded Resume requires the native Coding Root"
+                    )
+                history = await context.runtime.preview_resume_history(resume)
+                await context.runtime.start_configured_resume_planning(history)
+                return CliPhaseResult.continue_with(
+                    _EmbeddedResumeStartup(resume, history)
+                )
+            if original_pre_session is None:
+                return None
+            result = original_pre_session(context)
+            return await result if inspect.isawaitable(result) else result
+
+        async def configure(context: Any) -> int | None:
+            if not isinstance(context.session, _EmbeddedResumeStartup):
+                result = original_configure(context)
+                return await result if inspect.isawaitable(result) else result
+            from loushang.ai.model import parse_model_selection_reference
+
+            context.session.model = parse_model_selection_reference(
+                context.args.model,
+                provider=context.args.provider,
+                registry=getattr(
+                    getattr(context.state.services, "model_registry", None),
+                    "ai_registry",
+                    None,
+                ),
+            )
+            return None
+
+        async def session_operations(context: Any) -> int | None:
+            if isinstance(context.session, _EmbeddedResumeStartup):
+                return None
+            result = original_operations(context)
+            return await result if inspect.isawaitable(result) else result
+
+        async def run_host(context: Any) -> int:
+            if not isinstance(context.session, _EmbeddedResumeStartup):
+                return await ordinary_host(context)
+            if threaded_startup is not None:
+                await threaded_startup.before_product_ui()
+
+            from loushang.coding.embedded_resume import (
+                EmbeddedResumeApprovalInteraction,
+                EmbeddedResumeInputCoordinator,
+            )
+            from loushang.coding.interaction.resume_history import (
+                build_coding_resume_history_screen,
+            )
+            from loushang.coding.ui.screen_surfaces import ScreenSurfaceManager
+            from loushang.harnesstui.conversation.agent_application import (
+                handle_agent_screen_approval,
+            )
+            from loushang.harnesstui.conversation.application_host import (
+                run_prepared_screen_conversation,
+            )
+            from loushang.harnesstui.status.provider import StatusProvider
+
+            resume = context.session
+            approval = EmbeddedResumeApprovalInteraction(
+                context.state.approval_resolver,
+                context.state.settings_manager,
+            )
+            no_tools: Any = (
+                "all"
+                if context.args.no_tools
+                else "builtin"
+                if context.args.no_builtin_tools
+                else None
+            )
+            coordinator = EmbeddedResumeInputCoordinator(
+                runtime=context.runtime,
+                services=context.state.services,
+                policy_evaluator=context.state.tool_policy_evaluator,
+                model=resume.model,
+                no_tools=no_tools,
+                worker_candidate_plugin_id=context.args.worker_query_plugin,
+            )
+            app.state.cwd = str(context.bootstrap.project_root)
+            app.state.session_label = (
+                resume.history.header_preview.header.conversation_id
+            )
+
+            def current_approval() -> Any:
+                current = context.runtime.current_session
+                return (
+                    getattr(current, "approval_interaction", None)
+                    if current is not None
+                    else approval
+                )
+
+            status = StatusProvider(
+                model_label=None,
+                cwd=app.state.cwd,
+                branch=app.state.branch,
+                session_label=lambda: app.state.session_label,
+                thinking_level=lambda: None,
+                running=lambda: app.state.running,
+                permission_profile=lambda: context.state.settings_manager.get_permission_profile_id(),
+            )
+            surface = ScreenSurfaceManager(
+                app=app,
+                session=resume,
+                runtime=context.runtime,
+                status_provider=status,
+                on_approval=lambda event: handle_agent_screen_approval(
+                    current_approval(), event
+                ),
+                approval_interaction_provider=current_approval,
+            )
+
+            async def prepare_input(action: Any, observe: Any) -> Any:
+                return await coordinator.prepare_input(
+                    session_file=resume.target,
+                    history=resume.history,
+                    action=action,
+                    observe_input_identity=observe,
+                )
+
+            prepared = build_coding_resume_history_screen(
+                runtime=context.runtime,
+                session_ref=resume.target,
+                history=resume.history,
+                app=app,
+                prepare_input=prepare_input,
+                surface=surface,
+                stderr=context.bootstrap.stderr,
+                approval_interaction=approval,
+            )
+            return await run_prepared_screen_conversation(
+                prepared,
+                stdin=context.bootstrap.stdin,
+                stdout=context.bootstrap.stdout,
+                screen_runner=startup.attach,
+            )
+
+        updates = {
+            "runtime_builder": build_runtime,
+            "host_lifecycle": ProductHostLifecycle.resolve(
                 stdin=streams.stdin,
                 stdout=cast(TextIO, output),
                 stderr=cast(TextIO, errors),
             ),
-            run_host=host_binding.bind(replace(host_runners, tui=run_tui)),
-        )
+            "run_host": run_host if supports_resume_history else ordinary_host,
+        }
+        if supports_resume_history:
+            updates.update(
+                pre_session_bootstrap=pre_session,
+                configure_session=configure,
+                session_operations=session_operations,
+            )
+        prepared_binding = replace(binding, **updates)
         return await run_agent_cli_application(
             raw_argv, binding=prepared_binding, cwd=cwd
         )

@@ -3198,3 +3198,25 @@ still pending. The Embedded coordinator, history screen, v2 continuation and
 native Plugin journal suites passed **28 tests in 55.96 seconds** outside the
 managed sandbox with `not live` and `--skip-host-runtime`; Ruff, scoped mypy
 and `git diff --check` passed.
+
+#### Explicit Embedded Resume enters through history
+
+The early-screen Coding CLI now intercepts explicit `--resume <session>` before
+the generic Agent CLI restores a Session. It reads the bounded selected history,
+starts the configured data-only Plan, and supplies a placeholder only to the
+CLI phase adapter. The screen receives no Agent or writable Session until its
+first prompt calls the Embedded coordinator. Model selection, Tools mode,
+current services and Policy are forwarded to that coordinator.
+
+The original Root resolver is presented through a generation-safe Embedded
+interaction adapter. Approval decisions use that resolver before Session birth;
+after lifecycle delivery the same screen routes decisions to the current
+Session interaction. Closing the history presenter clears presentation without
+closing the newly active Session owner. Existing screen-first startup, history
+screen and Embedded coordinator regressions passed **76 tests in 51.94
+seconds** outside the managed sandbox with `not live` and
+`--skip-host-runtime`; Ruff and scoped mypy passed.
+
+Bare `--resume` still uses the existing continuity picker and eager activation.
+Hosted adoption, Worker C5 settlement, background latency evidence and the
+remaining release gates are pending.
