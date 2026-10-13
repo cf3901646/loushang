@@ -225,7 +225,7 @@ def test_selected_resume_epoch_is_native_readonly_and_never_repairs_tail(tmp_pat
 
 
 @pytest.mark.parametrize("existing_epoch", [False, True])
-def test_formal_epoch_rechecks_original_approval_before_native_state_recovery(tmp_path, monkeypatch, existing_epoch):
+def test_formal_epoch_rechecks_original_approval_before_epoch_state_recovery(tmp_path, monkeypatch, existing_epoch):
     from loushang.coding import package_product_runtime as product
     from loushang.harness.plugin_management.service import PluginManagementService
 
