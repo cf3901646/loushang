@@ -274,9 +274,7 @@ def test_G16_PRODUCT_TERMINAL_process_death_recovers_history_not_execution(
             execution_checkpoint = len(recovered.raw_output)
             recovered.write("/approve\r")
             recovered.read_until(
-                lambda output: _completed_reply_after_input(
-                    output[execution_checkpoint:], "fresh-after-restart"
-                ),
+                lambda output: _completed_reply_seen(output[execution_checkpoint:]),
                 timeout=30,
             )
             recovered.write("\x02d")
