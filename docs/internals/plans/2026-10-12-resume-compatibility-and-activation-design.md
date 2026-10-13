@@ -3018,3 +3018,39 @@ prerequisites and the existing native Definition/Component integrations passed:
 `--skip-host-runtime`. Ruff, focused mypy and `git diff --check` also passed.
 This evidence does not enable default writable v2 Resume or replace final
 Embedded, Hosted, performance, installation, platform and selected-tree gates.
+
+#### Restricted v2 continuation and original Plugin enumeration
+
+The continuation now negotiates all four accepted writer protocol capabilities
+before current admission or any durable source access. A v2 intent with no
+startup effect owners can use the existing single-input coordinator when the
+current composition also selects no capability Plugin startup owners. If the
+current composition selects those Plugins, the frozen intent must contain the
+exact Definition and Component pair with their native scope/contract digests
+and fixed declaration/activation phases. Current composition selection is
+rechecked before Product preparation; a caller-supplied empty owner list cannot
+silently bypass a selected capability Plugin.
+
+After the Transcript intent commit, the coordinator idempotently enrolls that
+pair in the two original journals. Product preparation carries the exact parent
+contexts into native Definition evaluation and Component construction. After
+the runtime graph is prepared, the coordinator seals exact native membership
+in both original journals before first-input preparation. Retry after a crash
+between the two enrollments is supported. Unsupported owner IDs, declared
+external effect classes and Worker candidates refuse before admission and
+Writer acquisition; Worker containment remains a required later slice.
+
+The real no-effect-owner v2 continuation committed exactly one v2 Binding and
+reloaded it through the history projector. Enrollment retry/seal, unsupported
+pre-Writer refusal and direct Transcript v2 tests passed together: **11 passed
+in 10.40 seconds** outside the managed sandbox. Ruff and focused mypy passed.
+A broader diagnostic continuation run exposed eight existing published-mode
+assertion failures where the current Product test setup retained the literal
+`/skill` command instead of expanding its Skill text; the v2 record-construction
+failure from that run was fixed. The Skill failures remain an unresolved final
+gate item and are not counted as passing evidence here.
+
+This remains a restricted internal continuation path. Product application
+operation reconciliation, native Worker participation and domain-specific
+external effect settlement are not implemented, so default Embedded/Hosted
+writable v2 Resume remains unavailable.

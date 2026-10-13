@@ -32,6 +32,7 @@ from loushang.coding._base_product_composition import (
 )
 from loushang.coding._capability_plugin_composition import (
     CodingCapabilityPluginCompositionError,
+    CodingResumePluginParents,
     coding_capability_plugin_failure_custodian,
     create_coding_capability_plugin_composition_request,
     prepare_coding_capability_plugin_composition,
@@ -604,11 +605,24 @@ def _create_agent_session(
     ),
     invocation_product_profile: CodingAgentInvocationProductProfile | None = None,
     _resume_bootstrap_admission: _CodingResumeBootstrapAdmission | None = None,
+    _resume_plugin_parents: CodingResumePluginParents | None = None,
+    _resume_effect_owner_ids: frozenset[str] | None = None,
 ) -> AgentSession:
     if _resume_bootstrap_admission is None:
         session_manager.require_no_unsettled_resume_activation()
     elif type(_resume_bootstrap_admission) is not _CodingResumeBootstrapAdmission:
         raise TypeError("Coding Resume bootstrap requires its current admission context")
+    if _resume_plugin_parents is not None and (
+        type(_resume_plugin_parents) is not CodingResumePluginParents
+        or _resume_bootstrap_admission is None
+    ):
+        raise TypeError("Coding Resume Plugin parents require current Resume admission")
+    if _resume_effect_owner_ids is not None and (
+        type(_resume_effect_owner_ids) is not frozenset
+        or any(type(item) is not str for item in _resume_effect_owner_ids)
+        or _resume_bootstrap_admission is None
+    ):
+        raise TypeError("Coding Resume effect owners require current Resume admission")
     if (
         initial_resource_catalog_product_composition_assembly is not None
         and not isinstance(
@@ -821,6 +835,25 @@ def _create_agent_session(
     capability_plugins_enabled_for_session = (
         lsp_enabled_for_session or arch_enabled_for_session
     )
+    if _resume_effect_owner_ids is not None:
+        expected_plugin_owners = (
+            frozenset(
+                {
+                    "harness.plugin-execution",
+                    "harness.plugin-activation",
+                }
+            )
+            if capability_plugins_enabled_for_session
+            else frozenset()
+        )
+        if _resume_effect_owner_ids != expected_plugin_owners:
+            raise CodingResourceCatalogAdmissionError(
+                ("resume_plugin_participation_changed",)
+            )
+    if _resume_plugin_parents is not None and not capability_plugins_enabled_for_session:
+        raise ValueError(
+            "Coding Resume Plugin parents require selected capability Plugins"
+        )
     if lsp_enabled_for_session and lsp_read_text is not None:
         raise ValueError("Coding LSP reads only through harness.workspace")
     global_lsp_config, project_lsp_config = coding_lsp_config_paths(
@@ -1488,6 +1521,7 @@ def _create_agent_session(
                             configurations=no_base_configurations,
                             state_root=state_root,
                             clock=coding_plugin_clock,
+                            resume_parents=_resume_plugin_parents,
                         )
                     )
                 except BaseException:
@@ -1505,6 +1539,10 @@ def _create_agent_session(
                     arch_private_ephemeral_state.cleanup
                     if arch_private_ephemeral_state is not None
                     else None
+                )
+            elif _resume_plugin_parents is not None:
+                raise CodingResourceCatalogAdmissionError(
+                    ("resume_plugin_participation_changed",)
                 )
             try:
                 receipt = loader.prepare_catalog_input_receipt(resolved_cwd)
@@ -1678,6 +1716,7 @@ def _create_agent_session(
                         ),
                         state_root=state_root,
                         clock=coding_plugin_clock,
+                        resume_parents=_resume_plugin_parents,
                     )
                 )
             except BaseException as error:
@@ -1718,6 +1757,10 @@ def _create_agent_session(
             )
             compiled = builtin_product_preparation.base_compilation
         else:
+            if _resume_plugin_parents is not None:
+                raise CodingResourceCatalogAdmissionError(
+                    ("resume_plugin_participation_changed",)
+                )
             external_ids = product_runtime.selected_external_data_plugin_ids()
             if external_ids:
                 compiled = extend_coding_base_product_data_resources(
@@ -2573,6 +2616,8 @@ async def _create_resume_agent_session(
     tool_policy_evaluator: PolicyEvaluator | None = None,
     product_owner_selection: CodingFencedProductApplicationSelection | None = None,
     worker_candidates: bool = False,
+    resume_plugin_parents: CodingResumePluginParents | None = None,
+    resume_effect_owner_ids: frozenset[str] | None = None,
 ) -> AgentSession:
     """Construct a fenced current candidate for a locally committed Resume Plan.
 
@@ -2610,6 +2655,8 @@ async def _create_resume_agent_session(
             approval_resolver=approval_resolver, tool_policy_evaluator=tool_policy_evaluator,
             package_product_runtime_factory=selected_factory,
             _resume_bootstrap_admission=admission,
+            _resume_plugin_parents=resume_plugin_parents,
+            _resume_effect_owner_ids=resume_effect_owner_ids,
         )
         admission.require(session_manager, composition)
         return session

@@ -35,11 +35,13 @@ from loushang.harness.approval.plugin_activation import (
     ContributionActivationApprovalSubject,
     PluginActivationDecisionJournal,
     PluginActivationDecisionRecordV1,
+    PluginActivationJournalError,
 )
 from loushang.harness.approval.plugin_execution import (
     PluginApprovalAuthorizationV1,
     PluginApprovalDecisionRecordV1,
     PluginExecutionDecisionJournal,
+    PluginExecutionJournalError,
 )
 from loushang.harness.capabilities import (
     MODEL_INPUT_CAPABILITY_DEFINITION,
@@ -196,11 +198,9 @@ class CodingResumePluginParents:
         ):
             raise ValueError("Coding Resume Plugin parents differ from one intent")
 
-    def require_open(
+    def _journals(
         self, *, session_id: str, state_root: Path, clock: Callable[[], int]
-    ) -> None:
-        """Read original enrollment before Definition evaluation; never enroll."""
-
+    ) -> tuple[PluginExecutionDecisionJournal, PluginActivationDecisionJournal]:
         if self.definition.session_id != session_id:
             raise ValueError("Coding Resume Plugin parents belong to another Session")
         scope_id = f"session:{session_id}"
@@ -221,6 +221,16 @@ class CodingResumePluginParents:
                 {"harness.plugin-activation.resume-context/v1"}
             ),
         )
+        return definition, activation
+
+    def require_open(
+        self, *, session_id: str, state_root: Path, clock: Callable[[], int]
+    ) -> None:
+        """Read original enrollment before Definition evaluation; never enroll."""
+
+        definition, activation = self._journals(
+            session_id=session_id, state_root=state_root, clock=clock
+        )
         # Both obligations must already be enrolled in their original journals.
         # A missing Component enrollment cannot be discovered after Definition
         # code has started. Original owners validate scope and contract digests.
@@ -234,6 +244,67 @@ class CodingResumePluginParents:
                 "Resume Component enumeration is sealed.",
                 code="coding_resume_activation_parent_sealed",
             )
+
+    def enroll(
+        self, *, session_id: str, state_root: Path, clock: Callable[[], int]
+    ) -> None:
+        """Idempotently enroll both original owners after intent commit."""
+
+        definition, activation = self._journals(
+            session_id=session_id, state_root=state_root, clock=clock
+        )
+        try:
+            existing_definition = definition.resume_parent_snapshot(self.definition)
+        except PluginExecutionJournalError as error:
+            if error.code != "plugin_execution_resume_parent_unknown":
+                raise
+            definition.enroll_resume_parent(
+                self.definition,
+                expected_journal_revision=definition.snapshot().journal_revision,
+            )
+        else:
+            if existing_definition.sealed:
+                raise CodingCapabilityPluginCompositionError(
+                    "Resume Definition enumeration is sealed.",
+                    code="coding_resume_definition_parent_sealed",
+                )
+        try:
+            existing_activation = activation.resume_parent_snapshot(self.activation)
+        except PluginActivationJournalError as error:
+            if error.code != "plugin_activation_resume_parent_unknown":
+                raise
+            activation.enroll_resume_parent(
+                self.activation,
+                expected_journal_revision=activation.snapshot().journal_revision,
+            )
+        else:
+            if existing_activation.sealed:
+                raise CodingCapabilityPluginCompositionError(
+                    "Resume Component enumeration is sealed.",
+                    code="coding_resume_activation_parent_sealed",
+                )
+
+    def seal(
+        self, *, session_id: str, state_root: Path, clock: Callable[[], int]
+    ) -> tuple[object, object]:
+        """Fence exact Definition and Component membership after graph preparation."""
+
+        definition, activation = self._journals(
+            session_id=session_id, state_root=state_root, clock=clock
+        )
+        definition_snapshot = definition.resume_parent_snapshot(self.definition)
+        if not definition_snapshot.sealed:
+            definition_snapshot = definition.seal_resume_parent(
+                self.definition,
+                expected_journal_revision=definition_snapshot.journal_revision,
+            )
+        activation_snapshot = activation.resume_parent_snapshot(self.activation)
+        if not activation_snapshot.sealed:
+            activation_snapshot = activation.seal_resume_parent(
+                self.activation,
+                expected_journal_revision=activation_snapshot.journal_revision,
+            )
+        return definition_snapshot, activation_snapshot
 
 
 @dataclass(slots=True)

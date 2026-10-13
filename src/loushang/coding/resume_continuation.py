@@ -18,13 +18,30 @@ from typing import cast
 from loushang.ai.model import Model, ModelSelection
 from loushang.ai.types import ImagePart, UserMessage
 from loushang.harness.approval import InteractiveApprovalResolver
+from loushang.harness.approval.plugin_activation import (
+    PluginActivationDecisionJournal,
+    PluginActivationJournalError,
+)
+from loushang.harness.approval.plugin_execution import (
+    PluginExecutionDecisionJournal,
+    PluginExecutionJournalError,
+)
 from loushang.harness.policy import PolicyEvaluator
+from loushang.harness.worker.activation_state_journal import (
+    WorkerActivationStateJournal,
+    WorkerActivationStateJournalError,
+)
 
+from ._capability_plugin_composition import CodingResumePluginParents
 from ._resume_cleanup import (
     CodingResumeContinuationCleanupFailure,
     retain_resume_cleanup_failure,
 )
-from .bootstrap import BootstrapServices, _create_resume_agent_session
+from .bootstrap import (
+    BootstrapServices,
+    _coding_capability_plugin_state_root,
+    _create_resume_agent_session,
+)
 from .composition_sets import resolve_coding_composition_set
 from .package_product_runtime import CodingFencedProductApplicationSelection
 from .resume_activation_attempt import (
@@ -32,11 +49,20 @@ from .resume_activation_attempt import (
     CodingResumeRecoveryRequired,
     prepare_coding_activation_attempt_record,
 )
+from .resume_activation_attempt_v2 import (
+    CodingActivationAttemptV2,
+    prepare_coding_activation_attempt_v2_record,
+)
 from .resume_activation_plan import ActivationOwnerInputRefV1, SessionActivationPlanV1
 from .resume_binding import (
     CodingRuntimeBindingV1,
     coding_user_payload_digest,
     inspect_coding_runtime_binding,
+)
+from .resume_binding_v2 import (
+    CODING_RUNTIME_BINDING_V2_METADATA_KEY,
+    CodingRuntimeBindingV2,
+    decode_coding_runtime_binding_v2,
 )
 from .resume_input_lookup import (
     CodingResumeInputLookupQueryV1,
@@ -61,6 +87,76 @@ class CodingResumePreparedContinuation:
     attempt_id: str
     input_record_id: str
     input_lookup_query: CodingResumeInputLookupQueryV1
+
+
+def _prepare_v2_plugin_parents(
+    attempt: CodingActivationAttemptV2,
+) -> CodingResumePluginParents | None:
+    owners = {owner.owner_id: owner for owner in attempt.effect_owners}
+    plugin_ids = {
+        "harness.plugin-execution",
+        "harness.plugin-activation",
+    }
+    selected_plugin_ids = plugin_ids & owners.keys()
+    if selected_plugin_ids and selected_plugin_ids != plugin_ids:
+        raise CodingResumeRecoveryRequired("input.effect_owner_set_unsupported")
+    unsupported = set(owners) - plugin_ids
+    if unsupported or attempt.effect_classes or any(
+        owner.effect_classes for owner in attempt.effect_owners
+    ):
+        raise CodingResumeRecoveryRequired("input.effect_owner_set_unsupported")
+    if not selected_plugin_ids:
+        return None
+    if (
+        owners["harness.plugin-execution"].phases != ("declaration",)
+        or owners["harness.plugin-activation"].phases != ("activation",)
+    ):
+        raise CodingResumeRecoveryRequired("input.effect_owner_set_unsupported")
+    return CodingResumePluginParents(
+        definition=attempt.parent_context(owners["harness.plugin-execution"]),
+        activation=attempt.parent_context(owners["harness.plugin-activation"]),
+    )
+
+
+def _require_v2_native_writer_protocols(
+    manager_type: type[SessionManager],
+) -> None:
+    """Negotiate all accepted v2 writers without opening any durable source."""
+
+    manager_type._require_resume_writer_capabilities(
+        frozenset({"coding.resume-continuation/v2"})
+    )
+    probe_root = Path.cwd().resolve(strict=False) / ".resume-protocol-probe"
+    try:
+        PluginExecutionDecisionJournal(
+            probe_root / "definition-decisions.jsonl",
+            scope_kind="workspace",
+            scope_id="session:protocol-probe",
+            required_writer_capabilities=frozenset(
+                {"harness.plugin-execution.resume-context/v1"}
+            ),
+        )
+        PluginActivationDecisionJournal(
+            probe_root / "activation-decisions.jsonl",
+            scope_id="session:protocol-probe",
+            required_writer_capabilities=frozenset(
+                {"harness.plugin-activation.resume-context/v1"}
+            ),
+        )
+        WorkerActivationStateJournal(
+            probe_root / "worker-activation-state.jsonl",
+            required_writer_capabilities=frozenset(
+                {"harness.worker-activation.resume-context/v1"}
+            ),
+        )
+    except (
+        PluginExecutionJournalError,
+        PluginActivationJournalError,
+        WorkerActivationStateJournalError,
+    ) as error:
+        raise CodingResumeRecoveryRequired(
+            "writer.resume_protocol_unsupported"
+        ) from error
 
 
 async def prepare_coding_resume_continuation(
@@ -90,11 +186,10 @@ async def prepare_coding_resume_continuation(
 
     if not isinstance(manager_type, type) or not issubclass(manager_type, SessionManager):
         raise TypeError("Coding Resume requires its original SessionManager type")
-    if isinstance(attempt, CodingActivationAttemptV1) and type(attempt) is not CodingActivationAttemptV1:
-        # This original continuation still commits the explicit v1 protocol.
-        # V2 facts inherit the common value fields, but that does not establish
-        # support for v2 owner enrollment/settlement or Writer capabilities.
-        # Refuse before admission callbacks and acquisition can repair history.
+    if isinstance(attempt, CodingActivationAttemptV1) and type(attempt) not in {
+        CodingActivationAttemptV1,
+        CodingActivationAttemptV2,
+    }:
         raise CodingResumeRecoveryRequired("writer.resume_protocol_unsupported")
     if product_owner_selection is not None and not isinstance(
         product_owner_selection, CodingFencedProductApplicationSelection,
@@ -102,6 +197,12 @@ async def prepare_coding_resume_continuation(
         raise TypeError("Coding Resume Product application owner is invalid")
     if type(worker_candidates) is not bool or (worker_candidates and product_owner_selection is None):
         raise ValueError("Coding Resume Worker requires its application Product owner")
+    resume_plugin_parents: CodingResumePluginParents | None = None
+    if type(attempt) is CodingActivationAttemptV2:
+        if worker_candidates:
+            raise CodingResumeRecoveryRequired("input.effect_owner_set_unsupported")
+        resume_plugin_parents = _prepare_v2_plugin_parents(attempt)
+        _require_v2_native_writer_protocols(manager_type)
     if (
         not isinstance(plan, SessionActivationPlanV1)
         or not isinstance(attempt, CodingActivationAttemptV1)
@@ -143,6 +244,11 @@ async def prepare_coding_resume_continuation(
     try:
         manager = await manager_type._load_resume_writer(
             session_file, plan=plan, current_owner_inputs=current_owner_inputs,
+            required_writer_capabilities=(
+                frozenset({"coding.resume-continuation/v2"})
+                if type(attempt) is CodingActivationAttemptV2
+                else frozenset()
+            ),
         )
         with manager._lifecycle_session.sync_operation_scope():
             current()
@@ -151,14 +257,32 @@ async def prepare_coding_resume_continuation(
             for record in manager.get_active_entries():
                 existing = inspect_coding_runtime_binding(record.metadata).binding
                 if (
+                    existing is None
+                    and CODING_RUNTIME_BINDING_V2_METADATA_KEY in record.metadata
+                ):
+                    existing = decode_coding_runtime_binding_v2(record.metadata)
+                if (
                     existing is not None and existing.session_id == attempt.session_id
                     and existing.input_id == attempt.request_id
                 ):
                     raise CodingResumeRecoveryRequired("input.recovery_required")
         phase = "intent_commit"
         await manager._commit_resume_activation_intent(
-            prepare_coding_activation_attempt_record(attempt, created_at=created_at),
+            prepare_coding_activation_attempt_v2_record(attempt, created_at=created_at)
+            if type(attempt) is CodingActivationAttemptV2
+            else prepare_coding_activation_attempt_record(attempt, created_at=created_at),
         )
+        if resume_plugin_parents is not None:
+            phase = "native_owner_enrollment"
+            current()
+            resume_plugin_parents.enroll(
+                session_id=attempt.session_id,
+                state_root=_coding_capability_plugin_state_root(
+                    manager, session_id=attempt.session_id
+                ),
+                clock=lambda: int(created_at.timestamp() * 1000),
+            )
+            current()
         phase = "runtime_preparation"
         session = await _create_resume_agent_session(
             session_manager=manager, attempt_id=attempt.attempt_id,
@@ -167,10 +291,27 @@ async def prepare_coding_resume_continuation(
             services=services, model=model, no_tools=no_tools,
             approval_resolver=approval_resolver, tool_policy_evaluator=tool_policy_evaluator,
             product_owner_selection=product_owner_selection, worker_candidates=worker_candidates,
+            resume_plugin_parents=resume_plugin_parents,
+            resume_effect_owner_ids=(
+                frozenset(owner.owner_id for owner in attempt.effect_owners)
+                if type(attempt) is CodingActivationAttemptV2
+                else None
+            ),
         )
         receipt = await session._prepare_resume_runtime_graph(
             attempt_id=attempt.attempt_id, require_current_admission=require_current_admission,
         )
+        if resume_plugin_parents is not None:
+            phase = "native_owner_seal"
+            current()
+            resume_plugin_parents.seal(
+                session_id=attempt.session_id,
+                state_root=_coding_capability_plugin_state_root(
+                    manager, session_id=attempt.session_id
+                ),
+                clock=lambda: int(created_at.timestamp() * 1000),
+            )
+            current()
 
         def settled() -> None:
             with manager._lifecycle_session.sync_operation_scope():
@@ -193,7 +334,23 @@ async def prepare_coding_resume_continuation(
         )
         settled()
 
-        def binding(persisted: UserMessage) -> CodingRuntimeBindingV1:
+        def binding(
+            persisted: UserMessage,
+        ) -> CodingRuntimeBindingV1 | CodingRuntimeBindingV2:
+            if type(attempt) is CodingActivationAttemptV2:
+                return CodingRuntimeBindingV2(
+                    attempt_id=attempt.attempt_id, input_id=attempt.request_id,
+                    record_id=input_record_id, session_id=attempt.session_id,
+                    original_leaf_id=attempt.original_leaf_id,
+                    ancestry_digest=attempt.ancestry_digest,
+                    subject_digest=attempt.subject_digest,
+                    origin_composition=plan.composition_comparison.origin,
+                    planned_fingerprint=attempt.plan_fingerprint,
+                    actual_fingerprint=attempt.epoch_fingerprint,
+                    payload_digest=coding_user_payload_digest(persisted),
+                    difference_codes=plan.composition_comparison.difference_codes,
+                    intent_digest=attempt.digest,
+                )
             return CodingRuntimeBindingV1(
                 attempt_id=attempt.attempt_id, input_id=attempt.request_id,
                 record_id=input_record_id, session_id=attempt.session_id,

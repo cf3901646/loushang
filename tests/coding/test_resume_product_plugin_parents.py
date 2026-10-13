@@ -81,6 +81,26 @@ def test_both_native_enrollments_form_one_preparation_prerequisite(tmp_path):
     assert activation.resume_parent_snapshot(parents.activation).activation_uses == ()
 
 
+def test_product_parent_enrollment_is_retryable_and_seals_exact_empty_membership(
+    tmp_path,
+):
+    root = _prepare_product_approval_state_root(tmp_path / "state")
+    definition, activation, parents = _parents(root, "session-1", lambda: 1000)
+
+    parents.enroll(session_id="session-1", state_root=root, clock=lambda: 1000)
+    parents.enroll(session_id="session-1", state_root=root, clock=lambda: 1000)
+    definition_seal, activation_seal = parents.seal(
+        session_id="session-1", state_root=root, clock=lambda: 1000
+    )
+
+    assert definition_seal.sealed
+    assert definition_seal.execution_uses == ()
+    assert activation_seal.sealed
+    assert activation_seal.activation_uses == ()
+    assert definition.resume_parent_snapshot(parents.definition) == definition_seal
+    assert activation.resume_parent_snapshot(parents.activation) == activation_seal
+
+
 @pytest.mark.parametrize("missing_owner", ["definition", "activation"])
 def test_missing_native_enrollment_refuses_before_any_definition_use(
     tmp_path,

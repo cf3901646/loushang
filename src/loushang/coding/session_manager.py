@@ -259,6 +259,19 @@ class SessionManager(
         return self._resume_runtime_publication_pending
 
     @classmethod
+    def _require_resume_writer_capabilities(
+        cls, required_writer_capabilities: frozenset[str]
+    ) -> None:
+        """Negotiate Transcript wire support without acquiring or reading a source."""
+
+        if type(required_writer_capabilities) is not frozenset or any(
+            type(item) is not str for item in required_writer_capabilities
+        ):
+            raise TypeError("Resume Writer capabilities require exact strings")
+        if not required_writer_capabilities <= _RESUME_WRITER_CAPABILITIES:
+            raise CodingResumeRecoveryRequired("writer.resume_protocol_unsupported")
+
+    @classmethod
     async def _load_resume_writer(
         cls,
         session_file: str | Path,
@@ -274,12 +287,7 @@ class SessionManager(
         The activation coordinator must still admit owners and publish Runtime.
         """
 
-        if type(required_writer_capabilities) is not frozenset or any(
-            type(item) is not str for item in required_writer_capabilities
-        ):
-            raise TypeError("Resume Writer capabilities require exact strings")
-        if not required_writer_capabilities <= _RESUME_WRITER_CAPABILITIES:
-            raise CodingResumeRecoveryRequired("writer.resume_protocol_unsupported")
+        cls._require_resume_writer_capabilities(required_writer_capabilities)
         factory = cls._factory_for_persistence(True)
         if not factory.owns_persistent_sessions:
             raise ValueError(
@@ -733,13 +741,13 @@ class SessionManager(
                 else:
                     if type(pending.attempt) is not CodingActivationAttemptV1:
                         raise ValueError("RuntimeBinding v1 cannot close a v2 intent")
-                record = prepare_coding_resume_user_record(
-                    binding,
-                    persisted,
-                    commit_parent_id=pending.commit_parent_id,
-                    created_at=pending.created_at,
-                    resource_metadata=metadata_snapshot,
-                )
+                    record = prepare_coding_resume_user_record(
+                        binding,
+                        persisted,
+                        commit_parent_id=pending.commit_parent_id,
+                        created_at=pending.created_at,
+                        resource_metadata=metadata_snapshot,
+                    )
                 pending.prepared_record = replace(
                     record,
                     payload=freeze_coding_user_input(persisted),
