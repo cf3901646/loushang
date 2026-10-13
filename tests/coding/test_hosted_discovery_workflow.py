@@ -6,6 +6,7 @@ import asyncio
 import json
 import sys
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
@@ -162,7 +163,7 @@ def test_hosted_resume_activates_once_from_stable_execution_input(
     asyncio.run(asyncio.wait_for(scenario(), 90))
 
 
-def test_hosted_execution_profile_recovers_cross_platform_readonly_history(
+def test_hosted_execution_profile_preserves_cross_platform_legacy_resume(
     tmp_path, monkeypatch,
 ):
     async def scenario():
@@ -177,9 +178,16 @@ def test_hosted_execution_profile_recovers_cross_platform_readonly_history(
         assert selected is not None
         await seed_hosted_history(scope, "cross-platform history", session_id=selected.session_id)
 
-        monkeypatch.setattr("loushang.coding.hosted_bootstrap.sys.platform", "win32")
+        monkeypatch.setattr(
+            "loushang.coding.hosted_bootstrap.sys", SimpleNamespace(platform="win32")
+        )
         attempt = create_coding_hosted_attempt(
-            launch, session_discovery=True, owned_transcripts=True
+            launch,
+            model=_model(),
+            stream_fn=_stream,
+            tools=[],
+            session_discovery=True,
+            owned_transcripts=True,
         )
         app = await attempt.open()
         app.enable_client_scopes()
@@ -202,20 +210,27 @@ def test_hosted_execution_profile_recovers_cross_platform_readonly_history(
             attachment = await client.attach_mux(MuxAttachV1(selector))
             session = attachment.sessions[0]
             assert session.snapshot.submission_mode is (
-                SessionSubmissionModeV1.EXECUTION
+                SessionSubmissionModeV1.LEGACY
             )
             assert [record.text for record in session.snapshot.records] == [
                 "cross-platform history",
-                "Historical session is read-only; continuing requires current runtime activation.",
             ]
-            with pytest.raises(AppServiceError) as unavailable:
-                await client.start_turn(TurnTextV1(
-                    attachment.attachment_id,
-                    attachment.controller_generation,
-                    session.member.member_id,
-                    "must remain read-only",
-                ))
-            assert unavailable.value.code is AppErrorCodeV1.SESSION_UNAVAILABLE
+            await client.start_turn(TurnTextV1(
+                attachment.attachment_id,
+                attachment.controller_generation,
+                session.member.member_id,
+                "legacy continuation",
+            ))
+            continued = await client.snapshot_session(SessionSnapshotRequestV1(
+                attachment.attachment_id,
+                attachment.controller_generation,
+                session.member.member_id,
+            ))
+            assert [record.text for record in continued.records] == [
+                "cross-platform history",
+                "legacy continuation",
+                "real Coding response",
+            ]
         finally:
             await client.close()
             await app.close()

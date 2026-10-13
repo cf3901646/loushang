@@ -164,7 +164,6 @@ def create_coding_hosted_attempt(
         raise TypeError("invalid discovery activation")
     if type(owned_transcripts) is not bool:
         raise TypeError("invalid owned transcript activation")
-    resume_history = owned_transcripts
     # Keep Product execution negotiation cross-platform while retaining the
     # existing native Writer support boundary used by Embedded Coding.
     owned_transcripts = owned_transcripts and sys.platform == "linux"
@@ -174,7 +173,7 @@ def create_coding_hosted_attempt(
         application_root=launch.application_root, application_id=launch.application_id,
         catalog=catalog, generation=generation, model=model, stream_fn=stream_fn, tools=tools,
         session_discovery=session_discovery, owned_transcripts=owned_transcripts,
-        resume_history=resume_history,
+        resume_history=owned_transcripts,
         profile_id=CODING_HOSTED_APPLICATION_PROFILE_ID,
         package_product_runtime_factory_for_session=(
             package_product_runtime_factory_for_session

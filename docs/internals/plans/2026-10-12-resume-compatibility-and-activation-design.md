@@ -3490,3 +3490,9 @@ the exact two-Mux approval, detach, reattach and interrupt terminal scenario
 passed locally in 58.47 seconds. The protocol, execution-codec, request and
 controller regression set passed 85 tests in 40.95 seconds; scoped Ruff, mypy
 and the affected architecture budgets also passed.
+
+The history-first writable wrapper remains Linux-only with the admitted native
+Writer. Windows and macOS keep the pre-existing cross-platform legacy same-ID
+Hosted recovery path, including process-death history recovery and a fresh
+ordinary turn. They do not substitute a read-only Resume wrapper for that
+existing G16 contract.

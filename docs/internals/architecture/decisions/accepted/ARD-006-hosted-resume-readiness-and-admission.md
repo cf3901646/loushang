@@ -73,7 +73,9 @@ binding emits the optional `submissionMode: execution` field only through an
 explicit execution profile. A capable client then submits directly through
 the stable execution ledger and clears the exact draft only after acceptance.
 An older strict decoder fails closed on that new Resume-only snapshot instead
-of treating a long-running legacy Ack as stable admission.
+of treating a long-running legacy Ack as stable admission. Platforms outside
+the admitted history-first Writer boundary retain their existing legacy same-ID
+Hosted recovery and legacy snapshot mode.
 
 New clients generate a stable logical input ID and keep the frozen text until
 the Product reports a durable result. Reconnection first queries the Product
