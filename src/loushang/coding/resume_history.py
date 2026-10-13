@@ -28,14 +28,10 @@ from .product_plan import (
     CODING_PRODUCT_ID,
     CODING_TRANSCRIPT_RUNTIME,
 )
-from .resume_activation_attempt import (
-    CodingActivationAttemptV1,
-    project_coding_activation_attempt_path,
-)
-from .resume_binding import (
-    CodingRuntimeBindingV1,
-    project_coding_runtime_binding_path,
-)
+from .resume_activation_attempt import CodingActivationAttemptV1
+from .resume_activation_projection_v2 import project_coding_activation_attempt_path_v2
+from .resume_binding import CodingRuntimeBindingV1
+from .resume_binding_v2 import CodingRuntimeBindingV2
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +54,7 @@ class CodingResumeHistoryPreview:
     startup: dict[str, object] | None
     provenance_conflict: bool
     binding_status: Literal["none", "bound", "unknown_version", "invalid"]
-    binding: CodingRuntimeBindingV1 | None
+    binding: CodingRuntimeBindingV1 | CodingRuntimeBindingV2 | None
     selected_ancestry_digest: str | None
     source_fingerprint: str
     source_content_digest: str
@@ -114,7 +110,10 @@ def read_coding_resume_header(path: str | Path) -> CodingResumeHeaderPreview:
 
 
 def read_coding_resume_snapshot(
-    path: str | Path, *, max_bytes: int, selected_leaf_id: str | None = None,
+    path: str | Path,
+    *,
+    max_bytes: int,
+    selected_leaf_id: str | None = None,
     expected_source_fingerprint: str | None = None,
 ) -> CodingResumeHistoryPreview:
     """Read a bounded historical snapshot without acquiring transcript authority."""
@@ -133,7 +132,9 @@ def read_coding_resume_snapshot(
         records,
         source_content_digest,
     ) = load_agent_transcript_file_with_content_digest(
-        source_path, max_bytes=max_bytes, read_only=True,
+        source_path,
+        max_bytes=max_bytes,
+        read_only=True,
     )
     if session_file_authority_fingerprint(source_path) != source_fingerprint:
         raise ValueError("Coding Resume source changed during snapshot")
@@ -149,29 +150,25 @@ def read_coding_resume_snapshot(
     composition = header_preview.composition
     selected_records = repository.active_records()
     try:
-        binding_projection = project_coding_runtime_binding_path(
-            selected_records, current_session_id=header.conversation_id,
+        projection = project_coding_activation_attempt_path_v2(
+            selected_records,
+            current_session_id=header.conversation_id,
         )
         binding_status: Literal["none", "bound", "unknown_version", "invalid"] = (
-            binding_projection.status
+            projection.binding_status
         )
-        binding = binding_projection.binding
-        ancestry_digest = binding_projection.ancestry_digest
+        binding = projection.binding
+        ancestry_digest = projection.ancestry_digest
+        activation_status: Literal["none", "pending", "unknown_version", "invalid"] = (
+            projection.status
+        )
+        pending_attempt = projection.attempt
+        pending_record_id = projection.record_id
     except ValueError:
-        # Historical viewing remains possible when binding evidence is unusable.
+        # Historical viewing remains possible when persisted Resume facts are unusable.
         binding_status = "invalid"
         binding = None
         ancestry_digest = None
-    try:
-        attempt_projection = project_coding_activation_attempt_path(
-            selected_records, current_session_id=header.conversation_id,
-        )
-        activation_status: Literal[
-            "none", "pending", "unknown_version", "invalid"
-        ] = attempt_projection.status
-        pending_attempt = attempt_projection.attempt
-        pending_record_id = attempt_projection.record_id
-    except ValueError:
         activation_status = "invalid"
         pending_attempt = None
         pending_record_id = None
@@ -201,12 +198,15 @@ def read_coding_resume_snapshot(
 
 
 def read_coding_resume_recent_page(
-    path: str | Path, *, segment_bytes: int = 64 * 1024,
+    path: str | Path,
+    *,
+    segment_bytes: int = 64 * 1024,
 ) -> CodingResumeRecentPage:
     """Show recent decoded tail records without proving their selected branch."""
 
     bounded = read_agent_transcript_bounded_preview(
-        path, segment_bytes=segment_bytes,
+        path,
+        segment_bytes=segment_bytes,
     )
     return CodingResumeRecentPage(
         header_preview=inspect_coding_resume_header(bounded.header),

@@ -63,6 +63,7 @@ from ._capability_plugin_composition import (
     _PRODUCT_POLICY_REVISION,
     CodingCapabilityPluginCompositionAssembly,
     CodingCapabilityPluginCompositionPreparation,
+    CodingResumePluginParents,
     _assembly_request,
     _bind_default_approval_request_to_plan,
     _finalize_selection,
@@ -216,6 +217,7 @@ def prepare_coding_builtin_product_composition(
     external_data_plugin_ids: tuple[str, ...] = (),
     state_root: Path,
     clock: Callable[[], int],
+    resume_parents: CodingResumePluginParents | None = None,
 ) -> CodingBuiltinProductCompositionPreparation:
     """Compile all first-party Product selections before binding host Providers."""
 
@@ -288,6 +290,7 @@ def prepare_coding_builtin_product_composition(
             scope_id=scope_id,
             state_root=root,
             clock=clock,
+            resume_parents=resume_parents,
         )
         provider_authorities = _provider_owner_authorities(plugin_ids)
         selected_seed = complete_coding_package_plugin_selection_seed(
@@ -320,6 +323,7 @@ def prepare_coding_builtin_product_composition(
             scope_id=scope_id,
             state_root=root,
             selection_recheck=recheck_selected_revisions,
+            resume_parents=resume_parents,
         )
         combined_base = replace(
             base_compilation,
@@ -357,6 +361,7 @@ def prepare_coding_product_capability_plugin_composition(
     state_root: Path,
     clock: Callable[[], int],
     product_policy_revision: str = _PRODUCT_POLICY_REVISION,
+    resume_parents: CodingResumePluginParents | None = None,
 ) -> CodingCapabilityPluginCompositionPreparation:
     """Approve exact B-selected Definitions and compile inert Provider inputs.
 
@@ -426,6 +431,7 @@ def prepare_coding_product_capability_plugin_composition(
             scope_id=scope_id,
             state_root=root,
             clock=clock,
+            resume_parents=resume_parents,
         )
         provider_authorities = _provider_owner_authorities(plugin_ids)
         product = prepare_product_plugin_composition(
@@ -452,6 +458,7 @@ def prepare_coding_product_capability_plugin_composition(
             scope_id=scope_id,
             state_root=root,
             selection_recheck=recheck_selected_revisions,
+            resume_parents=resume_parents,
         )
     except BaseException:
         runtime.close()

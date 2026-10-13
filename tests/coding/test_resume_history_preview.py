@@ -136,7 +136,7 @@ def test_readonly_resume_header_marks_missing_composition_as_legacy_unknown(
 
 @pytest.mark.parametrize(("extension_type", "data", "expected_status"), [
     ("coding.activation-attempt/v1", {"version": 1}, "invalid"),
-    ("coding.activation-attempt/v2", {"version": 2}, "unknown_version"),
+    ("coding.activation-attempt/v2", {"version": 2}, "invalid"),
 ])
 def test_readonly_history_keeps_unrecognized_activation_intent_viewable(
     tmp_path, extension_type, data, expected_status,

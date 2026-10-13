@@ -2993,3 +2993,28 @@ settlement, original custodian retention/domain reconciliation, Embedded and
 Hosted integration, background planning/performance, released artifact
 compatibility, PR merge and Issue backwrite. Default writable Resume and
 Issue #696 remain incomplete.
+
+#### Transcript v2 projection and Product parent prerequisite
+
+The Transcript owner now advertises an explicit
+`coding.resume-continuation/v2` writer capability. Its v2 path commits and
+reloads the exact activation intent and first UserMessage Binding, while the
+shared history and Plan projections understand both v1 and v2 facts. Unknown
+future versions remain sticky, malformed v2 facts remain invalid, and a future
+writer capability is refused before source acquisition or repair. The focused
+writer, Binding, history and Plan regressions are included in the result below.
+
+Coding Product capability preparation can now receive the two exact original
+Definition and Component parent contexts as one typed prerequisite. It verifies
+both enrollments and their common committed intent before Definition evaluation,
+then passes each context to the existing original journal owner. Either missing
+enrollment refuses without a native use or journal byte change. This is
+dependency plumbing only: the default continuation does not yet construct,
+enroll, seal or settle these parents, and Worker ownership is still outstanding.
+
+The combined focused run for Transcript v2 projection, Product parent
+prerequisites and the existing native Definition/Component integrations passed:
+**131 passed in 13.86 seconds**, outside the managed sandbox with `not live` and
+`--skip-host-runtime`. Ruff, focused mypy and `git diff --check` also passed.
+This evidence does not enable default writable v2 Resume or replace final
+Embedded, Hosted, performance, installation, platform and selected-tree gates.

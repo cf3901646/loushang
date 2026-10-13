@@ -25,11 +25,13 @@ from loushang.coding.resume_activation_attempt_v2 import (
 )
 from loushang.coding.resume_binding import (
     CODING_RUNTIME_BINDING_METADATA_KEY,
+    CodingRuntimeBindingV1,
     inspect_coding_runtime_binding,
     validate_coding_runtime_binding_record,
 )
 from loushang.coding.resume_binding_v2 import (
     CODING_RUNTIME_BINDING_V2_METADATA_KEY,
+    CodingRuntimeBindingV2,
     decode_coding_runtime_binding_v2,
     validate_coding_resume_v2_user_record,
 )
@@ -42,6 +44,10 @@ class CodingActivationAttemptProjectionV2:
     status: Literal["none", "pending", "unknown_version"]
     attempt: CodingActivationAttemptV1 | None = None
     record_id: str | None = None
+    ancestry_digest: str = ""
+    binding_status: Literal["none", "bound", "unknown_version"] = "none"
+    binding: CodingRuntimeBindingV1 | CodingRuntimeBindingV2 | None = None
+    binding_record_id: str | None = None
 
 
 def project_coding_activation_attempt_path_v2(
@@ -59,6 +65,8 @@ def project_coding_activation_attempt_path_v2(
     seen = set()
     pending: dict[str, CodingActivationAttemptV1] = {}
     unknown = False
+    selected_binding: CodingRuntimeBindingV1 | CodingRuntimeBindingV2 | None = None
+    selected_binding_record_id: str | None = None
     for record in records:
         if record.parent_id != previous_id or record.record_id in seen:
             raise ValueError(
@@ -106,6 +114,9 @@ def project_coding_activation_attempt_path_v2(
                             "Coding Binding v2 lacks its exact persisted v2 intent"
                         )
                     validate_coding_resume_v2_user_record(record, intent=matched)
+                    if binding_v2.session_id == current_session_id and not unknown:
+                        selected_binding = binding_v2
+                        selected_binding_record_id = record.record_id
                     del pending[binding_v2.session_id]
             elif reserved == {CODING_RUNTIME_BINDING_METADATA_KEY}:
                 observation = inspect_coding_runtime_binding(record.metadata)
@@ -136,6 +147,9 @@ def project_coding_activation_attempt_path_v2(
                                 "Coding Binding v1 does not match its intent"
                             )
                         del pending[binding.session_id]
+                    if binding.session_id == current_session_id and not unknown:
+                        selected_binding = binding
+                        selected_binding_record_id = record.record_id
             else:
                 unknown = True
         identity = _encoded(
@@ -144,11 +158,29 @@ def project_coding_activation_attempt_path_v2(
         ancestry.update(len(identity).to_bytes(4, "big"))
         ancestry.update(identity)
         previous_id = record.record_id
+    ancestry_digest = ancestry.hexdigest()
     if unknown:
-        return CodingActivationAttemptProjectionV2("unknown_version")
+        return CodingActivationAttemptProjectionV2(
+            "unknown_version",
+            ancestry_digest=ancestry_digest,
+            binding_status="unknown_version",
+            binding_record_id=selected_binding_record_id,
+        )
     current = pending.get(current_session_id)
     if current is not None:
         return CodingActivationAttemptProjectionV2(
-            "pending", current, current.attempt_id
+            "pending",
+            current,
+            current.attempt_id,
+            ancestry_digest,
+            "bound" if selected_binding is not None else "none",
+            selected_binding,
+            selected_binding_record_id,
         )
-    return CodingActivationAttemptProjectionV2("none")
+    return CodingActivationAttemptProjectionV2(
+        "none",
+        ancestry_digest=ancestry_digest,
+        binding_status="bound" if selected_binding is not None else "none",
+        binding=selected_binding,
+        binding_record_id=selected_binding_record_id,
+    )

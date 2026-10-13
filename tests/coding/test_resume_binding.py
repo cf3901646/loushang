@@ -396,7 +396,7 @@ def test_reopened_jsonl_retains_activation_quarantine_and_readonly_history(
             if status == "pending":
                 await _append_test_activation_attempt(manager)
             else:
-                version = 2 if status == "unknown_version" else 1
+                version = 3 if status == "unknown_version" else 1
                 await manager.append_extension_data(
                     f"coding.activation-attempt/v{version}", {"version": version},
                 )

@@ -54,9 +54,13 @@ from .resume_activation_attempt import (
     CodingActivationAttemptV1,
     CodingResumeRecoveryRequired,
     prepare_coding_activation_attempt_record,
-    project_coding_activation_attempt_path,
-    require_no_unsettled_coding_activation,
     validate_coding_activation_attempt_record,
+)
+from .resume_activation_attempt_v2 import (
+    CODING_ACTIVATION_ATTEMPT_V2_EXTENSION_TYPE,
+    CodingActivationAttemptV2,
+    prepare_coding_activation_attempt_v2_record,
+    validate_coding_activation_attempt_v2_record,
 )
 from .resume_activation_plan import (
     ActivationOwnerInputRefV1,
@@ -66,6 +70,7 @@ from .resume_activation_plan import (
     require_current_resume_plan_inputs,
     require_current_resume_plan_source,
 )
+from .resume_activation_projection_v2 import project_coding_activation_attempt_path_v2
 from .resume_binding import (
     CODING_RUNTIME_BINDING_METADATA_KEY,
     CodingRuntimeBindingV1,
@@ -73,8 +78,14 @@ from .resume_binding import (
     freeze_coding_user_input,
     inspect_coding_runtime_binding,
     prepare_coding_resume_user_record,
-    project_coding_runtime_binding_path,
     validate_coding_runtime_binding_record,
+)
+from .resume_binding_v2 import (
+    CODING_RUNTIME_BINDING_V2_METADATA_KEY,
+    CodingRuntimeBindingV2,
+    decode_coding_runtime_binding_v2,
+    prepare_coding_resume_v2_user_record,
+    validate_coding_resume_v2_user_record,
 )
 from .resume_history import read_coding_resume_snapshot
 from .resume_input_lookup import (
@@ -88,7 +99,9 @@ from .resume_input_lookup import (
 class _PendingResumeFirstInput:
     expected_message: UserMessage
     expected_message_digest: str
-    prepare_binding: Callable[[UserMessage], CodingRuntimeBindingV1]
+    prepare_binding: Callable[
+        [UserMessage], CodingRuntimeBindingV1 | CodingRuntimeBindingV2
+    ]
     created_at: datetime
     original_leaf_id: str | None
     commit_parent_id: str
@@ -100,6 +113,34 @@ class _PendingResumeFirstInput:
     expected_metadata: dict[str, JSONValue] | None = None
     prepared_record: AgentTranscriptRecord | None = None
     outcome_unknown: bool = False
+
+
+_RESUME_WRITER_CAPABILITIES = frozenset({"coding.resume-continuation/v2"})
+
+
+def _validate_resume_attempt_record(
+    record: AgentTranscriptRecord,
+) -> CodingActivationAttemptV1:
+    payload = record.payload
+    if (
+        getattr(payload, "extension_type", None)
+        == CODING_ACTIVATION_ATTEMPT_V2_EXTENSION_TYPE
+    ):
+        return validate_coding_activation_attempt_v2_record(record)
+    return validate_coding_activation_attempt_record(record)
+
+
+def _prepare_resume_attempt_record(
+    attempt: CodingActivationAttemptV1, *, created_at: datetime
+) -> AgentTranscriptRecord:
+    if type(attempt) is CodingActivationAttemptV2:
+        return prepare_coding_activation_attempt_v2_record(
+            attempt, created_at=created_at
+        )
+    if type(attempt) is CodingActivationAttemptV1:
+        return prepare_coding_activation_attempt_record(attempt, created_at=created_at)
+    raise TypeError("Coding Resume requires an exact supported intent version")
+
 
 _LIFECYCLE = AgentTranscriptLifecycle(
     bind_runtime=CODING_TRANSCRIPT_RUNTIME.bind_lifecycle
@@ -173,16 +214,13 @@ def _selected_capabilities(
         replace(
             capability,
             shape=current_capabilities[capability.slot].shape,
-            variation_semantic=current_capabilities[
-                capability.slot
-            ].variation_semantic,
+            variation_semantic=current_capabilities[capability.slot].variation_semantic,
         )
         if capability.variation_semantic is None
         and capability.slot in current_capabilities
         else capability
         for capability in snapshot.capabilities
-        if capability.selections
-        and capability.slot != SIDE_QUESTION_PROVIDER_SLOT.key
+        if capability.selections and capability.slot != SIDE_QUESTION_PROVIDER_SLOT.key
     )
 
 
@@ -209,7 +247,9 @@ class SessionManager(
     _resume_writer_plan: SessionActivationPlanV1 | None = None
     _resume_committed_attempt: tuple[CodingActivationAttemptV1, str] | None = None
     _resume_committed_plan: SessionActivationPlanV1 | None = None
-    _resume_committed_input: tuple[CodingActivationAttemptV1, AgentTranscriptRecord, str] | None = None
+    _resume_committed_input: (
+        tuple[CodingActivationAttemptV1, AgentTranscriptRecord, str] | None
+    ) = None
     _activation_guard_snapshot: tuple[int, str | None] | None = None
 
     @property
@@ -220,8 +260,12 @@ class SessionManager(
 
     @classmethod
     async def _load_resume_writer(
-        cls, session_file: str | Path, *, plan: SessionActivationPlanV1,
+        cls,
+        session_file: str | Path,
+        *,
+        plan: SessionActivationPlanV1,
         current_owner_inputs: Sequence[ActivationOwnerInputRefV1],
+        required_writer_capabilities: frozenset[str] = frozenset(),
     ) -> Self:
         """Prepare an isolated current Writer while keeping execution fenced.
 
@@ -230,15 +274,30 @@ class SessionManager(
         The activation coordinator must still admit owners and publish Runtime.
         """
 
+        if type(required_writer_capabilities) is not frozenset or any(
+            type(item) is not str for item in required_writer_capabilities
+        ):
+            raise TypeError("Resume Writer capabilities require exact strings")
+        if not required_writer_capabilities <= _RESUME_WRITER_CAPABILITIES:
+            raise CodingResumeRecoveryRequired("writer.resume_protocol_unsupported")
         factory = cls._factory_for_persistence(True)
         if not factory.owns_persistent_sessions:
-            raise ValueError("Coding Resume Writer requires its application-owned factory")
-        if not isinstance(plan, SessionActivationPlanV1) or plan.status != "needs_final_validation":
-            raise ValueError("Coding Resume Writer requires an available activation Plan")
+            raise ValueError(
+                "Coding Resume Writer requires its application-owned factory"
+            )
+        if (
+            not isinstance(plan, SessionActivationPlanV1)
+            or plan.status != "needs_final_validation"
+        ):
+            raise ValueError(
+                "Coding Resume Writer requires an available activation Plan"
+            )
         require_current_resume_plan_inputs(plan, current_owner_inputs)
         context = factory._discover_owned_context(session_file)
         history = await settled_io(
-            read_coding_resume_snapshot, context.session_file, max_bytes=8 * 1024 * 1024,
+            read_coding_resume_snapshot,
+            context.session_file,
+            max_bytes=8 * 1024 * 1024,
             selected_leaf_id=plan.selected_leaf_id,
             expected_source_fingerprint=plan.source_fingerprint,
         )
@@ -247,23 +306,34 @@ class SessionManager(
             context.header != history.header_preview.header
             or context.cwd != plan.workspace_root
             or build_session_activation_plan(
-                history, resolve_coding_composition_set(plan.composition_comparison.candidate_set_id),
-                workspace_root=Path(plan.workspace_root), owner_inputs=plan.owner_inputs,
+                history,
+                resolve_coding_composition_set(
+                    plan.composition_comparison.candidate_set_id
+                ),
+                workspace_root=Path(plan.workspace_root),
+                owner_inputs=plan.owner_inputs,
                 owner_selections=plan.owner_selections,
-            ) != plan
+            )
+            != plan
         ):
-            raise ResumePlanStaleError("Coding Resume Writer Plan differs from current history")
+            raise ResumePlanStaleError(
+                "Coding Resume Writer Plan differs from current history"
+            )
         binding = factory._resolve_binding_input(True)
         # Historical schemas and Product identity must remain valid. Current
         # equality belongs to the new epoch, not this immutable original Header.
         _validate_coding_restored_header(context.header, binding, False)
         result: list[Self] = []
 
-        def project(session: AgentTranscriptLifecycleSession[RuntimeProfileBinding]) -> None:
+        def project(
+            session: AgentTranscriptLifecycleSession[RuntimeProfileBinding],
+        ) -> None:
             manager = cls(lifecycle_session=session)
             manager._resume_runtime_publication_pending = True
             if tuple(manager.get_entries()) != history.records:
-                raise ResumePlanStaleError("Coding Resume Writer history changed during acquisition")
+                raise ResumePlanStaleError(
+                    "Coding Resume Writer history changed during acquisition"
+                )
             if history.selected_leaf_id is not None:
                 # Original Transcript branch selection is local read state.
                 # Store restore's default last-record leaf is not the user's
@@ -273,16 +343,21 @@ class SessionManager(
                 manager.leaf_id != history.selected_leaf_id
                 or tuple(manager.get_active_entries()) != history.selected_records
             ):
-                raise ResumePlanStaleError("Coding Resume Writer history changed during acquisition")
+                raise ResumePlanStaleError(
+                    "Coding Resume Writer history changed during acquisition"
+                )
             manager._resume_writer_plan = plan
             manager._creation_factory = factory
             result.append(manager)
 
-        await factory._construct_owned(context, binding, restore=True, _projection=project)
+        await factory._construct_owned(
+            context, binding, restore=True, _projection=project
+        )
         return result[0]
 
     async def _commit_resume_activation_intent(
-        self, record: AgentTranscriptRecord,
+        self,
+        record: AgentTranscriptRecord,
     ) -> CommitResult:
         """Fence execution before the admitted owner's first durable intent.
 
@@ -293,34 +368,44 @@ class SessionManager(
 
         if not self.persist or not self._transcript.is_materialized:
             raise ValueError("Coding Resume intent requires a materialized Writer")
-        attempt = validate_coding_activation_attempt_record(record)
+        attempt = _validate_resume_attempt_record(record)
         writer_plan = self._resume_writer_plan
         if writer_plan is None:
             self.require_no_unsettled_resume_activation()
         else:
-            require_no_unsettled_coding_activation(
-                self._transcript.active_path(), current_session_id=self.get_header().conversation_id,
+            existing = project_coding_activation_attempt_path_v2(
+                self._transcript.active_path(),
+                current_session_id=self.get_header().conversation_id,
             )
+            if (
+                existing.status != "none"
+                or existing.binding_status == "unknown_version"
+            ):
+                raise CodingResumeRecoveryRequired("activation.recovery_required")
             if (
                 attempt.plan_fingerprint != writer_plan.plan_id
                 or attempt.session_id != writer_plan.session_id
                 or attempt.original_leaf_id != writer_plan.selected_leaf_id
                 or attempt.ancestry_digest != writer_plan.ancestry_digest
             ):
-                raise ValueError("Coding Resume intent differs from its prepared Writer Plan")
-        frozen = prepare_coding_activation_attempt_record(
-            attempt, created_at=datetime.fromisoformat(record.created_at.replace("Z", "+00:00")),
+                raise ValueError(
+                    "Coding Resume intent differs from its prepared Writer Plan"
+                )
+        frozen = _prepare_resume_attempt_record(
+            attempt,
+            created_at=datetime.fromisoformat(record.created_at.replace("Z", "+00:00")),
         )
         if frozen != record:
             raise ValueError("Coding Resume intent differs from its canonical record")
-        projection = project_coding_runtime_binding_path(
+        projection = project_coding_activation_attempt_path_v2(
             self._transcript.active_path(),
             current_session_id=self.get_header().conversation_id,
         )
         if (
             attempt.session_id != self.get_header().conversation_id
             or attempt.original_leaf_id != self._transcript.leaf_id
-            or projection.status == "unknown_version"
+            or projection.status != "none"
+            or projection.binding_status == "unknown_version"
             or attempt.ancestry_digest != projection.ancestry_digest
         ):
             raise ValueError("Coding Resume intent differs from selected history")
@@ -334,37 +419,51 @@ class SessionManager(
         self._resume_committed_input = None
         result = await self.commit_prebuilt_extension_data(frozen)
         if (
-            type(result) is not CommitResult or result.record_id != frozen.record_id
+            type(result) is not CommitResult
+            or result.record_id != frozen.record_id
             or result.disposition not in {"committed", "already_committed"}
         ):
-            raise StoreCommitOutcomeUnknown("Coding Resume intent commit was not verified")
+            raise StoreCommitOutcomeUnknown(
+                "Coding Resume intent commit was not verified"
+            )
         self._resume_committed_attempt = (attempt, frozen.created_at)
         self._resume_committed_plan = writer_plan
         return result
 
-    def _require_resume_runtime_preparation(self, attempt_id: str) -> CodingActivationAttemptV1:
+    def _require_resume_runtime_preparation(
+        self, attempt_id: str
+    ) -> CodingActivationAttemptV1:
         """Verify a local definite intent, without admitting policy or effects."""
 
         proof = self._resume_committed_attempt
         if (
-            not self.persist or not self._resume_runtime_publication_pending
-            or proof is None or self._lifecycle_session._writer_owner is None
+            not self.persist
+            or not self._resume_runtime_publication_pending
+            or proof is None
+            or self._lifecycle_session._writer_owner is None
         ):
             raise CodingResumeRecoveryRequired("runtime.intent_unverified")
         attempt, created_at = proof
         if type(attempt_id) is not str or attempt_id != attempt.attempt_id:
-            raise ValueError("Coding Resume preparation differs from its committed attempt")
+            raise ValueError(
+                "Coding Resume preparation differs from its committed attempt"
+            )
         selected = self._transcript.active_path()
         try:
-            projection = project_coding_activation_attempt_path(
-                selected, current_session_id=self.get_header().conversation_id,
+            projection = project_coding_activation_attempt_path_v2(
+                selected,
+                current_session_id=self.get_header().conversation_id,
             )
-            expected = prepare_coding_activation_attempt_record(
-                attempt, created_at=datetime.fromisoformat(created_at.replace("Z", "+00:00")),
+            expected = _prepare_resume_attempt_record(
+                attempt,
+                created_at=datetime.fromisoformat(created_at.replace("Z", "+00:00")),
             )
             if (
-                projection.status != "pending" or projection.attempt != attempt
-                or projection.record_id != attempt_id or not selected or selected[-1] != expected
+                projection.status != "pending"
+                or projection.attempt != attempt
+                or projection.record_id != attempt_id
+                or not selected
+                or selected[-1] != expected
             ):
                 raise ValueError("Coding Resume preparation selected history changed")
         except ValueError as error:
@@ -372,7 +471,9 @@ class SessionManager(
         return attempt
 
     def _require_resume_bootstrap_composition(
-        self, attempt_id: str, composition: CodingCompositionSetPlan,
+        self,
+        attempt_id: str,
+        composition: CodingCompositionSetPlan,
     ) -> CodingActivationAttemptV1:
         """Match the current candidate to this Writer's definitely committed Plan."""
 
@@ -384,9 +485,12 @@ class SessionManager(
             not isinstance(composition, CodingCompositionSetPlan)
             or resolve_coding_composition_set(composition.set_id) != composition
             or composition.set_id != plan.composition_comparison.candidate_set_id
-            or composition.fingerprint != plan.composition_comparison.candidate_fingerprint
+            or composition.fingerprint
+            != plan.composition_comparison.candidate_fingerprint
         ):
-            raise ValueError("Coding Resume bootstrap composition differs from its Writer Plan")
+            raise ValueError(
+                "Coding Resume bootstrap composition differs from its Writer Plan"
+            )
         return attempt
 
     @classmethod
@@ -425,7 +529,9 @@ class SessionManager(
             if not isinstance(message, UserMessage):
                 raise ValueError("Coding Resume first user input is pending")
             return await self._append_resume_first_user_message(
-                pending, message, metadata=metadata,
+                pending,
+                message,
+                metadata=metadata,
             )
         if self.persist:
             self.require_no_unsettled_resume_activation()
@@ -446,14 +552,14 @@ class SessionManager(
             and self._transcript.revision == guarded_revision + 1
             and self._transcript.leaf_id == record_id
             and (
-                metadata is None
-                or CODING_RUNTIME_BINDING_METADATA_KEY not in metadata
+                metadata is None or CODING_RUNTIME_BINDING_METADATA_KEY not in metadata
             )
         ):
             # A commit without Binding cannot change activation classification.
             # Retain the guard so subsequent messages avoid a full replay.
             self._activation_guard_snapshot = (
-                self._transcript.revision, self._transcript.leaf_id,
+                self._transcript.revision,
+                self._transcript.leaf_id,
             )
         return record_id
 
@@ -461,7 +567,9 @@ class SessionManager(
         self,
         message: UserMessage,
         *,
-        prepare_binding: Callable[[UserMessage], CodingRuntimeBindingV1],
+        prepare_binding: Callable[
+            [UserMessage], CodingRuntimeBindingV1 | CodingRuntimeBindingV2
+        ],
         created_at: datetime,
         original_leaf_id: str | None,
         ancestry_digest: str,
@@ -477,9 +585,13 @@ class SessionManager(
         if not self.persist or not self._transcript.is_materialized:
             raise ValueError("Coding Resume first input requires a materialized Writer")
         if not isinstance(message, UserMessage) or not callable(prepare_binding):
-            raise TypeError("Coding Resume first input requires a message and binding owner")
+            raise TypeError(
+                "Coding Resume first input requires a message and binding owner"
+            )
         if not isinstance(created_at, datetime) or created_at.tzinfo is None:
-            raise ValueError("Coding Resume first input timestamp must be timezone-aware")
+            raise ValueError(
+                "Coding Resume first input timestamp must be timezone-aware"
+            )
         if self._resume_first_input is not None:
             raise ValueError("Coding Resume first input is already staged")
         active = tuple(self._transcript.active_path())
@@ -490,30 +602,34 @@ class SessionManager(
                     original_length = index + 1
                     break
             else:
-                raise ValueError("Coding Resume original leaf is not on the selected path")
+                raise ValueError(
+                    "Coding Resume original leaf is not on the selected path"
+                )
         original_path = active[:original_length]
-        projection = project_coding_runtime_binding_path(
+        projection = project_coding_activation_attempt_path_v2(
             original_path,
             current_session_id=self.get_header().conversation_id,
         )
-        if projection.status == "unknown_version" or projection.ancestry_digest != ancestry_digest:
-            raise ValueError("Coding Resume original ancestry changed")
-        if project_coding_activation_attempt_path(
-            original_path, current_session_id=self.get_header().conversation_id,
-        ).status != "none":
+        if (
+            projection.status != "none"
+            or projection.binding_status == "unknown_version"
+            or projection.ancestry_digest != ancestry_digest
+        ):
             raise ValueError("Coding Resume original history has an unresolved attempt")
         tail = active[original_length:]
         if len(tail) != 1:
             raise ValueError("Coding Resume requires one selected activation attempt")
         intent = tail[0]
-        attempt = validate_coding_activation_attempt_record(intent)
+        attempt = _validate_resume_attempt_record(intent)
         if (
             attempt.attempt_id != attempt_id
             or attempt.session_id != self.get_header().conversation_id
             or attempt.original_leaf_id != original_leaf_id
             or attempt.ancestry_digest != ancestry_digest
         ):
-            raise ValueError("Coding Resume activation attempt differs from selected history")
+            raise ValueError(
+                "Coding Resume activation attempt differs from selected history"
+            )
         frozen_message = freeze_coding_user_input(message)
         self._resume_first_input = _PendingResumeFirstInput(
             expected_message=frozen_message,
@@ -533,14 +649,18 @@ class SessionManager(
         # separate phase; historical projection cannot open this local gate.
         self._resume_runtime_publication_pending = True
 
-    def _require_resume_staged_input(self, attempt_id: str, message: UserMessage) -> None:
+    def _require_resume_staged_input(
+        self, attempt_id: str, message: UserMessage
+    ) -> None:
         """Check exact staged identity before invoking commit metadata owners."""
 
         pending = self._resume_first_input
         if pending is None or pending.attempt_id != attempt_id:
             raise CodingResumeRecoveryRequired("input.staged_input_missing")
         if pending.outcome_unknown:
-            raise StoreCommitOutcomeUnknown("Coding Resume first input requires authoritative reload")
+            raise StoreCommitOutcomeUnknown(
+                "Coding Resume first input requires authoritative reload"
+            )
         if coding_user_input_digest(message) != pending.expected_message_digest:
             raise ValueError("Coding Resume first input differs from the staged input")
 
@@ -563,11 +683,15 @@ class SessionManager(
                     "Coding Resume first input requires authoritative reload"
                 )
             if coding_user_input_digest(message) != pending.expected_message_digest:
-                raise ValueError("Coding Resume first input differs from the staged input")
+                raise ValueError(
+                    "Coding Resume first input differs from the staged input"
+                )
             if pending.expected_metadata is None:
                 pending.expected_metadata = metadata_snapshot
             elif metadata_snapshot != pending.expected_metadata:
-                raise ValueError("Coding Resume first input metadata changed after admission")
+                raise ValueError(
+                    "Coding Resume first input metadata changed after admission"
+                )
             if (
                 self.get_leaf_id() != pending.commit_parent_id
                 or self._transcript.revision != pending.revision
@@ -576,8 +700,13 @@ class SessionManager(
 
             def prepare_record(persisted: UserMessage):
                 binding = pending.prepare_binding(persisted)
-                if not isinstance(binding, CodingRuntimeBindingV1):
-                    raise TypeError("Coding Resume activation returned an invalid binding")
+                if type(binding) not in {
+                    CodingRuntimeBindingV1,
+                    CodingRuntimeBindingV2,
+                }:
+                    raise TypeError(
+                        "Coding Resume activation returned an invalid binding"
+                    )
                 if (
                     binding.session_id != self.get_header().conversation_id
                     or binding.attempt_id != pending.attempt_id
@@ -588,7 +717,22 @@ class SessionManager(
                     or binding.actual_fingerprint != pending.attempt.epoch_fingerprint
                     or binding.subject_digest != pending.attempt.subject_digest
                 ):
-                    raise ValueError("Coding Resume binding differs from selected history")
+                    raise ValueError(
+                        "Coding Resume binding differs from selected history"
+                    )
+                if type(binding) is CodingRuntimeBindingV2:
+                    if type(pending.attempt) is not CodingActivationAttemptV2:
+                        raise ValueError("RuntimeBinding v2 requires its v2 intent")
+                    record = prepare_coding_resume_v2_user_record(
+                        binding,
+                        persisted,
+                        intent=pending.attempt,
+                        created_at=pending.created_at,
+                        resource_metadata=metadata_snapshot,
+                    )
+                else:
+                    if type(pending.attempt) is not CodingActivationAttemptV1:
+                        raise ValueError("RuntimeBinding v1 cannot close a v2 intent")
                 record = prepare_coding_resume_user_record(
                     binding,
                     persisted,
@@ -597,26 +741,34 @@ class SessionManager(
                     resource_metadata=metadata_snapshot,
                 )
                 pending.prepared_record = replace(
-                    record, payload=freeze_coding_user_input(persisted),
+                    record,
+                    payload=freeze_coding_user_input(persisted),
                     metadata=require_json_mapping(
-                        dict(record.metadata), name="Coding Resume prepared input metadata",
+                        dict(record.metadata),
+                        name="Coding Resume prepared input metadata",
                     ),
                 )
                 return record
 
             try:
                 result = await self.commit_prebuilt_user_message_from_message(
-                    pending.expected_message, prepare_record=prepare_record,
+                    pending.expected_message,
+                    prepare_record=prepare_record,
                 )
                 prepared = pending.prepared_record
                 if (
-                    type(result) is not CommitResult or prepared is None
+                    type(result) is not CommitResult
+                    or prepared is None
                     or result.record_id != prepared.record_id
                     or result.disposition not in {"committed", "already_committed"}
                 ):
-                    raise StoreCommitOutcomeUnknown("Coding Resume input commit was not verified")
+                    raise StoreCommitOutcomeUnknown(
+                        "Coding Resume input commit was not verified"
+                    )
                 self._resume_committed_input = (
-                    pending.attempt, prepared, coding_resume_input_record_digest(prepared),
+                    pending.attempt,
+                    prepared,
+                    coding_resume_input_record_digest(prepared),
                 )
             except BaseException:
                 if pending.prepared_record is not None:
@@ -626,33 +778,48 @@ class SessionManager(
             return result.record_id
 
     def _require_committed_resume_input(
-        self, attempt_id: str, record_id: str,
+        self,
+        attempt_id: str,
+        record_id: str,
     ) -> tuple[CodingActivationAttemptV1, AgentTranscriptRecord]:
         """Verify local commit and selected-path identity without granting execution."""
 
         proof = self._resume_committed_input
         intent_proof = self._resume_committed_attempt
         if (
-            proof is None or intent_proof is None or self._resume_first_input is not None
+            proof is None
+            or intent_proof is None
+            or self._resume_first_input is not None
             or self._lifecycle_session._writer_owner is None
         ):
             raise CodingResumeRecoveryRequired("runtime.input_unverified")
         attempt, expected, digest = proof
         if attempt_id != attempt.attempt_id or record_id != expected.record_id:
-            raise ValueError("Coding Resume publication differs from its committed input")
+            raise ValueError(
+                "Coding Resume publication differs from its committed input"
+            )
         selected = self._transcript.active_path()
         try:
-            index = next(i for i, entry in enumerate(selected) if entry.record_id == record_id)
+            index = next(
+                i for i, entry in enumerate(selected) if entry.record_id == record_id
+            )
             if (
-                attempt != intent_proof[0] or index == 0
+                attempt != intent_proof[0]
+                or index == 0
                 or coding_resume_input_record_digest(expected) != digest
                 or coding_resume_input_record_digest(selected[index]) != digest
-                or selected[index - 1] != prepare_coding_activation_attempt_record(
-                    attempt, created_at=datetime.fromisoformat(intent_proof[1].replace("Z", "+00:00")),
+                or selected[index - 1]
+                != _prepare_resume_attempt_record(
+                    attempt,
+                    created_at=datetime.fromisoformat(
+                        intent_proof[1].replace("Z", "+00:00")
+                    ),
                 )
-                or project_coding_activation_attempt_path(
-                    selected, current_session_id=self.get_header().conversation_id,
-                ).status != "none"
+                or project_coding_activation_attempt_path_v2(
+                    selected,
+                    current_session_id=self.get_header().conversation_id,
+                ).status
+                != "none"
             ):
                 raise ValueError("Coding Resume committed input identity changed")
         except (ValueError, StopIteration) as error:
@@ -660,7 +827,9 @@ class SessionManager(
         return attempt, expected
 
     async def _verify_resume_publication_input(
-        self, attempt_id: str, record_id: str,
+        self,
+        attempt_id: str,
+        record_id: str,
     ) -> CodingActivationAttemptV1:
         attempt, expected = self._require_committed_resume_input(attempt_id, record_id)
         observation = await self.lookup_prebuilt_user_message(expected)
@@ -679,7 +848,9 @@ class SessionManager(
         self._resume_runtime_publication_pending = False
 
     async def _lookup_resume_first_user_input(
-        self, *, request_id: str,
+        self,
+        *,
+        request_id: str,
     ) -> PrebuiltUserMessageLookupResult:
         """Observe a staged input after losing its commit receipt, without replay.
 
@@ -698,11 +869,14 @@ class SessionManager(
             if request_id != pending.attempt.request_id:
                 raise ValueError("Coding Resume input request identity differs")
             if pending.prepared_record is None:
-                raise ValueError("Coding Resume input has no prepared record to observe")
+                raise ValueError(
+                    "Coding Resume input has no prepared record to observe"
+                )
             return await self.lookup_prebuilt_user_message(pending.prepared_record)
 
     async def lookup_resume_input(
-        self, query: CodingResumeInputLookupQueryV1,
+        self,
+        query: CodingResumeInputLookupQueryV1,
     ) -> CodingResumeInputLookupResultV1:
         """Observe a logical input using the existing Transcript authority owner.
 
@@ -722,30 +896,70 @@ class SessionManager(
         candidates: list[AgentTranscriptRecord] = []
         try:
             path = tuple(self._transcript.active_path())
-            projection = project_coding_runtime_binding_path(path, current_session_id=session_id)
+            projection = project_coding_activation_attempt_path_v2(
+                path, current_session_id=session_id
+            )
             if projection.status == "unknown_version":
                 return unknown
             for record in path:
-                binding = inspect_coding_runtime_binding(record.metadata).binding
-                if binding is None or binding.session_id != session_id or binding.input_id != query.input_id:
+                reserved = {
+                    key
+                    for key in record.metadata
+                    if key.startswith("coding.runtimeBinding")
+                }
+                if reserved == {CODING_RUNTIME_BINDING_V2_METADATA_KEY}:
+                    binding_v2 = decode_coding_runtime_binding_v2(record.metadata)
+                    observed_binding: (
+                        CodingRuntimeBindingV1 | CodingRuntimeBindingV2 | None
+                    ) = binding_v2
+                    if binding_v2.session_id == session_id:
+                        intent = next(
+                            (
+                                _validate_resume_attempt_record(item)
+                                for item in path
+                                if item.record_id == binding_v2.attempt_id
+                            ),
+                            None,
+                        )
+                        if type(intent) is not CodingActivationAttemptV2:
+                            raise ValueError("RuntimeBinding v2 intent is unavailable")
+                        validate_coding_resume_v2_user_record(record, intent=intent)
+                else:
+                    observed_binding = inspect_coding_runtime_binding(
+                        record.metadata
+                    ).binding
+                if (
+                    observed_binding is None
+                    or observed_binding.session_id != session_id
+                    or observed_binding.input_id != query.input_id
+                ):
                     continue
-                validate_coding_runtime_binding_record(record, expected_session_id=session_id)
+                if type(observed_binding) is CodingRuntimeBindingV1:
+                    validate_coding_runtime_binding_record(
+                        record, expected_session_id=session_id
+                    )
                 candidates.append(record)
         except ValueError:
             return unknown
         pending = self._resume_first_input
         if (
-            not candidates and isinstance(pending, _PendingResumeFirstInput)
+            not candidates
+            and isinstance(pending, _PendingResumeFirstInput)
             and pending.attempt.request_id == query.input_id
             and pending.prepared_record is not None
         ):
             candidates.append(pending.prepared_record)
         if not candidates:
             return unknown
-        if len(candidates) != 1 or coding_resume_input_record_digest(candidates[0]) != query.record_digest:
+        if (
+            len(candidates) != 1
+            or coding_resume_input_record_digest(candidates[0]) != query.record_digest
+        ):
             return CodingResumeInputLookupResultV1(query.input_id, None, "conflict")
         observed = await self.lookup_prebuilt_user_message(candidates[0])
-        return CodingResumeInputLookupResultV1(query.input_id, observed.record_id, observed.status)
+        return CodingResumeInputLookupResultV1(
+            query.input_id, observed.record_id, observed.status
+        )
 
     @classmethod
     def _session_factory(
@@ -827,30 +1041,39 @@ class SessionManager(
         snapshot = (self._transcript.revision, self._transcript.leaf_id)
         if self._activation_guard_snapshot == snapshot:
             return
-        require_no_unsettled_coding_activation(
+        try:
+            projection = project_coding_activation_attempt_path_v2(
             self._transcript.active_path(),
             current_session_id=self.get_header().conversation_id,
         )
-        binding = project_coding_runtime_binding_path(
-            self._transcript.active_path(),
-            current_session_id=self.get_header().conversation_id,
+        except ValueError as error:
+            raise CodingResumeRecoveryRequired("history.activation_invalid") from error
+        if projection.status != "none":
+            raise CodingResumeRecoveryRequired(
+                f"history.activation_{projection.status}"
         )
-        if binding.status == "bound":
+        if projection.binding_status == "unknown_version":
+            raise CodingResumeRecoveryRequired("history.activation_unknown_version")
+        if projection.binding_status == "bound":
             # A persisted Binding settles the input, not this process's current
             # authority. Only the original locally published candidate retains
             # live proof; reopened or fork-selected evidence cannot recreate it.
             proof = self._resume_committed_input
-            if proof is None or binding.record_id != proof[1].record_id:
+            if proof is None or projection.binding_record_id != proof[1].record_id:
                 raise CodingResumeRecoveryRequired("runtime.current_admission_required")
-            self._require_committed_resume_input(proof[0].attempt_id, proof[1].record_id)
+            self._require_committed_resume_input(
+                proof[0].attempt_id, proof[1].record_id
+            )
         self._activation_guard_snapshot = snapshot
 
 
 def _create_owned_session_factory(
-    *, store_state_root: Path | None = None,
+    *,
+    store_state_root: Path | None = None,
     enroll_legacy_shared_store: bool = False,
 ) -> AgentTranscriptSessionFactory[
-    ResolvedRuntimeProfile, RuntimeProfileBinding,
+    ResolvedRuntimeProfile,
+    RuntimeProfileBinding,
 ]:
     """Create an application-owned factory; never replace the legacy singleton."""
     lifecycle = AgentTranscriptLifecycle(
@@ -870,7 +1093,9 @@ def _create_owned_session_factory(
 
 
 def _bind_owned_session_manager(
-    factory: AgentTranscriptSessionFactory[ResolvedRuntimeProfile, RuntimeProfileBinding],
+    factory: AgentTranscriptSessionFactory[
+        ResolvedRuntimeProfile, RuntimeProfileBinding
+    ],
 ) -> type[SessionManager]:
     """Reference the runtime's factory, with non-mutating disk preview loaders."""
     transient = AgentTranscriptSessionFactory(
@@ -888,14 +1113,19 @@ def _bind_owned_session_manager(
     class ApplicationSessionManager(SessionManager):
         @classmethod
         def _factory_for_persistence(
-            cls, persist: bool,
-        ) -> AgentTranscriptSessionFactory[ResolvedRuntimeProfile, RuntimeProfileBinding]:
+            cls,
+            persist: bool,
+        ) -> AgentTranscriptSessionFactory[
+            ResolvedRuntimeProfile, RuntimeProfileBinding
+        ]:
             # The runtime owns admission/cleanup; this class is only a binding.
             factory._accepting()
             return factory if persist else transient
 
         @classmethod
-        async def rename_session(cls, session_file: str | Path, name: str | None) -> SessionSummary:
+        async def rename_session(
+            cls, session_file: str | Path, name: str | None
+        ) -> SessionSummary:
             factory._accepting()
             context = factory._discover_owned_context(session_file)
             async with factory._owned_source(context) as source:
@@ -905,14 +1135,21 @@ def _bind_owned_session_manager(
 
         @classmethod
         async def delete_session(
-            cls, session_file: str | Path, *, current_session_file: str | Path | None = None,
+            cls,
+            session_file: str | Path,
+            *,
+            current_session_file: str | Path | None = None,
             maintenance_owner: TranscriptDeletionOwner | None = None,
         ) -> bool:
             # Transcript deletion is writer-owned. Attachments remain recoverable
             # for explicit maintenance, never deleted through a pathname fallback.
             if maintenance_owner is not None and maintenance_owner is not factory:
-                raise ValueError("application transcript maintenance belongs to its original factory")
-            return await factory.delete_transcript(session_file, current_session_file=current_session_file)
+                raise ValueError(
+                    "application transcript maintenance belongs to its original factory"
+                )
+            return await factory.delete_transcript(
+                session_file, current_session_file=current_session_file
+            )
 
         async def create_branched_session(self, leaf_id: str) -> Path | None:
             raise ValueError("owned branching requires the Session-returning fork API")
