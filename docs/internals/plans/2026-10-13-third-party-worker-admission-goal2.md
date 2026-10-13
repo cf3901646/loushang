@@ -45,5 +45,21 @@ selection only; it never substitutes for a Session query.
 - Support claims are updated only after their corresponding native evidence;
   the final PR is merged and the control lane is synchronized.
 
+## Local validation checkpoint: 2026-10-13
+
+The code lane's isolated editable installation passed the Linux authored
+Direct Session regression, including same-boot and prior-boot ordinary-turn
+crash recovery (1 test, no skips), and the cross-process native operator
+lifecycle (1 test, no skips). Authored disable, update, Hosted first Session
+and public-builder reproducibility also passed (4 tests, no skips).
+
+The Windows command regression passed four portable cases; its one native
+Windows case was skipped on Linux and remains a CI requirement. Ruff,
+the changed Windows command's typecheck and documentation invariants passed.
+The full changed-scope checks are still running at this checkpoint. A prior
+Direct run exceeded its unchanged 90-second crash-child deadline; the passing
+rerun retains stage diagnostics and does not establish the earlier timeout's
+cause. This checkpoint is not final Windows admission or PR acceptance.
+
 Goal 3 remains paused. This delivery neither accepts the separately proposed
 Windows journal authority-cutover stack nor closes Issue #509.
