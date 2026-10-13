@@ -53,5 +53,3 @@ class ResumeInputLookupClientV1(Protocol):
         self, control: SessionSnapshotRequestV1, expected_instance_id: str,
         query: ResumeInputLookupQueryV1,
     ) -> ResumeInputLookupResultV1: ...
-
-
