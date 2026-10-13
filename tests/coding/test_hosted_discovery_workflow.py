@@ -11,14 +11,21 @@ import pytest
 from loushang.appserver.protocol import (
     AppErrorCodeV1,
     AppServiceError,
+    InteractionOutcomeV1,
+    InteractionRespondV1,
+    MuxAttachV1,
     MuxCreateV1,
     MuxMemberOpenV1,
     MuxSelectorV1,
+    SessionEventKindV1,
     SessionListV1,
     SessionOpenSpecV1,
     SessionScopeV1,
+    SessionSnapshotRequestV1,
+    TurnTextV1,
 )
 from loushang.appservice.discovery_ports import HostedSessionDiscoveryScopeV1
+from loushang.appservice.execution_contract import ExecutionStatusV1
 from loushang.coding.bootstrap import create_services
 from loushang.coding.hosted_bootstrap import create_coding_hosted_attempt
 from loushang.coding.hosted_catalog import CodingHostedSessionCatalogV1
@@ -29,6 +36,123 @@ from ._hosted_composition_seed import seed_hosted_history
 from .test_hosted_bootstrap import _launch
 from .test_hosted_discovery import _create
 from .test_hosted_session import _model, _stream
+
+
+def test_hosted_resume_activates_once_from_stable_execution_input(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setattr(
+        "loushang.coding.hosted_bootstrap._services",
+        lambda cwd: create_services(
+            settings_manager=SettingsManager(
+                global_settings_path=tmp_path / "settings.json",
+                project_settings_path=cwd / ".loushang" / "settings.json",
+            ),
+        ),
+    )
+
+    async def scenario():
+        launch = _launch(tmp_path)
+        scope = launch.scopes[0]
+        scope.session_dir.mkdir(mode=0o700, exist_ok=True)
+        seeded = CodingHostedSessionCatalogV1((scope,))
+        await _create(seeded, scope, 1)
+        selected = (
+            await seeded.list_identities((scope.discovery_scope,), limit=1)
+        )[0].envelope
+        assert selected is not None
+        await seed_hosted_history(scope, "before resume", session_id=selected.session_id)
+        path = scope.session_dir / f"hosted-{selected.session_id}.jsonl"
+        before_activation = path.read_bytes()
+
+        attempt = create_coding_hosted_attempt(
+            launch,
+            model=_model(),
+            stream_fn=_stream,
+            tools=[],
+            session_discovery=True,
+            owned_transcripts=True,
+        )
+        app = await attempt.open()
+        app.enable_client_scopes()
+        client = app.open_client_scope()
+        try:
+            mux = await client.create_mux(MuxCreateV1("dev"))
+            selector = MuxSelectorV1(mux_space_id=mux.mux_space_id)
+            await client.attach_mux(MuxAttachV1(selector))
+            mux = await client.open_member(MuxMemberOpenV1(
+                selector,
+                SessionOpenSpecV1(
+                    selected.product_id,
+                    selected.continuity_id,
+                    scope.scope,
+                    scope.fingerprint,
+                    "Resumed",
+                    selected.session_id,
+                ),
+            ))
+            attachment = await client.attach_mux(MuxAttachV1(selector))
+            control = SessionSnapshotRequestV1(
+                attachment.attachment_id,
+                attachment.controller_generation,
+                mux.members[0].member_id,
+            )
+            with pytest.raises(AppServiceError) as legacy:
+                await client.start_turn(TurnTextV1(
+                    control.attachment_id,
+                    control.controller_generation,
+                    control.member_id,
+                    "legacy resume",
+                ))
+            assert legacy.value.code is AppErrorCodeV1.OPERATION_UNAVAILABLE
+            assert path.read_bytes() == before_activation
+            execution = client.execution_client
+            accepted = await execution.submit_execution(
+                control,
+                execution.service_instance_id,
+                "stable-resume-input",
+                "after resume",
+            )
+            while True:
+                for envelope in await client.read_events(
+                    attachment_id=control.attachment_id,
+                    controller_generation=control.controller_generation,
+                ):
+                    if envelope.event.kind is SessionEventKindV1.INTERACTION_REQUESTED:
+                        assert envelope.event.interaction_id is not None
+                        await client.respond_interaction(InteractionRespondV1(
+                            control.attachment_id,
+                            control.controller_generation,
+                            control.member_id,
+                            envelope.event.interaction_id,
+                            InteractionOutcomeV1.APPROVE,
+                        ))
+                current = await execution.get_execution(
+                    control, execution.service_instance_id, accepted.state.execution_id
+                )
+                if current.state.status.terminal:
+                    break
+                await asyncio.sleep(0)
+            assert current.state.status is ExecutionStatusV1.SUCCEEDED
+            snapshot = await client.snapshot_session(control)
+            assert [record.text for record in snapshot.records if record.kind.value != "status"] == [
+                "before resume",
+                "after resume",
+                "real Coding response",
+            ]
+            repeated = await execution.submit_execution(
+                control,
+                execution.service_instance_id,
+                "stable-resume-input",
+                "after resume",
+            )
+            assert repeated.state.execution_id == accepted.state.execution_id
+        finally:
+            await client.close()
+            await app.close()
+            await attempt.close()
+
+    asyncio.run(asyncio.wait_for(scenario(), 90))
 
 
 @pytest.mark.parametrize("kind", list(SessionScopeV1))

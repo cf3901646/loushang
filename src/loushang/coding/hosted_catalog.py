@@ -278,6 +278,10 @@ class CodingHostedHistoryCandidateBindingV1:
         self._manager_type = manager_type
         self._writer_factory = writer_factory
 
+    @property
+    def supports_writable_resume(self) -> bool:
+        return self._writer_factory.owns_persistent_sessions
+
     def take_binding(self) -> CodingHostedHistoryBindingV1:
         from .hosted_session import CodingHostedHistoryBindingV1
 

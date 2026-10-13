@@ -46,6 +46,7 @@ from .hosted_application import (
 from .hosted_catalog import (
     CODING_HOSTED_COMPATIBILITY_ID,
     CodingHostedCandidateValidatorV1,
+    CodingHostedResumeCatalogV1,
     CodingHostedScopeV1,
     CodingHostedSessionCatalogV1,
 )
@@ -191,6 +192,20 @@ def _create_coding_attempt(
         generation, admitted_scopes, catalog,
     )
     product_version = hashlib.sha256(version("loushang").encode()).hexdigest()
+    sessions = (
+        CodingHostedResumeCatalogV1(catalog)
+        if (
+            owned_transcripts
+            and not managed_selection
+            and package_product_runtime_factory_for_session is None
+        )
+        else catalog
+    )
+    execution = None
+    if not managed_selection:
+        from .hosted_execution import create_coding_execution_service_binding
+
+        execution = create_coding_execution_service_binding(application_id)
     foreground = CodingForegroundHostedApplicationRequestV1(
         activation=HostedApplicationActivationV1(),
         generation_id=generation,
@@ -209,9 +224,10 @@ def _create_coding_attempt(
             )
         ),
         candidate_validator=CodingHostedCandidateValidatorV1(),
-        sessions=catalog,
+        sessions=sessions,
         discovery=discovery,
         admitted_scopes=admitted_scopes,
+        execution=execution,
         session_factory=CodingRealHostedSessionFactoryV1(
             services_factory=_services,
             model=model,
@@ -223,7 +239,7 @@ def _create_coding_attempt(
             ),
         ),
         shutdown_budget=AppHostShutdownBudgetV1(10.0, 5.0),
-        session_owner=catalog if owned_transcripts else None,
+        session_owner=sessions if owned_transcripts else None,
         profile_id=profile_id,
         managed_selection=managed_selection,
         managed_mux=managed_mux,

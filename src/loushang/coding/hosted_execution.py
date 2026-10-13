@@ -31,9 +31,6 @@ from loushang.appservice.execution_registry import ExecutionLimitsV1
 from loushang.appservice.execution_service import HostedExecutionServiceBindingV1
 
 from ._hosted_execution_work import (
-    CodingExecutionWorkV1,
-)
-from ._hosted_execution_work import (
     HostedResumeSubjectControl as HostedResumeSubjectControl,
 )
 from ._hosted_execution_work import (
@@ -53,8 +50,10 @@ from .appservice_adapter import (
     CodingHostedSessionBindingV1,
     CodingHostedSessionV1,
 )
-from .hosted_session import CodingRealHostedSessionV1
-from .session.agent_session import AgentSession
+from .hosted_session import (
+    CodingDeferredHostedSessionV1,
+    CodingRealHostedSessionV1,
+)
 
 
 class CodingHostedExecutionSessionV1(CodingHostedSessionV1):
@@ -65,16 +64,21 @@ class CodingHostedExecutionSessionV1(CodingHostedSessionV1):
     """
 
     def __init__(
-        self, binding: CodingRealHostedSessionV1, *,
+        self,
+        binding: CodingRealHostedSessionV1 | CodingDeferredHostedSessionV1,
+        *,
         owner: CodingHostedSessionBindingV1 | None = None,
     ) -> None:
-        if type(binding) is not CodingRealHostedSessionV1:
-            raise TypeError("execution requires a real Coding Product binding")
+        if type(binding) not in {
+            CodingRealHostedSessionV1,
+            CodingDeferredHostedSessionV1,
+        }:
+            raise TypeError("execution requires a Coding Product binding")
         if owner is not None and (
             owner.identity != binding.identity or owner.control is not binding.control
         ):
             raise ValueError("execution close owner must own the exact Product binding")
-        self._session = cast(AgentSession, binding.control)
+        self._product_binding = binding
         self._content: set[Callable[[ExecutionContentEventV1], None]] = set()
         self._draft = ""
         self._truncated = False
@@ -90,12 +94,12 @@ class CodingHostedExecutionSessionV1(CodingHostedSessionV1):
 
     def start_execution(self, request: ExecutionRequestV1) -> None:
         self._require_execution_open()
-        if not self._session.execution_available:
+        if not self._product_binding.execution_available:
             raise AppServiceError(AppErrorCodeV1.SESSION_UNAVAILABLE)
         self._guard.start(
             request,
-            CodingExecutionWorkV1(
-                self._session, request.text, lambda: self._guard.interrupt_requested
+            self._product_binding.create_execution_work(
+                request.text, lambda: self._guard.interrupt_requested
             ),
         )
 
@@ -240,9 +244,15 @@ def create_coding_execution_service_binding(
 def create_leased_coding_execution_session(
     binding: object, owner: CodingHostedSessionBindingV1,
 ) -> CodingHostedExecutionSessionV1:
-    if type(binding) is not CodingRealHostedSessionV1:
-        raise TypeError("execution requires a real Coding Product Session")
-    return CodingHostedExecutionSessionV1(binding, owner=owner)
+    if type(binding) not in {
+        CodingRealHostedSessionV1,
+        CodingDeferredHostedSessionV1,
+    }:
+        raise TypeError("execution requires a Coding Product Session")
+    return CodingHostedExecutionSessionV1(
+        cast(CodingRealHostedSessionV1 | CodingDeferredHostedSessionV1, binding),
+        owner=owner,
+    )
 
 
 __all__ = ["CodingHostedExecutionSessionV1"]
