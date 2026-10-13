@@ -63,3 +63,16 @@ See `docs/internals/testing/change-aware-quality-gates.md` for the shared rules.
 
 ## Configuration & Contributor Notes
 Model metadata is defined in `src/loushang/ai/model/models.json`; keep examples and docs aligned with it. Treat `examples/ai/` as public guidance: main examples should show the shortest supported path, while protocol-heavy or custom-registry flows should be marked advanced.
+
+## Architecture Decision Responsibilities
+
+For an already authorized task, agents complete internal architecture review
+and record acceptance within their delegated project responsibilities. Follow
+`docs/internals/architecture/governance-profile.md`, especially
+`Acceptance Responsibilities And User Confirmation`. A proposed ARD,
+cross-scope change, protocol/schema revision or missing acceptance record does
+not by itself require the user to approve it. Ask only when a specific policy
+or task instruction reserves the decision for the user, or the decision needs
+authorization beyond the existing task. Cite that requirement when asking.
+Resolve material technical findings and record the actual accepting role and
+reviewed scope; never manufacture a user acceptance statement.
