@@ -609,9 +609,10 @@ same way. The hosted transcript owner materializes that new Session before
 issuing its Product receipt. The Product still checks the selected installed
 revision, native approval, current receipt, and per-install opt-in. On Windows,
 passing `worker_candidate_plugin_id` explicitly selects the Windows Worker
-candidate for that Session. The PR #653 head passed its seven-case Windows
-native Session gate, but the Windows ordinary CLI route and broad rollout
-remain closed. Other Sessions and the default route remain unchanged.
+candidate for that Session. The explicit Windows ordinary CLI route described
+above uses the same Product admission and per-install authorization. Native
+evidence must match the delivered revision; an earlier PR's reports do not
+establish support for a later revision. Worker selection remains explicit.
 
 For this ordinary Session path, the Product keeps the selected Transcript's
 source, path, file identity, and startup locator fingerprint pinned. It
