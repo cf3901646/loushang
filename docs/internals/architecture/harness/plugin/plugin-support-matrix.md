@@ -124,9 +124,9 @@ they refuse active Product runtimes. The hosted
 crash/reopen Product case calls `inspect` and `recover-crash`, verifies refusal
 at injected partial-settlement boundaries, then completes recovery through the
 command. The earlier exact code head `cd25e160` passed the seven-case native
-Windows Session gate with no skipped cases. The later operator actions await
-their own exact-head native CI result. The candidate command does not open
-unflagged Windows Session routing or general third-party Worker admission.
+Windows Session gate with no skipped cases. The later operator actions passed
+native CI on the merged Goal 2 head. The candidate command does not open
+default Worker routing or dependency-bearing and effectful Worker admission.
 
 `loushang-worker-native candidate-status` reads the retained per-install Worker
 opt-in decision and observes an exact selected Worker candidate through the

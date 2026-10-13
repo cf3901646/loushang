@@ -15,15 +15,14 @@ PLUGIN_STATUS_ENTRYPOINTS = (
     PLUGIN_ROOT / "plugin-lifecycle-coding-pluginization-plan.md",
 )
 PLUGIN_DELIVERY_ANCHOR = (
-    "PLC8 closed; PLC9 remains open at `7a3673aa`. Product-backed management, "
-    "data Wheel authoring, POSIX root/shared-dependency GC, and Arch "
-    "private-data owners have implemented routes; explicit Windows Worker "
-    "Session and GC candidate journeys passed native CI."
+    "PR #678 merged bounded third-party Worker admission on `main`; #509 "
+    "tracks the final PLC9 integrated acceptance."
 )
-PLUGIN_WORKER_CANARY_BOUNDARY = (
-    "explicit Linux/Windows AMD64 Coding Product opt-in only; Current remains "
-    "the default; no general third-party Worker authoring/admission surface is "
-    "published."
+PLUGIN_WORKER_BOUNDARY = (
+    "explicit Linux x86-64 and Windows AMD64 Coding Product opt-in admits "
+    "self-contained read-only query Wheels. Current remains the default; "
+    "dependency execution, effectful Tools, macOS, and default Worker "
+    "routing remain closed."
 )
 COMPLETED_PLUGIN_MILESTONES = {
     PLUGIN_ROOT / "plugin-lifecycle-plc7-contract.md": (
@@ -263,12 +262,12 @@ def test_plugin_status_entrypoints_share_current_delivery_anchor() -> None:
     assert not errors, "\n".join(errors)
 
 
-def test_plugin_status_entrypoints_keep_worker_canaries_explicit_and_nongeneral() -> None:
+def test_plugin_status_entrypoints_keep_worker_admission_bounded() -> None:
     errors = []
     for path in PLUGIN_STATUS_ENTRYPOINTS:
         status = _normalize_markdown(_status_section(path))
-        if f"Worker canary boundary: {PLUGIN_WORKER_CANARY_BOUNDARY}" not in status:
-            errors.append(f"{_display(path)}: missing Worker canary boundary")
+        if f"Worker boundary: {PLUGIN_WORKER_BOUNDARY}" not in status:
+            errors.append(f"{_display(path)}: missing Worker boundary")
 
     assert not errors, "\n".join(errors)
 

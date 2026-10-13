@@ -1120,6 +1120,7 @@ def test_worker_native_operator_cli_reopens_product_across_processes(
     )
     update_while_allowed, _ = run(*update_args)
     assert update_while_allowed.returncode == 1
+    assert b"coding_worker_candidate_opt_in_revoke_required" in update_while_allowed.stderr
     revoked_for_update, revoked_for_update_output = run(
         "candidate-revoke",
         "--plugin-id",
@@ -1133,6 +1134,7 @@ def test_worker_native_operator_cli_reopens_product_across_processes(
     assert revoked_for_update_output["candidateOptInDecision"]["action"] == "revoke"
     stale_update, _ = run(*update_args[:-1], "0")
     assert stale_update.returncode == 1
+    assert b"coding_worker_candidate_update_selection_stale" in stale_update.stderr
     updated, updated_output = run(*update_args)
     assert updated.returncode == 0, updated.stderr
     candidate_update = updated_output["candidateUpdate"]
@@ -1221,6 +1223,7 @@ def test_worker_native_operator_cli_reopens_product_across_processes(
         str(enabled_inventory_revision),
     )
     assert remove_while_allowed.returncode == 1
+    assert b"coding_worker_candidate_opt_in_revoke_required" in remove_while_allowed.stderr
     disabled, disabled_output = run(
         "candidate-disable",
         "--plugin-id",

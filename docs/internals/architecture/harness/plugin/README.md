@@ -9,7 +9,7 @@
   contracts record implemented slices; plans remain delivery records; baselines
   are implementation evidence.
 - Implementation status: PLC0--PLC8 are complete and terminally reviewed;
-  PLC9 remains an open delivery stage. Current `main` has Product-backed
+  PLC9's final integrated acceptance is tracked in #509. Current `main` has Product-backed
   management projections and bounded repair routes across CLI, optional RPC,
   TUI, and local management SDK; public reproducible data Skill, Prompt, and
   Theme Wheels; explicit Linux Worker candidate admission, opt-in, native
@@ -17,9 +17,10 @@
   GC plus Arch private-data backup, delete, restore, and expiry owners. Each
   route retains its own Product gate. Explicit Windows candidate first-B,
   Worker, and GC native journeys passed at the final PLC9 code head. Ordinary
-  unflagged Windows B Session selection is implemented in PR #662; Windows
-  Worker query CLI, general third-party Worker admission, and Windows
-  private-data production use retain separate gates. The final
+  unflagged Windows B Session selection was admitted in PR #662. Linux and
+  Windows AMD64 now admit independently authored, self-contained read-only
+  Worker query Wheels through explicit Product routes; Windows private-data
+  production use retains a separate gate. The final
   Coding offline package regression passed. The
   [closure ledger](plugin-experience-and-plc9-closure-design.md) records the
   exact-head evidence and limits.
@@ -31,9 +32,9 @@
   receipt full-history reads still refuse because retired records cannot be
   reconstructed. A real installed Product Worker case passed owner commit,
   physical retirement, a fresh Session query, and Package GC preparation after
-  retirement. This is candidate evidence for that Linux path. Windows V2,
-  backup/restore and wider crash-boundary evidence, general third-party Worker
-  routing, and default activation retain their separate gates.
+  retirement. This is candidate evidence for that Linux path. Windows V2
+  authority cutover is tracked separately in #732; backup/restore, wider
+  crash-boundary evidence, and default activation retain their separate gates.
 - Workspace boundary: on 2026-10-01 the Product owner ended pre-B workspace
   compatibility for this delivery. Fresh and verifiable B-fenced workspaces
   remain in scope; unfenced pre-B Plugin inputs must refuse without writes.
@@ -45,13 +46,12 @@
   first-B and GC routes have native evidence. Direct, Session Runtime, and
   Hosted ordinary Windows Sessions select the B Product in PR #662; Windows
   Worker query CLI and default Worker routing retain separate gates.
-- Delivery anchor: PLC8 closed; PLC9 remains open at `7a3673aa`.
-  Product-backed management, data Wheel authoring, POSIX root/shared-dependency
-  GC, and Arch private-data owners have implemented routes; explicit Windows
-  Worker Session and GC candidate journeys passed native CI.
-- Worker canary boundary: explicit Linux/Windows AMD64 Coding Product opt-in
-  only; Current remains the default; no general third-party Worker
-  authoring/admission surface is published.
+- Delivery anchor: PR #678 merged bounded third-party Worker admission on
+  `main`; #509 tracks the final PLC9 integrated acceptance.
+- Worker boundary: explicit Linux x86-64 and Windows AMD64 Coding Product
+  opt-in admits self-contained read-only query Wheels. Current remains the
+  default; dependency execution, effectful Tools, macOS, and default Worker
+  routing remain closed.
 - Owner: `loushang.harness` Plugin architecture scope; contribution runtime
   authority remains with each exact domain owner.
 
