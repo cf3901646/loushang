@@ -55,6 +55,20 @@ WINDOWS_WORKER_NATIVE_PREFIXES = (
     "tests/coding/test_package_worker_native_cli.py",
     "tests/coding/test_package_windows_pre_b_snapshot.py",
 )
+WINDOWS_WORKER_FULL_BOUNDARIES = {
+    "src/loushang/hosting/_win32_process.py",
+    "src/loushang/hosting/_windows_process.py",
+    "tests/hosting/test_win32_process.py",
+    "tests/hosting/test_windows_process.py",
+    "tests/coding/test_package_windows_pre_b_snapshot.py",
+    "tests/coding/test_package_worker_candidate_wheel.py",
+    "tests/coding/test_package_worker_native_cli.py",
+    "tests/coding/test_plugin_author_smoke.py",
+}
+WINDOWS_WORKER_FULL_TEST_PREFIXES = (
+    "tests/coding/test_package_product_worker_windows_",
+    "tests/coding/test_package_worker_windows_",
+)
 WINDOWS_SHELL_FULL_PARTS = (
     "private_data", "windows_private_acl", "package_pre_b_snapshot",
     "package_epoch_", "package_installation_private_data",
@@ -82,21 +96,6 @@ WINDOWS_APPSERVICE_FULL_PREFIXES = (
 WINDOWS_TUI_FULL_PARTS = (
     "terminal_backends/", "windows_conpty", "terminal_process_support/",
 )
-
-
-def windows_worker_pr_scenarios(path: str) -> set[str]:
-    name = Path(path).name
-    tokens = set(Path(path).stem.split("_"))
-    scenarios: set[str] = set()
-    if tokens & {"crash", "recovery", "settlement", "orphan", "lease"}:
-        scenarios.add("crash")
-    if tokens & {"gc", "retire", "retirement", "history", "stage"}:
-        scenarios.add("gc_normal")
-    if tokens & {"policy", "selection", "desired", "fence"} or "opt_in" in name:
-        scenarios.add("fence")
-    if any(part in name for part in ("activation_state", "cleanup_evidence")):
-        scenarios.add("c5")
-    return scenarios
 
 
 def git(*args: str, root: Path = ROOT) -> bytes:
@@ -151,6 +150,12 @@ def select(
         enable(list(checks), "explicit full validation")
     variables = make_paths(root)
     for path in sorted(set(paths)):
+        if (
+            path.startswith(WINDOWS_WORKER_FULL_TEST_PREFIXES)
+            or path in WINDOWS_WORKER_FULL_BOUNDARIES
+            and path.startswith("tests/coding/")
+        ):
+            enable(["windows_shell"], f"{path}: native Worker test coverage")
         if path.startswith("src/") and path.endswith(".py"):
             enable(["architecture"], f"{path}: source dependency facts")
         if (
@@ -282,8 +287,6 @@ def select(
     windows = {
         "smoke": False,
         "worker_pr": False,
-        "worker_pr_extra": False,
-        "worker_pr_scenario": "none",
         "worker_full": False,
         "shell_full": False,
         "appservice_full": False,
@@ -298,7 +301,6 @@ def select(
         })
     else:
         windows["smoke"] = checks["windows_shell"]
-        worker_scenarios: set[str] = set()
         for path in paths:
             # Unknown and gate-infrastructure paths retain the complete native
             # matrix. New Windows owners must be classified before fast routing.
@@ -325,16 +327,22 @@ def select(
             if checks["windows_shell"]:
                 worker_native = (
                     path.startswith(WINDOWS_WORKER_NATIVE_PREFIXES)
+                    or path.startswith(WINDOWS_WORKER_FULL_TEST_PREFIXES)
+                    or path in WINDOWS_WORKER_FULL_BOUNDARIES
                     or ("worker" in path and any(
                         part in path for part in WINDOWS_WORKER_NATIVE_PARTS
                     ))
                 )
                 if worker_native:
-                    if path == "tests/coding/test_package_windows_pre_b_snapshot.py":
+                    if (
+                        path in WINDOWS_WORKER_FULL_BOUNDARIES
+                        or path.startswith(WINDOWS_WORKER_FULL_TEST_PREFIXES)
+                        or (path.startswith("tests/harness/worker/")
+                            and "windows" in Path(path).name)
+                    ):
                         windows["worker_full"] = True
                     else:
                         windows["worker_pr"] = True
-                        worker_scenarios.update(windows_worker_pr_scenarios(path))
                 windows["shell_full"] |= (
                     path.startswith(WINDOWS_SHELL_FULL_PREFIXES)
                     or any(part in path for part in WINDOWS_SHELL_FULL_PARTS)
@@ -348,13 +356,31 @@ def select(
                 windows["tui_full"] |= any(
                     part in path for part in WINDOWS_TUI_FULL_PARTS
                 )
-        if len(worker_scenarios) > 1:
-            windows["worker_full"] = True
         if windows["worker_full"]:
             windows["worker_pr"] = False
-        elif windows["worker_pr"] and worker_scenarios:
-            windows["worker_pr_extra"] = True
-            windows["worker_pr_scenario"] = next(iter(worker_scenarios))
+    host_runtime_smoke = (
+        checks["host_runtime"] and pr_fast and not full and not gate_infra
+        and not windows["worker_full"]
+        and not any(
+            path.startswith("tests/hosting/")
+            or path in {
+                "tests/coding/test_package_worker_candidate_wheel.py",
+                "tests/coding/test_package_worker_native_cli.py",
+                "tests/coding/test_plugin_author_smoke.py",
+                "tests/harness/conversation/test_json_index.py",
+                "tests/harness/transcript/test_file_store_process_exit.py",
+                "tests/harness/transcript/test_model_input.py",
+            }
+            for path in paths
+        )
+    )
+    hosting_worker_pr_smoke = (
+        host_runtime_smoke and checks["hosting"]
+        and not any(path.startswith((
+            "src/loushang/hosting/", "tests/hosting/",
+            "src/loushang/harness/worker/", "tests/harness/worker/",
+        )) for path in paths)
+    )
     return {
         "version": 1,
         "paths": sorted(set(paths)),
@@ -364,6 +390,8 @@ def select(
         "unit_jobs": unit_jobs,
         "e2e": e2e,
         "windows": windows,
+        "host_runtime_smoke": host_runtime_smoke,
+        "hosting_worker_pr_smoke": hosting_worker_pr_smoke,
         "reasons": reasons,
     }
 
@@ -379,7 +407,7 @@ def workflow_plan(plan: dict) -> dict:
     """
     return {
         key: plan[key]
-        for key in ("version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "windows")
+        for key in ("version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "windows", "host_runtime_smoke", "hosting_worker_pr_smoke")
     }
 
 
