@@ -63,6 +63,15 @@ from loushang.harnesstui.conversation.control import ConversationTextAction
 
 
 @dataclass(slots=True)
+class EmbeddedResumeStartup:
+    """History-first CLI state retained before an executable Session exists."""
+
+    target: str | Path
+    history: CodingResumeHistoryPreview
+    model: Model | ModelSelection | None = None
+
+
+@dataclass(slots=True)
 class _EmbeddedApprovalPresentationLease:
     interaction: EmbeddedResumeApprovalInteraction
     generation: int
@@ -411,4 +420,5 @@ class EmbeddedResumeInputCoordinator:
 __all__ = [
     "EmbeddedResumeApprovalInteraction",
     "EmbeddedResumeInputCoordinator",
+    "EmbeddedResumeStartup",
 ]

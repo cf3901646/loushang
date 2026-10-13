@@ -17,10 +17,11 @@ from loushang.coding.continuity import (
     ConflictedContinuityTargetError,
     StaleContinuityTargetError,
     bind_coding_continuity,
+    resolve_coding_continuity_history_source,
     shutdown_coding_continuity,
 )
 from loushang.harness.artifacts import SessionBlobStore
-from loushang.harness.continuity import ContinuityQuery
+from loushang.harness.continuity import ContinuityQuery, ContinuityTarget
 from loushang.harness.conversation import ConversationHeader, ConversationRecord
 from loushang.harness.transcript import (
     AGENT_MESSAGE_KIND,
@@ -970,6 +971,38 @@ def test_coding_prepare_revalidates_selected_transcript_revision(
 
         with pytest.raises(StaleContinuityTargetError, match="changed"):
             await composition.hub.prepare(target)
+        await shutdown_coding_continuity(runtime)
+
+    asyncio.run(scenario())
+
+
+def test_coding_history_source_resolution_does_not_prepare_session(
+    tmp_path: Path,
+) -> None:
+    runtime = _Runtime(tmp_path)
+    transcript = tmp_path / "session-1.jsonl"
+    write_agent_transcript_export(
+        transcript,
+        _header("session-1"),
+        [_record("record-1", "History first")],
+    )
+    runtime.refresh_session_index()
+    composition = bind_coding_continuity(runtime)
+
+    async def scenario() -> None:
+        page = await composition.hub.query(ContinuityQuery(page_size=10))
+        reference = await resolve_coding_continuity_history_source(
+            composition,
+            page.items[0].target,
+        )
+        assert reference == "session-1"
+        assert runtime.prepared == []
+        assert runtime.restored == []
+        with pytest.raises(RuntimeError, match="native Coding session"):
+            await resolve_coding_continuity_history_source(
+                composition,
+                ContinuityTarget("cloud.sessions", "remote-1", "r1"),
+            )
         await shutdown_coding_continuity(runtime)
 
     asyncio.run(scenario())

@@ -3256,3 +3256,33 @@ with `/tmp` reporting `Disk quota exceeded`; the same Runtime file passed after
 moving pytest's base temporary directory into the task worktree. Windows native
 host execution, Hosted adoption, bare picker history routing, background
 latency and release gates remain pending.
+
+#### Bare Resume picker enters native history before activation
+
+The standalone `--resume` picker now treats selection and Session activation as
+separate Product operations. Its admitted native Coding provider revalidates
+the selected summary, conflict state and current transcript authority, then
+returns only the canonical history source. It does not call
+`prepare_restore_session_operation`, consume an activation lease, publish a
+Session or open a Writer. The Root reads that source through the same bounded
+history preview and starts the existing data-only planning path before the
+picker releases the terminal.
+
+After terminal restoration, explicit and picker-selected Resume share one
+history host, model-selection adapter and first-input coordinator. The generic
+CLI configuration and operation phases recognize the history placeholder and
+do not treat it as an Agent Session. A provider other than the admitted native
+`coding.sessions` provider is rejected inside the picker because its portable
+activation payload is not native transcript authority for the history screen.
+The picker remains outside the early loading screen so the two interfaces never
+compete for stdin or terminal ownership.
+
+Focused bare Resume, native source-resolution and explicit history-screen
+regressions passed **11 tests** outside the managed sandbox with `not live` and
+`--skip-host-runtime`. The source-resolution case verifies that neither
+preparation nor restoration occurs. A broader CLI, Continuity and screen-first
+run passed **355 tests**; its other five cases rejected the worktree's `0775`
+ancestor during security path validation, then all **5 passed** with a private
+`0700` basetemp under `/tmp`. Ruff, scoped mypy and `git diff --check` passed.
+Hosted adoption, Windows native host execution, background latency and the
+remaining release gates are pending.

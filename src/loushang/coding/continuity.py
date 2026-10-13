@@ -557,10 +557,12 @@ class CodingContinuityProvider:
             ) or history_changed,
         )
 
-    async def prepare(
+    async def resolve_history_source(
         self,
         target: ContinuityTarget,
-    ) -> CallbackPreparedActivationLease:
+    ) -> str | Path:
+        """Resolve one current native transcript without preparing a Session."""
+
         indexed = self._cached_target(target)
         summary = indexed.projection
         _require_unconflicted_summary(summary)
@@ -573,28 +575,13 @@ class CodingContinuityProvider:
                 "The selected Coding session summary is stale."
             )
         # Index rows are advisory projections. Resolve their raw identity against
-        # fresh path-level discovery so a same-source duplicate cannot be activated
+        # fresh path-level discovery so a same-source duplicate cannot be entered
         # through a stale collapsed index entry.
         reference: str | Path = (
             summary.session_id
             if summary.discovery is not None
             else summary.session_file or summary.session_id
         )
-        current = self._runtime.get_current_session()
-        if current is not None and _same_session_reference(
-            self._runtime.get_current_session_ref(),
-            reference,
-        ):
-            return CallbackPreparedActivationLease(
-                target=target,
-                disposition="in_place",
-                consume=lambda: SessionOperationResult(
-                    previous=current,
-                    current=current,
-                    payload=None,
-                    cancelled=False,
-                ),
-            )
         if summary.authority_fingerprint is not None:
             if not session_summary_authority_is_current(summary):
                 raise StaleContinuityTargetError(
@@ -611,6 +598,30 @@ class CodingContinuityProvider:
                 raise StaleContinuityTargetError(
                     "The selected Coding session changed after it was listed."
                 )
+        return reference
+
+    async def prepare(
+        self,
+        target: ContinuityTarget,
+    ) -> CallbackPreparedActivationLease:
+        reference = await self.resolve_history_source(target)
+        indexed = self._cached_target(target)
+        summary = indexed.projection
+        current = self._runtime.get_current_session()
+        if current is not None and _same_session_reference(
+            self._runtime.get_current_session_ref(),
+            reference,
+        ):
+            return CallbackPreparedActivationLease(
+                target=target,
+                disposition="in_place",
+                consume=lambda: SessionOperationResult(
+                    previous=current,
+                    current=current,
+                    payload=None,
+                    cancelled=False,
+                ),
+            )
         candidate = await self._runtime.prepare_restore_session_operation(reference)
         if (
             summary.authority_fingerprint is not None
@@ -755,6 +766,30 @@ class CodingContinuityComposition:
                 self.owned_cleanup()
             self._owned_cleanup_complete = True
         self._shutdown = True
+
+
+async def resolve_coding_continuity_history_source(
+    composition: CodingContinuityComposition,
+    target: ContinuityTarget,
+) -> str | Path:
+    """Resolve an admitted native Coding target for history-first Resume."""
+
+    if not isinstance(composition, CodingContinuityComposition):
+        raise TypeError("Coding continuity composition is invalid")
+    if not isinstance(target, ContinuityTarget):
+        raise TypeError("Coding continuity target is invalid")
+    if target.provider_id != CODING_CONTINUITY_PROVIDER_ID:
+        raise RuntimeError(
+            "History-first Resume requires a native Coding session target"
+        )
+    providers = tuple(
+        bound.provider
+        for bound in composition.hub.composition.continuity_providers
+        if bound.provider.descriptor.provider_id == CODING_CONTINUITY_PROVIDER_ID
+    )
+    if len(providers) != 1 or type(providers[0]) is not CodingContinuityProvider:
+        raise RuntimeError("Native Coding continuity authority is unavailable")
+    return await providers[0].resolve_history_source(target)
 
 
 @dataclass
@@ -1534,6 +1569,7 @@ __all__ = [
     "bind_coding_continuity",
     "bind_coding_plugin_continuity",
     "get_coding_continuity_composition",
+    "resolve_coding_continuity_history_source",
     "shutdown_coding_continuity",
     "supports_coding_continuity_secure_staging",
 ]

@@ -6,11 +6,16 @@ import asyncio
 import inspect
 import os
 import sys
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, TextIO, cast
 
+from loushang.coding.cli.resume_startup import (
+    configure_embedded_resume_startup,
+    run_embedded_resume_history_host,
+)
 from loushang.coding.cli.startup_route import screen_startup_eligible
+from loushang.coding.embedded_resume import EmbeddedResumeStartup
 from loushang.coding.ui.screen_app import ScreenCodingTuiApp
 from loushang.harness.host.product_host import ProductHostLifecycle, stream_is_tty
 from loushang.harnesstui.conversation.startup_host import (
@@ -19,13 +24,6 @@ from loushang.harnesstui.conversation.startup_host import (
     startup_failure_summary,
 )
 from loushang.tui import strip_control_sequences
-
-
-@dataclass(slots=True)
-class _EmbeddedResumeStartup:
-    target: str
-    history: Any
-    model: Any = None
 
 
 def _threaded_loading_supported(stdin: TextIO) -> bool:
@@ -160,7 +158,7 @@ async def run_screen_first_cli(
                 history = await context.runtime.preview_resume_history(resume)
                 await context.runtime.start_configured_resume_planning(history)
                 return CliPhaseResult.continue_with(
-                    _EmbeddedResumeStartup(resume, history)
+                    EmbeddedResumeStartup(resume, history)
                 )
             if original_pre_session is None:
                 return None
@@ -168,127 +166,30 @@ async def run_screen_first_cli(
             return await result if inspect.isawaitable(result) else result
 
         async def configure(context: Any) -> int | None:
-            if not isinstance(context.session, _EmbeddedResumeStartup):
+            if not isinstance(context.session, EmbeddedResumeStartup):
                 result = original_configure(context)
                 return await result if inspect.isawaitable(result) else result
-            from loushang.ai.model import parse_model_selection_reference
-
-            context.session.model = parse_model_selection_reference(
-                context.args.model,
-                provider=context.args.provider,
-                registry=getattr(
-                    getattr(context.state.services, "model_registry", None),
-                    "ai_registry",
-                    None,
-                ),
-            )
+            configure_embedded_resume_startup(context)
             return None
 
         async def session_operations(context: Any) -> int | None:
-            if isinstance(context.session, _EmbeddedResumeStartup):
+            if isinstance(context.session, EmbeddedResumeStartup):
                 return None
             result = original_operations(context)
             return await result if inspect.isawaitable(result) else result
 
         async def run_host(context: Any) -> int:
-            if not isinstance(context.session, _EmbeddedResumeStartup):
+            if not isinstance(context.session, EmbeddedResumeStartup):
                 return await ordinary_host(context)
-            if threaded_startup is not None:
-                await threaded_startup.before_product_ui()
-
-            from loushang.coding.embedded_resume import (
-                EmbeddedResumeApprovalInteraction,
-                EmbeddedResumeInputCoordinator,
-            )
-            from loushang.coding.interaction.resume_history import (
-                build_coding_resume_history_screen,
-            )
-            from loushang.coding.ui.screen_surfaces import ScreenSurfaceManager
-            from loushang.harnesstui.conversation.agent_application import (
-                handle_agent_screen_approval,
-            )
-            from loushang.harnesstui.conversation.application_host import (
-                run_prepared_screen_conversation,
-            )
-            from loushang.harnesstui.status.provider import StatusProvider
-
-            resume = context.session
-            approval = EmbeddedResumeApprovalInteraction(
-                context.state.approval_resolver,
-                context.state.settings_manager,
-            )
-            no_tools: Any = (
-                "all"
-                if context.args.no_tools
-                else "builtin"
-                if context.args.no_builtin_tools
-                else None
-            )
-            coordinator = EmbeddedResumeInputCoordinator(
-                runtime=context.runtime,
-                services=context.state.services,
-                policy_evaluator=context.state.tool_policy_evaluator,
-                model=resume.model,
-                thinking_level=context.args.thinking,
-                no_tools=no_tools,
-                worker_candidate_plugin_id=context.args.worker_query_plugin,
-            )
-            app.state.cwd = str(context.bootstrap.project_root)
-            app.state.session_label = (
-                resume.history.header_preview.header.conversation_id
-            )
-
-            def current_approval() -> Any:
-                current = context.runtime.current_session
-                return (
-                    getattr(current, "approval_interaction", None)
-                    if current is not None
-                    else approval
-                )
-
-            status = StatusProvider(
-                model_label=None,
-                cwd=app.state.cwd,
-                branch=app.state.branch,
-                session_label=lambda: app.state.session_label,
-                thinking_level=lambda: None,
-                running=lambda: app.state.running,
-                permission_profile=lambda: context.state.settings_manager.get_permission_profile_id(),
-            )
-            surface = ScreenSurfaceManager(
+            return await run_embedded_resume_history_host(
+                context,
                 app=app,
-                session=resume,
-                runtime=context.runtime,
-                status_provider=status,
-                on_approval=lambda event: handle_agent_screen_approval(
-                    current_approval(), event
-                ),
-                approval_interaction_provider=current_approval,
-            )
-
-            async def prepare_input(action: Any, observe: Any) -> Any:
-                return await coordinator.prepare_input(
-                    session_file=resume.target,
-                    history=resume.history,
-                    action=action,
-                    observe_input_identity=observe,
-                )
-
-            prepared = build_coding_resume_history_screen(
-                runtime=context.runtime,
-                session_ref=resume.target,
-                history=resume.history,
-                app=app,
-                prepare_input=prepare_input,
-                surface=surface,
-                stderr=context.bootstrap.stderr,
-                approval_interaction=approval,
-            )
-            return await run_prepared_screen_conversation(
-                prepared,
-                stdin=context.bootstrap.stdin,
-                stdout=context.bootstrap.stdout,
                 screen_runner=startup.attach,
+                before_product_ui=(
+                    threaded_startup.before_product_ui
+                    if threaded_startup is not None
+                    else None
+                ),
             )
 
         updates = {
