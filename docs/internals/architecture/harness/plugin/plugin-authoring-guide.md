@@ -429,10 +429,13 @@ loushang-worker-native --workspace PATH candidate-allow \
 ```
 
 The update refuses an allowed opt-in, a changed old selection, or a stale
-inventory revision. It uses the Product lifecycle update transaction and reports
-`productUse: not_checked`; the new revision needs a fresh allow decision and an
-actual Session query for use evidence. Repeating the exact successful operation
-ID, old and new digests, and expected inventory revision returns
+inventory revision. The CLI reports
+`coding_worker_candidate_opt_in_revoke_required` when the allow decision still
+exists, and `coding_worker_candidate_update_selection_stale` when the expected
+selection or revision changed. It uses the Product lifecycle update transaction
+and reports `productUse: not_checked`; the new revision needs a fresh allow
+decision and an actual Session query for use evidence. Repeating the exact
+successful operation ID, old and new digests, and expected inventory revision returns
 `alreadyUpdated: true` while that committed selection is still current. A
 different operation ID or later inventory change is refused; inspect
 `candidate-status` before attempting another update. Old Session receipts are fenced
@@ -458,6 +461,8 @@ loushang-worker-native --workspace PATH candidate-remove \
 ```
 
 `candidate-remove` changes Desired State to absent after opt-in revocation.
+If the allow decision remains, it reports
+`coding_worker_candidate_opt_in_revoke_required` without removing the Plugin.
 It reports `packageRetirement: not_checked`; physical Package GC and any
 pinned Session retirement require separate Product evidence.
 After every pinned Session has been disposed and the Worker attempt history is
@@ -476,15 +481,36 @@ roots and checks their physical absence. `candidate-remove` itself never claims
 that deletion. An unsettled attempt or retained reference keeps GC closed; the
 operator must use the exact review and repair path for that debt.
 
-On Windows AMD64, the same candidate update, disable, and remove arguments are
-available through `loushang-worker-windows-candidate --workspace PATH`.
-The older `--windows-candidate` spelling remains accepted by that command.
+The following Windows command blocks use Command Prompt's `^` line continuation.
+On Windows AMD64, the Product operator can capture the independently built
+Worker Wheel, install the captured digest disabled, and enable that exact
+revision. Use `artifactDigest` from `workerCandidateBinding` in the capture
+result and `candidateInstall.inventoryRevision` from the install result:
+
+```text
+loushang-worker-windows-candidate --workspace PATH candidate-capture ^
+  --wheel dist/reviewworker-1-py3-none-win_amd64.whl ^
+  --contribution-id query-provider --owner-id coding
+loushang-worker-windows-candidate --workspace PATH candidate-install ^
+  --plugin-id reviewworker --artifact-digest DIGEST ^
+  --operation-id install-reviewworker-1
+loushang-worker-windows-candidate --workspace PATH candidate-enable ^
+  --plugin-id reviewworker --artifact-digest DIGEST ^
+  --operation-id enable-reviewworker-1 ^
+  --expected-inventory-revision REVISION
+```
+
+Capture reports `productAdmission: not_checked` and `productUse: not_checked`;
+install and enable still do not prove Session use. The same candidate update,
+disable, and remove arguments are available through this Windows command.
+Its older `--windows-candidate` spelling remains accepted.
 Revoke the per-install opt-in before update or removal,
 pass the current inventory revision to each mutation, and use the new digest
 returned by `candidate-capture` for an update. The command returns the Product
 operation or exact update replay; `candidate-remove` still leaves Package
-retirement and GC to their separate Product commands. This remains an explicit
-candidate route and does not grant general Worker admission.
+retirement and GC to their separate Product commands. This explicit route
+admits self-contained read-only query Wheels; dependency execution, effectful
+Tools, and default Worker routing remain closed.
 
 Windows uses separate native-release subcommands. Review the trusted Loushang
 runtime Wheel, rather than the author's Worker Wheel, and retain the returned
@@ -493,13 +519,13 @@ review ID and current approval generation:
 ```text
 loushang-worker-windows-candidate --workspace PATH release-status
 loushang-worker-windows-candidate --workspace PATH release-review --wheel RELEASE_WHEEL
-loushang-worker-windows-candidate --workspace PATH release-approve \
-  --wheel RELEASE_WHEEL --review-id REVIEW_ID \
+loushang-worker-windows-candidate --workspace PATH release-approve ^
+  --wheel RELEASE_WHEEL --review-id REVIEW_ID ^
   --operation-id approve-native-release-1 --expected-generation GENERATION
-loushang-worker-windows-candidate --workspace PATH release-install \
+loushang-worker-windows-candidate --workspace PATH release-install ^
   --wheel RELEASE_WHEEL --review-id REVIEW_ID
-loushang-worker-windows-candidate --workspace PATH candidate-allow \
-  --plugin-id reviewworker --operation-id allow-reviewworker-1 \
+loushang-worker-windows-candidate --workspace PATH candidate-allow ^
+  --plugin-id reviewworker --operation-id allow-reviewworker-1 ^
   --expected-generation OPT_IN_GENERATION
 ```
 
@@ -517,7 +543,7 @@ before these operations:
 loushang-worker-windows-candidate --workspace PATH list-attempts
 loushang-worker-windows-candidate --workspace PATH inspect --attempt-id ATTEMPT_ID
 loushang-worker-windows-candidate --workspace PATH review-normal --attempt-id ATTEMPT_ID
-loushang-worker-windows-candidate --workspace PATH retire-normal \
+loushang-worker-windows-candidate --workspace PATH retire-normal ^
   --attempt-id ATTEMPT_ID --review-id REVIEW_ID
 ```
 
@@ -533,12 +559,19 @@ successful cleanup.
 A crashed attempt uses `recover-crash --attempt-id ATTEMPT_ID`; it must not be
 treated as a normal exit. If recovery refuses or native termination is
 unproved, retain the reported debt and keep Package GC closed. Once all retained
-attempts are settled and retired, use `loushang-package-gc --workspace PATH
---worker-candidates prepare`, `list`, and `delete` as separate offline operations.
-On Windows these commands select the admitted Windows Product owner; the old
-`--windows-candidate` option remains accepted. A successful disable or remove
-does not establish native process termination, stage retirement, or Package
-deletion.
+attempts are settled and retired, run the separate Windows offline GC steps:
+
+```text
+loushang-package-gc --workspace PATH --windows-candidate --worker-candidates prepare
+loushang-package-gc --workspace PATH --windows-candidate --worker-candidates list
+loushang-package-gc --workspace PATH --windows-candidate --worker-candidates delete ^
+  --candidate-id CANDIDATE_ID --attempt-key retire-reviewworker-1
+```
+
+`--windows-candidate` is required by `loushang-package-gc` on Windows; if it is
+missing, the command reports `package_gc_platform_unsupported`. A successful
+disable or remove does not establish native process termination, stage
+retirement, or Package deletion.
 
 On Linux, a Product operator can inspect or change per-install Worker opt-in
 with `loushang-worker-native --workspace PATH candidate-status`,
@@ -573,9 +606,19 @@ It registers one Session-owned `worker_query_symbol` Tool backed by the same
 read-only Product facet as the explicit SDK query. A model-visible Tool call
 and its persisted result are required before claiming Product turn use:
 
+On Linux:
+
 ```text
 loushang --mode print --cwd PATH --composition-set coding-standard \
   --worker-query-plugin reviewworker \
+  "Use worker_query_symbol to query the review symbol."
+```
+
+In Windows Command Prompt:
+
+```text
+loushang --mode print --cwd PATH --composition-set coding-standard ^
+  --worker-query-plugin reviewworker ^
   "Use worker_query_symbol to query the review symbol."
 ```
 

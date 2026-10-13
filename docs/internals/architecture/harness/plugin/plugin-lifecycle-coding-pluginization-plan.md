@@ -97,17 +97,21 @@
   pre-B Plugin inputs refuse without writes. Automatic first-B cutover is
   accepted for genuinely fresh Linux workspaces; Windows first-B remains an
   explicit candidate route.
-- Delivery anchor: PLC8 closed; PLC9 remains open at `7a3673aa`.
+- Delivery anchor: PR #678 merged bounded third-party Worker admission on
+  `main`; #509 tracks the final PLC9 integrated acceptance.
   Product-backed management, data Wheel authoring, POSIX root/shared-dependency
   GC, and Arch private-data owners have implemented routes; explicit Windows
   Worker Session and GC candidate journeys passed native CI. CLI, optional
   Coding RPC, TUI, and local SDK have Product-backed management paths.
-  General third-party Worker admission, default routing, and Windows private-data
-  production use retain separate gates. See the
+  Independently authored self-contained read-only query Wheels have explicit
+  Product admission on Linux x86-64 and Windows AMD64. Default routing and
+  Windows private-data production use retain separate gates. See the
   [support matrix](plugin-support-matrix.md) for current entry-route limits.
-- Worker canary boundary: explicit Linux/Windows AMD64 Coding Product opt-in
-  only; Current remains the default; no general third-party Worker
-  authoring/admission surface is published.
+- Worker boundary: explicit Linux x86-64 and Windows AMD64 Coding Product
+  opt-in admits self-contained read-only query Wheels. Current remains the
+  default; dependency execution, effectful Tools, macOS, and default Worker
+  routing remain closed. Windows history authority cutover is tracked
+  separately in #732.
 - Scope: one delivery order for the common Plugin lifecycle, ordinary
   Definition / Provider / Consumer authoring primitives, `coding.lsp`,
   `coding.base`, `coding.arch`, management control, pre-LSP internal Resource/
