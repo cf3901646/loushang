@@ -560,6 +560,10 @@ def _run_independent_ordinary_worker_turn_crash(
 
     from loushang.coding import package_product_runtime
 
+    def report_stage(stage: str) -> None:
+        print(f"independent-worker-crash:{stage}", flush=True)
+
+    report_stage("imports-ready")
     workspace = Path(workspace_path)
     package_product_runtime.version = lambda _distribution: "2.0.0"
     os.environ["LOUSHANG_HOME"] = str(workspace.parent / "private-home")
@@ -576,6 +580,7 @@ def _run_independent_ordinary_worker_turn_crash(
         )
     )
     assert manager.get_session_file() is not None
+    report_stage("transcript-ready")
     model = Model(
         id="independent-ordinary-worker",
         name="Independent Ordinary Worker",
@@ -601,6 +606,7 @@ def _run_independent_ordinary_worker_turn_crash(
                 )
                 for message in context.messages
             )
+            report_stage("tool-result-observed" if answered else "tool-result-missing")
             os._exit(0 if answered else 92)
         message = AssistantMessage(
             endpoint="test",
@@ -641,9 +647,11 @@ def _run_independent_ordinary_worker_turn_crash(
         worker_candidate_plugin_id=_PLUGIN,
         worker_query_turn_tool=True,
     )
+    report_stage("session-created")
 
     async def run_turn() -> None:
         await session.prepare_model_call_runtime()
+        report_stage("runtime-prepared")
         await session.prompt("Query review before independent crash")
 
     asyncio.run(run_turn())
@@ -698,25 +706,31 @@ def _verify_independent_ordinary_worker_turn_crash_recovery(
     recovered = None
     boot_patch = None
     try:
-        child = subprocess.run(
-            (
-                sys.executable,
-                "-c",
+        try:
+            child = subprocess.run(
                 (
-                    "from tests.coding.test_package_worker_candidate_wheel "
-                    "import _run_independent_ordinary_worker_turn_crash; "
-                    "import sys; "
-                    "_run_independent_ordinary_worker_turn_crash(*sys.argv[1:])"
+                    sys.executable,
+                    "-c",
+                    (
+                        "from tests.coding.test_package_worker_candidate_wheel "
+                        "import _run_independent_ordinary_worker_turn_crash; "
+                        "import sys; "
+                        "_run_independent_ordinary_worker_turn_crash(*sys.argv[1:])"
+                    ),
+                    str(workspace),
+                    str(transcript_dir),
                 ),
-                str(workspace),
-                str(transcript_dir),
-            ),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=90,
-            check=False,
-        )
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=90,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise AssertionError(
+                "Independent ordinary Worker crash exceeded its 90 second deadline; "
+                f"stdout={error.stdout!r}; stderr={error.stderr!r}"
+            ) from error
         assert child.returncode == 0, child.stderr
         transcripts = tuple(transcript_dir.glob("*.jsonl"))
         assert len(transcripts) == 1
