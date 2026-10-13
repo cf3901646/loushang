@@ -3212,9 +3212,11 @@ The original Root resolver is presented through a generation-safe Embedded
 interaction adapter. Approval decisions use that resolver before Session birth;
 after lifecycle delivery the same screen routes decisions to the current
 Session interaction. Closing the history presenter clears presentation without
-closing the newly active Session owner. Existing screen-first startup, history
-screen and Embedded coordinator regressions passed **76 tests in 51.94
-seconds** outside the managed sandbox with `not live` and
+closing the newly active Session owner. A real CLI case also verifies that an
+explicit Resume can display history and exit with byte-identical Transcript
+content and no eager current Session. The screen-first startup, history screen
+and Embedded coordinator regressions passed **77 tests in 51.44 seconds**
+outside the managed sandbox with `not live` and
 `--skip-host-runtime`; Ruff and scoped mypy passed.
 
 Bare `--resume` still uses the existing continuity picker and eager activation.
