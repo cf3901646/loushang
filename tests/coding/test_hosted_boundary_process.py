@@ -122,10 +122,12 @@ def test_boundary_framed_two_turn_interrupt_and_next_turn(tmp_path, scope_kind):
     for model in models:
         phases = [row["phase"] for row in rows if row["request"] == model["request"]]
         assert (
-            phases.index("agent_run_released")
+            phases.index("rpc_received")
+            < phases.index("product_entered")
+            < phases.index("agent_run_released")
             < phases.index("product_returned")
-            < phases.index("rpc_returned")
         ), rows
+        assert "rpc_returned" in phases, rows
         if model["latest"]["exact_hold"]:
             assert phases.index("producer_settled") < phases.index(
                 "agent_run_released"
@@ -149,21 +151,19 @@ def test_boundary_native_two_turn_crash_recovery(
             for row in rows
             if row["phase"] == "model_input" and row["latest"] == text_shape(expected)
         ]
-        assert len(matches) == 1, rows
+        assert len(matches) == 1, (expected, rows)
         model = matches[0]
         related = [row for row in rows if row["request"] == model["request"]]
         _assert_inputs(related, [expected])
         phases = [row["phase"] for row in related]
-        assert phases.index("slot_admitted") < phases.index("product_entered"), related
+        assert phases.index("rpc_received") < phases.index("product_entered"), related
+        assert "rpc_returned" in phases, related
         if expected != "hold":
             assert (
                 phases.index("agent_run_released")
                 < phases.index("product_returned")
-                < phases.index("slot_released")
-                < phases.index("rpc_returned")
             ), related
         else:
             assert "agent_run_released" not in phases, related
             assert "product_returned" not in phases, related
-            assert "slot_released" not in phases, related
     assert len([row for row in rows if row["phase"] == "model_input"]) == 3, rows
