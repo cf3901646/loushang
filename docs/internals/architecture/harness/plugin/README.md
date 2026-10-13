@@ -50,11 +50,10 @@
   Product-backed management, data Wheel authoring, POSIX root/shared-dependency
   GC, and Arch private-data owners have implemented routes; explicit Windows
   Worker Session and GC candidate journeys passed native CI.
-- Worker boundary: independently authored, self-contained read-only query
-  Wheels can enter explicit Linux x86-64 and Windows AMD64 Coding Product
-  Sessions after exact native release approval and per-install opt-in. Current
-  remains the default; dependency-bearing, effectful, macOS, and default Worker
-  routes remain closed.
+- Worker boundary: explicit Linux x86-64 and Windows AMD64 Coding Product
+  opt-in admits independently authored, self-contained read-only query Wheels;
+  Current remains the default; dependency execution, effectful Tools, macOS,
+  and default Worker routing remain closed.
 - Owner: `loushang.harness` Plugin architecture scope; contribution runtime
   authority remains with each exact domain owner.
 

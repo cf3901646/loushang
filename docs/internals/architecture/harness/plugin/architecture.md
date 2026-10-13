@@ -34,9 +34,9 @@
   GC, and Arch private-data owners have implemented routes; explicit Windows
   Worker Session and GC candidate journeys passed native CI.
 - Worker boundary: explicit Linux x86-64 and Windows AMD64 Coding Product
-  opt-in admits independently authored, self-contained read-only query Wheels.
-  Current remains the default; dependency execution and effectful Worker
-  routes are outside this admission.
+  opt-in admits independently authored, self-contained read-only query Wheels;
+  Current remains the default; dependency execution, effectful Tools, macOS,
+  and default Worker routing remain closed.
 - Current-runtime authority: source, tests, and narrower accepted boundary and
   contract documents remain authoritative for implemented behavior. Target
   clauses in this document do not make an unimplemented execution shape or API

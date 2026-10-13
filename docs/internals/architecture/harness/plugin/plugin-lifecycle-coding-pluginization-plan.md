@@ -102,12 +102,13 @@
   GC, and Arch private-data owners have implemented routes; explicit Windows
   Worker Session and GC candidate journeys passed native CI. CLI, optional
   Coding RPC, TUI, and local SDK have Product-backed management paths.
-  General third-party Worker admission, default routing, and Windows private-data
-  production use retain separate gates. See the
+  Bounded third-party read-only Worker admission is implemented; default routing
+  and Windows private-data production use retain separate gates. See the
   [support matrix](plugin-support-matrix.md) for current entry-route limits.
-- Worker canary boundary: explicit Linux/Windows AMD64 Coding Product opt-in
-  only; Current remains the default; no general third-party Worker
-  authoring/admission surface is published.
+- Worker boundary: explicit Linux x86-64 and Windows AMD64 Coding Product
+  opt-in admits independently authored, self-contained read-only query Wheels;
+  Current remains the default; dependency execution, effectful Tools, macOS,
+  and default Worker routing remain closed.
 - Scope: one delivery order for the common Plugin lifecycle, ordinary
   Definition / Provider / Consumer authoring primitives, `coding.lsp`,
   `coding.base`, `coding.arch`, management control, pre-LSP internal Resource/
