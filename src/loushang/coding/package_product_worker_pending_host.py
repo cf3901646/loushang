@@ -65,6 +65,7 @@ from .package_product_worker_query_consumer import (
 )
 from .package_product_worker_receipt import CodingWorkerProductReceiptOwner
 from .package_product_worker_resume import (
+    CodingWorkerResumeSettlementBinding,
     enroll_coding_worker_resume_parent,
     seal_coding_worker_resume_parent,
 )
@@ -92,6 +93,7 @@ class CodingProductWorkerPendingHost:
     base_policy_binding: CodingWorkerBaseCompositionPolicyBinding
     clock: Callable[[], int]
     resume_parent_context: ResumeEffectParentContextV1 | None = None
+    resume_settlement: CodingWorkerResumeSettlementBinding | None = None
 
     async def prepare(self, graph_generation: int) -> CodingPreparedWorkerProvider:
         """Own all effects from payload creation through graph disposal."""
@@ -262,6 +264,8 @@ class CodingProductWorkerPendingHost:
                     raise CodingWorkerPendingHostError(
                         "coding_worker_pending_c5_admission_refused"
                     )
+            if self.resume_settlement is not None:
+                self.resume_settlement.bind(coordinator)
             assert cleanup_evidence is not None
             host_identity = cleanup_evidence.host_identity
             boot_identity = cleanup_evidence.boot_identity
@@ -375,6 +379,7 @@ def prepare_coding_product_worker_pending_session_inputs(
     clock: Callable[[], int],
     base_policy_binding: CodingWorkerBaseCompositionPolicyBinding,
     resume_parent_context: ResumeEffectParentContextV1 | None = None,
+    resume_settlement: CodingWorkerResumeSettlementBinding | None = None,
 ) -> SessionCapabilityCompositionInputs:
     """Compile a Worker request whose native effects start during graph prepare."""
 
@@ -383,6 +388,20 @@ def prepare_coding_product_worker_pending_session_inputs(
         or (
             resume_parent_context is not None
             and type(resume_parent_context) is not ResumeEffectParentContextV1
+        )
+        or ((resume_parent_context is None) != (resume_settlement is None))
+        or (
+            resume_settlement is not None
+            and (
+                not isinstance(
+                    resume_settlement, CodingWorkerResumeSettlementBinding
+                )
+                or resume_parent_context is None
+                or not resume_settlement.matches(
+                    receipt=receipt,
+                    context=resume_parent_context,
+                )
+            )
         )
         or pending_launch.receipt_fingerprint != receipt.fingerprint
         or not isinstance(base_policy_binding, CodingWorkerBaseCompositionPolicyBinding)
@@ -429,6 +448,7 @@ def prepare_coding_product_worker_pending_session_inputs(
         base_policy_binding=base_policy_binding,
         clock=clock,
         resume_parent_context=resume_parent_context,
+        resume_settlement=resume_settlement,
     )
     return prepare_coding_product_worker_session_inputs(
         resolved_providers=resolved_providers,

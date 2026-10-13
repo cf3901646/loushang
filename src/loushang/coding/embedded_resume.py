@@ -185,8 +185,13 @@ def _require_no_capability_plugin_effects(
     receipt: Mapping[str, object],
     *,
     expected_set_id: str,
+    allowed_owner_ids: frozenset[str] = frozenset(),
 ) -> None:
-    if attempt.effect_owners or attempt.effect_classes:
+    if (
+        {owner.owner_id for owner in attempt.effect_owners} != allowed_owner_ids
+        or attempt.effect_classes
+        or any(owner.effect_classes for owner in attempt.effect_owners)
+    ):
         raise CodingResumeRecoveryRequired("input.effect_owner_set_unsupported")
     revisions = receipt.get("selectedRevisions")
     if receipt.get("setId") != expected_set_id or not isinstance(revisions, list):
@@ -221,10 +226,6 @@ class EmbeddedResumeInputCoordinator:
             raise TypeError("Embedded Resume services are invalid")
         if type(self.workspace_writable) is not bool:
             raise TypeError("Embedded Resume workspace mode is invalid")
-        if self.worker_candidate_plugin_id is not None:
-            # C5 requires Worker readiness/no-start/cleanup reconciliation in
-            # addition to the Plugin journal adapter implemented here.
-            raise CodingResumeRecoveryRequired("input.effect_owner_set_unsupported")
 
     async def prepare_input(
         self,
@@ -252,13 +253,24 @@ class EmbeddedResumeInputCoordinator:
         plugin_state_root = _resume_plugin_state_root(
             self.runtime, session_id=plan.session_id
         )
-        owners = (
+        plugin_owners = (
             prepare_coding_resume_plugin_effect_owners(
                 session_id=plan.session_id,
                 state_root=plugin_state_root,
             )
             if plugins_enabled
             else ()
+        )
+        worker_owner = (
+            self.runtime.embedded_resume_worker_effect_owner(workspace)
+            if self.worker_candidate_plugin_id is not None
+            else None
+        )
+        owners = tuple(
+            sorted(
+                (*plugin_owners, *((worker_owner,) if worker_owner is not None else ())),
+                key=lambda owner: owner.identity,
+            )
         )
         attempt = CodingActivationAttemptV2(
             attempt_id=f"resume-attempt:{self.id_factory()}",
@@ -332,7 +344,7 @@ class EmbeddedResumeInputCoordinator:
                 raise CodingResumeRecoveryRequired(
                     "input.effect_owner_set_unsupported"
                 )
-            if owners:
+            if plugin_owners:
                 require_coding_resume_plugin_effect_settlement(
                     observed,
                     receipt,
@@ -340,12 +352,22 @@ class EmbeddedResumeInputCoordinator:
                         plugin_state_root
                     ),
                     clock=self.clock_ms,
+                    allowed_external_owner_ids=(
+                        frozenset({"harness.worker-activation"})
+                        if worker_owner is not None
+                        else frozenset()
+                    ),
                 )
             else:
                 _require_no_capability_plugin_effects(
                     observed,
                     receipt,
                     expected_set_id=plan.composition_comparison.candidate_set_id,
+                    allowed_owner_ids=(
+                        frozenset({"harness.worker-activation"})
+                        if worker_owner is not None
+                        else frozenset()
+                    ),
                 )
 
         created_at = self.now()
@@ -378,6 +400,8 @@ class EmbeddedResumeInputCoordinator:
                 approval_resolver=approval_owner,
                 tool_policy_evaluator=self.policy_evaluator,
                 observe_input_identity=observe_input_identity,
+                worker_candidates=self.worker_candidate_plugin_id is not None,
+                worker_candidate_plugin_id=self.worker_candidate_plugin_id,
             )
         except BaseException:
             approval_owner.release_confirmation(confirmation)

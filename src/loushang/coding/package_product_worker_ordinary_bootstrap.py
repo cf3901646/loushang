@@ -48,6 +48,7 @@ from .package_product_worker_receipt import (
     CodingWorkerProductReceiptOwner,
     open_coding_product_selected_worker_receipt_owner,
 )
+from .package_product_worker_resume import CodingWorkerResumeSettlementBinding
 from .package_product_worker_session_composition import (
     CodingProductWorkerOrdinarySessionBinding,
     compose_coding_product_worker_with_ordinary_session,
@@ -150,6 +151,14 @@ def prepare_coding_product_worker_ordinary_binding(
         raise CodingWorkerOrdinaryBootstrapError(
             "coding_worker_ordinary_candidate_not_allowed"
         )
+    resume_settlement = (
+        CodingWorkerResumeSettlementBinding(
+            receipt=receipt,
+            context=resume_parent_context,
+        )
+        if resume_parent_context is not None
+        else None
+    )
     selected_worker = runtime.capture_selected_plugin_manifest_for(
         plugin_id, max_files=16, max_total_bytes=16 * 1024 * 1024
     )
@@ -249,6 +258,7 @@ def prepare_coding_product_worker_ordinary_binding(
             clock=clock,
             base_policy_binding=base_policy,
             resume_parent_context=resume_parent_context,
+            resume_settlement=resume_settlement,
         )
     else:
         assert type(receipt_owner) is CodingWorkerProductReceiptOwner
@@ -267,6 +277,7 @@ def prepare_coding_product_worker_ordinary_binding(
             clock=clock,
             base_policy_binding=base_policy,
             resume_parent_context=resume_parent_context,
+            resume_settlement=resume_settlement,
         )
     definitions = {
         item.capability_id: item
@@ -289,6 +300,7 @@ def prepare_coding_product_worker_ordinary_binding(
         workspace_binding=ordinary.workspace_binding,
         selected_worker_manifest=selected_worker,
         activation_receipt=receipt,
+        resume_settlement=resume_settlement,
     )
 
 

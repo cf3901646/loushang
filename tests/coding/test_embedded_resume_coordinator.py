@@ -9,6 +9,7 @@ import pytest
 
 from loushang.ai.types import UserMessage
 from loushang.coding import bootstrap
+from loushang.coding import embedded_resume as embedded_resume_module
 from loushang.coding.composition_sets import resolve_coding_composition_set
 from loushang.coding.embedded_resume import (
     EmbeddedResumeApprovalInteraction,
@@ -16,6 +17,9 @@ from loushang.coding.embedded_resume import (
 )
 from loushang.coding.package_product_runtime import (
     CodingFencedProductApplicationSelection,
+)
+from loushang.coding.package_product_worker_resume import (
+    prepare_coding_worker_resume_effect_owner,
 )
 from loushang.coding.resume_activation_attempt_v2 import CodingActivationAttemptV2
 from loushang.coding.resume_activation_plan import build_session_activation_plan
@@ -32,15 +36,26 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.mark.parametrize(
-    ("composition_id", "no_tools", "expected_owners"),
+    ("composition_id", "no_tools", "worker_plugin_id", "expected_owners"),
     [
-        ("coding-minimal", None, ()),
+        ("coding-minimal", None, None, ()),
         (
             "coding-standard",
             None,
+            None,
             ("harness.plugin-activation", "harness.plugin-execution"),
         ),
-        ("coding-standard", True, ()),
+        (
+            "coding-standard",
+            None,
+            "worker.example",
+            (
+                "harness.plugin-activation",
+                "harness.plugin-execution",
+                "harness.worker-activation",
+            ),
+        ),
+        ("coding-standard", True, None, ()),
     ],
 )
 def test_embedded_coordinator_prepares_exact_v2_input_from_current_root(
@@ -48,6 +63,7 @@ def test_embedded_coordinator_prepares_exact_v2_input_from_current_root(
     monkeypatch,
     composition_id,
     no_tools,
+    worker_plugin_id,
     expected_owners,
 ):
     monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
@@ -87,6 +103,7 @@ def test_embedded_coordinator_prepares_exact_v2_input_from_current_root(
             workspace_root=tmp_path,
         )
         captured = {}
+        plugin_settlements = []
 
         async def prepare_plan(observed):
             assert observed is history
@@ -102,9 +119,24 @@ def test_embedded_coordinator_prepares_exact_v2_input_from_current_root(
             "prepare_embedded_resume_epoch",
             lambda workspace, **_kwargs: "e" * 64,
         )
+        if worker_plugin_id is not None:
+            monkeypatch.setattr(
+                root,
+                "embedded_resume_worker_effect_owner",
+                lambda _workspace: prepare_coding_worker_resume_effect_owner(
+                    product_id="coding",
+                    product_scope_id="workspace:test",
+                ),
+            )
         monkeypatch.setattr(
             root, "prepare_resume_continuation", prepare_continuation
         )
+        if worker_plugin_id is not None:
+            monkeypatch.setattr(
+                embedded_resume_module,
+                "require_coding_resume_plugin_effect_settlement",
+                lambda *_args, **kwargs: plugin_settlements.append(kwargs),
+            )
 
         interaction = EmbeddedResumeApprovalInteraction(approval, settings)
 
@@ -121,6 +153,7 @@ def test_embedded_coordinator_prepares_exact_v2_input_from_current_root(
             services=services,
             policy_evaluator=policy,
             no_tools=no_tools,
+            worker_candidate_plugin_id=worker_plugin_id,
             thinking_level="high",
             now=lambda: datetime(2026, 10, 13, tzinfo=UTC),
             id_factory=lambda: next(ids),
@@ -146,6 +179,8 @@ def test_embedded_coordinator_prepares_exact_v2_input_from_current_root(
             assert captured["approval_resolver"] is approval
             assert captured["tool_policy_evaluator"] is policy
             assert captured["thinking_level"] == "high"
+            assert captured["worker_candidates"] is (worker_plugin_id is not None)
+            assert captured["worker_candidate_plugin_id"] == worker_plugin_id
             state_id = hashlib.sha256(
                 b"loushang.coding-capability-plugin-state/v1\0"
                 + plan.session_id.encode()
@@ -163,6 +198,14 @@ def test_embedded_coordinator_prepares_exact_v2_input_from_current_root(
                     attempt,
                     {"setId": composition_id, "selectedRevisions": []},
                 )
+            elif worker_plugin_id is not None:
+                captured["require_current_epoch_settlement"](
+                    attempt,
+                    {"setId": composition_id, "selectedRevisions": []},
+                )
+                assert plugin_settlements[0]["allowed_external_owner_ids"] == (
+                    frozenset({"harness.worker-activation"})
+                )
         finally:
             presentation.close()
             await root.dispose_session_runtime()
@@ -171,7 +214,7 @@ def test_embedded_coordinator_prepares_exact_v2_input_from_current_root(
     asyncio.run(scenario())
 
 
-def test_embedded_coordinator_refuses_worker_without_c5_settlement(tmp_path):
+def test_embedded_coordinator_accepts_worker_with_native_c5_adapter(tmp_path):
     settings = SettingsManager(
         global_settings_path=tmp_path / "user.json",
         project_settings_path=tmp_path / "project.json",
@@ -184,10 +227,10 @@ def test_embedded_coordinator_refuses_worker_without_c5_settlement(tmp_path):
         owned_transcripts=True,
         product_owner_selection=selection,
     )
-    with pytest.raises(Exception, match="effect_owner_set_unsupported"):
-        EmbeddedResumeInputCoordinator(
-            runtime=root,
-            services=services,
-            policy_evaluator=workspace_tool_runtime_settings(settings).policy_engine,
-            worker_candidate_plugin_id="worker.example",
-        )
+    coordinator = EmbeddedResumeInputCoordinator(
+        runtime=root,
+        services=services,
+        policy_evaluator=workspace_tool_runtime_settings(settings).policy_engine,
+        worker_candidate_plugin_id="worker.example",
+    )
+    assert coordinator.worker_candidate_plugin_id == "worker.example"

@@ -118,6 +118,7 @@ from .package_private_data_deletion_journal import (
 from .package_product_backup_types import ensure_coding_product_backup_types
 from .package_product_worker_opt_in import CodingWorkerOptInJournal
 from .package_source_snapshot import require_coding_fresh_settings_without_writes
+from .resume_activation_attempt_v2 import CodingResumeEffectOwnerV1
 from .session_manager import SessionManager
 
 CODING_PACKAGE_PRODUCT_RUNTIME_PROTOCOL_EPOCH = 2
@@ -612,6 +613,30 @@ class CodingFencedProductApplicationSelection:
             if owner.epoch_runtime.observe_current_epoch_fence() != fence:
                 raise RuntimeError("Coding Resume epoch changed")
             return sha256(b"loushang.coding.resume-epoch/v1\0" + encoded).hexdigest()
+
+    def resume_worker_effect_owner(
+        self, workspace: Path
+    ) -> CodingResumeEffectOwnerV1:
+        """Freeze the selected Product's original Worker C5 obligation."""
+
+        from .package_product_worker_resume import (
+            prepare_coding_worker_resume_effect_owner,
+        )
+
+        if not isinstance(workspace, Path) or not workspace.is_absolute():
+            raise ValueError("Coding Resume epoch workspace must be canonical")
+        if workspace != workspace.resolve(strict=True):
+            raise ValueError("Coding Resume epoch workspace must be canonical")
+        with self._lock:
+            owner = self._owners.get(workspace)
+            if self._fenced or owner is None or not self._worker_candidates:
+                raise RuntimeError("Coding Worker Product selection is unavailable")
+            product = owner.runtime_owner.product_owner
+            product.assert_root_gc_authority_current()
+            return prepare_coding_worker_resume_effect_owner(
+                product_id=product.policy.product_id,
+                product_scope_id=product.policy.project_scope_id,
+            )
 
     def product_owner_for_factory(
         self,

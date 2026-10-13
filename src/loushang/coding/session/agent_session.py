@@ -79,6 +79,7 @@ from loushang.coding.resume_activation_attempt import (
     CodingActivationAttemptV1,
     CodingResumeRecoveryRequired,
 )
+from loushang.coding.resume_activation_attempt_v2 import CodingActivationAttemptV2
 from loushang.coding.resume_binding import coding_user_input_digest
 from loushang.coding.runtime_capability_admission import (
     CodingExtensionDeclarationPreflight,
@@ -1460,6 +1461,32 @@ class AgentSession(AgentProductSession):
             raise CodingResumeRecoveryRequired("runtime.candidate_changed")
         return receipt
 
+    def _require_resume_worker_effect_settlement(
+        self, attempt: CodingActivationAttemptV1
+    ) -> None:
+        """Reconcile Worker startup through this Session's original C5 owner."""
+
+        binding = self._coding_product_worker_ordinary_binding
+        settlement = None if binding is None else binding.resume_settlement
+        worker_owners = (
+            ()
+            if type(attempt) is not CodingActivationAttemptV2
+            else tuple(
+                owner
+                for owner in attempt.effect_owners
+                if owner.owner_id == "harness.worker-activation"
+            )
+        )
+        if not worker_owners and settlement is None:
+            return
+        if (
+            type(attempt) is not CodingActivationAttemptV2
+            or len(worker_owners) != 1
+            or settlement is None
+        ):
+            raise CodingResumeRecoveryRequired("input.effect_owner_set_unsupported")
+        settlement.require_current(attempt)
+
     def _require_current_resume_publication(
         self, publication: _CodingResumeRuntimePublication,
     ) -> None:
@@ -1470,6 +1497,8 @@ class AgentSession(AgentProductSession):
             )
             self._require_candidate_preparation_admission(lambda: publication.current_admission(attempt))
             receipt = self._require_resume_candidate(candidate)
+            self._require_candidate_preparation_admission(lambda: publication.current_admission(attempt))
+            self._require_resume_worker_effect_settlement(attempt)
             self._require_candidate_preparation_admission(lambda: publication.current_admission(attempt))
             self._require_candidate_preparation_admission(
                 lambda: publication.current_epoch_settlement(attempt, receipt),

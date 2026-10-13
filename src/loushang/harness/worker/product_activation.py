@@ -1795,6 +1795,12 @@ class ProductWorkerActivationCoordinator:
 
     @property
     def resume_parent_contract_digest(self) -> str:
+        return self.resume_parent_contract_digest_value()
+
+    @staticmethod
+    def resume_parent_contract_digest_value() -> str:
+        """Return the protocol digest without opening a Worker state owner."""
+
         return sha256(b"harness.worker-activation.resume-context/v1").hexdigest()
 
     def enroll_resume_parent(

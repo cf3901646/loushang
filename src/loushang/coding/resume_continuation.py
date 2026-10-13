@@ -365,6 +365,8 @@ async def prepare_coding_resume_continuation(
                     raise RuntimeError("Coding Resume candidate was not delivered")
                 session._require_resume_candidate(candidate)
                 current()
+                session._require_resume_worker_effect_settlement(attempt)
+                current()
                 checked(lambda: require_current_epoch_settlement(attempt, receipt))
                 current()
                 session._require_resume_candidate(candidate)

@@ -63,6 +63,7 @@ if TYPE_CHECKING:
     from ..bootstrap import BootstrapServices, NoToolsMode
     from ..composition_sets import CodingCompositionSetPlan
     from ..resume_activation_attempt import CodingActivationAttemptV1
+    from ..resume_activation_attempt_v2 import CodingResumeEffectOwnerV1
     from ..resume_activation_plan import (
         ActivationOwnerInputRefV1,
         SessionActivationPlanV1,
@@ -299,6 +300,19 @@ class AgentSessionRuntime(
         )
         current()
         return epoch
+
+    def embedded_resume_worker_effect_owner(
+        self, workspace: Path
+    ) -> CodingResumeEffectOwnerV1:
+        """Freeze the current Product's original Worker settlement lookup."""
+
+        self.embedded_resume_subject_digest()
+        selection = self._product_owner_selection
+        if selection is None:
+            raise RuntimeError("Coding Resume Product owner is unavailable")
+        owner = selection.resume_worker_effect_owner(workspace)
+        self.embedded_resume_subject_digest()
+        return owner
 
     def require_current_embedded_resume_subject(
         self, attempt: CodingActivationAttemptV1, *, approval_owner: InteractiveApprovalResolver | None = None,

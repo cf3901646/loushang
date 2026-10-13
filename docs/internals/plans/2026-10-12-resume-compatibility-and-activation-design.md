@@ -3225,3 +3225,34 @@ outside the managed sandbox with `not live` and
 Bare `--resume` still uses the existing continuity picker and eager activation.
 Hosted adoption, Worker C5 settlement, background latency evidence and the
 remaining release gates are pending.
+
+#### Embedded Worker C5 settlement
+
+The Embedded v2 coordinator now freezes `harness.worker-activation` from the
+already selected Product scope without opening the C5 journal. The selected
+Worker bootstrap constructs one Session-owned settlement binding beside the
+original receipt and parent context. POSIX and Windows pending Hosts bind that
+facade only to the actual C5 coordinator whose native evidence authority owns
+the attempt; no Worker state is copied into the detached Coding composition
+receipt.
+
+After graph publication, continuation and every later Runtime publication or
+model-transport admission reread the original parent snapshot. The check
+requires a sealed, nonempty exact membership, cleanup contract v2, the exact
+receipt/policy/owner generation, and either current `published`/`ready`
+admission or an exact `settled` record with protocol, domain, process-tree and
+native-containment closure. Registered, unsealed, cleanup-debt, stale receipt,
+changed membership and unknown states remain recovery-required. The existing
+live candidate check remains independent, so historical cleanup cannot revive
+a retired graph.
+
+The Worker owner is reconciled separately from the audited built-in Plugin
+owners while both remain in the same frozen v2 intent. Focused native parent,
+Embedded coordinator, Plugin settlement and continuation tests passed **52
+tests in 81.76 seconds** outside the managed sandbox. Runtime Resume regressions
+passed **26 tests in 108.93 seconds**. An earlier combined run reached **57
+passes** before 21 later cases failed while creating unrelated fixture journals
+with `/tmp` reporting `Disk quota exceeded`; the same Runtime file passed after
+moving pytest's base temporary directory into the task worktree. Windows native
+host execution, Hosted adoption, bare picker history routing, background
+latency and release gates remain pending.

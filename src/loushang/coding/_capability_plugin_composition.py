@@ -359,6 +359,7 @@ def require_coding_resume_plugin_effect_settlement(
     *,
     state_root: Path,
     clock: Callable[[], int],
+    allowed_external_owner_ids: frozenset[str] = frozenset(),
 ) -> None:
     """Reconcile the audited first-party startup closure in original journals.
 
@@ -374,8 +375,9 @@ def require_coding_resume_plugin_effect_settlement(
     if not isinstance(receipt, Mapping):
         raise TypeError("Coding Resume Plugin settlement requires a current receipt")
     owners = {owner.owner_id: owner for owner in attempt.effect_owners}
+    plugin_owner_ids = {"harness.plugin-activation", "harness.plugin-execution"}
     if (
-        set(owners) != {"harness.plugin-activation", "harness.plugin-execution"}
+        set(owners) != plugin_owner_ids | allowed_external_owner_ids
         or attempt.effect_classes
         or any(owner.effect_classes for owner in attempt.effect_owners)
     ):
