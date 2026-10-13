@@ -10,12 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, TextIO, cast
 
-from loushang.coding.cli.resume_startup import (
-    configure_embedded_resume_startup,
-    run_embedded_resume_history_host,
-)
 from loushang.coding.cli.startup_route import screen_startup_eligible
-from loushang.coding.embedded_resume import EmbeddedResumeStartup
 from loushang.coding.ui.screen_app import ScreenCodingTuiApp
 from loushang.harness.host.product_host import ProductHostLifecycle, stream_is_tty
 from loushang.harnesstui.conversation.startup_host import (
@@ -115,6 +110,11 @@ async def run_screen_first_cli(
     async def run_prepared_binding(
         binding: Any, host_binding: Any, host_runners: Any
     ) -> int:
+        from loushang.coding.cli.resume_startup import (
+            configure_embedded_resume_startup,
+            run_embedded_resume_history_host,
+        )
+        from loushang.coding.embedded_resume import EmbeddedResumeStartup
         from loushang.harness.cli.application import (
             CliPhaseResult,
             invoke_agent_cli_runtime_builder,

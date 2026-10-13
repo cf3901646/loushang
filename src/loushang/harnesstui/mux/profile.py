@@ -20,7 +20,6 @@ async def open_hosted_mux_profile(
         client,
         selector=selector,
         mailbox_capacity=mailbox_capacity,
-        execution_client=getattr(client, "execution_client", None),
     )
     await controller.start()
     return controller
