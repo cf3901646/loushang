@@ -2623,6 +2623,8 @@ async def _create_resume_agent_session(
     model: Model | ModelSelection | None = None,
     thinking_level: ThinkingLevel | None = None,
     stream_fn: StreamFn | None = None,
+    tools: list[ToolDefinition] | None = None,
+    output_capture_factory: ExecCaptureFactory | None = None,
     no_tools: NoToolsMode | bool | None = None,
     agent_factory: AgentFactory = Agent,
     approval_resolver: InteractiveApprovalResolver | None = None,
@@ -2679,7 +2681,8 @@ async def _create_resume_agent_session(
         session = _create_agent_session(
             session_manager=session_manager, composition_set=composition,
             composition_set_explicit=True, services=services, model=model,
-            stream_fn=stream_fn, thinking_level=thinking_level,
+            stream_fn=stream_fn, thinking_level=thinking_level, tools=tools,
+            output_capture_factory=output_capture_factory,
             no_tools=no_tools, agent_factory=agent_factory,
             approval_resolver=approval_resolver, tool_policy_evaluator=tool_policy_evaluator,
             package_product_runtime_factory=selected_factory,

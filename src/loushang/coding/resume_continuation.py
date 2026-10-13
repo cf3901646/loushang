@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import cast
 
 from loushang.agent import ThinkingLevel
+from loushang.agent.types import StreamFn
 from loushang.ai.model import Model, ModelSelection
 from loushang.ai.types import ImagePart, UserMessage
 from loushang.harness.approval import InteractiveApprovalResolver
@@ -29,10 +30,14 @@ from loushang.harness.approval.plugin_execution import (
 )
 from loushang.harness.policy import PolicyEvaluator
 from loushang.harness.resume_effects import ResumeEffectParentContextV1
+from loushang.harness.runtime import ResolvedRuntimeProfile, RuntimeProfileBinding
+from loushang.harness.tools.core import ToolDefinition
+from loushang.harness.transcript import AgentTranscriptSessionFactory
 from loushang.harness.worker.activation_state_journal import (
     WorkerActivationStateJournal,
     WorkerActivationStateJournalError,
 )
+from loushang.harness.workspace.exec.capture_lease import ExecCaptureFactory
 
 from ._capability_plugin_composition import CodingResumePluginParents
 from ._product_capability_plugin_composition import (
@@ -191,11 +196,19 @@ async def prepare_coding_resume_continuation(
     services: BootstrapServices | None = None,
     model: Model | ModelSelection | None = None,
     thinking_level: ThinkingLevel | None = None,
+    stream_fn: StreamFn | None = None,
+    tools: list[ToolDefinition] | None = None,
+    output_capture_factory: ExecCaptureFactory | None = None,
     no_tools: NoToolsMode | bool | None = None,
     approval_resolver: InteractiveApprovalResolver | None = None,
     tool_policy_evaluator: PolicyEvaluator | None = None,
     observe_input_identity: Callable[[CodingResumeInputLookupQueryV1], None] | None = None,
     product_owner_selection: CodingFencedProductApplicationSelection | None = None,
+    resume_writer_factory: AgentTranscriptSessionFactory[
+        ResolvedRuntimeProfile,
+        RuntimeProfileBinding,
+    ]
+    | None = None,
     worker_candidates: bool = False,
     worker_candidate_plugin_id: str | None = None,
 ) -> CodingResumePreparedContinuation:
@@ -288,6 +301,7 @@ async def prepare_coding_resume_continuation(
                 if type(attempt) is CodingActivationAttemptV2
                 else frozenset()
             ),
+            _factory=resume_writer_factory,
         )
         with manager._lifecycle_session.sync_operation_scope():
             current()
@@ -331,6 +345,8 @@ async def prepare_coding_resume_continuation(
             composition_set=resolve_coding_composition_set(plan.composition_comparison.candidate_set_id),
             require_current_admission=require_current_admission,
             services=services, model=model, thinking_level=thinking_level,
+            stream_fn=stream_fn, tools=tools,
+            output_capture_factory=output_capture_factory,
             no_tools=no_tools,
             approval_resolver=approval_resolver, tool_policy_evaluator=tool_policy_evaluator,
             product_owner_selection=product_owner_selection, worker_candidates=worker_candidates,

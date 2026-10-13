@@ -16,8 +16,11 @@ from loushang.coding.composition_provenance import CODING_COMPOSITION_HEADER_KEY
 from loushang.coding.composition_sets import resolve_coding_composition_set
 from loushang.coding.hosted_catalog import (
     CODING_HOSTED_COMPATIBILITY_ID,
+    CodingHostedCandidateBindingV1,
     CodingHostedCandidateValidatorV1,
     CodingHostedCatalogError,
+    CodingHostedHistoryCandidateBindingV1,
+    CodingHostedResumeCatalogV1,
     CodingHostedScopeV1,
     CodingHostedSessionCatalogV1,
 )
@@ -118,6 +121,58 @@ def _intent(scope: CodingHostedScopeV1) -> SessionCreateIntentV1:
         ),
         CODING_HOSTED_COMPATIBILITY_ID,
     )
+
+
+def test_hosted_resume_catalog_transfers_history_and_original_writer_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        scope = _scope(tmp_path)
+        scope.session_dir.mkdir(mode=0o700)
+        catalog = CodingHostedSessionCatalogV1((scope,), owned_transcripts=True)
+        routed = CodingHostedResumeCatalogV1(catalog)
+        created = await routed.create_candidate(_intent(scope))
+        created_claim = await created.claim()
+        assert type(created_claim.opaque_binding) is CodingHostedCandidateBindingV1
+        manager = created_claim.opaque_binding.take_manager()
+        session = create_agent_session(session_manager=manager, no_tools=True)
+        await session.prepare_model_call_runtime()
+        await manager.append_message(
+            UserMessage(role="user", content="history first", timestamp=1.0)
+        )
+        await session.dispose()
+        await created_claim.close()
+        await created.close()
+
+        rows = await routed.list_identities((scope.discovery_scope,), limit=256)
+
+        async def reject_writable_open(*args, **kwargs):
+            raise AssertionError("Hosted Resume opened a Writer during history display")
+
+        monkeypatch.setattr(catalog, "_open", reject_writable_open)
+        candidate = await routed.open_candidate(rows[0].reference)
+        claimed = await candidate.claim()
+        opaque = claimed.opaque_binding
+        assert type(opaque) is CodingHostedHistoryCandidateBindingV1
+        source = opaque.take_resume_source()
+        assert source.record.path == next(scope.session_dir.glob("*.jsonl"))
+        assert [
+            entry.payload.content
+            for entry in source.history.selected_records
+            if isinstance(entry.payload, UserMessage)
+        ] == [
+            "history first"
+        ]
+        assert source.writer_factory.owns_persistent_sessions
+        assert issubclass(source.manager_type, SessionManager)
+        source.require_current_source()
+        await claimed.close()
+        await candidate.close()
+        await source.close()
+        with pytest.raises(CodingHostedCatalogError):
+            source.require_current_source()
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("scope_kind", [SessionScopeV1.CWD, SessionScopeV1.USER_HOME])

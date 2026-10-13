@@ -86,6 +86,7 @@ class CodingHostedHistoryBindingV1:
         ):
             raise CodingHostedCatalogError()
         self.identity = identity
+        self._history = history
         self._closed = False
         records: list[TranscriptRecordV1] = []
         remaining = _TEXT_LIMIT
@@ -117,6 +118,12 @@ class CodingHostedHistoryBindingV1:
     @property
     def control(self) -> None:
         return None
+
+    @property
+    def resume_history(self) -> CodingResumeHistoryPreview:
+        if self._closed:
+            raise RuntimeError("coding_hosted_session_closed")
+        return self._history
 
     def project_snapshot(self) -> CodingHostedSnapshotProjectionV1:
         if self._closed:

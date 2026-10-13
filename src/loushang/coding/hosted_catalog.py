@@ -224,16 +224,59 @@ class CodingHostedCandidateBindingV1:
             self._manager = None
 
 
+@dataclass(slots=True)
+class CodingHostedResumeSourceV1:
+    """Transferred read view plus the original catalog's Resume Writer owner."""
+
+    record: _Record
+    history_binding: CodingHostedSessionBindingV1
+    manager_type: type[SessionManager]
+    writer_factory: AgentTranscriptSessionFactory[
+        ResolvedRuntimeProfile,
+        RuntimeProfileBinding,
+    ]
+    _require_current: Callable[[], None] = field(repr=False)
+    _closed: bool = False
+
+    @property
+    def history(self) -> CodingResumeHistoryPreview:
+        if self._closed:
+            raise CodingHostedCatalogError()
+        history = getattr(self.history_binding, "resume_history", None)
+        if type(history) is not CodingResumeHistoryPreview:
+            raise CodingHostedCatalogError()
+        return history
+
+    def require_current_source(self) -> None:
+        if self._closed:
+            raise CodingHostedCatalogError()
+        self._require_current()
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        await self.history_binding.close()
+
+
 class CodingHostedHistoryCandidateBindingV1:
     """Claimed display ownership, without transcript or runtime ownership."""
 
     def __init__(
         self, record: _Record, binding: CodingHostedSessionBindingV1,
         require_accepting: Callable[[], None],
+        *,
+        manager_type: type[SessionManager],
+        writer_factory: AgentTranscriptSessionFactory[
+            ResolvedRuntimeProfile,
+            RuntimeProfileBinding,
+        ],
     ) -> None:
         self.record = record
         self._binding: CodingHostedSessionBindingV1 | None = binding
         self._require_accepting = require_accepting
+        self._manager_type = manager_type
+        self._writer_factory = writer_factory
 
     def take_binding(self) -> CodingHostedHistoryBindingV1:
         from .hosted_session import CodingHostedHistoryBindingV1
@@ -243,6 +286,20 @@ class CodingHostedHistoryCandidateBindingV1:
             raise CodingHostedCatalogError()
         binding, self._binding = self._binding, None
         return binding
+
+    def take_resume_source(self) -> CodingHostedResumeSourceV1:
+        self.require_current_source()
+        binding = self._binding
+        if binding is None:
+            raise CodingHostedCatalogError()
+        self._binding = None
+        return CodingHostedResumeSourceV1(
+            record=self.record,
+            history_binding=binding,
+            manager_type=self._manager_type,
+            writer_factory=self._writer_factory,
+            _require_current=self.require_current_source,
+        )
 
     def require_current_source(self) -> None:
         self._require_accepting()
@@ -798,7 +855,15 @@ class CodingHostedSessionCatalogV1:
                 if record is None or _revision(record.path) != reference.revision:
                     raise CodingHostedCatalogError()
                 return _Candidate(record, CodingHostedHistoryCandidateBindingV1(
-                    record, binding, self._accepting,
+                    record,
+                    binding,
+                    self._accepting,
+                    manager_type=(
+                        _OwnedHostedTranscript
+                        if self._owned_factory is not None
+                        else _HostedTranscript
+                    ),
+                    writer_factory=self._owned_factory or _HOSTED_FACTORY,
                 ))
         except BaseException:
             await binding.close()
@@ -814,7 +879,6 @@ class CodingHostedSessionCatalogV1:
             ):
                 return scope
         raise CodingHostedCatalogError()
-
     async def find_created_candidate(
         self, request: SessionCreateRequestV1
     ) -> _Candidate | None:
@@ -898,6 +962,61 @@ class CodingHostedSessionCatalogV1:
             except BaseException:
                 await manager.dispose_runtime_profile()
                 raise
+
+
+class CodingHostedResumeCatalogV1:
+    """Route only AppHost resume opens through the detached history owner.
+
+    AppHost create uses ``create_candidate`` directly, so its original writable
+    construction path remains unchanged. Existing-session attachment calls
+    ``open_candidate`` and receives a history candidate that can transfer the
+    exact source and original Writer factory to the one Product binding.
+    """
+
+    def __init__(
+        self,
+        catalog: CodingHostedSessionCatalogV1,
+        *,
+        max_bytes: int = _MAX_TRANSCRIPT_BYTES,
+    ) -> None:
+        if type(catalog) is not CodingHostedSessionCatalogV1:
+            raise TypeError("Coding Hosted Resume catalog is invalid")
+        if type(max_bytes) is not int or not 1 <= max_bytes <= _MAX_TRANSCRIPT_BYTES:
+            raise ValueError("Coding Hosted Resume history budget is invalid")
+        self._catalog = catalog
+        self._max_bytes = max_bytes
+
+    @property
+    def scopes(self) -> tuple[CodingHostedScopeV1, ...]:
+        return self._catalog.scopes
+
+    async def list_identities(
+        self,
+        scopes: tuple[SessionDiscoveryScope, ...],
+        *,
+        limit: int,
+    ) -> tuple[SessionIdentityProjectionV1, ...]:
+        return await self._catalog.list_identities(scopes, limit=limit)
+
+    async def open_candidate(self, reference: SessionCandidateRefV1) -> _Candidate:
+        return await self._catalog.open_history_candidate(
+            reference,
+            max_bytes=self._max_bytes,
+        )
+
+    async def find_created_candidate(
+        self, request: SessionCreateRequestV1,
+    ) -> _Candidate | None:
+        return await self._catalog.find_created_candidate(request)
+
+    async def create_candidate(self, intent: SessionCreateIntentV1) -> _Candidate:
+        return await self._catalog.create_candidate(intent)
+
+    def fence(self) -> None:
+        self._catalog.fence()
+
+    async def close(self) -> None:
+        await self._catalog.close()
 
 
 def _create_identity(request: SessionCreateRequestV1) -> str:
@@ -1044,6 +1163,8 @@ __all__ = [
     "CodingHostedCandidateValidatorV1",
     "CodingHostedCatalogError",
     "CodingHostedHistoryCandidateBindingV1",
+    "CodingHostedResumeCatalogV1",
+    "CodingHostedResumeSourceV1",
     "CodingHostedScopeV1",
     "CodingHostedSessionCatalogV1",
 ]

@@ -279,6 +279,11 @@ class SessionManager(
         plan: SessionActivationPlanV1,
         current_owner_inputs: Sequence[ActivationOwnerInputRefV1],
         required_writer_capabilities: frozenset[str] = frozenset(),
+        _factory: AgentTranscriptSessionFactory[
+            ResolvedRuntimeProfile,
+            RuntimeProfileBinding,
+        ]
+        | None = None,
     ) -> Self:
         """Prepare an isolated current Writer while keeping execution fenced.
 
@@ -288,7 +293,9 @@ class SessionManager(
         """
 
         cls._require_resume_writer_capabilities(required_writer_capabilities)
-        factory = cls._factory_for_persistence(True)
+        factory = cls._factory_for_persistence(True) if _factory is None else _factory
+        if not isinstance(factory, AgentTranscriptSessionFactory):
+            raise TypeError("Coding Resume Writer factory is invalid")
         if not factory.owns_persistent_sessions:
             raise ValueError(
                 "Coding Resume Writer requires its application-owned factory"
