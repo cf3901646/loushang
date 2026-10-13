@@ -532,8 +532,7 @@ def test_provider_runtime_emits_error_trace_for_terminal_error() -> None:
         "requestId": "req_401",
         "exceptionType": "_HTTPError",
         "providerResponseSummary": (
-            '{"error":{"type":"authentication_error",'
-            '"message":"bad token=[REDACTED]"}}'
+            '{"error":{"type":"authentication_error","message":"bad token=[REDACTED]"}}'
         ),
     }
     assert "provider_response_summary" not in events[0]
@@ -867,6 +866,54 @@ def test_terminal_outcome_recording_survives_consumer_cancellation() -> None:
     assert recorder.cancelled is False
     assert len(recorder.outcomes) == 1
     assert recorder.outcomes[0].invocation_id == "cancelled-invocation"
+    assert recorder.outcomes[0].disposition == "cancelled"
+
+
+def test_cancellation_settlement_survives_consumer_cancel_during_flush(
+    monkeypatch,
+) -> None:
+    source = _BlockingRawSource()
+    recorder = _BlockingOutcomeRecorder()
+    flush_entered = asyncio.Event()
+    flush_release = asyncio.Event()
+    original_flush = runtime_module._flush_pending
+
+    async def held_flush(assembler, pending) -> None:
+        flush_entered.set()
+        await flush_release.wait()
+        await original_flush(assembler, pending)
+
+    monkeypatch.setattr(runtime_module, "_flush_pending", held_flush)
+
+    async def _run() -> None:
+        signal = asyncio.Event()
+        recorder.release.set()
+        stream = start_provider_runtime(
+            lambda: source,
+            options=CallOptions(
+                cancellation=signal,
+                prepared_request_committer=recorder,
+            ),
+            request=_request(),
+            invocation_id="flush-cancelled-invocation",
+        )
+        result = asyncio.create_task(stream.result())
+        await asyncio.wait_for(source.next_started.wait(), timeout=1)
+        signal.set()
+        await asyncio.wait_for(flush_entered.wait(), timeout=1)
+        result.cancel()
+        await asyncio.sleep(0)
+        assert not result.done()
+        flush_release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await result
+        await asyncio.wait_for(source.closed.wait(), timeout=1)
+
+    asyncio.run(_run())
+
+    assert recorder.cancelled is False
+    assert len(recorder.outcomes) == 1
+    assert recorder.outcomes[0].invocation_id == "flush-cancelled-invocation"
     assert recorder.outcomes[0].disposition == "cancelled"
 
 
