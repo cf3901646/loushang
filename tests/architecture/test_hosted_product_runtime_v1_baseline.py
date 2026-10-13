@@ -565,6 +565,8 @@ def test_current_inventory_matches_source_and_retained_absences() -> None:
         "_local_record_values.py",
         "_posix_local_record.py",
         "_windows_local_record.py",
+        # Optional negotiated observation; no execution or retry grant.
+        "resume_model.py",
         "remote_client.py",
         "stdio.py",
         "protocol/stdio_profile.py",
@@ -604,6 +606,8 @@ def test_current_inventory_matches_source_and_retained_absences() -> None:
         "session_discovery.py",
         "managed_mux_close.py",
         "ports.py",
+        # Optional data lookup and borrow of the existing controller scope.
+        "resume_ports.py",
         "runtime.py",
     }
 

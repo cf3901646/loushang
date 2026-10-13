@@ -50,6 +50,17 @@ submission registration and cleanup; this transport still owns only request
 delivery and borrowed scoped capabilities. Existing v1 frames and default
 profiles are unchanged. Native GUI acceptance follows the documented handoff.
 
+## Accepted Resume Contract
+
+AppServer retains client framing and transport. Product readiness projections preserve old Ack completion timing and negotiate supported continuation behavior.
+
+The project owner accepted the cross-scope #696 boundaries on 2026-10-12:
+[ARD-004](../decisions/accepted/ARD-004-resume-history-and-current-authority.md),
+[ARD-005](../decisions/accepted/ARD-005-resume-continuation-commit.md), and
+[ARD-006](../decisions/accepted/ARD-006-hosted-resume-readiness-and-admission.md).
+The [Delta ledger](../current-target-gap-ledger.md) records remaining work;
+acceptance does not establish writable release or performance readiness.
+
 ## Purpose
 
 The contract-only structural Product port bundle remains the A0.4 stable

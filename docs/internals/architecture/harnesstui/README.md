@@ -22,6 +22,17 @@ Python packages, or product-specific policy. `loushang.harness` and `loushang.tu
 independent peers: Harnesstui may depend on both, but neither peer may depend on
 Harnesstui or on the other peer.
 
+## Accepted Resume Contract
+
+HarnessTUI presents verified history, readiness, and explicitly unsent pending text. Display targets and execution targets remain distinct through resume, switching, and failure.
+
+The project owner accepted the cross-scope #696 boundaries on 2026-10-12:
+[ARD-004](../decisions/accepted/ARD-004-resume-history-and-current-authority.md),
+[ARD-005](../decisions/accepted/ARD-005-resume-continuation-commit.md), and
+[ARD-006](../decisions/accepted/ARD-006-hosted-resume-readiness-and-admission.md).
+The [Delta ledger](../current-target-gap-ledger.md) records remaining work;
+acceptance does not establish writable release or performance readiness.
+
 ## Responsibilities
 
 The [G15 design](../apphost/foreground-hosted-tui-g15.md) specifies an explicit

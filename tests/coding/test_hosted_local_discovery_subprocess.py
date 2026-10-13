@@ -27,7 +27,12 @@ from .test_mux_command import _serve
 from .test_mux_subprocess import _errors
 
 
-def test_G17_COMPAT_installed_local_discovery_history_detach_and_stop(tmp_path):
+def test_G17_COMPAT_installed_local_discovery_history_detach_and_stop(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "platform"))
+    monkeypatch.setenv("LOUSHANG_RUNTIME_DIR", str(tmp_path / "runtime"))
+
     async def scenario():
         launch = _local_launch(tmp_path)
         for scope in launch.application.scopes:
@@ -88,9 +93,14 @@ def test_G17_COMPAT_installed_local_discovery_history_detach_and_stop(tmp_path):
                     )
                 )
                 assert state.active_window is not None
-                assert [record.text for record in state.active_window.records] == [
-                    f"Historical {name}"
-                ]
+                expected_records = [f"Historical {name}"]
+                if sys.platform == "linux":
+                    expected_records.append(
+                        "Historical session is read-only; continuing requires current runtime activation."
+                    )
+                assert [
+                    record.text for record in state.active_window.records
+                ] == expected_records
                 await controller.close()
                 await client.close()
             replacement = LocalAppClientConnectionV1(directory, launch.endpoint)
@@ -105,9 +115,14 @@ def test_G17_COMPAT_installed_local_discovery_history_detach_and_stop(tmp_path):
             assert (
                 restored.state is not None and restored.state.active_window is not None
             )
-            assert [record.text for record in restored.state.active_window.records] == [
-                "Historical cwd",
-            ]
+            expected_records = ["Historical cwd"]
+            if sys.platform == "linux":
+                expected_records.append(
+                    "Historical session is read-only; continuing requires current runtime activation."
+                )
+            assert [
+                record.text for record in restored.state.active_window.records
+            ] == expected_records
             await restored.close()
             assert process.returncode is None
             await stop.start()

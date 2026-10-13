@@ -615,6 +615,8 @@ async def _collect_assistant_response(
             exc=error,
         )
         raise
+    finally:
+        await response.aclose()
 
     return final_message, added_partial
 

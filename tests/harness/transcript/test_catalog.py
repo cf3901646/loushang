@@ -475,6 +475,34 @@ def test_bounded_catalog_stats_all_and_reads_only_recent_head_tail(
     assert not tuple(tmp_path.glob("*.model-input-v2-index.json"))
 
 
+def test_bounded_transcript_preview_reads_tail_without_publishing_authority(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "large.jsonl"
+    write_agent_transcript_export(
+        path,
+        _header("large", cwd="/workspace"),
+        [
+            _record("first", "first prompt"),
+            _record("middle", "x" * 140_000, parent_id="first"),
+            _record("last", "recent message", parent_id="middle"),
+        ],
+    )
+    before = path.read_bytes()
+
+    preview = catalog_module.read_agent_transcript_bounded_preview(
+        path, segment_bytes=4096,
+    )
+
+    assert preview.header.conversation_id == "large"
+    assert [record.record_id for record in preview.records] == ["first", "last"]
+    assert [record.record_id for record in preview.tail_records] == ["last"]
+    assert preview.bytes_read <= 8192
+    assert preview.source_fingerprint == catalog_module.session_file_authority_fingerprint(path)
+    assert path.read_bytes() == before
+    assert not (tmp_path / ".session-index.json").exists()
+
+
 def test_bounded_catalog_can_publish_complete_lightweight_index(
     tmp_path: Path,
 ) -> None:

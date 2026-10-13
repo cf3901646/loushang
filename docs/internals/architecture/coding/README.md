@@ -9,6 +9,17 @@
 - Implementation status: implemented
 - Owner: Coding Product
 
+## Accepted Resume Contract
+
+Coding owns historical intent, Product compatibility, current execution admission, and same-ID continuation. Binding and resource evidence use the original Transcript commit owner.
+
+The project owner accepted the cross-scope #696 boundaries on 2026-10-12:
+[ARD-004](../decisions/accepted/ARD-004-resume-history-and-current-authority.md),
+[ARD-005](../decisions/accepted/ARD-005-resume-continuation-commit.md), and
+[ARD-006](../decisions/accepted/ARD-006-hosted-resume-readiness-and-admission.md).
+The [Delta ledger](../current-target-gap-ledger.md) records remaining work;
+acceptance does not establish writable release or performance readiness.
+
 ## Scope
 
 Coding is the installed Loushang Product composition root. It turns Harness,

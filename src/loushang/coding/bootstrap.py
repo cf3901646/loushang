@@ -7,8 +7,9 @@ import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import suppress
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from functools import partial
+from inspect import iscoroutine, iscoroutinefunction
 from pathlib import Path
 from tempfile import TemporaryDirectory as _TemporaryDirectoryCleanup
 from tempfile import mkdtemp
@@ -31,6 +32,7 @@ from loushang.coding._base_product_composition import (
 )
 from loushang.coding._capability_plugin_composition import (
     CodingCapabilityPluginCompositionError,
+    CodingResumePluginParents,
     coding_capability_plugin_failure_custodian,
     create_coding_capability_plugin_composition_request,
     prepare_coding_capability_plugin_composition,
@@ -68,6 +70,7 @@ from loushang.coding._resource_catalog_shadow import (
     finalize_coding_package_plugin_plan_seed,
     prepare_coding_package_plugin_plan_seed,
 )
+from loushang.coding._resume_cleanup import retain_resume_cleanup_failure
 from loushang.coding._tool_authority import (
     CODING_ARCH_EXACT_OWNER_TOOL_NAMES,
     CODING_EXACT_OWNER_TOOL_NAMES,
@@ -128,6 +131,7 @@ from loushang.coding.resource_runtime import (
 from loushang.coding.resource_runtime import (
     CodingResourceLoader as DefaultResourceLoader,
 )
+from loushang.coding.resume_activation_attempt import CodingActivationAttemptV1
 from loushang.coding.runtime import AgentSessionRuntime
 from loushang.coding.runtime_capability_admission import (
     bind_coding_side_question,
@@ -199,6 +203,7 @@ from loushang.harness.resources.packages.product_contract import (
 )
 from loushang.harness.resources.packages.roots import SelectedPluginPackageInput
 from loushang.harness.resources.types import ResourceBundle
+from loushang.harness.resume_effects import ResumeEffectParentContextV1
 from loushang.harness.session import (
     AgentProductConstructionBinding,
     AgentSessionServices,
@@ -536,6 +541,30 @@ class CodingPackageProductLegacyPathError(RuntimeError):
     code = "coding_package_product_legacy_plugin_path"
 
 
+@dataclass(frozen=True, slots=True)
+class _CodingResumeBootstrapAdmission:
+    manager: SessionManager
+    attempt_id: str
+    composition: CodingCompositionSetPlan
+    current_admission: Callable[[CodingActivationAttemptV1], None]
+
+    def require(
+        self, manager: SessionManager, composition: CodingCompositionSetPlan,
+    ) -> CodingCompositionSetPlan:
+        if manager is not self.manager or composition != self.composition:
+            raise ValueError("Coding Resume bootstrap admission belongs to another candidate")
+        with manager._lifecycle_session.sync_operation_scope():
+            attempt = manager._require_resume_bootstrap_composition(self.attempt_id, composition)
+            if not callable(self.current_admission) or iscoroutinefunction(self.current_admission):
+                raise TypeError("Coding Resume bootstrap admission must be synchronous")
+            result = cast(Callable[[CodingActivationAttemptV1], object], self.current_admission)(attempt)
+            if result is not None:
+                if iscoroutine(result):
+                    result.close()
+                raise TypeError("Coding Resume bootstrap admission must return None")
+        return composition
+
+
 def _create_agent_session(
     *,
     session_manager: SessionManager,
@@ -576,7 +605,33 @@ def _create_agent_session(
         CODING_STANDARD_RESOURCE_CATALOG_SOURCE_POLICY
     ),
     invocation_product_profile: CodingAgentInvocationProductProfile | None = None,
+    _resume_bootstrap_admission: _CodingResumeBootstrapAdmission | None = None,
+    _resume_plugin_parents: CodingResumePluginParents | None = None,
+    _resume_worker_parent: ResumeEffectParentContextV1 | None = None,
+    _resume_effect_owner_ids: frozenset[str] | None = None,
 ) -> AgentSession:
+    if _resume_bootstrap_admission is None:
+        session_manager.require_no_unsettled_resume_activation()
+    elif type(_resume_bootstrap_admission) is not _CodingResumeBootstrapAdmission:
+        raise TypeError("Coding Resume bootstrap requires its current admission context")
+    if _resume_plugin_parents is not None and (
+        type(_resume_plugin_parents) is not CodingResumePluginParents
+        or _resume_bootstrap_admission is None
+    ):
+        raise TypeError("Coding Resume Plugin parents require current Resume admission")
+    if _resume_worker_parent is not None and (
+        type(_resume_worker_parent) is not ResumeEffectParentContextV1
+        or _resume_worker_parent.owner_id != "harness.worker-activation"
+        or _resume_bootstrap_admission is None
+        or worker_candidate_plugin_id is None
+    ):
+        raise TypeError("Coding Resume Worker parent requires one selected Worker")
+    if _resume_effect_owner_ids is not None and (
+        type(_resume_effect_owner_ids) is not frozenset
+        or any(type(item) is not str for item in _resume_effect_owner_ids)
+        or _resume_bootstrap_admission is None
+    ):
+        raise TypeError("Coding Resume effect owners require current Resume admission")
     if (
         initial_resource_catalog_product_composition_assembly is not None
         and not isinstance(
@@ -592,6 +647,8 @@ def _create_agent_session(
     )
     session_no_tools_mode = normalize_no_tools(no_tools)
     requested_composition_set = _canonical_coding_composition_set(composition_set)
+    if _resume_bootstrap_admission is not None:
+        _resume_bootstrap_admission.require(session_manager, requested_composition_set)
     services = services or create_services()
     if (
         composition_choice_from_cli
@@ -607,8 +664,10 @@ def _create_agent_session(
             "Coding composition settings changed before Session startup; "
             "retry with the current settings"
         )
-    resolved_composition_set = session_manager.bind_new_composition_plan(
-        requested_composition_set
+    resolved_composition_set = (
+        session_manager.bind_new_composition_plan(requested_composition_set)
+        if _resume_bootstrap_admission is None
+        else _resume_bootstrap_admission.require(session_manager, requested_composition_set)
     )
     if (
         composition_set_explicit
@@ -785,6 +844,27 @@ def _create_agent_session(
     capability_plugins_enabled_for_session = (
         lsp_enabled_for_session or arch_enabled_for_session
     )
+    if _resume_effect_owner_ids is not None:
+        expected_plugin_owners = (
+            frozenset(
+                {
+                    "harness.plugin-execution",
+                    "harness.plugin-activation",
+                }
+            )
+            if capability_plugins_enabled_for_session
+            else frozenset()
+        )
+        if worker_candidate_plugin_id is not None:
+            expected_plugin_owners |= frozenset({"harness.worker-activation"})
+        if _resume_effect_owner_ids != expected_plugin_owners:
+            raise CodingResourceCatalogAdmissionError(
+                ("resume_plugin_participation_changed",)
+            )
+    if _resume_plugin_parents is not None and not capability_plugins_enabled_for_session:
+        raise ValueError(
+            "Coding Resume Plugin parents require selected capability Plugins"
+        )
     if lsp_enabled_for_session and lsp_read_text is not None:
         raise ValueError("Coding LSP reads only through harness.workspace")
     global_lsp_config, project_lsp_config = coding_lsp_config_paths(
@@ -1452,6 +1532,7 @@ def _create_agent_session(
                             configurations=no_base_configurations,
                             state_root=state_root,
                             clock=coding_plugin_clock,
+                            resume_parents=_resume_plugin_parents,
                         )
                     )
                 except BaseException:
@@ -1469,6 +1550,10 @@ def _create_agent_session(
                     arch_private_ephemeral_state.cleanup
                     if arch_private_ephemeral_state is not None
                     else None
+                )
+            elif _resume_plugin_parents is not None:
+                raise CodingResourceCatalogAdmissionError(
+                    ("resume_plugin_participation_changed",)
                 )
             try:
                 receipt = loader.prepare_catalog_input_receipt(resolved_cwd)
@@ -1642,6 +1727,7 @@ def _create_agent_session(
                         ),
                         state_root=state_root,
                         clock=coding_plugin_clock,
+                        resume_parents=_resume_plugin_parents,
                     )
                 )
             except BaseException as error:
@@ -1682,6 +1768,10 @@ def _create_agent_session(
             )
             compiled = builtin_product_preparation.base_compilation
         else:
+            if _resume_plugin_parents is not None:
+                raise CodingResourceCatalogAdmissionError(
+                    ("resume_plugin_participation_changed",)
+                )
             external_ids = product_runtime.selected_external_data_plugin_ids()
             if external_ids:
                 compiled = extend_coding_base_product_data_resources(
@@ -2129,6 +2219,7 @@ def _create_agent_session(
                 plugin_id=worker_candidate_plugin_id,
                 ordinary=product_base_session_assembly,
                 clock=coding_plugin_clock,
+                resume_parent_context=_resume_worker_parent,
             )
         worker_turn_tool = None
         worker_tool_registry = registry
@@ -2524,6 +2615,99 @@ def _select_direct_coding_product_factory(
     return CodingSessionOwnedProductRuntimeFactory(factory, selection)
 
 
+async def _create_resume_agent_session(
+    *, session_manager: SessionManager, attempt_id: str,
+    composition_set: CodingCompositionSetPlan,
+    require_current_admission: Callable[[CodingActivationAttemptV1], None],
+    services: BootstrapServices | None = None,
+    model: Model | ModelSelection | None = None,
+    thinking_level: ThinkingLevel | None = None,
+    stream_fn: StreamFn | None = None,
+    tools: list[ToolDefinition] | None = None,
+    output_capture_factory: ExecCaptureFactory | None = None,
+    no_tools: NoToolsMode | bool | None = None,
+    agent_factory: AgentFactory = Agent,
+    approval_resolver: InteractiveApprovalResolver | None = None,
+    tool_policy_evaluator: PolicyEvaluator | None = None,
+    product_owner_selection: CodingFencedProductApplicationSelection | None = None,
+    worker_candidates: bool = False,
+    worker_candidate_plugin_id: str | None = None,
+    resume_plugin_parents: CodingResumePluginParents | None = None,
+    resume_worker_parent: ResumeEffectParentContextV1 | None = None,
+    resume_effect_owner_ids: frozenset[str] | None = None,
+) -> AgentSession:
+    """Construct a fenced current candidate for a locally committed Resume Plan.
+
+    Current admission belongs to the activation coordinator. This owner route
+    retains the old Header and does not publish execution or commit user input.
+    It must not be used for recovery of an uncertain or historical-only intent.
+    """
+
+    if product_owner_selection is not None and not isinstance(
+        product_owner_selection, CodingFencedProductApplicationSelection,
+    ):
+        raise TypeError("Coding Resume Product application owner is invalid")
+    if (
+        type(worker_candidates) is not bool
+        or (
+            worker_candidate_plugin_id is not None
+            and (
+                not isinstance(worker_candidate_plugin_id, str)
+                or not worker_candidate_plugin_id
+                or worker_candidate_plugin_id != worker_candidate_plugin_id.strip()
+            )
+        )
+        or ((worker_candidates or worker_candidate_plugin_id is not None) and product_owner_selection is None)
+        or (resume_worker_parent is not None and worker_candidate_plugin_id is None)
+    ):
+        raise ValueError("Coding Resume Worker requires its application Product owner")
+    include_worker_candidates = worker_candidates or worker_candidate_plugin_id is not None
+    composition = _canonical_coding_composition_set(composition_set)
+    admission = _CodingResumeBootstrapAdmission(
+        session_manager, attempt_id, composition, require_current_admission,
+    )
+    admission.require(session_manager, composition)
+    selected_factory = (
+        _borrow_application_coding_product_factory(
+            product_owner_selection, session_manager, services=services,
+            worker_candidates=include_worker_candidates,
+        ) if product_owner_selection is not None else _select_direct_coding_product_factory(
+            session_manager, services=services, windows_candidate=sys.platform == "win32",
+        )
+    )
+    session: AgentSession | None = None
+    try:
+        admission.require(session_manager, composition)
+        session = _create_agent_session(
+            session_manager=session_manager, composition_set=composition,
+            composition_set_explicit=True, services=services, model=model,
+            stream_fn=stream_fn, thinking_level=thinking_level, tools=tools,
+            output_capture_factory=output_capture_factory,
+            no_tools=no_tools, agent_factory=agent_factory,
+            approval_resolver=approval_resolver, tool_policy_evaluator=tool_policy_evaluator,
+            package_product_runtime_factory=selected_factory,
+            worker_candidate_plugin_id=worker_candidate_plugin_id,
+            _resume_bootstrap_admission=admission,
+            _resume_plugin_parents=resume_plugin_parents,
+            _resume_worker_parent=resume_worker_parent,
+            _resume_effect_owner_ids=resume_effect_owner_ids,
+        )
+        admission.require(session_manager, composition)
+        return session
+    except BaseException as error:
+        if session is not None:
+            try:
+                await session.dispose()
+            except BaseException as cleanup_error:
+                error.add_note(f"Coding Resume candidate cleanup also failed: {cleanup_error!r}")
+                raise retain_resume_cleanup_failure(
+                    original_owner=session, original_error=error, cleanup_error=cleanup_error,
+                ) from error
+        else:
+            _dispose_unbound_package_product_runtime(selected_factory, error)
+        raise
+
+
 def create_agent_session(
     *,
     session_manager: SessionManager,
@@ -2557,6 +2741,7 @@ def create_agent_session(
     lsp_baseline_environment: Mapping[str, str] | None = None,
     lsp_read_text: WorkspaceTextReader | None = None,
 ) -> AgentSession:
+    session_manager.require_no_unsettled_resume_activation()
     if worker_candidate_plugin_id is not None and (
         not isinstance(worker_candidate_plugin_id, str)
         or not worker_candidate_plugin_id
@@ -2823,15 +3008,15 @@ _CODING_AGENT_PRODUCT_CONSTRUCTION = AgentProductConstructionBinding[
 )
 
 
-def _build_with_package_product_selection(
+def _borrow_application_coding_product_factory(
     selection: CodingFencedProductApplicationSelection,
     manager: SessionManager,
-    services: BootstrapServices,
-    build: Callable[[PackageProductRuntimeFactoryPort | None], AgentSession],
+    *,
+    services: BootstrapServices | None,
     worker_candidates: bool = False,
-) -> AgentSession:
+) -> PackageProductRuntimeFactoryPort | None:
     factory = selection.factory_for_session(
-        manager, settings_manager=services.settings_manager
+        manager, settings_manager=None if services is None else services.settings_manager,
     )
     selected_factory: PackageProductRuntimeFactoryPort | None = factory
     if worker_candidates:
@@ -2842,11 +3027,27 @@ def _build_with_package_product_selection(
                 WindowsLocalWheelProductRuntimeFactory,
             ),
         ):
-            raise TypeError("Coding Worker requires Product selection")
+            error = TypeError("Coding Worker requires Product selection")
+            _dispose_unbound_package_product_runtime(factory, error)
+            raise error
         selected_factory = CodingApplicationWorkerProductRuntimeFactory(
             factory=factory,
             selection=selection,
         )
+    return selected_factory
+
+
+def _build_with_package_product_selection(
+    selection: CodingFencedProductApplicationSelection,
+    manager: SessionManager,
+    services: BootstrapServices,
+    build: Callable[[PackageProductRuntimeFactoryPort | None], AgentSession],
+    worker_candidates: bool = False,
+) -> AgentSession:
+    manager.require_no_unsettled_resume_activation()
+    selected_factory = _borrow_application_coding_product_factory(
+        selection, manager, services=services, worker_candidates=worker_candidates,
+    )
     try:
         return build(selected_factory)
     except BaseException as error:

@@ -177,8 +177,18 @@ EXPECTED_PLUGIN_PACKAGE_BOUNDARY_SINK_OWNERS = {
         Path("src/loushang/harness/resources/packages/mounts.py"),
         "PackageResourceMount.read_text",
     ): "package-resource-mount",
+    (
+        Path("src/loushang/harness/resources/packages/mounts.py"),
+        "PackageResourceMount.capture_text",
+    ): "package-resource-mount",
 }
 EXPECTED_PLUGIN_PACKAGE_BOUNDARY_SINK_CALL_COUNTS = {
+    # Bounded capture uses the same original verified revision handle.
+    (
+        Path("src/loushang/harness/resources/packages/mounts.py"),
+        "PackageResourceMount.capture_text",
+        "verified_open_file:handle",
+    ): 1,
     (
         Path("src/loushang/harness/resources/plugins/python_symbols.py"),
         "load_verified_plugin_python_module",

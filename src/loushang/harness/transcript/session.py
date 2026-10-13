@@ -23,6 +23,7 @@ from loushang.harness.conversation import (
 )
 from loushang.harness.transcript.committer import (
     CommitResult,
+    PrebuiltUserMessageLookupResult,
     TranscriptCommitter,
 )
 from loushang.harness.transcript.kinds import RECORD_ANNOTATION_PATCH_KIND
@@ -243,6 +244,33 @@ class AgentTranscriptSession:
                 await self._transcript.append_agent_message(message, metadata=metadata)
             )
         raise TypeError(f"Unsupported transcript message: {type(message)!r}")
+
+    async def lookup_prebuilt_user_message(
+        self, record: AgentTranscriptRecord,
+    ) -> PrebuiltUserMessageLookupResult:
+        """Observe a fixed-ID input without changing transcript or observers."""
+
+        return await self._committer.lookup_prebuilt_user_message(record)
+
+    async def commit_prebuilt_user_message(
+        self, record: AgentTranscriptRecord,
+    ) -> CommitResult:
+        """Commit or reconcile one fixed-ID user input through the message owner."""
+
+        result = await self._committer.commit_prebuilt_user_message(record)
+        if result.disposition == "committed":
+            self._notify_commit(result)
+        return result
+
+    async def commit_prebuilt_extension_data(
+        self, record: AgentTranscriptRecord,
+    ) -> CommitResult:
+        """Commit or reconcile one fixed-ID extension fact through Transcript."""
+
+        result = await self._committer.commit_prebuilt_extension_data(record)
+        if result.disposition == "committed":
+            self._notify_commit(result)
+        return result
 
     async def commit_application_message(
         self,

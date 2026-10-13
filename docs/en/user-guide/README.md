@@ -95,6 +95,19 @@ while `--resume <session-id-or-path>` and `/resume <session-id-or-path>` restore
 a specific session directly. Non-interactive use requires one of those explicit
 forms.
 
+Resume displays compatible saved history before it creates a writable current
+Session. New input always uses the current installation's Policy, Approval,
+Sandbox, Plugin, Tool, and resource state. Large histories can initially expose
+only a bounded, unverified tail; writable continuation stays unavailable until
+the selected history is verified within the current limit.
+
+Writable continuation requires the current Resume writer protocols:
+`coding.resume-continuation/v2` and the selected original owners'
+`resume-context/v1` capabilities. A runtime from before these protocols may be
+used to inspect or export a v2 transcript, but writing after an installation
+rollback is unsupported. Stop all Loushang processes, preserve the transcript,
+and upgrade forward before continuing it.
+
 Inside the interactive surface, built-in slash commands include `/session`, `/resume`, `/fork`, `/clone`, `/branch`, `/tree`, `/tools`, `/extensions`, `/export`, `/compact`, `/reload`, and `/quit`. `/fork` duplicates the current chat into a new session, `/clone` is a compatibility alias, and `/branch` opens a prompt picker for branching from an earlier user message.
 
 ## Tools

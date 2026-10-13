@@ -72,6 +72,16 @@ draft/proposed and superseded groups only when they contain records.
 | [ARD-002: Hosting Top-Level Placement And Scope](ARD-002-hosting-top-level-placement.md) | Accepted | Hosting, Harness and trusted host composition | Hosting owns Product-neutral local process, inherited peer endpoint, and atomic child-session mechanisms; caller scopes retain admission, security, protocol, and domain authority. |
 | [ARD-003: AppHost Top-Level Placement And Contract Boundary](ARD-003-apphost-top-level-placement.md) | Accepted | AppHost, Product packages, Harness, and optional hosted/launcher siblings | AppHost owns explicit cross-Product routing and scoped Product Runtime bindings; core remains independent of concrete Products, AppServer, Hosting, and UI frameworks. |
 
+### Accepted In State Directories
+
+| Record | Status | Boundary | Decision summary |
+| --- | --- | --- | --- |
+| [ARD-004: Separate Resume History From Current Execution Authority](accepted/ARD-004-resume-history-and-current-authority.md) | Accepted | Coding, Harness, AppHost, AppService, HarnessTUI | Decode readable history independently of current environment snapshots; admit new execution only under current authority and a separate activation contract. |
+| [ARD-005: Commit Resume Binding With The First User Message](accepted/ARD-005-resume-continuation-commit.md) | Accepted | Coding and Harness transcript/session | Co-commit bounded RuntimeBinding and resource evidence with one `agent.message`; reconcile fixed input identity and define reader versus writer rollback boundaries. |
+| [ARD-006: Keep Hosted Resume Readiness Inside One Product Binding](accepted/ARD-006-hosted-resume-readiness-and-admission.md) | Accepted | Coding, AppHost, AppService, AppServer, HarnessTUI | Keep preparing inside AppHost's one live Product binding; preserve Ack timing and use durable input lookup for hosted retry. |
+
+| [ARD-007: Correlate Resume Effects In Their Original Journals](accepted/ARD-007-resume-native-effect-correlation.md) | Accepted | Coding, Harness Approval and native Worker owners | Co-register parent context in original native journals; require frozen participation, fenced sealed enumeration, original-owner reconciliation and versioned writer boundaries before writable Resume. |
+
 ## Reading And Change Rule
 
 For a cross-scope change:

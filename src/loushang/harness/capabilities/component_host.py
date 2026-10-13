@@ -44,6 +44,7 @@ from loushang.harness.resources.plugins.selection import (
     PluginSourceTrustSnapshotV1,
 )
 from loushang.harness.resources.plugins.types import PublishedPluginPackage
+from loushang.harness.resume_effects import ResumeEffectParentContextV1
 
 _PROVIDER_HOST_API_PREFIXES: tuple[str, ...] = ()
 _PROVIDER_HOST_API_EXPORTS = {
@@ -94,6 +95,7 @@ class CapabilityComponentHost:
         distribution_evidence_resolver: (
             InstalledPythonDistributionEvidenceResolver | None
         ) = None,
+        resume_parent_context: ResumeEffectParentContextV1 | None = None,
     ) -> None:
         if not isinstance(decision_journal, PluginActivationDecisionJournal):
             raise TypeError("Component Host requires an activation decision journal")
@@ -127,6 +129,7 @@ class CapabilityComponentHost:
             import_realm_id=import_realm.import_realm_id,
             clock=clock,
             error_factory=_component_host_error,
+            resume_parent_context=resume_parent_context,
         )
         self._lifecycle.recover_incomplete_uses()
         self._admission_starts: dict[object, tuple[str, str, int, bool]] = {}
@@ -157,7 +160,7 @@ class CapabilityComponentHost:
         decision = next(
             (
                 item
-                for item in self._lifecycle.journal.snapshot().decisions
+                for item in self._lifecycle.snapshot(require_open=True).decisions
                 if item.decision_id == decision_id
             ),
             None,
@@ -193,7 +196,10 @@ class CapabilityComponentHost:
     def abort_admission_start(self, start: CapabilityComponentAdmissionStart) -> None:
         """Release a witness after graph construction or failed preparation."""
 
-        if type(start) is not CapabilityComponentAdmissionStart or start.host is not self:
+        if (
+            type(start) is not CapabilityComponentAdmissionStart
+            or start.host is not self
+        ):
             _raise_host(
                 "capability_provider_admission_start_invalid",
                 "Component admission start witness is invalid.",
@@ -233,8 +239,7 @@ class CapabilityComponentHost:
             now = self._now()
             if (
                 now < start.started_at
-                or now - start.started_at
-                >= _MAX_COMPONENT_ADMISSION_START_MS
+                or now - start.started_at >= _MAX_COMPONENT_ADMISSION_START_MS
             ):
                 _raise_host(
                     "capability_provider_admission_start_expired",
@@ -448,6 +453,7 @@ class _PreparedComponentAttempt:
     started: bool = False
     disposer: CapabilityProviderDisposer | None = None
     pending_disposal_value: CapabilityBundleValue | None = None
+    retired: bool = False
 
     async def create(
         self,
@@ -519,9 +525,40 @@ class _PreparedComponentAttempt:
             raise
 
     async def dispose(self, value: CapabilityBundleValue) -> None:
+        # Fence live-use checks before awaiting cleanup. A failed disposer may
+        # have partially retired its value; retaining it permits cleanup retry,
+        # not another activation admission.
+        self.retired = True
         disposer = self.disposer
         await self._dispose_value(value, disposer=disposer)
         self.disposer = None
+
+    def require_current_activation(self) -> None:
+        """Validate this live, committed use; this is not effect settlement."""
+
+        if self.reservation.state != "COMMITTED" or self.retired:
+            _raise_host(
+                "component_activation_not_current",
+                "Component activation is not a live committed use.",
+            )
+        self.validate_current_authorities()
+        self.lifecycle.validate_current(
+            self.reservation,
+            expected_state="COMMITTED",
+            started_at_unix_ms=self.admission_started_at,
+        )
+        realm = self.import_realm.snapshot()
+        if (
+            realm.state != "clean"
+            or realm.import_realm_id != self.reservation.import_realm_id
+            or realm.host_boot_id != self.reservation.host_boot_id
+            or (self.reservation.plugin_id, self.package.content_digest)
+            not in realm.locked_packages
+        ):
+            _raise_host(
+                "component_activation_import_realm_changed",
+                "Component activation import realm is no longer current.",
+            )
 
     def cancel_before_start(self) -> bool:
         if self.reservation.state != "CONSUMED_NOT_STARTED":
@@ -744,6 +781,9 @@ class PreparedCapabilityComponent:
 
     def commit_after_graph_publication(self) -> None:
         self._attempt.commit_after_graph_publication()
+
+    def require_current_activation(self) -> None:
+        self._attempt.require_current_activation()
 
     async def abort_uncommitted(self) -> bool:
         return await self._attempt.abort_uncommitted()

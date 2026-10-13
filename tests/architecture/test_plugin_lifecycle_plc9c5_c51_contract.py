@@ -652,6 +652,7 @@ def test_c51_has_only_the_accepted_product_consumers() -> None:
         Path("src/loushang/coding/package_product_worker_pending_host.py"),
         Path("src/loushang/coding/package_product_worker_windows_pending_host.py"),
         Path("src/loushang/coding/package_product_worker_policy.py"),
+        Path("src/loushang/coding/package_product_worker_resume.py"),
         Path("src/loushang/coding/package_product_worker_provider.py"),
         Path("src/loushang/coding/package_product_worker_provider_host.py"),
         Path("src/loushang/coding/package_product_worker_session_composition.py"),

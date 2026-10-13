@@ -48,6 +48,15 @@ from ._operations import _observe, _OwnedAppOperations
 from ._scope_interactions import _ScopeInteractions
 from .execution_registry import ExecutionErrorCodeV1, ExecutionServiceErrorV1
 from .execution_service import ScopedExecutionClientV1
+from .resume_ports import (
+    _current_resume_subject,
+    _current_resume_submission_id,
+    _lookup_scoped_resume_input,
+    _require_current_resume_subject,
+    _require_scoped_session,
+    _resume_subject_digest,
+    _resume_subject_scope,
+)
 from .runtime import AppServiceV1, _SessionOwner
 from .session_discovery import SessionDiscoveryViewV1
 
@@ -458,23 +467,14 @@ class AppClientScopeV1:
             raise AppServiceError(AppErrorCodeV1.STALE_ATTACHMENT)
         return session
 
-    def _require_current_session(
-        self, request: SessionSnapshotRequestV1, session: _SessionOwner,
-    ) -> None:
-        self._attachment(request.attachment_id, request.controller_generation)
-        pair = self._service._attachments.get(request.attachment_id)
-        if pair is None:
-            raise AppServiceError(AppErrorCodeV1.STALE_ATTACHMENT)
-        mux, attachment = pair
-        if (
-            not attachment.active or mux.closed
-            or attachment.controller_generation != request.controller_generation
-            or mux.next_generation != request.controller_generation
-            or self._service._sessions.get(session.identity.session_id) is not session
-            or not any(member.member_id == request.member_id and member.session is session
-                       for member in mux.members)
-        ):
-            raise AppServiceError(AppErrorCodeV1.STALE_ATTACHMENT)
+    # Optional Resume functions bind to this exact original scope instance.
+    # Controller/session tables and execution ownership remain on their owners.
+    _require_current_session = _require_scoped_session
+    resume_subject_digest = _resume_subject_digest
+    require_current_resume_subject = _require_current_resume_subject
+    resume_subject_scope = _resume_subject_scope
+    current_resume_subject = staticmethod(_current_resume_subject)
+    current_resume_submission_id = staticmethod(_current_resume_submission_id)
 
     async def snapshot_session(
         self, request: SessionSnapshotRequestV1
@@ -486,6 +486,8 @@ class AppClientScopeV1:
         value = await session.snapshot()
         self._attachment(request.attachment_id, request.controller_generation)
         return value
+
+    lookup_resume_input = _lookup_scoped_resume_input
 
     async def start_turn(self, request: TurnTextV1) -> AckV1:
         self._service._require_request(request, TurnTextV1)
@@ -503,7 +505,10 @@ class AppClientScopeV1:
                 self._require_current_session(SessionSnapshotRequestV1(
                     request.attachment_id, request.controller_generation, request.member_id
                 ), session)
-                await registry.start_legacy(binding, request.text)
+                with self.resume_subject_scope(SessionSnapshotRequestV1(
+                    request.attachment_id, request.controller_generation, request.member_id,
+                )):
+                    await registry.start_legacy(binding, request.text)
                 return AckV1()
         await self._owner._operations.execute(
             lambda: session.start_turn(request.text), key=session.identity.session_id

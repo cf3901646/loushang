@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from dataclasses import replace
 
 import pytest
@@ -11,6 +12,7 @@ from loushang.appserver.local_record import LocalConnectionDirectoryV1
 from loushang.appserver.protocol import (
     AppErrorCodeV1,
     AppServiceError,
+    InteractionOutcomeV1,
     MuxCreateV1,
     MuxSelectorV1,
     SessionListV1,
@@ -45,6 +47,7 @@ def test_G17_COMPAT_local_launch_requires_exact_activation(tmp_path, value):
     assert not tuple(tmp_path.iterdir())
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux writable Hosted Resume")
 def test_G17_PRODUCT_local_discovery_views_resume_interact_and_detach(
     tmp_path, monkeypatch
 ):
@@ -89,7 +92,9 @@ def test_G17_PRODUCT_local_discovery_views_resume_interact_and_detach(
                 name = scope.scope.value
                 await connection.client.create_mux(MuxCreateV1(name))
                 controller = await open_hosted_mux_profile(
-                    connection.client, selector=MuxSelectorV1(name=name)
+                    connection.client,
+                    selector=MuxSelectorV1(name=name),
+                    execution_client=connection.execution_client,
                 )
                 controllers.append(controller)
                 identity = page.candidates[0].identity
@@ -106,12 +111,32 @@ def test_G17_PRODUCT_local_discovery_views_resume_interact_and_detach(
                 await controller.submit("after local resume")
                 assert state.active_window is not None
                 # The turn reply and the scoped event relay are independent.
-                async with asyncio.timeout(5):
-                    while len(state.active_window.records) < 2:
+                approval = None
+                async with asyncio.timeout(45):
+                    while not any(
+                        record.kind.value == "assistant"
+                        for record in state.active_window.records
+                    ):
                         await controller.poll()
                         assert not state.snapshot_required
+                        if (
+                            approval is None
+                            and state.active_window.pending_interaction_id is not None
+                        ):
+                            approval = asyncio.create_task(
+                                controller.respond_interaction(
+                                    state.active_window.pending_interaction_id,
+                                    InteractionOutcomeV1.APPROVE,
+                                )
+                            )
                         await asyncio.sleep(0.001)
-                assert [record.text for record in state.active_window.records] == [
+                assert approval is not None
+                await approval
+                assert [
+                    record.text
+                    for record in state.active_window.records
+                    if record.kind.value != "status"
+                ] == [
                     "after local resume",
                     "real Coding response",
                 ]
@@ -133,11 +158,12 @@ def test_G17_PRODUCT_local_discovery_views_resume_interact_and_detach(
             await command.close(retry_timeout=5)
             directory.close()
 
-    # The scenario opens two Product B Sessions. Cold-start readiness has a
-    # separate CLI terminal bound; the local interaction deadlines stay below.
-    asyncio.run(asyncio.wait_for(scenario(), 45))
+    # The scenario opens two Product B Sessions and completes the Resume
+    # validation/approval/continuation path for each one.
+    asyncio.run(asyncio.wait_for(scenario(), 120))
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux writable Hosted Resume")
 def test_G17_PRODUCT_picker_resumes_both_scopes_interacts_and_retains_history(
     tmp_path, monkeypatch
 ):
@@ -190,11 +216,25 @@ def test_G17_PRODUCT_picker_resumes_both_scopes_interacts_and_retains_history(
                 shell.handle(InputEvent(kind="text", text="continue from picker"))
                 shell.handle(InputEvent(kind="key", key="enter"))
                 await settle(shell)
-                async with asyncio.timeout(5):
-                    while len(shell.state.active_window.records) < 2:
+                approval = None
+                async with asyncio.timeout(30):
+                    while not any(
+                        record.kind.value == "assistant"
+                        for record in shell.state.active_window.records
+                    ):
                         await shell.poll()
                         assert not shell.state.snapshot_required
+                        interaction = shell.state.active_window.pending_interaction_id
+                        if approval is None and interaction is not None:
+                            approval = asyncio.create_task(
+                                shell._controller.respond_interaction(
+                                    interaction,
+                                    InteractionOutcomeV1.APPROVE,
+                                )
+                            )
                         await asyncio.sleep(0.001)
+                assert approval is not None
+                await approval
                 await shell.close()
                 assert not shell.cleanup_pending
                 # Logical UI detach leaves the native connection and application alive.
@@ -203,7 +243,9 @@ def test_G17_PRODUCT_picker_resumes_both_scopes_interacts_and_retains_history(
                 )
                 try:
                     assert [
-                        row.text for row in restored.state.active_window.records
+                        row.text
+                        for row in restored.state.active_window.records
+                        if row.kind.value != "status"
                     ] == [
                         "continue from picker",
                         "real Coding response",
@@ -224,6 +266,6 @@ def test_G17_PRODUCT_picker_resumes_both_scopes_interacts_and_retains_history(
             await command.close(retry_timeout=5)
             directory.close()
 
-    # Two Product B Sessions share this lifecycle watchdog; picker interaction
-    # retains its five-second local deadline above.
-    asyncio.run(asyncio.wait_for(scenario(), 45))
+    # Two Product B Sessions share this lifecycle watchdog and each performs a
+    # complete cold Resume activation.
+    asyncio.run(asyncio.wait_for(scenario(), 120))

@@ -884,6 +884,74 @@ delete a request already transferred to a durable Work owner. Persistence is
 therefore an explicit ownership transfer, not an accidental consequence of
 writing a request to disk.
 
+### 10.6 Exact action confirmation across awaits
+
+`InteractiveApprovalResolver.confirm(request)` provides an ephemeral
+`ApprovalConfirmation` for a coordinated Product action. It can reuse a
+currently matching native session grant or retained Policy rule. Without such
+a fact, issuance requires an accepted interactive `handle_result` response;
+a plain allow decision from headless fallback does not issue confirmation.
+Ordinary `resolve` and Tool authorization retain their existing behavior.
+
+`require_current_confirmation(confirmation, request=...)` validates the
+issuing resolver's object identity, the exact frozen request and its current
+grant/rule, when applicable. Copying fields or replaying a serialized value
+does not create authority. `allow_once` confirmation remains local to that
+exact coordinated action; it does not become a Tool grant or a reusable
+capability matcher. Products continue to check current actor, Policy and
+execution ceiling separately at each effect boundary.
+
+The resolver admits at most sixty-four outstanding confirmation actions.
+`release_confirmation` releases or revokes a delivered fact. Actor cancellation
+and actor grant revocation invalidate that actor's delivered facts. Session
+close/dispose invalidates all confirmation facts, including when the same
+resolver is reopened. Existing session-grant retention across presentation
+close remains unchanged. Cancelled/denied waiters leave no confirmation fact.
+Coalesced requests can reuse an accepted session grant; an `allow_once`
+response for one action does not confirm another action.
+
+Coding's Resume permission request binds the exact target Session/leaf,
+ancestry, Plan, subject, candidate epoch and owner-observed permission expansion
+to this original owner. This confirmation prerequisite does not compute live
+Policy, settle activation effects or make Resume ready by itself.
+
+Resume may additionally bind a native `EffectiveExecutionProfile` to its exact
+confirmation request. The Authorization owner's
+`execution_profile_expansion_codes` compares readable/writable roots, denied
+subtrees and network rank. Missing baseline is explicitly unknown. Comparison
+is bounded to 64 roots per field and is data only: a historical baseline or an
+empty difference does not prove a live subject, Policy or approval.
+
+Coding's native Approval request carries reviewable current scope data and a
+fingerprint bounded to 16 KiB, alongside bounded expansion codes. Revalidation
+requires an explicitly supplied current scope matching the confirmed scope,
+then checks the same original resolver's confirmation. Omitting or changing
+that scope cannot borrow the fact. Current actor/Policy producers and effect
+settlement remain separate mandatory gates.
+
+The original `ScopeBoundProcessLauncher.execution_profile_ceiling` exposes its
+frozen gateway ceiling as read data. It is not a process-start grant or evidence
+of OS containment. In particular, a disabled Sandbox's ExecService may have no
+execution profile while the original process gateway still holds a managed
+ceiling; consumers must inspect the correct owner and Sandbox status separately.
+
+Resume can also bind the current native Policy configuration to that exact
+request. `PolicyEngine.configuration_fingerprint` observes ordered native rule
+inputs, with at most 256 rules per field and 16 KiB of encoded data.
+`PermissionProfilePolicyEvaluator.configuration_fingerprint` includes the live
+requested/effective profile and ceiling plus the selected native rule inputs.
+The default Workspace Policy selection reads managed rules from its original
+settings owner for both observation and evaluation; existing selections thus
+honor newly configured denies. Injected custom policy factories retain their
+existing evaluation contract and require their own observation entry.
+
+A Policy-bound confirmation requires an explicitly supplied current native
+Policy at revalidation. The original Approval owner compares the rebuilt exact
+request with its retained fact, including changes while awaiting confirmation.
+This fingerprint is a configuration dependency, not an actor admission,
+Policy verdict, executable-code identity or external-effect settlement. Those
+owner checks remain required before execution.
+
 ## 11. Mandatory Enforcement Gateway
 
 Every effectful tool or Product operation uses one gateway:

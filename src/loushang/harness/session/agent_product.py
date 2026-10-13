@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from collections.abc import Awaitable, Callable, Sequence
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
@@ -105,7 +106,10 @@ from loushang.harness.resources._skill_catalog_consumer import (
 from loushang.harness.resources._skill_catalog_status import (
     SkillCatalogStatusSummary,
 )
-from loushang.harness.resources.loader import ResourceLoader
+from loushang.harness.resources.loader import (
+    CatalogSessionResourceLoaderView,
+    ResourceLoader,
+)
 from loushang.harness.resources.packages.catalog import PackageSummaryProvider
 from loushang.harness.resources.packages.materializer import PackageMaterializer
 from loushang.harness.resources.packages.product_contract import (
@@ -569,6 +573,10 @@ class AgentProductSession(AgentSessionAdapterMixin):
         self._pending_capability_components: tuple[
             PreparedSessionCapabilityComponent, ...
         ] = ()
+        self._published_capability_components: tuple[
+            PreparedSessionCapabilityComponent, ...
+        ] = ()
+        self._published_capability_component_generation: int | None = None
         if capability_composition_inputs is not None:
             validate_session_capability_owner_generation_bindings(
                 admissions=(
@@ -1402,8 +1410,13 @@ class AgentProductSession(AgentSessionAdapterMixin):
         *,
         base_dispose: Callable[[], Awaitable[None]],
     ) -> None:
-        # Stop new work, then cancel producers before waiting for output idle.
+        # Stop new work before awaiting any owner settlement.
         self._fence_output_captures()
+        # Release only this Session's speculative reads before retiring owners.
+        # The shared input loader still owns native completion and source pins.
+        if isinstance(self._resource_loader, CatalogSessionResourceLoaderView):
+            await self._resource_loader.close_catalog_preview_tasks()
+        # Cancel producers before waiting for output idle.
         errors: list[BaseException] = []
         side_question_consumer = self._side_question_consumer
         if side_question_consumer is not None:
@@ -1587,18 +1600,74 @@ class AgentProductSession(AgentSessionAdapterMixin):
     async def _ensure_session_graph_prepared(
         self,
     ) -> SessionModelCallCapabilityConsumer:
+        return await self._prepare_candidate_session_graph(
+            require_current_admission=self._require_execution_preparation_available,
+        )
+
+    def require_current_capability_component_activations(self) -> None:
+        """Check original published component uses, independently of callers.
+
+        This validates live activation ownership only. External effect
+        settlement and current Product admission remain separate requirements.
+        """
+
+        consumer = self._model_call_consumer
+        generation = self._published_capability_component_generation
+        components = self._published_capability_components
+
+        def current() -> None:
+            if (
+                consumer is None or self._model_call_consumer is not consumer
+                or self._capability_graph_runtime.is_closed
+                or self._capability_graph_runtime.generation != generation
+                or self._published_capability_component_generation != generation
+                or self._published_capability_components is not components
+            ):
+                raise RuntimeError("Session Capability component publication is unavailable")
+
+        current()
+        for prepared in components:
+            check = getattr(prepared, "require_current_activation", None)
+            if not callable(check) or inspect.iscoroutinefunction(check):
+                raise RuntimeError("Session Capability component current activation is unavailable")
+            self._require_candidate_preparation_admission(check)
+            current()
+
+    def _require_execution_preparation_available(self) -> None:
         if not self.execution_available:
             raise RuntimeError(
                 "failed execution preparation requires Session retirement"
             )
+
+    def _require_candidate_preparation_admission(
+        self, require_current_admission: Callable[[], None],
+    ) -> None:
+        if getattr(self, "_execution_preparation_failed", False):
+            raise RuntimeError("failed execution preparation requires Session retirement")
+        if not callable(require_current_admission) or inspect.iscoroutinefunction(require_current_admission):
+            raise TypeError("candidate preparation requires synchronous current admission")
+        result = cast(Callable[[], object], require_current_admission)()
+        if result is not None:
+            if inspect.iscoroutine(result):
+                result.close()
+            raise TypeError("candidate preparation admission must return None")
+
+    async def _prepare_candidate_session_graph(
+        self, *, require_current_admission: Callable[[], None],
+    ) -> SessionModelCallCapabilityConsumer:
+        """Prepare the original graph under a Product's live admission check.
+
+        This internal owner path does not change Product execution readiness.
+        The Product must retain its invocation gate until input/effect settlement
+        and Runtime publication. Ordinary callers use the execution-ready check.
+        """
+
+        self._require_candidate_preparation_admission(require_current_admission)
         consumer = self._model_call_consumer
         if consumer is not None:
             return consumer
         async with self._model_call_bind_lock:
-            if not self.execution_available:
-                raise RuntimeError(
-                    "failed execution preparation requires Session retirement"
-                )
+            self._require_candidate_preparation_admission(require_current_admission)
             consumer = self._model_call_consumer
             if consumer is not None:
                 return consumer
@@ -1692,11 +1761,13 @@ class AgentProductSession(AgentSessionAdapterMixin):
                         )
                         await self._preflight_worker_preparation(prepared_catalog)
                         for request in worker_requests:
+                            self._require_candidate_preparation_admission(require_current_admission)
                             prepared_components.append(
                                 await request.prepare_component(
                                     self._capability_graph_runtime.generation + 1
                                 )
                             )
+                self._require_candidate_preparation_admission(require_current_admission)
                 await self._capability_graph_binder.bind(
                     self._capability_graph_runtime,
                     self._session_capability_plan,
@@ -1712,6 +1783,7 @@ class AgentProductSession(AgentSessionAdapterMixin):
                         if item is not None
                     ),
                 )
+                self._require_candidate_preparation_admission(require_current_admission)
                 for prepared in prepared_components:
                     prepared.commit_after_graph_publication()
                 consumer = SessionModelCallCapabilityConsumer(
@@ -1807,6 +1879,7 @@ class AgentProductSession(AgentSessionAdapterMixin):
                 else:
                     commit_session_capability_owner_generations(owner_generations)
                     self._commit_session_owner_generation_evidence()
+                self._require_candidate_preparation_admission(require_current_admission)
             except BaseException as error:
                 if self._defer_output_capture_rollback():
                     # Keep the original staged owners for disposal outside the
@@ -1940,6 +2013,10 @@ class AgentProductSession(AgentSessionAdapterMixin):
                     component_start.host.abort_admission_start(component_start)
                 for start in reversed(owner_starts):
                     start.authority_gate.abort(start)
+            # Retain original owners before the remaining candidate cleanup
+            # awaits. A failed final admission check must remain disposable.
+            self._external_consumer_captures = external_captures
+            self._capability_owner_generations = owner_generations
             staged_candidate = self._staged_resource_candidate
             if catalog_bootstrap is not None:
                 if (
@@ -1968,15 +2045,22 @@ class AgentProductSession(AgentSessionAdapterMixin):
             if self._staged_transcript_candidate.ownership_state == "root_owned":
                 # Graph reuse rejected the freshly supplied transcript candidate.
                 await self._staged_transcript_candidate.dispose_root_owned()
+            try:
+                self._require_candidate_preparation_admission(require_current_admission)
+            except BaseException:
+                self._execution_preparation_failed = True
+                raise
             self._workspace_capability_ports.install(
                 tools=workspace_tools,
                 process=workspace_process,
             )
             self._transcript_capability_ports.install(transcript_consumer)
-            self._external_consumer_captures = external_captures
-            self._capability_owner_generations = owner_generations
             self._transcript_consumer = transcript_consumer
             self._side_question_consumer = side_question
+            # Retain the original prepared owners used by this exact graph.
+            # The graph still owns disposal; these references grant no replay.
+            self._published_capability_components = tuple(prepared_components)
+            self._published_capability_component_generation = self._capability_graph_runtime.generation
             self._model_call_consumer = consumer
             return consumer
 

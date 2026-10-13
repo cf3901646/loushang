@@ -233,6 +233,16 @@ class ScopeBoundProcessLauncher:
     def scope_actor_id(self) -> str:
         return self._scope.actor_id
 
+    @property
+    def execution_profile_ceiling(self) -> EffectiveExecutionProfile | None:
+        """Observe the original gateway ceiling without borrowing authority.
+
+        This frozen data does not assert OS containment, current admission or
+        permission to start a process. Original authorization remains required.
+        """
+
+        return self._scope.execution_profile_ceiling
+
     async def start(
         self,
         request: ProcessLaunchRequest,

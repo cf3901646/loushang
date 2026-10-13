@@ -32,6 +32,8 @@ from loushang.coding.cli.package_cutover import main as cutover_cli_main
 from loushang.coding.composition_provenance import (
     CODING_COMPOSITION_HEADER_KEY,
     composition_header_metadata,
+    historical_composition_provenance,
+    historical_startup_composition_record,
     pinned_composition_plan,
     startup_composition_record,
 )
@@ -202,6 +204,35 @@ def test_session_header_pins_canonical_composition_plan(set_id: str) -> None:
         pinned_composition_plan(metadata)
     with pytest.raises(ValueError, match="malformed"):
         pinned_composition_plan({CODING_COMPOSITION_HEADER_KEY: None})
+
+
+def test_historical_composition_provenance_decodes_without_current_registry() -> None:
+    historical = {
+        CODING_COMPOSITION_HEADER_KEY: {
+            "version": 1,
+            "setId": "retired-coding-set",
+            "planFingerprint": "a" * 64,
+        }
+    }
+
+    evidence = historical_composition_provenance(historical)
+    assert evidence is not None
+    assert evidence.set_id == "retired-coding-set"
+    assert evidence.plan_fingerprint == "a" * 64
+    with pytest.raises(ValueError):
+        pinned_composition_plan(historical)
+
+
+def test_historical_composition_provenance_preserves_legacy_and_rejects_bad_shape() -> None:
+    assert historical_composition_provenance({}) is None
+    with pytest.raises(ValueError, match="identity is invalid"):
+        historical_composition_provenance({
+            CODING_COMPOSITION_HEADER_KEY: {
+                "version": 1,
+                "setId": "retired-coding-set",
+                "planFingerprint": "not-a-digest",
+            }
+        })
 
 
 def test_new_session_persists_choice_and_resume_refuses_an_explicit_switch(
@@ -408,6 +439,72 @@ def test_startup_receipt_rejects_malformed_or_extra_evidence(mutation) -> None:
     )
     with pytest.raises(ValueError, match="startup"):
         startup_composition_record([entry])
+
+
+def test_historical_startup_receipt_decodes_without_current_registry() -> None:
+    record = {
+        "version": 1,
+        "setId": "retired-coding-set",
+        "planFingerprint": "b" * 64,
+        "productPolicyRevision": None,
+        "catalogSelectionFingerprint": None,
+        "selectedRevisions": [],
+        "ownerGenerations": [],
+    }
+    entry = SimpleNamespace(
+        payload=ExtensionData(
+            extension_type="coding.composition-startup/v1", data=record
+        )
+    )
+
+    decoded = historical_startup_composition_record([entry])
+    assert decoded == record
+    assert decoded is not record
+    with pytest.raises(ValueError, match="startup set is unknown"):
+        startup_composition_record([entry])
+
+
+def test_current_composition_receipt_observes_owners_without_reading_or_writing_history(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    async def journey():
+        manager = await SessionManager.new_with_composition(
+            session_dir=tmp_path / "sessions", cwd=str(workspace), persist=True,
+            composition_set="coding-minimal", defer_materialization=False,
+        )
+        session = create_agent_session(session_manager=manager, composition_set="coding-minimal")
+        try:
+            await session.prepare_model_call_runtime()
+            expected = startup_composition_record(manager.get_entries())
+            assert expected is not None
+            path = manager.session_file
+            assert path is not None
+            before = path.read_bytes()
+            manager._resume_runtime_publication_pending = True
+
+            def forbidden(*args, **kwargs):
+                pytest.fail("current receipt construction accessed historical or executable state")
+
+            with monkeypatch.context() as patch:
+                patch.setattr(manager, "get_header", forbidden)
+                patch.setattr(manager, "get_entries", forbidden)
+                patch.setattr(manager, "append_custom_entry", forbidden)
+                patch.setattr(session, "prepare_model_call_runtime", forbidden)
+                receipt = session._build_current_coding_composition_receipt()
+                assert receipt == expected
+                receipt["ownerGenerations"].append({"unexpected": "caller mutation"})
+                assert session._build_current_coding_composition_receipt() == expected
+            assert path.read_bytes() == before
+            assert manager.resume_runtime_publication_pending
+            assert not session.execution_available
+        finally:
+            await session.dispose()
+
+    asyncio.run(journey())
 
 
 def test_concurrent_prepare_writes_only_one_startup_receipt(

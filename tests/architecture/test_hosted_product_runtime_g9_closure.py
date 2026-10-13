@@ -536,6 +536,8 @@ def test_g9_3_inventory_disposes_every_supported_surface_and_retains_current() -
         "_posix_local_record.py",
         "_windows_local_record.py",
         "ports.py",
+        # Optional negotiated observation; no execution or retry grant.
+        "resume_model.py",
         "remote_client.py",
         "managed_mux.py",
         "managed_mux_wire.py",

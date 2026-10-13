@@ -17,6 +17,14 @@ PRODUCT_WORKER_BOUNDED_IMPORTS = {
     CODING_ROOT / "package_product_worker_receipt.py": {
         "loushang.harness.worker.product_activation"
     },
+    # Resume binds to the original C5 owner and reads its existing settlement;
+    # neither consumer introduces a second Worker activation authority.
+    CODING_ROOT / "package_product_worker_resume.py": {
+        "loushang.harness.worker.product_activation"
+    },
+    CODING_ROOT / "resume_continuation.py": {
+        "loushang.harness.worker.activation_state_journal"
+    },
     CODING_ROOT / "package_product_worker_activation_state_journal.py": {
         "loushang.harness.worker.activation_state_journal",
     },

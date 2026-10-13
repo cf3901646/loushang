@@ -76,6 +76,11 @@ from .ports import (
     HostedSessionResolutionFailureV1,
     HostedSessionResolverV1,
 )
+from .resume_ports import (
+    ResumeInputLookupQueryV1,
+    ResumeInputLookupResultV1,
+    _lookup_resume_product_input,
+)
 from .session_discovery import SessionDiscoveryOwnerV1, SessionDiscoveryViewV1
 
 if TYPE_CHECKING:
@@ -262,6 +267,16 @@ class _SessionOwner:
         if type(value) is not SessionSnapshotV1 or value.identity != self.identity:
             raise _error(AppErrorCodeV1.SESSION_UNAVAILABLE)
         self._latest_cursor = max(self._latest_cursor, value.cursor)
+        return value
+
+    async def lookup_resume_input(
+        self, query: ResumeInputLookupQueryV1,
+    ) -> ResumeInputLookupResultV1:
+        if not self._accepting:
+            raise _error(AppErrorCodeV1.SESSION_UNAVAILABLE)
+        value = await _lookup_resume_product_input(self._port, query)
+        if not self._accepting:
+            raise _error(AppErrorCodeV1.SESSION_UNAVAILABLE)
         return value
 
     async def start_turn(self, text: str) -> None:

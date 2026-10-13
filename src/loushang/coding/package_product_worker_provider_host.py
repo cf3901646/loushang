@@ -79,6 +79,11 @@ class CodingPreparedWorkerProvider:
         self.facet.retire()
         return await self._release.release_once()
 
+    def require_current_activation(self) -> None:
+        if self.facet.state != "visible" or self._release._released:
+            raise CodingWorkerProviderHostError("coding_worker_provider_activation_not_current")
+        self.facet.require_current_publication()
+
 
 def prepare_coding_worker_provider_binding(
     *,

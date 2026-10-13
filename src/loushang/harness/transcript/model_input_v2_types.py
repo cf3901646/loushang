@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, Protocol, TypeAlias, cast
 
-from loushang.foundation.json import JSONValue, validate_json_value
+from loushang.foundation.json import JSONValue
 from loushang.harness.transcript.model_input_types import (
     canonical_model_input_json,
     freeze_model_input_json,
@@ -89,16 +89,20 @@ class ModelInputJsonValueNode:
                 raise ValueError("Model Input inline JSON byte count changed")
             try:
                 decoded = json.loads(self.inline_json)
-                validate_json_value(
+                # The parser produces only builtin JSON containers/primitives.
+                # Native encoding rejects non-finite values, and encoding the
+                # complete result to UTF-8 rejects surrogates in values/keys.
+                # This also computes the canonical bytes for the checks below.
+                canonical = json.dumps(
                     decoded,
-                    name="Model Input inline JSON",
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
                 )
+                canonical.encode("utf-8")
             except (json.JSONDecodeError, TypeError, ValueError) as exc:
                 raise ValueError("Model Input inline JSON is invalid") from exc
-            canonical = canonical_model_input_json(
-                decoded,
-                name="Model Input inline JSON",
-            )
             if canonical != self.inline_json:
                 raise ValueError("Model Input inline JSON is not canonical")
             if _hash_canonical_json(canonical) != self.value_hash:

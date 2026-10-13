@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any
 
 from loushang.agent import Agent, PrepareModelCallFn
 from loushang.ai import PreparedRequestLimits
 from loushang.ai.api_registry import APIRegistry
+from loushang.ai.options import CallOptions, RetryOptions
+from loushang.ai.types import ImagePart, UserMessage
 from loushang.coding._base_plugin import (
     CodingBasePluginAssembly,
     CodingBasePluginAssemblyError,
@@ -71,6 +75,12 @@ from loushang.coding.resource_runtime import (
     CodingPackageMaterializer as PackageMaterializer,
 )
 from loushang.coding.resource_runtime import summarize_coding_package_root
+from loushang.coding.resume_activation_attempt import (
+    CodingActivationAttemptV1,
+    CodingResumeRecoveryRequired,
+)
+from loushang.coding.resume_activation_attempt_v2 import CodingActivationAttemptV2
+from loushang.coding.resume_binding import coding_user_input_digest
 from loushang.coding.runtime_capability_admission import (
     CodingExtensionDeclarationPreflight,
     resolve_coding_capability_profile,
@@ -134,6 +144,7 @@ from loushang.harness.runtime.registration import (
 )
 from loushang.harness.sandbox import SandboxExecutionRuntime, SandboxStatus
 from loushang.harness.session import AgentProductSession
+from loushang.harness.session.bash import UserBashHookResult, UserBashRequest
 from loushang.harness.session.capability_composition_inputs import (
     SessionCapabilityOwnerGenerationBinding,
     StagedSessionCapabilityOwnerGeneration,
@@ -162,7 +173,7 @@ from loushang.harness.transcript import (
     CompactionPreparation,
     CompactionResult,
 )
-from loushang.harness.workspace.exec import ExecService
+from loushang.harness.workspace.exec import ExecResult, ExecService, ExecUpdateCallback
 from loushang.harness.workspace.exec.capture_lease import ExecCaptureFactory
 
 SessionEventListener = Callable[[AgentSessionEvent], Awaitable[None] | None]
@@ -216,8 +227,72 @@ async def _execute_coding_branch_summary(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _CodingResumeRuntimeCandidate:
+    attempt: CodingActivationAttemptV1
+    consumer: object
+    graph_generation: int
+    receipt_fingerprint: str
+
+
+@dataclass(frozen=True, slots=True)
+class _CodingResumeRuntimePublication:
+    candidate: _CodingResumeRuntimeCandidate
+    input_record_id: str
+    current_admission: Callable[[CodingActivationAttemptV1], None]
+    current_epoch_settlement: Callable[[CodingActivationAttemptV1, Mapping[str, object]], None]
+
+
 class AgentSession(AgentProductSession):
     """Coding content and policy bound to the shared Agent Product session."""
+
+    @property
+    def execution_available(self) -> bool:
+        return (
+            super().execution_available
+            and not self._coding_session_manager.resume_runtime_publication_pending
+        )
+
+    def _require_coding_execution_admission(self) -> None:
+        self._coding_session_manager.require_no_unsettled_resume_activation()
+        publication = getattr(self, "_coding_resume_publication", None)
+        if publication is not None:
+            self._require_current_resume_publication(publication)
+
+    def _is_current_model_call_session(self) -> bool:
+        if not super()._is_current_model_call_session():
+            return False
+        publication = getattr(self, "_coding_resume_publication", None)
+        if publication is not None:
+            self._require_current_resume_publication(publication)
+        return True
+
+    async def _before_bash(self, request: UserBashRequest) -> UserBashHookResult | None:
+        self._require_coding_execution_admission()
+        return await super()._before_bash(request)
+
+    async def compact(self, custom_instructions: str | None = None) -> object:
+        self._require_coding_execution_admission()
+        return await super().compact(custom_instructions)
+
+    async def _exec_command_from_extension(
+        self, command: str, args: Sequence[str] = (), *,
+        cwd: str | Path | None = None,
+        env: Mapping[str, str] | Sequence[tuple[str, str]] | None = None,
+        timeout_seconds: float | None = None, stdin: str | None = None,
+        signal: object | None = None, on_update: ExecUpdateCallback | None = None,
+        preview_max_lines: int = 2000, preview_max_bytes: int = 50 * 1024,
+        artifact_dir: str | None = None, capture_full_output: bool = True,
+        rolling_max_bytes: int = 100 * 1024,
+    ) -> ExecResult:
+        self._require_coding_execution_admission()
+        return await super()._exec_command_from_extension(
+            command, args, cwd=cwd, env=env, timeout_seconds=timeout_seconds,
+            stdin=stdin, signal=signal, on_update=on_update,
+            preview_max_lines=preview_max_lines, preview_max_bytes=preview_max_bytes,
+            artifact_dir=artifact_dir, capture_full_output=capture_full_output,
+            rolling_max_bytes=rolling_max_bytes,
+        )
 
     @staticmethod
     def _reject_peer_worker_tool(tool: object) -> None:
@@ -556,6 +631,14 @@ class AgentSession(AgentProductSession):
         )
         self._coding_composition_plan = coding_composition_plan
         self._coding_composition_record_lock = asyncio.Lock()
+        self._coding_resume_runtime_preparation_lock = asyncio.Lock()
+        self._coding_resume_graph_attempt_id: str | None = None
+        self._coding_resume_candidate: _CodingResumeRuntimeCandidate | None = None
+        self._coding_resume_publication: _CodingResumeRuntimePublication | None = None
+        self._coding_resume_dispatch_claimed = False
+        self._coding_resume_input_commit_claimed = False
+        self._coding_resume_input_preflight_claimed = False
+        self._coding_resume_preflight_input_digest: str | None = None
         self._coding_composition_had_entries_at_construction = bool(
             session_manager.get_entries()
         )
@@ -1059,7 +1142,14 @@ class AgentSession(AgentProductSession):
                 )
         super()._prepare_resource_refresh()
 
-    async def prepare_model_call_runtime(self) -> None:
+    def _require_current_coding_runtime_selection(self) -> None:
+        # The original factory witness retains both Workspace identity and its
+        # native epoch owner. Recheck even when the composition has no selected
+        # Plugin manifest; construction-time admission cannot authorize a later
+        # preparation, publication or model transport after root replacement.
+        witness = self.coding_product_workspace_witness
+        if witness is not None:
+            witness.assert_current()
         product_runtime = self._coding_base_product_runtime_binding
         product_compilation = self._coding_base_product_compilation
         worker_binding = self._coding_product_worker_ordinary_binding
@@ -1164,6 +1254,8 @@ class AgentSession(AgentProductSession):
                         "selection change",
                         code="coding_capability_product_restart_required",
                     ) from exc
+
+    def _claim_current_coding_runtime_owners(self) -> None:
         capability_plugins = self._coding_capability_plugin_assembly
         runtime_claim_id = (
             "coding-session-runtime:"
@@ -1176,6 +1268,17 @@ class AgentSession(AgentProductSession):
             assembly.management_lease.claim_runtime(
                 runtime_claim_id if capability_plugins is not None else None
             )
+
+    async def prepare_model_call_runtime(self) -> None:
+        self._coding_session_manager.require_no_unsettled_resume_activation()
+        publication = self._coding_resume_publication
+        if publication is not None:
+            self._require_current_resume_publication(publication)
+            await super().prepare_model_call_runtime()
+            self._require_current_resume_publication(publication)
+            return
+        self._require_current_coding_runtime_selection()
+        self._claim_current_coding_runtime_owners()
         await super().prepare_model_call_runtime()
         worker_tool_lease = self._coding_worker_turn_tool_lease
         if worker_tool_lease is not None and worker_tool_lease.state == "staged":
@@ -1188,10 +1291,332 @@ class AgentSession(AgentProductSession):
         await self._record_coding_composition_startup()
         self._coding_product_desired_preflight_completed = True
 
+    async def _prepare_resume_runtime_graph(
+        self, *, attempt_id: str,
+        require_current_admission: Callable[[CodingActivationAttemptV1], None],
+    ) -> dict[str, object]:
+        """Prepare current owners for one committed intent, keeping execution fenced.
+
+        The activation coordinator supplies live subject/policy admission. This
+        path returns current observations; it does not commit input, activate
+        the Worker turn Tool or publish Product execution readiness.
+        """
+
+        manager = self._coding_session_manager
+
+        def require_current() -> None:
+            # Graph rollback can retire this same Transcript Writer. Never hold
+            # its operation scope across graph awaits or retirement would wait
+            # for the operation that is itself waiting for retirement.
+            with manager._lifecycle_session.sync_operation_scope():
+                attempt = manager._require_resume_runtime_preparation(attempt_id)
+                self._require_candidate_preparation_admission(lambda: require_current_admission(attempt))
+                self._require_current_coding_runtime_selection()
+
+        async with self._coding_resume_runtime_preparation_lock:
+            self._require_candidate_preparation_admission(require_current)
+            self._coding_resume_graph_attempt_id = attempt_id
+            try:
+                self._claim_current_coding_runtime_owners()
+                await self._prepare_candidate_session_graph(require_current_admission=require_current)
+                self._publish_coding_capability_owner_retirement_receipts()
+                self._publish_coding_base_owner_retirement_receipts()
+                require_current()
+                receipt = self._build_current_coding_composition_receipt()
+                self._coding_resume_candidate = _CodingResumeRuntimeCandidate(
+                    manager._require_resume_runtime_preparation(attempt_id),
+                    self._model_call_consumer, self._capability_graph_runtime.generation,
+                    fingerprint_catalog_value("loushang.coding-resume-candidate/v1", receipt),
+                )
+                return receipt
+            except BaseException:
+                self._execution_preparation_failed = True
+                raise
+            finally:
+                self._coding_resume_graph_attempt_id = None
+
+    async def _prepare_resume_first_user_input(
+        self, text: str, *, attempt_id: str,
+        require_current_admission: Callable[[CodingActivationAttemptV1], None],
+        images: list[ImagePart] | None = None,
+    ) -> UserMessage:
+        """Prepare one current input through original prompt/Resource owners.
+
+        Formal preparation requires the locally committed intent and prepared
+        graph. It does not stage or commit a UserMessage, execute commands,
+        publish a runtime or run a model. The coordinator still owns those steps.
+        """
+
+        from loushang.harness.runtime.turn import TurnInput
+
+        if not isinstance(text, str) or (not text.strip() and not images):
+            raise ValueError("Coding Resume requires nonempty user input")
+        manager = self._coding_session_manager
+        async with self._coding_resume_runtime_preparation_lock:
+            candidate = self._coding_resume_candidate
+            if candidate is None or candidate.attempt.attempt_id != attempt_id:
+                raise CodingResumeRecoveryRequired("runtime.candidate_unverified")
+            if self._coding_resume_input_preflight_claimed or self._coding_resume_input_commit_claimed:
+                raise CodingResumeRecoveryRequired("input.preflight_already_claimed")
+
+            def require_current() -> None:
+                with manager._lifecycle_session.sync_operation_scope():
+                    manager._require_resume_runtime_preparation(attempt_id)
+                    self._require_candidate_preparation_admission(
+                        lambda: require_current_admission(candidate.attempt),
+                    )
+                    self._require_resume_candidate(candidate)
+                    self._require_candidate_preparation_admission(
+                        lambda: require_current_admission(candidate.attempt),
+                    )
+
+            require_current()
+            commands = self._composition.command_controller
+            if (
+                commands.extract_extension_command_invocation(text) is not None
+                or commands.extract_builtin_command_invocation(text) is not None
+            ):
+                raise CodingResumeRecoveryRequired("input.command_requires_separate_admission")
+            self._coding_resume_input_preflight_claimed = True
+            evidence_owner = object()
+            try:
+                message = await self._composition.session_runtime.prompt_controller.prepare_user_message(
+                    TurnInput(text=text, attachments=None if images is None else list(images), source="resume"),
+                    evidence_owner=evidence_owner,
+                )
+                require_current()
+                self._coding_resume_preflight_input_digest = coding_user_input_digest(message)
+                return message
+            except BaseException:
+                self._request_evidence_runtime.discard_owner(evidence_owner)
+                self._execution_preparation_failed = True
+                raise
+
+    async def _commit_resume_first_user_input(
+        self, message: UserMessage, *, attempt_id: str,
+        require_current_admission: Callable[[CodingActivationAttemptV1], None],
+    ) -> str:
+        """Commit the staged fixed input through native Request Evidence owners.
+
+        This initial route is claimed once, including unknown outcomes. The
+        coordinator must use durable lookup for recovery and still settle the
+        current epoch before publication or model dispatch.
+        """
+
+        if not isinstance(message, UserMessage):
+            raise TypeError("Coding Resume input requires a UserMessage")
+        manager = self._coding_session_manager
+        async with self._coding_resume_runtime_preparation_lock:
+            candidate = self._coding_resume_candidate
+            if candidate is None or candidate.attempt.attempt_id != attempt_id:
+                raise CodingResumeRecoveryRequired("runtime.candidate_unverified")
+            if self._coding_resume_input_commit_claimed:
+                raise CodingResumeRecoveryRequired("input.commit_already_claimed")
+            if (
+                self._coding_resume_preflight_input_digest is not None
+                and coding_user_input_digest(message) != self._coding_resume_preflight_input_digest
+            ):
+                raise CodingResumeRecoveryRequired("input.preflight_payload_changed")
+            with manager._lifecycle_session.sync_operation_scope():
+                manager._require_resume_runtime_preparation(attempt_id)
+                manager._require_resume_staged_input(attempt_id, message)
+                self._require_candidate_preparation_admission(
+                    lambda: require_current_admission(candidate.attempt),
+                )
+                self._require_resume_candidate(candidate)
+                self._require_candidate_preparation_admission(
+                    lambda: require_current_admission(candidate.attempt),
+                )
+            self._coding_resume_input_commit_claimed = True
+            try:
+                record_id = await self._composition.session_runtime.agent_event_router.commit_prepared_user_message(message)
+                with manager._lifecycle_session.sync_operation_scope():
+                    manager._require_committed_resume_input(attempt_id, record_id)
+                    self._require_candidate_preparation_admission(
+                        lambda: require_current_admission(candidate.attempt),
+                    )
+                    self._require_resume_candidate(candidate)
+                    self._require_candidate_preparation_admission(
+                        lambda: require_current_admission(candidate.attempt),
+                    )
+                return record_id
+            except BaseException:
+                self._execution_preparation_failed = True
+                raise
+
+    def _require_resume_candidate(
+        self, candidate: _CodingResumeRuntimeCandidate,
+    ) -> dict[str, object]:
+        if (
+            not super().execution_available or self._coding_resume_candidate is not candidate
+            or candidate.consumer is None or self._model_call_consumer is not candidate.consumer
+            or self._capability_graph_runtime.is_closed
+            or self._capability_graph_runtime.generation != candidate.graph_generation
+        ):
+            raise CodingResumeRecoveryRequired("runtime.candidate_changed")
+        self._require_current_coding_runtime_selection()
+        self.require_current_capability_component_activations()
+        receipt = self._build_current_coding_composition_receipt()
+        if fingerprint_catalog_value("loushang.coding-resume-candidate/v1", receipt) != candidate.receipt_fingerprint:
+            raise CodingResumeRecoveryRequired("runtime.candidate_changed")
+        return receipt
+
+    def _require_resume_worker_effect_settlement(
+        self, attempt: CodingActivationAttemptV1
+    ) -> None:
+        """Reconcile Worker startup through this Session's original C5 owner."""
+
+        binding = self._coding_product_worker_ordinary_binding
+        settlement = None if binding is None else binding.resume_settlement
+        worker_owners = (
+            ()
+            if type(attempt) is not CodingActivationAttemptV2
+            else tuple(
+                owner
+                for owner in attempt.effect_owners
+                if owner.owner_id == "harness.worker-activation"
+            )
+        )
+        if not worker_owners and settlement is None:
+            return
+        if (
+            type(attempt) is not CodingActivationAttemptV2
+            or len(worker_owners) != 1
+            or settlement is None
+        ):
+            raise CodingResumeRecoveryRequired("input.effect_owner_set_unsupported")
+        settlement.require_current(attempt)
+
+    def _require_current_resume_publication(
+        self, publication: _CodingResumeRuntimePublication,
+    ) -> None:
+        candidate = publication.candidate
+        with self._coding_session_manager._lifecycle_session.sync_operation_scope():
+            attempt, _ = self._coding_session_manager._require_committed_resume_input(
+                candidate.attempt.attempt_id, publication.input_record_id,
+            )
+            self._require_candidate_preparation_admission(lambda: publication.current_admission(attempt))
+            receipt = self._require_resume_candidate(candidate)
+            self._require_candidate_preparation_admission(lambda: publication.current_admission(attempt))
+            self._require_resume_worker_effect_settlement(attempt)
+            self._require_candidate_preparation_admission(lambda: publication.current_admission(attempt))
+            self._require_candidate_preparation_admission(
+                lambda: publication.current_epoch_settlement(attempt, receipt),
+            )
+            self._require_candidate_preparation_admission(lambda: publication.current_admission(attempt))
+            self._require_resume_candidate(candidate)
+            self._require_candidate_preparation_admission(lambda: publication.current_admission(attempt))
+
+    async def _publish_resume_runtime(
+        self, *, attempt_id: str, input_record_id: str,
+        require_current_admission: Callable[[CodingActivationAttemptV1], None],
+        require_current_epoch_settlement: Callable[[CodingActivationAttemptV1, Mapping[str, object]], None],
+    ) -> None:
+        """Publish a prepared graph after exact durable input and live owner checks.
+
+        The activation coordinator owns current grants and native effect
+        settlement. Historical Binding and these local observations grant none.
+        Publication is in memory; recovery must acquire fresh owner authority.
+        """
+
+        manager = self._coding_session_manager
+        async with self._coding_resume_runtime_preparation_lock:
+            candidate = self._coding_resume_candidate
+            if candidate is None or candidate.attempt.attempt_id != attempt_id:
+                raise CodingResumeRecoveryRequired("runtime.candidate_unverified")
+            if self._coding_resume_publication is not None:
+                raise CodingResumeRecoveryRequired("runtime.already_published")
+            with manager._lifecycle_session.sync_operation_scope():
+                manager._require_committed_resume_input(attempt_id, input_record_id)
+                self._require_candidate_preparation_admission(
+                    lambda: require_current_admission(candidate.attempt),
+                )
+                self._require_resume_candidate(candidate)
+                self._require_candidate_preparation_admission(lambda: require_current_admission(candidate.attempt))
+            await manager._verify_resume_publication_input(attempt_id, input_record_id)
+            publication = _CodingResumeRuntimePublication(
+                candidate, input_record_id, require_current_admission, require_current_epoch_settlement,
+            )
+            self._require_current_resume_publication(publication)
+            with manager._lifecycle_session.sync_operation_scope():
+                try:
+                    worker_tool_lease = self._coding_worker_turn_tool_lease
+                    if worker_tool_lease is not None and worker_tool_lease.state == "staged":
+                        worker_tool_lease.activate()
+                        self._composition.tool_controller.activate_tool_names(
+                            [CODING_WORKER_QUERY_TOOL_NAME],
+                        )
+                    self._require_current_resume_publication(publication)
+                    manager._publish_resume_runtime(attempt_id, input_record_id)
+                    self._coding_resume_publication = publication
+                    self._coding_product_desired_preflight_completed = True
+                except BaseException:
+                    self._execution_preparation_failed = True
+                    raise
+
+    async def _run_published_resume_input(self, *, attempt_id: str, input_record_id: str) -> None:
+        """Consume the published input once through the original Host/Agent loop.
+
+        No prompt submission or user append occurs here. The original Model
+        Input transport barrier remains installed. A claimed run is never
+        automatically replayed after an error, cancellation or unknown outcome.
+        """
+
+        publication = self._coding_resume_publication
+        if (
+            publication is None or publication.candidate.attempt.attempt_id != attempt_id
+            or publication.input_record_id != input_record_id
+        ):
+            raise CodingResumeRecoveryRequired("model.publication_unverified")
+        if self._coding_resume_dispatch_claimed:
+            raise CodingResumeRecoveryRequired("model.dispatch_already_claimed")
+        await self.prepare_model_call_runtime()
+        original_options: CallOptions | None = None
+        claimed_here = False
+
+        def prepare_current_input() -> None:
+            nonlocal original_options, claimed_here
+            self._require_current_resume_publication(publication)
+            if (
+                self._coding_resume_dispatch_claimed or self.session_manager.leaf_id != input_record_id
+                or self.agent.has_queued_messages() or self._composition.retry_runtime.is_retrying
+            ):
+                raise CodingResumeRecoveryRequired("model.input_not_current")
+            self._refresh_agent_messages()
+            if not self.agent.state.messages or getattr(self.agent.state.messages[-1], "role", None) != "user":
+                raise CodingResumeRecoveryRequired("model.input_not_current")
+            original_options = self.agent.call_options
+            self.agent.call_options = replace(original_options, retry=RetryOptions(max_attempts=1))
+            self._coding_resume_dispatch_claimed = claimed_here = True
+
+        try:
+            await self._composition.session_runtime.run_committed_input(prepare_current_input=prepare_current_input)
+            last_assistant = next(
+                (message for message in reversed(self.agent.state.messages)
+                 if getattr(message, "role", None) == "assistant"), None,
+            )
+            if claimed_here and (
+                last_assistant is None or getattr(last_assistant, "stop_reason", None) in {"error", "aborted"}
+            ):
+                self._execution_preparation_failed = True
+        except BaseException:
+            if claimed_here:
+                self._execution_preparation_failed = True
+            raise
+        finally:
+            if original_options is not None:
+                self.agent.call_options = original_options
+
     async def _preflight_worker_preparation(
         self, catalog_snapshot: object | None
     ) -> None:
         if self._coding_product_worker_ordinary_binding is None:
+            return
+        attempt_id = self._coding_resume_graph_attempt_id
+        if attempt_id is not None:
+            self._coding_session_manager._require_resume_runtime_preparation(attempt_id)
+            self._require_current_coding_runtime_selection()
+            self._build_current_coding_composition_receipt(prepared_catalog_snapshot=catalog_snapshot)
             return
         async with self._coding_composition_record_lock:
             await self._record_coding_composition_startup_locked(
@@ -1203,18 +1628,20 @@ class AgentSession(AgentProductSession):
         async with self._coding_composition_record_lock:
             await self._record_coding_composition_startup_locked()
 
-    async def _record_coding_composition_startup_locked(
+    def _build_current_coding_composition_receipt(
         self,
         *,
-        existing_only: bool = False,
         prepared_catalog_snapshot: object | None = None,
-    ) -> None:
+    ) -> dict[str, object]:
+        """Observe current owner selections without interpreting old receipts.
+
+        This detached data is neither effect settlement nor execution authority.
+        Resume admission must validate live owners separately before publishing.
+        """
+
         plan = self._coding_composition_plan
-        if plan is None or not self.session_manager.persist:
-            return
-        pinned = pinned_composition_plan(self.session_manager.get_header().metadata)
-        if pinned != plan:
-            raise ValueError("Coding Session composition startup changed its pinned plan")
+        if plan is None:
+            raise ValueError("Coding current composition receipt requires a selected plan")
         compilation = self._coding_base_product_compilation
         external_compilation = self._coding_external_data_product_compilation
         capability_assembly = self._coding_capability_plugin_assembly
@@ -1365,6 +1792,35 @@ class AgentSession(AgentProductSession):
             if worker_receipt is not None
             else None
         )
+        startup_data: dict[str, object] = {
+            "version": 1,
+            "setId": plan.set_id,
+            "planFingerprint": plan.fingerprint,
+            "productPolicyRevision": policy_revision,
+            "catalogSelectionFingerprint": catalog_fingerprint,
+            "selectedRevisions": revisions,
+            "ownerGenerations": generations,
+        }
+        if worker_selection is not None:
+            startup_data["workerSelection"] = worker_selection
+        return startup_data
+
+    async def _record_coding_composition_startup_locked(
+        self,
+        *,
+        existing_only: bool = False,
+        prepared_catalog_snapshot: object | None = None,
+    ) -> None:
+        plan = self._coding_composition_plan
+        if plan is None or not self.session_manager.persist:
+            return
+        pinned = pinned_composition_plan(self.session_manager.get_header().metadata)
+        if pinned != plan:
+            raise ValueError("Coding Session composition startup changed its pinned plan")
+        startup_data = self._build_current_coding_composition_receipt(
+            prepared_catalog_snapshot=prepared_catalog_snapshot,
+        )
+        worker_selection = startup_data.get("workerSelection")
         existing = startup_composition_record(self.session_manager.get_entries())
         if existing is not None:
             original_worker = existing.get("workerSelection")
@@ -1374,7 +1830,7 @@ class AgentSession(AgentProductSession):
                     for key, value in worker_selection.items()
                     if key != "receiptFingerprint"
                 }
-                if worker_selection is not None
+                if isinstance(worker_selection, dict)
                 else None
             )
             comparable_original_worker = (
@@ -1397,14 +1853,18 @@ class AgentSession(AgentProductSession):
                     ),
                     (
                         "productPolicyRevision",
-                        existing.get("productPolicyRevision") == policy_revision,
+                        existing.get("productPolicyRevision")
+                        == startup_data["productPolicyRevision"],
                     ),
                     (
                         "catalogSelectionFingerprint",
                         existing.get("catalogSelectionFingerprint")
-                        == catalog_fingerprint,
+                        == startup_data["catalogSelectionFingerprint"],
                     ),
-                    ("selectedRevisions", existing.get("selectedRevisions") == revisions),
+                    (
+                        "selectedRevisions",
+                        existing.get("selectedRevisions") == startup_data["selectedRevisions"],
+                    ),
                     ("workerSelection", comparable_original_worker == comparable_worker),
                 )
                 if not matches
@@ -1424,17 +1884,6 @@ class AgentSession(AgentProductSession):
             )
         if existing_only:
             return
-        startup_data: dict[str, object] = {
-            "version": 1,
-            "setId": plan.set_id,
-            "planFingerprint": plan.fingerprint,
-            "productPolicyRevision": policy_revision,
-            "catalogSelectionFingerprint": catalog_fingerprint,
-            "selectedRevisions": revisions,
-            "ownerGenerations": generations,
-        }
-        if worker_selection is not None:
-            startup_data["workerSelection"] = worker_selection
         await self.session_manager.append_custom_entry(
             CODING_COMPOSITION_STARTUP_TYPE,
             startup_data,

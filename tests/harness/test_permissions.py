@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 import pytest
 
+from loushang.harness.config.agent import SettingsManager
 from loushang.harness.permissions import (
     PermissionProfileCeiling,
     PermissionProfilePolicyEvaluator,
@@ -14,6 +15,34 @@ from loushang.harness.policy import (
     PolicyDecision,
     ToolPolicySubject,
 )
+from loushang.harness.policy.engine import PolicyEngine
+from loushang.harness.tools.workspace.factory import workspace_tool_runtime_settings
+
+
+def test_native_policy_fingerprint_reads_current_settings_inputs(tmp_path):
+    settings = SettingsManager(
+        global_settings_path=tmp_path / "user.json", project_settings_path=tmp_path / "project.json",
+    )
+    policy = workspace_tool_runtime_settings(settings).policy_engine
+    assert isinstance(policy, PermissionProfilePolicyEvaluator)
+    initial = policy.configuration_fingerprint()
+    assert len(initial) == 64
+    assert workspace_tool_runtime_settings(settings).policy_engine.configuration_fingerprint() == initial
+    settings.set_permission_profile("full_access", scope="session")
+    assert policy.configuration_fingerprint() != initial
+    settings.set_permission_profile("standard", scope="session")
+    assert policy.configuration_fingerprint() == initial
+    settings.update_settings(scope="session", tools={"blocked_tools": ["bash"]})
+    fresh = workspace_tool_runtime_settings(settings).policy_engine
+    assert fresh.configuration_fingerprint() != initial
+    assert policy.configuration_fingerprint() == fresh.configuration_fingerprint()
+    assert asyncio.run(policy.evaluate(ToolPolicySubject(tool_name="bash", arguments={}))).disposition == "deny"
+
+
+def test_policy_fingerprint_preserves_managed_rule_inputs():
+    first = PolicyEngine(blocked_tools=("bash",))
+    assert first.configuration_fingerprint() == PolicyEngine(blocked_tools=("bash",)).configuration_fingerprint()
+    assert first.configuration_fingerprint() != PolicyEngine(ask_tools=("bash",)).configuration_fingerprint()
 
 
 @dataclass(frozen=True)

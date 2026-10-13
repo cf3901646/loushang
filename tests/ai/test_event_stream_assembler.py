@@ -345,6 +345,69 @@ def test_event_stream_result_waits_for_producer_cleanup_after_terminal() -> None
     asyncio.run(scenario())
 
 
+def test_event_stream_close_waits_for_terminal_producer_cleanup() -> None:
+    async def scenario() -> None:
+        stream = AssistantMessageEventStream()
+        message = _empty_message()
+        cleanup_started = asyncio.Event()
+        cleanup_can_finish = asyncio.Event()
+        cleanup_done = asyncio.Event()
+
+        async def producer() -> None:
+            await stream.emit({"type": "done", "reason": "stop", "message": message})
+            cleanup_started.set()
+            await cleanup_can_finish.wait()
+            cleanup_done.set()
+
+        stream.attach_task(asyncio.create_task(producer()))
+        await asyncio.wait_for(cleanup_started.wait(), timeout=1)
+        close = asyncio.create_task(stream.aclose())
+        await asyncio.sleep(0)
+        assert not close.done()
+
+        cleanup_can_finish.set()
+        await asyncio.wait_for(close, timeout=1)
+        assert cleanup_done.is_set()
+
+    asyncio.run(scenario())
+
+
+def test_event_stream_terminal_cleanup_survives_close_cancellation() -> None:
+    async def scenario() -> None:
+        stream = AssistantMessageEventStream()
+        message = _empty_message()
+        cleanup_started = asyncio.Event()
+        cleanup_can_finish = asyncio.Event()
+        cleanup_cancelled = False
+
+        async def producer() -> None:
+            nonlocal cleanup_cancelled
+            await stream.emit({"type": "done", "reason": "stop", "message": message})
+            cleanup_started.set()
+            try:
+                await cleanup_can_finish.wait()
+            except asyncio.CancelledError:
+                cleanup_cancelled = True
+                raise
+
+        producer_task = asyncio.create_task(producer())
+        stream.attach_task(producer_task)
+        await asyncio.wait_for(cleanup_started.wait(), timeout=1)
+        close = asyncio.create_task(stream.aclose())
+        await asyncio.sleep(0)
+        close.cancel()
+        await asyncio.sleep(0)
+        assert not close.done()
+        assert not cleanup_cancelled
+
+        cleanup_can_finish.set()
+        await close
+        assert producer_task.done()
+        assert not cleanup_cancelled
+
+    asyncio.run(scenario())
+
+
 def test_raw_assembler_preserves_http_error_code() -> None:
     stream = AssistantMessageEventStream()
     assembler = RawAssembler(

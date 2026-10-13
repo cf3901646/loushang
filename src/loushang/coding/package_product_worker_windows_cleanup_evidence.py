@@ -98,6 +98,38 @@ class CodingWindowsWorkerCleanupEvidenceAuthority:
         self._mode = "normal"
 
     @classmethod
+    def for_resume_parent_enrollment(
+        cls,
+        *,
+        receipt_owner: CodingWindowsWorkerProductReceiptOwner,
+        receipt: ProductWorkerActivationReceiptV1,
+    ) -> CodingWindowsWorkerCleanupEvidenceAuthority:
+        """Bind the stable evidence domain before any attempt materialization.
+
+        This authority is used only to open C5 and enroll a Resume parent. It
+        carries no attempt witness and therefore cannot settle an activation.
+        """
+
+        if (
+            os.name != "nt"
+            or type(receipt_owner) is not CodingWindowsWorkerProductReceiptOwner
+            or type(receipt) is not ProductWorkerActivationReceiptV1
+            or receipt_owner.product_owner.policy.product_id != "coding"
+            or receipt.policy.product_id != "coding"
+        ):
+            raise ValueError("Windows C5 Resume enrollment requires one Product")
+        receipt_owner.product_owner.assert_root_gc_authority_current()
+        authority = cls.__new__(cls)
+        authority._product = receipt_owner.product_owner
+        authority._receipt = receipt
+        authority._attempt_id = "resume-parent-enrollment"
+        authority._owner_generation = receipt.policy.owner_selection_generation
+        authority._request_fingerprint = "0" * 64
+        authority._identity_fingerprint = "0" * 64
+        authority._mode = "enrollment"
+        return authority
+
+    @classmethod
     def for_crash_recovery(
         cls,
         *,

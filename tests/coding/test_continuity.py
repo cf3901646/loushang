@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -10,14 +12,16 @@ import pytest
 from loushang.ai.model import Capabilities, Model
 from loushang.ai.types import TextPart, UserMessage
 from loushang.coding.bootstrap import create_agent_session_runtime
+from loushang.coding.composition_provenance import CODING_COMPOSITION_HEADER_KEY
 from loushang.coding.continuity import (
     ConflictedContinuityTargetError,
     StaleContinuityTargetError,
     bind_coding_continuity,
+    resolve_coding_continuity_history_source,
     shutdown_coding_continuity,
 )
 from loushang.harness.artifacts import SessionBlobStore
-from loushang.harness.continuity import ContinuityQuery
+from loushang.harness.continuity import ContinuityQuery, ContinuityTarget
 from loushang.harness.conversation import ConversationHeader, ConversationRecord
 from loushang.harness.transcript import (
     AGENT_MESSAGE_KIND,
@@ -140,6 +144,13 @@ def test_coding_provider_projects_common_summary_preview_and_activation(
     tmp_path: Path,
 ) -> None:
     runtime = _Runtime(tmp_path)
+    planned = []
+
+    async def start_planning(history):
+        planned.append(history)
+        return True
+
+    runtime.start_configured_resume_planning = start_planning
     transcript = tmp_path / "session-1.jsonl"
     write_agent_transcript_export(
         transcript,
@@ -168,6 +179,8 @@ def test_coding_provider_projects_common_summary_preview_and_activation(
         assert ("Messages", "1") in preview.sections[1].rows
         assert ("Storage", "Custom canonical") in preview.sections[1].rows
         assert ("Assets", "None") in preview.sections[1].rows
+        assert ("Resume preparation", "In progress") in preview.sections[1].rows
+        assert len(planned) == 1
 
         lease = await composition.hub.prepare(summary.target)
         assert runtime.prepared == [str(transcript)]
@@ -179,6 +192,129 @@ def test_coding_provider_projects_common_summary_preview_and_activation(
         await shutdown_coding_continuity(runtime)
 
     asyncio.run(scenario())
+
+
+def test_coding_resume_preview_shows_retired_historical_composition_without_activation(
+    tmp_path: Path,
+) -> None:
+    runtime = _Runtime(tmp_path)
+    transcript = tmp_path / "retired.jsonl"
+    header = _header("retired")
+    write_agent_transcript_export(
+        transcript,
+        replace(
+            header,
+            metadata={
+                **header.metadata,
+                CODING_COMPOSITION_HEADER_KEY: {
+                    "version": 1,
+                    "setId": "retired-coding-set",
+                    "planFingerprint": "a" * 64,
+                },
+            },
+        ),
+        [_record("retired-record", "Old conversation")],
+    )
+    runtime.refresh_session_index()
+    before = transcript.read_bytes()
+    composition = bind_coding_continuity(runtime)
+
+    async def scenario() -> None:
+        page = await composition.hub.query(ContinuityQuery(page_size=10))
+        preview = await composition.hub.preview(page.items[0].target)
+        assert ("Historical composition", "retired-coding-set") in preview.sections[1].rows
+        assert ("History identity", "Unverified") in preview.sections[1].rows
+        assert runtime.prepared == []
+        await shutdown_coding_continuity(runtime)
+
+    asyncio.run(scenario())
+    assert transcript.read_bytes() == before
+
+
+def test_coding_resume_preview_displays_only_selected_readonly_history_path(
+    tmp_path: Path,
+) -> None:
+    runtime = _Runtime(tmp_path)
+    transcript = tmp_path / "branched.jsonl"
+    write_agent_transcript_export(
+        transcript,
+        _header("branched"),
+        [
+            _record("root", "Root user message"),
+            _record("left", "Left branch only", parent_id="root"),
+            _record("right", "Right branch selected", parent_id="root"),
+        ],
+    )
+    runtime.refresh_session_index()
+    before = transcript.read_bytes()
+    composition = bind_coding_continuity(runtime)
+
+    async def scenario() -> None:
+        page = await composition.hub.query(ContinuityQuery(page_size=10))
+        preview = await composition.hub.preview(page.items[0].target)
+        text = preview.sections[0].text or ""
+        assert "Root user message" in text
+        assert "Right branch selected" in text
+        assert "Left branch only" not in text
+        assert runtime.prepared == []
+        await shutdown_coding_continuity(runtime)
+
+    asyncio.run(scenario())
+    assert transcript.read_bytes() == before
+
+
+def test_coding_resume_preview_keeps_large_history_on_bounded_fallback(
+    tmp_path: Path,
+) -> None:
+    runtime = _Runtime(tmp_path)
+    transcript = tmp_path / "large.jsonl"
+    write_agent_transcript_export(
+        transcript,
+        _header("large"),
+        [_record("large-record", "x" * (1024 * 1024))],
+    )
+    runtime.refresh_session_index()
+    before = transcript.read_bytes()
+    composition = bind_coding_continuity(runtime)
+
+    async def scenario() -> None:
+        page = await composition.hub.query(ContinuityQuery(page_size=10))
+        preview = await composition.hub.preview(page.items[0].target)
+        assert ("Recent history", "Bounded preview unavailable") in preview.sections[1].rows
+        assert runtime.prepared == []
+        await shutdown_coding_continuity(runtime)
+
+    asyncio.run(scenario())
+    assert transcript.read_bytes() == before
+
+
+def test_coding_resume_preview_shows_unverified_recent_tail_for_large_history(
+    tmp_path: Path,
+) -> None:
+    runtime = _Runtime(tmp_path)
+    transcript = tmp_path / "large-recent.jsonl"
+    write_agent_transcript_export(
+        transcript,
+        _header("large-recent"),
+        [
+            _record("large-root", "x" * (1024 * 1024)),
+            _record("recent", "Latest readable message", parent_id="large-root"),
+        ],
+    )
+    runtime.refresh_session_index()
+    before = transcript.read_bytes()
+    composition = bind_coding_continuity(runtime)
+
+    async def scenario() -> None:
+        page = await composition.hub.query(ContinuityQuery(page_size=10))
+        preview = await composition.hub.preview(page.items[0].target)
+        assert ("Recent history", "Unverified tail preview") in preview.sections[1].rows
+        assert "Latest readable message" in (preview.sections[0].text or "")
+        assert runtime.prepared == []
+        await shutdown_coding_continuity(runtime)
+
+    asyncio.run(scenario())
+    assert transcript.read_bytes() == before
 
 
 def test_coding_resume_discovery_defaults_to_current_cwd(tmp_path: Path) -> None:
@@ -840,6 +976,38 @@ def test_coding_prepare_revalidates_selected_transcript_revision(
     asyncio.run(scenario())
 
 
+def test_coding_history_source_resolution_does_not_prepare_session(
+    tmp_path: Path,
+) -> None:
+    runtime = _Runtime(tmp_path)
+    transcript = tmp_path / "session-1.jsonl"
+    write_agent_transcript_export(
+        transcript,
+        _header("session-1"),
+        [_record("record-1", "History first")],
+    )
+    runtime.refresh_session_index()
+    composition = bind_coding_continuity(runtime)
+
+    async def scenario() -> None:
+        page = await composition.hub.query(ContinuityQuery(page_size=10))
+        reference = await resolve_coding_continuity_history_source(
+            composition,
+            page.items[0].target,
+        )
+        assert reference == "session-1"
+        assert runtime.prepared == []
+        assert runtime.restored == []
+        with pytest.raises(RuntimeError, match="native Coding session"):
+            await resolve_coding_continuity_history_source(
+                composition,
+                ContinuityTarget("cloud.sessions", "remote-1", "r1"),
+            )
+        await shutdown_coding_continuity(runtime)
+
+    asyncio.run(scenario())
+
+
 def test_coding_provider_uses_bounded_preview_for_a_stale_index(
     tmp_path: Path,
 ) -> None:
@@ -932,6 +1100,10 @@ def test_coding_prepare_revalidates_bounded_catalog_file_identity(
         with transcript.open("a", encoding="utf-8") as handle:
             handle.write("\n")
 
+        preview = await composition.hub.preview(page.items[0].target)
+        assert preview.stale is True
+        assert preview.sections[0].text == "History changed; refresh"
+        assert runtime.prepared == []
         with pytest.raises(StaleContinuityTargetError, match="changed"):
             await composition.hub.prepare(page.items[0].target)
         assert runtime.prepared == []
@@ -939,6 +1111,115 @@ def test_coding_prepare_revalidates_bounded_catalog_file_identity(
         await shutdown_coding_continuity(runtime)
 
     asyncio.run(scenario())
+
+
+def test_coding_preview_rejects_a_snapshot_from_another_source_revision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from loushang.coding import continuity as continuity_module
+
+    runtime = _Runtime(tmp_path)
+    write_agent_transcript_export(
+        tmp_path / "session-1.jsonl",
+        _header("session-1"),
+        [_record("record-1", "Current history")],
+    )
+    composition = bind_coding_continuity(runtime)
+    original = continuity_module.read_coding_resume_snapshot
+
+    def stale_snapshot(*args, **kwargs):
+        return replace(
+            original(*args, **kwargs),
+            source_fingerprint="stat-v1:1:2:3:4:5",
+        )
+
+    monkeypatch.setattr(
+        continuity_module, "read_coding_resume_snapshot", stale_snapshot,
+    )
+
+    async def scenario() -> None:
+        page = await composition.hub.query(ContinuityQuery(page_size=10))
+        preview = await composition.hub.preview(page.items[0].target)
+        assert preview.stale is True
+        assert preview.sections[0].text == "History changed; refresh"
+        assert runtime.prepared == []
+        await shutdown_coding_continuity(runtime)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("reader_name", [
+    "read_coding_resume_header", "read_coding_resume_snapshot",
+])
+def test_coding_preview_cancellation_keeps_native_read_owned_until_shutdown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reader_name: str,
+) -> None:
+    from loushang.coding import continuity as continuity_module
+    from loushang.harness.continuity import StaleContinuityReferenceError
+
+    runtime = _Runtime(tmp_path)
+    transcript = tmp_path / "session-1.jsonl"
+    write_agent_transcript_export(
+        transcript, _header("session-1"), [_record("record-1", "History")],
+    )
+    before = transcript.read_bytes()
+    composition = bind_coding_continuity(runtime)
+    entered = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    calls = 0
+    original = getattr(continuity_module, reader_name)
+
+    def blocked_read(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        entered.set()
+        try:
+            if not release.wait(5):
+                raise RuntimeError("test native read was not released")
+            return original(*args, **kwargs)
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(continuity_module, reader_name, blocked_read)
+
+    async def scenario() -> None:
+        reference = composition.hub.reference()
+        page = await reference.query(ContinuityQuery(page_size=10))
+        preview = asyncio.create_task(reference.preview(page.items[0].target))
+        close = None
+        try:
+            assert await asyncio.to_thread(entered.wait, 5)
+            preview.cancel()
+            # The actual read is deliberately blocked: cancellation cannot
+            # retire its owning reference before native completion.
+            done, _ = await asyncio.wait({preview}, timeout=0.05)
+            assert not done
+            preview.cancel()  # A second cancellation must retain ownership.
+            close = asyncio.create_task(shutdown_coding_continuity(runtime))
+            async with asyncio.timeout(5):
+                while not composition.hub.closing:
+                    await asyncio.sleep(0)
+            done, _ = await asyncio.wait({close}, timeout=0.05)
+            assert not done
+            with pytest.raises(StaleContinuityReferenceError):
+                await reference.preview(page.items[0].target)
+            assert calls == 1
+            assert not finished.is_set()
+        finally:
+            release.set()
+            await asyncio.gather(preview, return_exceptions=True)
+            if close is not None:
+                await close
+            else:
+                await shutdown_coding_continuity(runtime)
+        assert preview.cancelled()
+        assert finished.is_set()
+        assert calls == 1
+        assert runtime.prepared == []
+
+    asyncio.run(scenario())
+    assert transcript.read_bytes() == before
 
 
 def test_coding_prepare_aborts_when_bounded_file_changes_during_prepare(

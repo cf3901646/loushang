@@ -19,6 +19,7 @@ from loushang.harness.package_product.product_local_wheel_runtime import (
 from loushang.harness.plugin_management.package_product import (
     PackageProductRuntimeReadError,
 )
+from loushang.harness.resume_effects import ResumeEffectParentContextV1
 from loushang.harness.runtime._owned_tasks import _await_cancellation_atomic
 from loushang.harness.session.capability_composition_inputs import (
     SessionCapabilityCompositionInputs,
@@ -60,6 +61,11 @@ from .package_product_worker_query_consumer import (
     CODING_WORKER_QUERY_OWNER_POLICY_REVISION,
     bind_coding_worker_query_facet_owner,
     coding_worker_query_owner_authority,
+)
+from .package_product_worker_resume import (
+    CodingWorkerResumeSettlementBinding,
+    enroll_coding_worker_resume_parent,
+    seal_coding_worker_resume_parent,
 )
 from .package_product_worker_session_composition import (
     prepare_coding_product_worker_session_inputs,
@@ -143,6 +149,8 @@ class CodingWindowsProductWorkerPendingHost:
     binding: CapabilityWorkerBindingV1
     base_policy_binding: CodingWorkerBaseCompositionPolicyBinding
     clock: Callable[[], int]
+    resume_parent_context: ResumeEffectParentContextV1 | None = None
+    resume_settlement: CodingWorkerResumeSettlementBinding | None = None
 
     async def prepare(self, graph_generation: int) -> CodingPreparedWorkerProvider:
         """Own the native attempt from payload creation through graph disposal."""
@@ -234,6 +242,38 @@ class CodingWindowsProductWorkerPendingHost:
             await _await_cancellation_atomic(task)
 
         try:
+            if self.resume_parent_context is not None:
+                enrollment_evidence = CodingWindowsWorkerCleanupEvidenceAuthority.for_resume_parent_enrollment(
+                    receipt_owner=self.receipt_owner,
+                    receipt=self.receipt,
+                )
+                enrollment_coordinator = ProductWorkerActivationCoordinator(
+                    authority=self.receipt_owner,
+                    evidence_authority=enrollment_evidence,
+                    trusted_evidence_authority_id=enrollment_evidence.authority_id,
+                    trusted_evidence_authority_fingerprint=(
+                        enrollment_evidence.authority_fingerprint
+                    ),
+                    state_store=(
+                        open_coding_windows_product_worker_activation_state_store(
+                            self.receipt_owner.product_owner
+                        )
+                    ),
+                )
+                if (
+                    enrollment_coordinator.evaluate(
+                        self.receipt.policy, self.receipt
+                    ).get("reason")
+                    != "admitted"
+                ):
+                    raise CodingWindowsWorkerPendingHostError(
+                        "coding_worker_pending_c5_admission_refused"
+                    )
+                enroll_coding_worker_resume_parent(
+                    coordinator=enrollment_coordinator,
+                    receipt=self.receipt,
+                    context=self.resume_parent_context,
+                )
             payload = materialize_coding_windows_product_worker_payload(
                 receipt_owner=self.receipt_owner,
                 receipt=self.receipt,
@@ -310,6 +350,8 @@ class CodingWindowsProductWorkerPendingHost:
                 raise CodingWindowsWorkerPendingHostError(
                     "coding_worker_pending_c5_admission_refused"
                 )
+            if self.resume_settlement is not None:
+                self.resume_settlement.bind(coordinator)
             host = _create_windows_lpac_product_worker_session_host()
             stack.push_async_callback(host.close)
             supervisor = WorkerSupervisor(
@@ -352,6 +394,7 @@ class CodingWindowsProductWorkerPendingHost:
                 host_identity=cleanup_evidence.host_identity,
                 boot_identity=cleanup_evidence.boot_identity,
                 cleanup_contract_version=profile.cleanup_contract_version,
+                parent_context=self.resume_parent_context,
             ) as admission:
                 admission.begin_effect()
                 effect_started = True
@@ -410,6 +453,10 @@ class CodingWindowsProductWorkerPendingHost:
                     ),
                     native_profile_id=profile.native_profile_id,
                 )
+                seal_coding_worker_resume_parent(
+                    coordinator=coordinator,
+                    context=self.resume_parent_context,
+                )
 
             [resolved] = self.resolved_providers.entries
             return prepare_coding_worker_provider_binding(
@@ -447,12 +494,32 @@ def prepare_coding_windows_product_worker_pending_session_inputs(
     evaluated_at: int,
     clock: Callable[[], int],
     base_policy_binding: CodingWorkerBaseCompositionPolicyBinding,
+    resume_parent_context: ResumeEffectParentContextV1 | None = None,
+    resume_settlement: CodingWorkerResumeSettlementBinding | None = None,
 ) -> SessionCapabilityCompositionInputs:
     """Compile one Windows Worker whose effects begin during graph prepare."""
 
     if (
         type(receipt_owner) is not CodingWindowsWorkerProductReceiptOwner
         or type(pending_launch) is not CodingWindowsProductWorkerPendingLaunchV1
+        or (
+            resume_parent_context is not None
+            and type(resume_parent_context) is not ResumeEffectParentContextV1
+        )
+        or ((resume_parent_context is None) != (resume_settlement is None))
+        or (
+            resume_settlement is not None
+            and (
+                not isinstance(
+                    resume_settlement, CodingWorkerResumeSettlementBinding
+                )
+                or resume_parent_context is None
+                or not resume_settlement.matches(
+                    receipt=receipt,
+                    context=resume_parent_context,
+                )
+            )
+        )
         or pending_launch.receipt_fingerprint != receipt.fingerprint
         or not isinstance(base_policy_binding, CodingWorkerBaseCompositionPolicyBinding)
         or base_policy_binding.receipt_owner is not receipt_owner
@@ -500,6 +567,8 @@ def prepare_coding_windows_product_worker_pending_session_inputs(
         binding=binding,
         base_policy_binding=base_policy_binding,
         clock=clock,
+        resume_parent_context=resume_parent_context,
+        resume_settlement=resume_settlement,
     )
     return prepare_coding_product_worker_session_inputs(
         resolved_providers=resolved_providers,

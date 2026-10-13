@@ -24,6 +24,7 @@ from loushang.harness.package_product.product_runtime import (
 from loushang.harness.plugin_management.current_preview import (
     plugin_package_revision_fingerprint,
 )
+from loushang.harness.resume_effects import ResumeEffectParentContextV1
 from loushang.harness.transcript.directory import AgentTranscriptDirectoryRuntime
 
 from ._base_product_composition import CodingBaseProductSessionAssembly
@@ -47,6 +48,7 @@ from .package_product_worker_receipt import (
     CodingWorkerProductReceiptOwner,
     open_coding_product_selected_worker_receipt_owner,
 )
+from .package_product_worker_resume import CodingWorkerResumeSettlementBinding
 from .package_product_worker_session_composition import (
     CodingProductWorkerOrdinarySessionBinding,
     compose_coding_product_worker_with_ordinary_session,
@@ -74,6 +76,7 @@ def prepare_coding_product_worker_ordinary_binding(
     plugin_id: str,
     ordinary: CodingBaseProductSessionAssembly,
     clock: Callable[[], int],
+    resume_parent_context: ResumeEffectParentContextV1 | None = None,
 ) -> CodingProductWorkerOrdinarySessionBinding:
     """Join exact Product, transcript, base graph, and Worker authorities.
 
@@ -94,6 +97,10 @@ def prepare_coding_product_worker_ordinary_binding(
         or not plugin_id
         or plugin_id != plugin_id.strip()
         or not callable(clock)
+        or (
+            resume_parent_context is not None
+            and type(resume_parent_context) is not ResumeEffectParentContextV1
+        )
     ):
         raise TypeError("Coding Worker ordinary Product inputs are invalid")
     if not session_manager.is_persisted():
@@ -144,6 +151,14 @@ def prepare_coding_product_worker_ordinary_binding(
         raise CodingWorkerOrdinaryBootstrapError(
             "coding_worker_ordinary_candidate_not_allowed"
         )
+    resume_settlement = (
+        CodingWorkerResumeSettlementBinding(
+            receipt=receipt,
+            context=resume_parent_context,
+        )
+        if resume_parent_context is not None
+        else None
+    )
     selected_worker = runtime.capture_selected_plugin_manifest_for(
         plugin_id, max_files=16, max_total_bytes=16 * 1024 * 1024
     )
@@ -242,6 +257,8 @@ def prepare_coding_product_worker_ordinary_binding(
             evaluated_at=evaluated_at,
             clock=clock,
             base_policy_binding=base_policy,
+            resume_parent_context=resume_parent_context,
+            resume_settlement=resume_settlement,
         )
     else:
         assert type(receipt_owner) is CodingWorkerProductReceiptOwner
@@ -259,6 +276,8 @@ def prepare_coding_product_worker_ordinary_binding(
             evaluated_at=evaluated_at,
             clock=clock,
             base_policy_binding=base_policy,
+            resume_parent_context=resume_parent_context,
+            resume_settlement=resume_settlement,
         )
     definitions = {
         item.capability_id: item
@@ -281,6 +300,7 @@ def prepare_coding_product_worker_ordinary_binding(
         workspace_binding=ordinary.workspace_binding,
         selected_worker_manifest=selected_worker,
         activation_receipt=receipt,
+        resume_settlement=resume_settlement,
     )
 
 

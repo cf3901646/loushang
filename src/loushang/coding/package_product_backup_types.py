@@ -73,12 +73,17 @@ def ensure_coding_product_backup_types(
     ),
     gc_gate: PluginPackageGcReservationJournal,
     before_load: Callable[[], None] | None = None,
+    require_current_admission: Callable[[], None] | None = None,
 ) -> None:
     """Publish the closed backup owner set before any Worker history exists."""
 
     if not isinstance(gc_gate, PluginPackageGcReservationJournal):
         raise TypeError("Coding backup topology requires the Product GC gate")
+    from .package_product_runtime import _require_current_coding_product_admission
+
+    _require_current_coding_product_admission(require_current_admission)
     with gc_gate.guard(before_load=before_load, require_write=True):
+        _require_current_coding_product_admission(require_current_admission)
         _read_topology(
             state_root=state_root,
             scope_id=scope_id,
