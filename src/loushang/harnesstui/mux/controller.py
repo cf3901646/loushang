@@ -147,17 +147,17 @@ class HostedMuxControllerV1:
             window.member_id,
             selected,
         )
-        use_execution = False
+        execution_client: ExecutionClientV1 | None = None
         try:
             await self._client.start_turn(request)
         except AppServiceError as error:
+            execution_client = self._execution_client
             if (
                 error.code is not AppErrorCodeV1.OPERATION_UNAVAILABLE
-                or self._execution_client is None
+                or execution_client is None
             ):
                 raise
-            use_execution = True
-        if use_execution:
+        if execution_client is not None:
             # Keep the v1 validation bound while changing only delivery semantics.
             key = (window.identity, selected)
             recovery = self._submissions.get(key)
@@ -169,7 +169,7 @@ class HostedMuxControllerV1:
             if recovery is None:
                 recovery = SubmissionRecoveryV1(
                     PendingSubmissionV1(
-                        self._execution_client.service_instance_id,
+                        execution_client.service_instance_id,
                         window.identity,
                         token_hex(16),
                         selected,
@@ -177,7 +177,7 @@ class HostedMuxControllerV1:
                 )
                 self._submissions[key] = recovery
             await recovery.submit(
-                self._execution_client,
+                execution_client,
                 SessionSnapshotRequestV1(
                     state.attachment_id,
                     state.controller_generation,
