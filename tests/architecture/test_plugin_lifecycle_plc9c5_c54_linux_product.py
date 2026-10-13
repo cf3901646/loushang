@@ -30,6 +30,9 @@ PRODUCT_WORKER_BOUNDED_IMPORTS = {
     CODING_ROOT / "package_product_worker_windows_activation_state_journal.py": {
         "loushang.harness.worker.activation_state_journal",
     },
+    CODING_ROOT / "package_product_worker_windows_c5_base.py": {
+        "loushang.harness.worker.activation_state_journal",
+    },
     CODING_ROOT / "package_product_worker_windows_cleanup_evidence.py": {
         "loushang.harness.worker._native_profile_bridge",
         "loushang.harness.worker.contracts",
@@ -78,6 +81,9 @@ PRODUCT_WORKER_BOUNDED_IMPORTS = {
         "loushang.harness.worker.journal",
     },
     CODING_ROOT / "package_product_worker_supervisor_base_v2.py": {
+        "loushang.harness.worker.journal",
+    },
+    CODING_ROOT / "package_product_worker_windows_supervisor_base.py": {
         "loushang.harness.worker.journal",
     },
     CODING_ROOT / "package_product_worker_start_gate_recovery.py": {
@@ -168,6 +174,7 @@ PRODUCT_WORKER_BOUNDED_IMPORTS = {
         "loushang.harness.worker.product_activation",
     },
     CODING_ROOT / "package_product_worker_windows_recovery_inventory.py": {
+        "loushang.harness.worker.activation_state_journal",
         "loushang.harness.worker.journal",
     },
     CODING_ROOT / "package_product_worker_windows_supervisor_journal.py": {

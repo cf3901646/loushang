@@ -3888,6 +3888,9 @@ def _retain_windows_c5_test_attempt(
 def _assert_windows_worker_retired_history_allows_gc(
     tmp_path: Path, *, partial_attempt_id: str | None
 ) -> None:
+    from loushang.coding.package_product_worker_windows_c5_base import (
+        CodingWindowsWorkerC5SemanticBaseV1,
+    )
     from loushang.coding.package_product_worker_windows_checkpoint import (
         publish_coding_windows_worker_history_checkpoint,
         read_coding_windows_worker_history_checkpoint,
@@ -3917,6 +3920,9 @@ def _assert_windows_worker_retired_history_allows_gc(
         read_coding_windows_worker_history_semantics,
         review_coding_windows_worker_settled_history_sources,
     )
+    from loushang.coding.package_product_worker_windows_launch_intent_base import (
+        CodingWindowsWorkerLaunchIntentSemanticBaseV1,
+    )
     from loushang.coding.package_product_worker_windows_package_references import (
         review_coding_windows_worker_package_references,
     )
@@ -3927,6 +3933,9 @@ def _assert_windows_worker_retired_history_allows_gc(
     )
     from loushang.coding.package_product_worker_windows_provisioning_base import (
         CodingWindowsWorkerNativeProvisioningSemanticBaseV1,
+    )
+    from loushang.coding.package_product_worker_windows_supervisor_base import (
+        CodingWindowsWorkerSupervisorSemanticBaseV1,
     )
 
     workspace = tmp_path / "workspace"
@@ -4152,8 +4161,36 @@ def _assert_windows_worker_retired_history_allows_gc(
             for item in semantic.offline_recovery.native_provisioning_attempts
         )
         assert native_base.attempt_ids
+        prepared_join = CodingWindowsWorkerHistoryPreparationV1.create(semantic)
+        c5_base = CodingWindowsWorkerC5SemanticBaseV1.from_semantic_read(
+            prepared_join, semantic
+        )
+        supervisor_base = CodingWindowsWorkerSupervisorSemanticBaseV1.from_semantic_read(
+            prepared_join, semantic
+        )
+        effect_ids = tuple(
+            sorted(
+                item.attempt_id
+                for item in semantic.offline_recovery.attempts
+                if item.launch_request_fingerprint is not None
+                or item.native_phase is not None
+                or item.supervisor_phase is not None
+            )
+        )
+        assert effect_ids == native_base.attempt_ids
+        assert effect_ids == c5_base.retired_attempt_ids
+        assert set(supervisor_base.retired_attempt_ids).issubset(effect_ids)
+        assert set(effect_ids).issubset(
+            item.attempt_id for item in semantic.offline_recovery.attempts
+        )
+        launch_base = CodingWindowsWorkerLaunchIntentSemanticBaseV1.from_semantic_read(
+            prepared_join, semantic
+        )
+        assert set(supervisor_base.retired_attempt_ids).issubset(
+            launch_base.intent_attempt_ids
+        )
         joined = CodingWindowsWorkerHistorySemanticJoinV1.from_semantic_read(
-            CodingWindowsWorkerHistoryPreparationV1.create(semantic), semantic
+            prepared_join, semantic
         )
         assert joined.native_provisioning == native_base
         assert joined.launched_attempt_ids
