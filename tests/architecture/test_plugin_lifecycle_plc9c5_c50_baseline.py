@@ -911,6 +911,7 @@ def test_c50_keeps_private_profiles_confined_and_product_layers_clean() -> None:
         CODING_ROOT / "package_product_worker_native_release.py",
         CODING_ROOT / "package_product_worker_payload.py",
         CODING_ROOT / "package_product_worker_policy.py",
+        CODING_ROOT / "package_product_worker_resume.py",
         CODING_ROOT / "package_product_worker_provider.py",
         CODING_ROOT / "package_product_worker_provider_host.py",
         CODING_ROOT / "package_product_worker_query_consumer.py",
@@ -940,6 +941,7 @@ def test_c50_keeps_private_profiles_confined_and_product_layers_clean() -> None:
         CODING_ROOT / "package_product_worker_windows_receipt_journal.py",
         CODING_ROOT / "package_product_worker_windows_recovery_inventory.py",
         CODING_ROOT / "package_product_worker_windows_supervisor_journal.py",
+        CODING_ROOT / "resume_continuation.py",
     }
     hosting_consumers = {
         path
