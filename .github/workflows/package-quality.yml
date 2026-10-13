@@ -44,6 +44,7 @@ jobs:
       - run: mkdir -p .artifacts
       - name: Offline package regression
         env:
+          CI_PLAN: ${{ inputs.plan }}
           PYTEST_ADDOPTS: >-
             --junitxml=.artifacts/coding-${{ matrix.shard }}.xml --durations=20
         run: >-
