@@ -129,11 +129,16 @@ class CodingWindowsWorkerDesiredReferenceReviewV1:
         desired_snapshot = semantic.desired_snapshot
         desired_transitions = semantic.desired_transitions
         if (
+            desired_snapshot is None
+            or desired_transitions is None
+            or semantic.desired_history_digest is None
+        ):
+            raise ValueError("Windows Worker Desired history changed")
+        if (
             type(desired_snapshot) is not PluginDesiredStateSnapshotV1
             or type(desired_transitions) is not tuple
             or semantic.desired_inventory_revision
             != desired_snapshot.inventory_revision
-            or semantic.desired_history_digest is None
         ):
             raise ValueError("Windows Worker Desired history changed")
         scope_id = semantic.source_snapshot.scope_id
