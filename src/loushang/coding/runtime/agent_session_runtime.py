@@ -47,6 +47,7 @@ from ..resume_history import (
     read_coding_resume_recent_page,
     read_coding_resume_snapshot,
 )
+from .resume_planning import ResumePlanningSlot
 
 _ResumePreview = TypeVar("_ResumePreview", CodingResumeHistoryPreview, CodingResumeRecentPage)
 
@@ -55,8 +56,10 @@ if TYPE_CHECKING:
     from loushang.ai.types import ImagePart
     from loushang.harness.approval import InteractiveApprovalResolver
     from loushang.harness.policy import PolicyEvaluator
+    from loushang.harness.resources.loader import ResourceLoader
 
     from ..bootstrap import BootstrapServices
+    from ..composition_sets import CodingCompositionSetPlan
     from ..resume_activation_attempt import CodingActivationAttemptV1
     from ..resume_activation_plan import (
         ActivationOwnerInputRefV1,
@@ -171,6 +174,7 @@ class AgentSessionRuntime(
         self._resume_history_reads: set[asyncio.Task[CodingResumeHistoryPreview | CodingResumeRecentPage]] = set()
         self._resume_history_loop: asyncio.AbstractEventLoop | None = None
         self._resume_history_closed = False
+        self._resume_planning = ResumePlanningSlot()
         self._resume_activation_tasks: set[asyncio.Task[CodingRuntimePreparedResume]] = set()
         self._resume_delivery_tasks: dict[
             PreparedSessionLifecycleOperation[AgentSession, str],
@@ -527,6 +531,32 @@ class AgentSessionRuntime(
             await debt.retry_cleanup()
             self._resume_cleanup_debts.remove(debt)
 
+    async def start_resume_planning(
+        self, history: CodingResumeHistoryPreview, current_composition: CodingCompositionSetPlan,
+        *, workspace_root: Path, resource_loader: ResourceLoader, subject_digest: str,
+        policy_digest: str, max_work_units: int, time_budget_seconds: float,
+    ) -> None:
+        """Plan during history display without selecting a writable Session."""
+
+        if self._resume_history_closed or self.current_session is not None:
+            raise RuntimeError("coding_resume_planning_unavailable")
+        await self._resume_planning.start(
+            history, current_composition, workspace_root=workspace_root,
+            resource_loader=resource_loader, subject_digest=subject_digest,
+            policy_digest=policy_digest, max_work_units=max_work_units,
+            time_budget_seconds=time_budget_seconds,
+        )
+
+    def current_resume_plan(
+        self, history: CodingResumeHistoryPreview, *,
+        current_owner_inputs: Sequence[ActivationOwnerInputRefV1],
+    ) -> SessionActivationPlanV1 | None:
+        """Observe a completed pure Plan with fresh original-owner inputs."""
+
+        if self._resume_history_closed or self.current_session is not None:
+            return None
+        return self._resume_planning.current(history, current_owner_inputs=current_owner_inputs)
+
     async def preview_resume_history(
         self, session_id: str | Path, *, max_bytes: int = 1024 * 1024,
         selected_leaf_id: str | None = None,
@@ -657,6 +687,13 @@ class AgentSessionRuntime(
             # The original lifecycle/construction owner retains failed Session
             # retirement. Its dependent factories must wait for that retry.
             raise failure
+        try:
+            await self._resume_planning.close()
+        except BaseException as error:
+            if failure is None:
+                failure = error
+            else:
+                failure.add_note(f"Resume planning cleanup retained: {type(error).__name__}")
         try:
             await self._drain_resume_history_reads()
         except BaseException as error:

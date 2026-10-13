@@ -1131,6 +1131,35 @@ Writer and compute complete trusted participation before Definition evaluation.
 previously released unfenced writers are still unsupported on upgraded native
 state; these constructor tests are not installed-version rollback evidence.
 
+### Runtime background planning ownership and cleanup
+
+AgentSessionRuntime now exposes a bounded background planning slot over the
+original ResourceLoader. Identical concurrent requests share one Product
+waiter; changed source/subject/policy observations cancel and join the old
+waiter before replacement. Successful completion retains one immutable,
+data-only Plan. Resource owns physical work and capacity independently; Root
+cleanup releases its waiter without closing the shared ResourceLoader.
+
+Cache retrieval compares selected-source identity and freshly observed original
+owner dependencies. Changed resource contents or history invalidate the cached
+Plan. No Plan authorizes a Writer, admission, owner settlement or execution.
+Root disposal attempts history-read settlement even if planning cleanup fails.
+Focused planning/history/Plan regressions completed outside the sandbox with
+**44 passed in 20.03 seconds**, including pending-subject replacement, concurrent
+coalescing, shared-owner reuse, stale inputs and independent cleanup failure.
+Ruff, mypy over both implementation files, nine documentation checks and
+dependency-fact validation passed. Default CLI/TUI and Hosted callers are not yet wired to these
+entries; no first-message latency improvement is claimed from these tests.
+
+The earlier selected Coding run has now terminated with exit 1 after its
+pytest child was interrupted: **118 failed, 1168 passed, one skipped, 45
+deselected in 2536.39 seconds**. Runtime scratch was full; explicit ENOSPC
+failures occurred, but the complete set of failures has not been attributed to
+that cause. This interrupted run is not a passing or complete gate. The new
+focused run used the task-owned disk scratch directory, preserving the wrapper's
+64 MiB capacity preflight and non-live/skip-host-runtime selectors. A fresh
+selected gate must cover the current source and current check inventory.
+
 ### Strict historical load performance follow-up
 
 Profiling the failed original strict load identified inline Model Input JSON
