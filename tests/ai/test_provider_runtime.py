@@ -870,6 +870,38 @@ def test_terminal_outcome_recording_survives_consumer_cancellation() -> None:
     assert recorder.outcomes[0].disposition == "cancelled"
 
 
+def test_direct_consumer_cancellation_records_terminal_outcome_before_propagation() -> (
+    None
+):
+    source = _BlockingRawSource()
+    recorder = _BlockingOutcomeRecorder()
+
+    async def _run() -> None:
+        stream = start_provider_runtime(
+            lambda: source,
+            options=CallOptions(prepared_request_committer=recorder),
+            request=_request(),
+            invocation_id="direct-cancelled-invocation",
+        )
+        result = asyncio.create_task(stream.result())
+        await asyncio.wait_for(source.next_started.wait(), timeout=1)
+        result.cancel()
+        await asyncio.wait_for(recorder.entered.wait(), timeout=1)
+        assert not result.done()
+        assert not recorder.cancelled
+        recorder.release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await result
+        await asyncio.wait_for(source.closed.wait(), timeout=1)
+
+    asyncio.run(_run())
+
+    assert recorder.cancelled is False
+    assert len(recorder.outcomes) == 1
+    assert recorder.outcomes[0].invocation_id == "direct-cancelled-invocation"
+    assert recorder.outcomes[0].disposition == "cancelled"
+
+
 def test_provider_runtime_consumer_close_closes_source_without_leaking_task() -> None:
     source = _BlockingRawSource()
 

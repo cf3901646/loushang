@@ -291,6 +291,28 @@ def start_provider_runtime(
                 except (Exception, asyncio.CancelledError) as caught:
                     if isinstance(caught, asyncio.CancelledError):
                         if not deadline.expired:
+                            committer = getattr(
+                                options, "prepared_request_committer", None
+                            )
+                            if isinstance(
+                                committer, PreparedModelCallOutcomeRecorder
+                            ):
+                                settlement = asyncio.create_task(
+                                    _record_forced_consumer_cancellation(
+                                        assembler,
+                                        pending,
+                                        options=options,
+                                        request=request,
+                                        model=model,
+                                        call_id=call_id,
+                                    )
+                                )
+                                while not settlement.done():
+                                    try:
+                                        await asyncio.shield(settlement)
+                                    except asyncio.CancelledError:
+                                        continue
+                                settlement.result()
                             raise
                         error: Exception = AITimeoutError(
                             "Provider request timed out.",
@@ -380,6 +402,34 @@ def start_provider_runtime(
 
     stream.attach_task(asyncio.create_task(_run()))
     return stream
+
+
+async def _record_forced_consumer_cancellation(
+    assembler: RawAssembler,
+    pending: deque[RawPart],
+    *,
+    options: object | None,
+    request: ProviderRequest,
+    model: object,
+    call_id: str,
+) -> None:
+    """Settle a started transport before propagating direct consumer cancellation."""
+
+    await _flush_pending(assembler, pending)
+    _emit_runtime_cancel_trace(
+        options,
+        request=request,
+        model=model,
+        call_id=call_id,
+    )
+    await _emit_terminal_part_and_record_outcome(
+        assembler,
+        cast(RawPart, {"type": "aborted"}),
+        options=options,
+        request=request,
+        model=model,
+        call_id=call_id,
+    )
 
 
 async def _emit_terminal_part_and_record_outcome(
