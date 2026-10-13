@@ -1048,9 +1048,53 @@ completed with **2 passed, 22 deselected in 6.62 seconds**.
 The continuation still writes v1. Trusted participation computation, original
 owner enrollment/settlement wiring, writer capabilities and Embedded/Hosted
 entry integration remain required before default writable v2 recovery. The
-Worker selected gate started at `04b66cc7` remains a separate live observation;
-new Coding modules and the legacy reader guard were added while that gate ran,
-so its terminal result must not be presented as a gate over this final tree.
+Worker selected gate started at `04b66cc7` terminated with two Transcript
+performance failures: **5771 passed, 124 skipped, two failed in 3867.03 seconds**.
+Strict load took 5.52 seconds for 8.9 MiB; persistent-index load took 1.48 seconds.
+A focused rerun before optimization had one failure and one pass: strict load
+still took 5.46 seconds. Harness Ruff/typechecking passed in the original gate;
+Hosting was not reached. Coding modules and the legacy reader guard were added
+while that gate ran, so it is not a gate over this final tree.
+
+The selected Coding gate for `35349934` completed docs/dependency checks but
+refused pytest before collection because the runtime scratch had only
+35,778,560 free bytes against the 64 MiB requirement. The previous Harness
+wrapper then removed its own temporary run, leaving 164 MiB available. A fresh
+Coding gate was started with the same non-live/skip-host-runtime selectors;
+its terminal result remains pending.
+
+### Strict historical load performance follow-up
+
+Profiling the failed original strict load identified inline Model Input JSON
+canonicalization as the largest codec cost. A standard JSON parse yields only
+builtin containers/primitives; native `json.dumps` with `allow_nan=False` and
+UTF-8 encoding now validates that closed algebra and computes canonical bytes
+in one pass. Canonical text, decoded byte count, value hash and node hash checks
+remain mandatory. This optimization changes neither the wire nor the budget.
+New refusal cases cover NaN/Infinity/overflow, escaped surrogates in values and
+keys, noncanonical order/whitespace/escapes/numbers and changed size/value/node
+hashes; valid float, Unicode and control bytes retain their original form.
+
+The first optimization (native canonicalization after a separate Python
+validator) had **14 passed, one failed in 77.79 seconds**: strict replay improved
+to 4.76 seconds but still exceeded its 0.50 s/MiB budget. The final closed-algebra
+implementation had **34 passed, one failed in 64.23 seconds** across performance,
+canonicalization, v2 reconstruction and persistent-index tests. Strict replay
+passed; persistent-index load took 1.28 seconds against about 1.14 seconds.
+That unresolved observation is not a green full gate. Both this task's Coding
+gate and another lane's Coding tests were observed running concurrently; their
+presence does not by itself establish the cause of the index failure.
+
+An alternating same-fixture benchmark used the committed `35349934` inline
+constructor and the changed constructor through the same original strict
+loader. For **9,297,227 bytes and 280 records**, before times were **8.930 and
+6.660 seconds**, after times **3.510 and 3.513 seconds** (about **55% lower mean
+elapsed time**). After rates were **0.396 s/MiB**. This is a local strict-load
+comparison under concurrent machine load, not Embedded/Hosted startup,
+100k-record, RSS or released-installation acceptance. Ruff and focused mypy
+passed. The final size/value/node-hash and strict JSON fault cases completed
+with **14 passed, nine deselected in 2.83 seconds**. Docs and dependency facts
+passed; release gates remain separately tracked.
 
 ### Hosted history claim and profile ownership
 

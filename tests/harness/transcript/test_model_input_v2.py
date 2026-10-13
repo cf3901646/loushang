@@ -48,6 +48,51 @@ from loushang.harness.transcript.unit_of_work import AgentTranscriptUnitOfWork
 from loushang.harness.transcript.writer import AgentTranscriptRecordFactory
 
 
+@pytest.mark.parametrize(
+    "inline_json",
+    [
+        "NaN",
+        "Infinity",
+        "-Infinity",
+        "1e309",
+        '"\\ud800"',
+        '{"\\ud800":1}',
+    ],
+)
+def test_inline_model_input_rejects_nonfinite_and_invalid_utf8_json(inline_json):
+    node = create_model_input_json_value(None)
+    with pytest.raises(ValueError, match="inline JSON is invalid"):
+        replace(node, inline_json=inline_json, decoded_bytes=len(inline_json.encode()))
+
+
+@pytest.mark.parametrize("inline_json", ['{"b":2,"a":1}', "[1, 2]", '"\\u4e2d"', "1e0"])
+def test_inline_model_input_rejects_valid_but_noncanonical_json(inline_json):
+    node = create_model_input_json_value(None)
+    with pytest.raises(ValueError, match="not canonical"):
+        replace(node, inline_json=inline_json, decoded_bytes=len(inline_json.encode()))
+
+
+def test_inline_model_input_keeps_float_unicode_and_control_canonical_bytes():
+    value = {"中文": [1e300, 1e-300, -0.0, True, None, '🚀\n\u0000"']}
+    node = create_model_input_json_value(value)
+    assert node.inline_json == canonical_model_input_json(value, name="test")
+    assert replace(node) == node
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("decoded_bytes", 1),
+        ("value_hash", "sha256:" + "e" * 64),
+        ("content_hash", "sha256:" + "e" * 64),
+    ],
+)
+def test_inline_model_input_still_checks_size_value_hash_and_node_hash(field, value):
+    node = create_model_input_json_value({"input": "continue"})
+    with pytest.raises(ValueError):
+        replace(node, **{field: value})
+
+
 def _reference(record_id: str, ordinal: int, node) -> ModelInputNodeReference:
     return ModelInputNodeReference(
         record_id=record_id,
@@ -208,9 +253,12 @@ def test_logical_component_lookup_validates_v2_root_reference() -> None:
         payload_version=MODEL_INPUT_V2_PAYLOAD_VERSION,
     )
     records.append(snapshot_record)
-    assert ModelInputLogicalComponentReader(records).read(
-        snapshot_record, "resource_evidence"
-    ) is None
+    assert (
+        ModelInputLogicalComponentReader(records).read(
+            snapshot_record, "resource_evidence"
+        )
+        is None
+    )
 
     corrupt = replace(
         snapshot_record,
@@ -380,7 +428,9 @@ def test_v2_snapshot_rejects_wrong_typed_roots() -> None:
 def test_v2_resolver_rebuilds_a_tail_chain_beyond_python_recursion_depth() -> None:
     item = create_model_input_json_value({"role": "user", "content": "same"})
     factory = AgentTranscriptRecordFactory(
-        id_factory=iter(("value", *(f"tail-{index}" for index in range(1_100)))).__next__
+        id_factory=iter(
+            ("value", *(f"tail-{index}" for index in range(1_100)))
+        ).__next__
     )
     value_record = factory.create(
         MODEL_INPUT_COMPONENT_KIND,
