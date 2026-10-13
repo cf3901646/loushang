@@ -44,8 +44,8 @@
   Session implementation, interruption/old-snapshot regressions, and full
   Coding offline package regression have passed. Explicit Windows candidate
   first-B and GC routes have native evidence. Direct, Session Runtime, and
-  Hosted ordinary Windows Sessions select the B Product in PR #662; Windows
-  Worker query CLI and default Worker routing retain separate gates.
+  Hosted ordinary Windows Sessions select the B Product in PR #662. Default
+  Worker routing retains a separate gate.
 - Delivery anchor: PR #678 merged bounded third-party Worker admission on
   `main`; #509 tracks the final PLC9 integrated acceptance.
 - Worker boundary: explicit Linux x86-64 and Windows AMD64 Coding Product

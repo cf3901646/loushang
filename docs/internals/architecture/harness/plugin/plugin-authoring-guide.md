@@ -481,21 +481,22 @@ roots and checks their physical absence. `candidate-remove` itself never claims
 that deletion. An unsettled attempt or retained reference keeps GC closed; the
 operator must use the exact review and repair path for that debt.
 
+The following Windows command blocks use Command Prompt's `^` line continuation.
 On Windows AMD64, the Product operator can capture the independently built
 Worker Wheel, install the captured digest disabled, and enable that exact
 revision. Use `artifactDigest` from `workerCandidateBinding` in the capture
 result and `candidateInstall.inventoryRevision` from the install result:
 
 ```text
-loushang-worker-windows-candidate --workspace PATH candidate-capture \
-  --wheel dist/reviewworker-1-py3-none-win_amd64.whl \
+loushang-worker-windows-candidate --workspace PATH candidate-capture ^
+  --wheel dist/reviewworker-1-py3-none-win_amd64.whl ^
   --contribution-id query-provider --owner-id coding
-loushang-worker-windows-candidate --workspace PATH candidate-install \
-  --plugin-id reviewworker --artifact-digest DIGEST \
+loushang-worker-windows-candidate --workspace PATH candidate-install ^
+  --plugin-id reviewworker --artifact-digest DIGEST ^
   --operation-id install-reviewworker-1
-loushang-worker-windows-candidate --workspace PATH candidate-enable \
-  --plugin-id reviewworker --artifact-digest DIGEST \
-  --operation-id enable-reviewworker-1 \
+loushang-worker-windows-candidate --workspace PATH candidate-enable ^
+  --plugin-id reviewworker --artifact-digest DIGEST ^
+  --operation-id enable-reviewworker-1 ^
   --expected-inventory-revision REVISION
 ```
 
@@ -518,13 +519,13 @@ review ID and current approval generation:
 ```text
 loushang-worker-windows-candidate --workspace PATH release-status
 loushang-worker-windows-candidate --workspace PATH release-review --wheel RELEASE_WHEEL
-loushang-worker-windows-candidate --workspace PATH release-approve \
-  --wheel RELEASE_WHEEL --review-id REVIEW_ID \
+loushang-worker-windows-candidate --workspace PATH release-approve ^
+  --wheel RELEASE_WHEEL --review-id REVIEW_ID ^
   --operation-id approve-native-release-1 --expected-generation GENERATION
-loushang-worker-windows-candidate --workspace PATH release-install \
+loushang-worker-windows-candidate --workspace PATH release-install ^
   --wheel RELEASE_WHEEL --review-id REVIEW_ID
-loushang-worker-windows-candidate --workspace PATH candidate-allow \
-  --plugin-id reviewworker --operation-id allow-reviewworker-1 \
+loushang-worker-windows-candidate --workspace PATH candidate-allow ^
+  --plugin-id reviewworker --operation-id allow-reviewworker-1 ^
   --expected-generation OPT_IN_GENERATION
 ```
 
@@ -542,7 +543,7 @@ before these operations:
 loushang-worker-windows-candidate --workspace PATH list-attempts
 loushang-worker-windows-candidate --workspace PATH inspect --attempt-id ATTEMPT_ID
 loushang-worker-windows-candidate --workspace PATH review-normal --attempt-id ATTEMPT_ID
-loushang-worker-windows-candidate --workspace PATH retire-normal \
+loushang-worker-windows-candidate --workspace PATH retire-normal ^
   --attempt-id ATTEMPT_ID --review-id REVIEW_ID
 ```
 
@@ -563,7 +564,7 @@ attempts are settled and retired, run the separate Windows offline GC steps:
 ```text
 loushang-package-gc --workspace PATH --windows-candidate --worker-candidates prepare
 loushang-package-gc --workspace PATH --windows-candidate --worker-candidates list
-loushang-package-gc --workspace PATH --windows-candidate --worker-candidates delete \
+loushang-package-gc --workspace PATH --windows-candidate --worker-candidates delete ^
   --candidate-id CANDIDATE_ID --attempt-key retire-reviewworker-1
 ```
 
