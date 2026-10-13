@@ -111,9 +111,9 @@ def test_coding_product_slices_stay_within_wave_a_budget() -> None:
     assert sum(groups["g17"].values()) <= 450, groups["g17"]
     assert sum(groups["g18"].values()) <= 200, groups["g18"]
     assert sum(groups["execution"].values()) <= 400, groups["execution"]
-    # R2.1 deferred bindings add six lines above the original per-file ceiling;
+    # R2.1 deferred and read-only bindings add eight lines above the original per-file ceiling;
     # the existing combined execution ceiling remains unchanged.
-    assert max(groups["execution"].values()) <= 256, groups["execution"]
+    assert max(groups["execution"].values()) <= 258, groups["execution"]
     # Exact reviewed optional Product composition baseline; not an exemption
     # for any future managed/CLI module, nor a general core-budget increase.
     # Reviewed single-candidate selection adds 13 lines to the same CLI owner.

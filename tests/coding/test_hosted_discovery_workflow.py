@@ -157,6 +157,65 @@ def test_hosted_resume_activates_once_from_stable_execution_input(
     asyncio.run(asyncio.wait_for(scenario(), 90))
 
 
+def test_hosted_execution_profile_recovers_cross_platform_readonly_history(
+    tmp_path, monkeypatch,
+):
+    async def scenario():
+        launch = _launch(tmp_path)
+        scope = launch.scopes[0]
+        scope.session_dir.mkdir(mode=0o700, exist_ok=True)
+        seeded = CodingHostedSessionCatalogV1((scope,))
+        await _create(seeded, scope, 1)
+        selected = (
+            await seeded.list_identities((scope.discovery_scope,), limit=1)
+        )[0].envelope
+        assert selected is not None
+        await seed_hosted_history(scope, "cross-platform history", session_id=selected.session_id)
+
+        monkeypatch.setattr("loushang.coding.hosted_bootstrap.sys.platform", "win32")
+        attempt = create_coding_hosted_attempt(
+            launch, session_discovery=True, owned_transcripts=True
+        )
+        app = await attempt.open()
+        app.enable_client_scopes()
+        client = app.open_client_scope()
+        try:
+            mux = await client.create_mux(MuxCreateV1("readonly"))
+            selector = MuxSelectorV1(mux_space_id=mux.mux_space_id)
+            await client.attach_mux(MuxAttachV1(selector))
+            await client.open_member(MuxMemberOpenV1(
+                selector,
+                SessionOpenSpecV1(
+                    selected.product_id,
+                    selected.continuity_id,
+                    scope.scope,
+                    scope.fingerprint,
+                    "Recovered history",
+                    selected.session_id,
+                ),
+            ))
+            attachment = await client.attach_mux(MuxAttachV1(selector))
+            session = attachment.sessions[0]
+            assert [record.text for record in session.snapshot.records] == [
+                "cross-platform history",
+                "Historical session is read-only; continuing requires current runtime activation.",
+            ]
+            with pytest.raises(AppServiceError) as unavailable:
+                await client.start_turn(TurnTextV1(
+                    attachment.attachment_id,
+                    attachment.controller_generation,
+                    session.member.member_id,
+                    "must remain read-only",
+                ))
+            assert unavailable.value.code is AppErrorCodeV1.SESSION_UNAVAILABLE
+        finally:
+            await client.close()
+            await app.close()
+            await attempt.close()
+
+    asyncio.run(asyncio.wait_for(scenario(), 30))
+
+
 @pytest.mark.parametrize("kind", list(SessionScopeV1))
 @pytest.mark.parametrize("scoped", [False, True])
 def test_G17_PRODUCT_discover_resume_interact_and_recover_without_replay(

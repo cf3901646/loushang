@@ -51,7 +51,7 @@ from .appservice_adapter import (
     CodingHostedSessionV1,
 )
 from .hosted_resume import CodingDeferredHostedSessionV1
-from .hosted_session import CodingRealHostedSessionV1
+from .hosted_session import CodingHostedHistoryBindingV1, CodingRealHostedSessionV1
 
 
 class CodingHostedExecutionSessionV1(CodingHostedSessionV1):
@@ -241,7 +241,9 @@ def create_coding_execution_service_binding(
 
 def create_leased_coding_execution_session(
     binding: object, owner: CodingHostedSessionBindingV1,
-) -> CodingHostedExecutionSessionV1:
+) -> CodingHostedSessionV1:
+    if type(binding) is CodingHostedHistoryBindingV1:
+        return CodingHostedSessionV1(owner)
     if type(binding) not in {
         CodingRealHostedSessionV1,
         CodingDeferredHostedSessionV1,
