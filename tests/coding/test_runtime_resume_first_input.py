@@ -71,6 +71,7 @@ def test_root_first_input_uses_native_model_transport_once(tmp_path, monkeypatch
         if mode == "skill_changed":
             skill.parent.mkdir(parents=True)
             skill.write_text("---\nname: review\ndescription: Review\n---\nOLD review instruction.\n")
+            context_file.write_text("Project guidance\n")
         model = Model(
             id="root-test", name="Root Test", provider="faux", endpoint="root-resume",
             api="root-resume-test", base_url="https://provider.test/v1", auth=Auth(kind="none"),

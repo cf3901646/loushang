@@ -3047,8 +3047,9 @@ in 10.40 seconds** outside the managed sandbox. Ruff and focused mypy passed.
 A broader diagnostic continuation run exposed eight existing published-mode
 assertion failures where the current Product test setup retained the literal
 `/skill` command instead of expanding its Skill text; the v2 record-construction
-failure from that run was fixed. The Skill failures remain an unresolved final
-gate item and are not counted as passing evidence here.
+failure from that run was fixed. Those Skill fixtures were subsequently
+corrected and closed by the exact Catalog evidence recorded below; they are not
+counted as passing evidence in this earlier run.
 
 This remains a restricted internal continuation path. Product application
 operation reconciliation, native Worker participation and domain-specific
@@ -3087,7 +3088,8 @@ This slice does not provide the remaining application-operation reconciliation,
 external-effect disposition, default Embedded/Hosted entry, background planning
 integration, Windows host-runtime execution, release artifact matrix or final
 full-tree gate. The pre-existing broader continuation `/skill` assertion
-failures also remain unresolved. Default writable Resume stays unavailable.
+failures are closed by the exact Catalog evidence below. Default writable
+Resume stays unavailable.
 
 #### Embedded history starts bounded background planning
 
@@ -3110,3 +3112,19 @@ This first production trigger does not yet consume the completed Plan during
 foreground admission, provide the corresponding Hosted history trigger, or
 establish the required latency measurements. Default writable Resume remains
 unavailable.
+
+#### Exact Catalog Skill fixture closure
+
+The published Resume fixtures now establish their project-native Resource root
+with `AGENTS.md` before creating `skills/review/SKILL.md`. This follows the
+current Catalog project-root contract, so first-input preflight reads the exact
+current Skill body and persists its content digest. No temporary Resource source
+or Product admission exception was added.
+
+The three representative continuation, publication and Root first-input cases
+passed together. The full canonical continuation parameterization plus every
+publication preflight variant then passed with **22 passed, 23 deselected in
+116.57 seconds** outside the managed sandbox with `not live` and
+`--skip-host-runtime`. Ruff and `git diff --check` passed. This closes the
+previous `/skill` test failures but does not provide Embedded foreground Plan
+consumption, Hosted planning, performance evidence or a writable default route.

@@ -70,6 +70,7 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
             skill = tmp_path / "skills" / "review" / "SKILL.md"
             skill.parent.mkdir(parents=True)
             skill.write_text("---\nname: review\ndescription: Review changes\n---\nReview actual source bytes.\n")
+            (tmp_path / "AGENTS.md").write_text("Project guidance\n")
         original = await SessionManager.new(
             session_dir=tmp_path / "sessions", cwd=str(tmp_path), defer_materialization=False,
         )

@@ -57,6 +57,7 @@ def test_canonical_resume_continuation_uses_original_owners_in_order(tmp_path, m
         skill = tmp_path / "skills" / "review" / "SKILL.md"
         skill.parent.mkdir(parents=True)
         skill.write_text("---\nname: review\ndescription: Review source\n---\nReview actual source bytes.\n")
+        (tmp_path / "AGENTS.md").write_text("Project guidance\n")
         plan = build_session_activation_plan(read_coding_resume_snapshot(path, max_bytes=1024 * 1024), resolve_coding_composition_set("coding-standard"), workspace_root=tmp_path)
         attempt = CodingActivationAttemptV1(
             attempt_id="attempt-1", request_id="input-1", session_id=header.conversation_id,
