@@ -606,9 +606,19 @@ It registers one Session-owned `worker_query_symbol` Tool backed by the same
 read-only Product facet as the explicit SDK query. A model-visible Tool call
 and its persisted result are required before claiming Product turn use:
 
+On Linux:
+
 ```text
 loushang --mode print --cwd PATH --composition-set coding-standard \
   --worker-query-plugin reviewworker \
+  "Use worker_query_symbol to query the review symbol."
+```
+
+In Windows Command Prompt:
+
+```text
+loushang --mode print --cwd PATH --composition-set coding-standard ^
+  --worker-query-plugin reviewworker ^
   "Use worker_query_symbol to query the review symbol."
 ```
 
