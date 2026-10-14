@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import ast
 import inspect
+import io
 import json
+import re
+import tokenize
 from collections.abc import Iterator, Mapping
 from dataclasses import fields
 from functools import cache
@@ -25,6 +28,7 @@ def _release_source_cache() -> Iterator[None]:
     try:
         yield
     finally:
+        _qualified_functions.cache_clear()
         _source_tree.cache_clear()
         _source_texts.cache_clear()
 
@@ -1276,6 +1280,9 @@ INERT_PLUGIN_SOURCE_ROOTS = (
     Path("src/loushang/harness/plugin_authoring"),
     Path("src/loushang/harness/resources/plugins"),
 )
+_ON_STRING_ESCAPE = re.compile(
+    r"\\(?:x6[eEfF]|u006[eEfF]|U0000006[eEfF]|15[67]|N\{)"
+)
 
 
 @cache
@@ -1369,6 +1376,7 @@ class _QualifiedFunctionVisitor(ast.NodeVisitor):
         self.scope.pop()
 
 
+@cache
 def _qualified_functions(
     source: str,
     *,
@@ -1407,6 +1415,58 @@ def _code_unit_nodes(body: list[ast.stmt]) -> tuple[ast.AST, ...]:
     for statement in body:
         visitor.visit(statement)
     return tuple(visitor.nodes)
+
+
+def _node_source_contains_any(
+    lines: list[str],
+    node: ast.AST,
+    tokens: frozenset[str],
+) -> bool:
+    start = max(getattr(node, "lineno", 1) - 1, 0)
+    end = getattr(node, "end_lineno", None) or len(lines)
+    return any(token in line for line in lines[start:end] for token in tokens)
+
+
+def _text_contains_live_sink_token(text: str, tokens: frozenset[str]) -> bool:
+    if any(token in text for token in tokens if token != "on"):
+        return True
+    if "on" not in tokens:
+        return False
+    if re.search(r"\bon\b", text) is not None:
+        return True
+    quoted_o = any(f"{quote}o{quote}" in text for quote in ("'", '"'))
+    quoted_n = any(f"{quote}n{quote}" in text for quote in ("'", '"'))
+    if _ON_STRING_ESCAPE.search(text) is None and not (quoted_o and quoted_n):
+        return False
+    adjacent_string = ""
+    try:
+        stream = tokenize.generate_tokens(io.StringIO(text).readline)
+        for token in stream:
+            if token.type == tokenize.NAME and token.string == "on":
+                return True
+            if token.type == tokenize.STRING:
+                try:
+                    value = ast.literal_eval(token.string)
+                except (SyntaxError, ValueError):
+                    adjacent_string = ""
+                    continue
+                if isinstance(value, str):
+                    combined = adjacent_string + value
+                    if combined == "on":
+                        return True
+                    adjacent_string = (
+                        combined
+                        if "on".startswith(combined)
+                        else value if "on".startswith(value) else ""
+                    )
+                    continue
+            if token.type not in {tokenize.COMMENT, tokenize.NL}:
+                adjacent_string = ""
+    except (IndentationError, tokenize.TokenError):
+        # A source slice may not be independently tokenizable.  Keep it as a
+        # candidate so the already parsed AST remains the final authority.
+        return True
+    return False
 
 
 def _import_aliases(tree: ast.Module) -> tuple[set[str], set[str]]:
@@ -1828,14 +1888,13 @@ def _graph_receiver_aliases(
     allow_self: bool,
 ) -> set[str]:
     aliases = {
-        child.id
+        node.id
         for node in nodes
-        for child in ast.walk(node)
-        if isinstance(child, ast.Name)
+        if isinstance(node, ast.Name)
         and (
-            "graph" in child.id.lower()
-            or "runtime" in child.id.lower()
-            or (allow_self and child.id == "self")
+            "graph" in node.id.lower()
+            or "runtime" in node.id.lower()
+            or (allow_self and node.id == "self")
         )
     }
     changed = True
@@ -1967,6 +2026,12 @@ def _function_mutates_private_graph_state(
         "update",
     }
     nodes = _code_unit_nodes(function.body)
+    if not any(
+        isinstance(node, ast.Attribute) and node.attr in attributes
+        or isinstance(node, ast.Constant) and node.value in attributes
+        for node in nodes
+    ):
+        return False
     receiver_aliases = _graph_receiver_aliases(nodes, allow_self=allow_self)
     aliases = _sensitive_container_aliases(
         nodes,
@@ -2076,6 +2141,7 @@ def _graph_private_mutation_sites(
         if not any(attribute in source for attribute in attributes):
             continue
         allow_self = "harness/capabilities/graph_" in path.as_posix()
+        source_lines = source.splitlines()
         tree = _source_tree(path, source)
         if _function_mutates_private_graph_state(
             tree,
@@ -2084,6 +2150,8 @@ def _graph_private_mutation_sites(
         ):
             sites.add((path, "<module>"))
         for qualified, function in _qualified_functions(source, filename=path):
+            if not _node_source_contains_any(source_lines, function, attributes):
+                continue
             if _function_mutates_private_graph_state(
                 function,
                 attributes,
@@ -2158,12 +2226,19 @@ def _live_binding_sink_inventory(
     for path, source in sources.items():
         if not path.is_relative_to(SOURCE_ROOT):
             continue
-        if not any(token in source for token in tokens):
+        if not _text_contains_live_sink_token(source, tokens):
             continue
+        source_lines = source.splitlines()
         tree = _source_tree(path, source)
         for token in _live_sink_tokens(_code_unit_nodes(tree.body), tokens):
             inventory.add((path, "<module>", token))
         for qualified, function in _qualified_functions(source, filename=path):
+            start = max(getattr(function, "lineno", 1) - 1, 0)
+            end = getattr(function, "end_lineno", None) or len(source_lines)
+            if not _text_contains_live_sink_token(
+                "\n".join(source_lines[start:end]), tokens
+            ):
+                continue
             for token in _live_sink_tokens(
                 _code_unit_nodes(function.body),
                 tokens,
