@@ -47,7 +47,6 @@ jobs:
           name: harnesstui-core-pytest-report
           path: .artifacts/harnesstui-core.xml
           if-no-files-found: warn
-
   coding-ui:
     if: ${{ fromJSON(inputs.plan).checks.coding_ui }}
     runs-on: ubuntu-24.04
@@ -84,18 +83,3 @@ jobs:
           name: coding-ui-pytest-report
           path: .artifacts/coding-ui.xml
           if-no-files-found: warn
-
-  selected-checks:
-    name: Selected checks
-    if: always()
-    needs: [harnesstui-core, coding-ui]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Verify selected jobs
-        env:
-          CI_PLAN: ${{ inputs.plan }}
-          CI_NEEDS: ${{ toJSON(needs) }}
-        run: >-
-          python scripts/ci/verify_gate.py
-          --jobs '{"harnesstui-core":"harnesstui","coding-ui":"coding_ui"}'

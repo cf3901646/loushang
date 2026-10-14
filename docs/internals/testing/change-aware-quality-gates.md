@@ -5,6 +5,17 @@ It selects checks once, calls the affected reusable workflows, and verifies
 their results through `quality-gate`. Local development uses the same
 [selection rules](../../../scripts/ci/check-scopes.json).
 
+## Refactoring proposal
+
+The proposed [重构与优化测试与 PR 门禁](test-and-pr-gate-refactoring-plan.md)
+consolidates test classification, minimal capability coverage, duplicate removal,
+and replacement of historical phase jobs with module/capability gates. Its
+[three-view review](test-and-pr-gate-refactoring-review.md) records findings and
+revisions. Its [complete current gate inventory](test-and-pr-gate-inventory.md)
+accounts for all workflows and source job definitions. Implementation is in
+progress; the current selection rules and pause policy below remain in effect
+except for the reviewed test roles described below.
+
 ## Temporary long-running gate pause
 
 The following entire reusable workflows are paused by user request while their
@@ -40,6 +51,33 @@ it. Long campaigns must not silently return to ordinary PR gates.
 
 ## Selection policy
 
+The reviewed [test classification catalog](../../../scripts/ci/test-classification.json)
+currently covers the complete Agent, Channel, Resource, Work, HarnessWork, Method,
+Foundation and Ontology test directories,
+including Agent's owned examples contracts. Changes
+limited to these unit/contract files run the owner's complete reviewed set and
+Ruff without selecting global integration/E2E. Mixed source changes and shared
+fixtures retain their normal impact union. Missing or stale file classifications
+fail validation; owned extras must also be classified and run exactly once.
+Unreviewed modules retain their existing coverage.
+
+HarnessWork's two registered golden fixtures have one reviewed contract consumer.
+Changes limited to these fixtures run the owner's complete module set without
+global E2E. Fixture metadata requires an existing owner-local path and a unique,
+nonempty list of reviewed consumers. Shared conftest, unknown fixture paths and
+mixed source edits retain their broader impact selection. Consumer declarations
+must be reviewed when fixture usage changes; this is an explicit ownership
+inventory rather than a complete automatic Python dependency analysis.
+
+The module workflow validates actual JUnit testcase counts and identities through
+[verify_module_report.py](../../../scripts/ci/verify_module_report.py). Reviewed
+necessary sets reject every skipped testcase; an unsharded result must include
+every registered test file. Duplicate identities, results outside the reviewed
+owner, missing reports, empty runs and failures are rejected. Unreviewed legacy
+sets retain their platform skip allowance while requiring a passing testcase.
+For sharded sets, individual reports validate their own results; complete union
+coverage still requires the planned shard collection and ownership checks.
+
 | Change | Required scope |
 | --- | --- |
 | Ordinary Markdown/RST documentation | Existing documentation invariants and changed Markdown links; no product dependency installation |
@@ -63,7 +101,10 @@ module job runs every test in its package directory with offline selectors;
 the routing inventory identifies eligible paths, not a smaller test subset.
 Coding excludes its separately owned UI suite, and existing AI, Agent, Coding,
 and Harness example tests retain their package owner. Coding, Harness,
-HarnessTUI, and TUI module jobs use deterministic shards. A change touching
+HarnessTUI, and TUI module jobs use deterministic shards. Coding uses eight
+shards, selected from the 4,798-case PR #740 report: the slowest recomputed
+hash shard carried 399 seconds of testcase time, leaving setup margin inside
+the ten-minute target. A change touching
 two packages runs both complete module regressions. Package source that selects
 a platform, Worker, installation, LSP, or other high-risk gate also keeps the
 existing route. The core E2E smoke creates a real hosted Coding session, executes the product's
@@ -84,8 +125,9 @@ Reports require exactly one or two passing, non-skipped cases according to the
 selection plan; selected smoke cases are excluded from concurrent module shards. Changes to the explicitly listed routing files exercise CI static checks,
 the Agent module job, and E2E. Changes to the module regression workflow run
 the complete eligible unit inventory instead of unrelated native suites. Known reusable workflows validate their own complete scope. The main orchestrator
-and unclassified gate machinery retain full validation. Agent module regressions
-are not scheduled a second time when the package quality gate already owns them.
+and unclassified gate machinery retain full validation. Agent, Coding and
+Foundation offline regressions have one execution owner in the module workflow;
+risk selection adds platform or integration gates without rerunning those suites.
 
 The existing routing rules are additive outside this fast PR route. Makefile source/test inventories retain explicitly shared
 support paths, such as the Coding product worker canary owned by Harness

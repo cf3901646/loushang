@@ -151,8 +151,8 @@ def test_required_terminal_workflows_fail_fast_and_publish_stable_gate() -> None
         assert "workflow_call:" in workflow
         assert "faulthandler_timeout=60" in workflow
         assert "timeout-minutes:" in workflow
-        assert "verify_gate.py" in workflow
-        assert "if: always()" in workflow
+        assert "verify_gate.py" not in workflow
+        assert "selected-checks:" not in workflow
 
     assert (
         "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in entrypoint
@@ -164,6 +164,7 @@ def test_required_terminal_workflows_fail_fast_and_publish_stable_gate() -> None
     gate_needs = gate.split("needs: [", 1)[1].split("]", 1)[0].split(", ")
     assert {"tui", "harnesstui"} <= set(gate_needs)
     assert "    if: always()" in gate
+    assert "verify_gate.py" in gate
     assert "tui-cross-platform-contracts:" not in entrypoint
     assert "checks.tui_playback" in terminal
     assert "checks.tui_native" in terminal

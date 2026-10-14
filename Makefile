@@ -438,7 +438,7 @@ test-host-runtime:
 test-ai:
 	. .venv/bin/activate && $(AI_OFFLINE_ENV) uv run $(PYTEST_RUNNER) tests/ai tests/protocols tests/examples/test_ai_examples.py tests/examples/test_auth_examples.py -m "not live" -q
 
-check-ai: lint-ai typecheck-ai check-ai-catalog check-ai-imports check-ai-examples check-ai-coverage
+check-ai: lint-ai typecheck-ai check-ai-catalog check-ai-imports check-ai-coverage
 
 check-ai-catalog:
 	uv run python scripts/ai/check_catalog.py
@@ -446,13 +446,9 @@ check-ai-catalog:
 check-ai-imports:
 	uv run python scripts/ai/check_import_boundaries.py
 
-check-ai-examples:
-	$(AI_OFFLINE_ENV) uv run python scripts/ai/check_examples.py
-	$(AI_OFFLINE_ENV) uv run $(PYTEST_RUNNER) tests/examples -q
-
 check-ai-coverage:
 	mkdir -p .artifacts/ai
-	. .venv/bin/activate && $(AI_OFFLINE_ENV) uv run $(PYTEST_RUNNER) tests/ai tests/protocols tests/examples/test_ai_examples.py -m "not live" --cov=src/loushang/ai --cov-report=term-missing:skip-covered --cov-report=xml:.artifacts/ai/coverage.xml --cov-fail-under=90 -q
+	. .venv/bin/activate && $(AI_OFFLINE_ENV) uv run $(PYTEST_RUNNER) tests/ai tests/protocols tests/examples/test_ai_examples.py tests/examples/test_auth_examples.py -m "not live" --cov=src/loushang/ai --cov-report=term-missing:skip-covered --cov-report=xml:.artifacts/ai/coverage.xml --cov-fail-under=90 -q
 	uv run python scripts/ai/check_coverage_targets.py .artifacts/ai/coverage.xml
 
 check-harness: lint-harness typecheck-harness test-harness

@@ -44,7 +44,6 @@
     "tests/coding/test_agent_session_model_input.py",
     "tests/coding/test_compaction_core.py",
     "tests/coding/test_composition_sets.py",
-    "tests/coding/test_frontmatter.py",
     "tests/coding/test_multiagent.py",
     "tests/coding/test_policy_engine.py",
     "tests/coding/test_prompt_command.py",

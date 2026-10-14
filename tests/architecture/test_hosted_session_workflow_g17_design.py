@@ -25,9 +25,9 @@ def test_G17_DARWIN_native_entry_supplement_is_separate_from_full_wheel():
     wheel = json.loads((ROOT / "hosted-session-workflow-g17-evidence-manifest.json").read_text())
     assert len(wheel["reports"]["G17-WHEEL-DARWIN"]["requiredCaseIds"]) == 8
     workflow = Path(".github/workflows/appservice-quality.yml").read_text()
-    job = workflow.split("  g17-darwin-native:\n", 1)[1].split("\n  g17-darwin-primitives:", 1)[0]
-    assert name in job and row["junitPath"] in job
-    assert "runs-on: macos-15" in job and "--locked" in job
+    job = workflow.split("  native-service:\n", 1)[1].split("\n  installed-service:\n", 1)[0]
+    assert name in job and ".artifacts/native-service-darwin-hosted.xml" in job
+    assert "- os: macos-15" in job and "--locked" in job
     assert "tests/coding/test_hosted_darwin_evidence.py" in job
     assert "-q -s -m" in job
     assert "if: always()" in job and "if-no-files-found: error" in job
@@ -48,9 +48,9 @@ def test_G17_DARWIN_primitives_do_not_claim_installed_or_terminal_acceptance():
     wheel = json.loads((ROOT / "hosted-session-workflow-g17-evidence-manifest.json").read_text())
     assert wheel["reports"]["G17-WHEEL-DARWIN"]["requiredProperties"]["installation"] == "wheel"
     workflow = Path(".github/workflows/appservice-quality.yml").read_text()
-    job = workflow.split("  g17-darwin-primitives:\n", 1)[1].split("\n  g17-wheel-evidence:", 1)[0]
-    assert name in job and row["junitPath"] in job
-    assert "runs-on: macos-15" in job and "--locked" in job
+    job = workflow.split("  native-service:\n", 1)[1].split("\n  installed-service:\n", 1)[0]
+    assert name in job and ".artifacts/native-service-darwin-primitives.xml" in job
+    assert "- os: macos-15" in job and "--locked" in job
     assert "tests/coding/test_hosted_darwin_primitives.py" in job
     assert "if: always()" in job and "if-no-files-found: error" in job
 
@@ -72,14 +72,14 @@ def test_G17_WINDOWS_native_supplement_is_not_full_wheel_acceptance() -> None:
     assert wheel["reports"]["G17-WHEEL-WIN32"]["requiredProperties"]["installation"] == "wheel"
     assert len(wheel["reports"]["G17-WHEEL-WIN32"]["requiredCaseIds"]) == 8
     workflow = Path(".github/workflows/appservice-quality.yml").read_text()
-    assert name in workflow and row["junitPath"] in workflow
+    assert name in workflow and ".artifacts/native-service-win32-hosted.xml" in workflow
     assert "tests/coding/test_hosted_windows_evidence.py" in workflow
     assert "architecture: x64" in workflow
 
 
 def test_G17_WHEEL_ci_retains_full_matrix_and_pr_windows_smoke():
     workflow = Path(".github/workflows/appservice-quality.yml").read_text()
-    job = workflow.split("  g17-wheel-evidence:\n", 1)[1].split("\n  g17-windows-native:", 1)[0]
+    job = workflow.split("  installed-service:\n", 1)[1]
     assert "windows.appservice_full" in job
     full, pr = [json.loads(value) for value in re.findall(r"fromJSON\('([^']+)'\)", job)]
     linux = {"os": "ubuntu-24.04", "platform": "linux"}
@@ -90,7 +90,7 @@ def test_G17_WHEEL_ci_retains_full_matrix_and_pr_windows_smoke():
     assert "run_g17_installed_evidence.py" in job and "--smoke" not in job
     assert "--locked" in job and "build --wheel" in job
     assert "if: always()" in job and "if-no-files-found: error" in job
-    assert "path: .artifacts/g17-wheel-${{ matrix.platform }}.xml" in job
+    assert "path: .artifacts/g1*-wheel-${{ matrix.platform }}.xml" in job
 
 
 def test_G17_COMMAND_is_one_optional_product_composition_with_fixed_dependencies() -> None:
