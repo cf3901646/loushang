@@ -449,7 +449,7 @@ PR #757 验证普通 test-only 收敛时又暴露一处重复：已登记的 sel
 | 文件/节点数 | continuity mutation 5D/5E、continuity provider 5C、current runtime ownership、owner component foundation、plugin contribution type system、PLC8、RCP0/RCP1/RCP2、unified plugin；合计 11 文件、107 个 collected node |
 | 平台 | 仅 `ubuntu-24.04`；合同读取仓库源码与文档，不需要 Windows 或 macOS runtime |
 | 唯一断言 | 连续性 owner/恢复顺序、当前 runtime 依赖方向、owner component 私有边界、plugin contribution/lifecycle、resource catalog 输入与发布边界、统一 plugin 架构库存 |
-| 本地成本证据 | 同命令优化前 107 项通过、402.46 秒；共享 import facts、只读 AST、扁平节点扫描与精确 live-token 预筛选后 107 项通过、156.22 秒，减少 61.2%。依赖安装另计，单 job 预计仍在 15 分钟预算内，需 PR runner 实测确认 |
+| 本地成本证据 | 同命令优化前 107 项通过、402.46 秒；三轮共享 import facts、只读 AST、候选过滤、单次函数节点扫描与精确 live-token 预筛选后 107 项通过、81.19 秒，减少 79.8%。依赖安装另计，单 job 预计仍在 15 分钟预算内，需 PR runner 实测确认 |
 | 重复关系 | 当前没有 workflow 执行这些文件；全量回退启动的其他任务只产生无关覆盖。AP-02 会替换这次无效回退，不与现有测试 owner 重复 |
 | 新增门禁面 | schedule/manual full 首次真实执行这 11 个文件；直接 test-only PR 首次让对应断言可阻断合并。属于新 route 与新失败条件，必须审批 |
 | 失败语义 | 计划复用既有 targeted JUnit 验证：零 failure/error/skip，并要求每个登记文件至少一个通过项；不增加测试节点 |

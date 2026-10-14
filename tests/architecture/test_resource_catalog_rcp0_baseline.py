@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from functools import cache
 from pathlib import Path
+
+import pytest
 
 from tests.architecture._source_imports import imported_modules
 
@@ -383,6 +385,7 @@ class _QualifiedFunctionVisitor(ast.NodeVisitor):
         self.scope.pop()
 
 
+@cache
 def _qualified_functions(
     source: str,
     *,
@@ -393,32 +396,24 @@ def _qualified_functions(
     return tuple(visitor.functions)
 
 
-class _CodeUnitNodeVisitor(ast.NodeVisitor):
-    def __init__(self) -> None:
-        self.nodes: list[ast.AST] = []
-
-    def generic_visit(self, node: ast.AST) -> None:
-        self.nodes.append(node)
-        super().generic_visit(node)
-
-    def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        del node
-
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-        del node
-
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-        del node
-
-    def visit_Lambda(self, node: ast.Lambda) -> None:
-        del node
+@cache
+def _function_nodes(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> tuple[ast.AST, ...]:
+    return tuple(
+        node
+        for statement in function.body
+        if not isinstance(statement, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+        for node in ast.walk(statement)
+    )
 
 
-def _code_unit_nodes(body: list[ast.stmt]) -> tuple[ast.AST, ...]:
-    visitor = _CodeUnitNodeVisitor()
-    for statement in body:
-        visitor.visit(statement)
-    return tuple(visitor.nodes)
+@pytest.fixture(autouse=True, scope="module")
+def _release_scan_caches() -> Iterator[None]:
+    yield
+    _function_nodes.cache_clear()
+    _qualified_functions.cache_clear()
+    _source_texts.cache_clear()
 
 
 def _call_sites(
@@ -438,8 +433,7 @@ def _call_sites(
                     or isinstance(node.func, ast.Attribute)
                     and node.func.attr == callable_name
                 )
-                for parent in _code_unit_nodes(function.body)
-                for node in ast.walk(parent)
+                for node in _function_nodes(function)
             ):
                 sites.add((path, qualified))
     return sites
@@ -458,8 +452,7 @@ def _attribute_load_sites(
                 isinstance(node, ast.Attribute)
                 and isinstance(node.ctx, ast.Load)
                 and node.attr == attribute_name
-                for parent in _code_unit_nodes(function.body)
-                for node in ast.walk(parent)
+                for node in _function_nodes(function)
             ):
                 sites.add((path, qualified))
     return sites
@@ -482,8 +475,7 @@ def _named_attribute_load_sites(
                 and node.attr == attribute_name
                 and isinstance(node.value, ast.Name)
                 and node.value.id == receiver_name
-                for parent in _code_unit_nodes(function.body)
-                for node in ast.walk(parent)
+                for node in _function_nodes(function)
             ):
                 sites.add((path, qualified))
     return sites
@@ -509,8 +501,7 @@ def _getattr_sites(
                 and node.args[0].id == receiver_name
                 and isinstance(node.args[1], ast.Constant)
                 and node.args[1].value == attribute_name
-                for parent in _code_unit_nodes(function.body)
-                for node in ast.walk(parent)
+                for node in _function_nodes(function)
             ):
                 sites.add((path, qualified))
     return sites
@@ -527,8 +518,7 @@ def _keyword_sites(
         for qualified, function in _qualified_functions(source, filename=path):
             if any(
                 isinstance(node, ast.keyword) and node.arg == keyword_name
-                for parent in _code_unit_nodes(function.body)
-                for node in ast.walk(parent)
+                for node in _function_nodes(function)
             ):
                 sites.add((path, qualified))
     return sites
@@ -540,6 +530,8 @@ def _legacy_loader_import_edges(
     prefix = "loushang.harness.resources."
     edges: set[tuple[Path, str]] = set()
     for path, source in sources.items():
+        if f"{prefix}_loader" not in source:
+            continue
         for node in ast.walk(ast.parse(source, filename=str(path))):
             if not isinstance(node, ast.ImportFrom) or node.module is None:
                 continue
