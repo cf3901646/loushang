@@ -210,7 +210,7 @@ class ScopeTests(unittest.TestCase):
             with self.subTest(path=path):
                 plan = selector.select([path])
                 self.assertTrue(plan["checks"]["windows_shell"])
-                self.assertTrue(plan["workflows"]["windows-shell"])
+                self.assertFalse(plan["workflows"]["windows-shell"])
 
     def test_windows_product_private_owner_changes_select_native_gate(self):
         for path in (
@@ -225,7 +225,7 @@ class ScopeTests(unittest.TestCase):
             with self.subTest(path=path):
                 plan = selector.select([path])
                 self.assertTrue(plan["checks"]["windows_shell"])
-                self.assertTrue(plan["workflows"]["windows-shell"])
+                self.assertFalse(plan["workflows"]["windows-shell"])
 
     def test_coding_worker_product_changes_select_native_platform_gates(self):
         for path in (
@@ -244,7 +244,7 @@ class ScopeTests(unittest.TestCase):
                 self.assertTrue(plan["checks"]["hosting"])
                 self.assertTrue(plan["workflows"]["hosting"])
                 self.assertTrue(plan["checks"]["windows_shell"])
-                self.assertTrue(plan["workflows"]["windows-shell"])
+                self.assertFalse(plan["workflows"]["windows-shell"])
 
     def test_plugin_sdk_sources_select_owners_without_full_validation(self):
         expected = {"docs", "architecture", "coding", "harness", "host_runtime"}
@@ -289,7 +289,7 @@ class ScopeTests(unittest.TestCase):
                 self.assertTrue(plan["checks"]["hosting"])
                 self.assertTrue(plan["workflows"]["hosting"])
                 self.assertTrue(plan["checks"]["windows_shell"])
-                self.assertTrue(plan["workflows"]["windows-shell"])
+                self.assertFalse(plan["workflows"]["windows-shell"])
 
     def test_ordinary_worker_linux_cli_changes_select_native_gate(self):
         for path in (
@@ -457,6 +457,25 @@ class ScopeTests(unittest.TestCase):
 
     def test_empty_changes_do_not_start_product_checks(self):
         self.assertEqual(self.selected(), {"docs"})
+
+    def test_windows_shell_pause_applies_to_pr_push_and_full_validation(self):
+        for full, fast in ((False, True), (True, True), (True, False), (False, False)):
+            with self.subTest(full=full, fast=fast):
+                plan = selector.select([".github/workflows/windows-shell-compatibility.yml"],
+                                       full=full, pr_fast=fast)
+                self.assertFalse(plan["workflows"]["windows-shell"])
+                self.assertFalse(selector.workflow_plan(plan)["workflows"]["windows-shell"])
+                # Other selected jobs remain required and fail closed.
+                with contextlib.redirect_stdout(io.StringIO()):
+                    guard.verify(plan, {"windows-shell": {"result": "skipped"},
+                                        "appservice": {"result": "success"}},
+                                 {"windows-shell": "windows-shell", "appservice": "appservice"},
+                                 section="workflows")
+                with self.assertRaises(ValueError), contextlib.redirect_stdout(io.StringIO()):
+                    guard.verify(plan, {"windows-shell": {"result": "skipped"},
+                                        "appservice": {"result": "failure"}},
+                                 {"windows-shell": "windows-shell", "appservice": "appservice"},
+                                 section="workflows")
 
     def test_workflow_plan_omits_diagnostic_reasons(self):
         plan = selector.select(["src/loushang/coding/lsp/client.py"])

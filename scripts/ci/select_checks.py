@@ -22,6 +22,9 @@ PR_ROUTING_FILES = {
     "scripts/ci/verify_gate.py",
     "tests/ci/test_change_gates.py",
 }
+# Temporarily paused by user request while native Worker execution is optimized.
+# Remove this entry to restore the original routing and complete case inventory.
+PAUSED_WORKFLOWS = {"windows-shell"}
 MODULE_REGRESSION_WORKFLOW = ".github/workflows/package-unit-quality.yml"
 FAST_EXCLUDED_PACKAGES = {
     "plugin", "hosting", "apphost", "appservice", "appserver", "foundation",
@@ -381,6 +384,9 @@ def select(
             "src/loushang/harness/worker/", "tests/harness/worker/",
         )) for path in paths)
     )
+    for workflow in PAUSED_WORKFLOWS:
+        workflows[workflow] = False
+        reasons.setdefault("ci", []).append(f"{workflow}: temporarily paused by user request")
     return {
         "version": 1,
         "paths": sorted(set(paths)),
@@ -502,6 +508,7 @@ def main() -> None:
             stream.write("## Selected checks\n\n")
             for check, enabled in plan["checks"].items():
                 stream.write(f"- {check}: {'run' if enabled else 'not applicable'}\n")
+            stream.write("\nPaused workflows: " + ", ".join(sorted(PAUSED_WORKFLOWS)) + "\n")
             stream.write("\nReasons are recorded in the selection job log.\n")
 
 

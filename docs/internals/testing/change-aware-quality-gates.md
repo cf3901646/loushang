@@ -5,6 +5,20 @@ It selects checks once, calls the affected reusable workflows, and verifies
 their results through `quality-gate`. Local development uses the same
 [selection rules](../../../scripts/ci/check-scopes.json).
 
+## Temporary Windows Shell pause
+
+The entire `Windows Shell Compatibility` reusable workflow is temporarily
+paused by user request, including its shell smoke, Worker query, candidate,
+Session, recovery/crash, GC and internal aggregation jobs. This applies to PRs,
+main pushes, scheduled and manual full validation. The top-level `quality-gate`
+expects this workflow to skip and continues enforcing every other selected
+workflow. Windows E2E smoke and other Windows workflows continue normally.
+
+The original test cases and routing inventory are retained. Remove
+`windows-shell` from `PAUSED_WORKFLOWS` in `scripts/ci/select_checks.py` to
+restore this workflow after its slow native cases have been optimized. Existing
+runs use their already-generated plans; merging this change affects future runs.
+
 ## Selection policy
 
 | Change | Required scope |
