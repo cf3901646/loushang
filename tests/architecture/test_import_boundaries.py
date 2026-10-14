@@ -5,6 +5,7 @@ import importlib
 import subprocess
 import sys
 from dataclasses import dataclass, fields
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
@@ -5997,14 +5998,21 @@ def _find_forbidden_imports(boundary: ImportBoundary) -> list[str]:
 
 
 def _absolute_imports(path: Path) -> list[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=path.as_posix())
+    source = path.read_text(encoding="utf-8")
+    return list(_absolute_import_facts(path.as_posix(), source))
+
+
+@lru_cache(maxsize=4096)
+def _absolute_import_facts(filename: str, source: str) -> tuple[str, ...]:
+    path = Path(filename)
+    tree = ast.parse(source, filename=filename)
     imports: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             imports.extend(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             imports.extend(_import_from_targets(path, node))
-    return imports
+    return tuple(imports)
 
 
 def _harness_internal_dependency_graph(root: Path) -> dict[str, set[str]]:
