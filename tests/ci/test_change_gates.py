@@ -836,7 +836,8 @@ class PauseTests(unittest.TestCase):
     def test_windows_shell_pause_applies_to_pr_push_and_full_validation(self):
         for full, fast in ((False, True), (True, True), (True, False), (False, False)):
             with self.subTest(full=full, fast=fast):
-                plan = selector.select([".github/workflows/windows-shell-compatibility.yml"],
+                plan = selector.select([".github/workflows/windows-shell-compatibility.yml",
+                                        ".github/workflows/quality.yml"],
                                        full=full, pr_fast=fast)
                 self.assertFalse(plan["workflows"]["windows-shell"])
                 self.assertFalse(selector.workflow_plan(plan)["workflows"]["windows-shell"])

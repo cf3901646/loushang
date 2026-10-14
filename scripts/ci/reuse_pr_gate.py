@@ -24,6 +24,8 @@ def git_tree() -> str:
 
 def comparable_plan(plan: dict) -> dict:
     # Diff filenames may differ between PR and merge push; execution must not.
+    if not isinstance(plan, dict):
+        raise ValueError("invalid evidence plan")
     return {key: value for key, value in plan.items() if key != "paths"}
 
 
@@ -99,7 +101,7 @@ def find_reusable_run(api, event: dict, current: dict, plan: dict, tree: str) ->
                     or run.get("event") != "pull_request" or run.get("head_sha") != head
                     or run.get("workflow_id") != current["workflow_id"]
                     or run.get("head_repository", {}).get("full_name") != repository
-                    or pr["number"] not in [p["number"] for p in run.get("pull_requests", [])]):
+                    ):
                 continue
             artifacts = api.request(f"actions/runs/{run['id']}/artifacts?per_page=100")
             matches = [a for a in artifacts["artifacts"]
@@ -112,9 +114,12 @@ def find_reusable_run(api, event: dict, current: dict, plan: dict, tree: str) ->
                 if info.file_size > 200_000:
                     raise ValueError("oversized evidence document")
                 evidence = json.loads(zipped.read(info))
+            if not isinstance(evidence, dict):
+                raise ValueError("invalid evidence document")
             if (evidence.get("version") == 1 and evidence.get("tree") == tree
                     and evidence.get("repository") == repository
                     and evidence.get("event") == "pull_request"
+                    and evidence.get("pr_number") == pr["number"]
                     and evidence.get("run_id") == run["id"]
                     and evidence.get("run_attempt") == run.get("run_attempt")
                     and comparable_plan(evidence.get("plan", {})) == comparable_plan(plan)):
@@ -129,9 +134,14 @@ def main() -> None:
     plan = json.loads(os.environ["CI_PLAN"])
     repository = os.environ["GITHUB_REPOSITORY"]
     if args.record:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+        pr_number = event.get("number")
+        if type(pr_number) is not int or pr_number <= 0:
+            raise ValueError("PR evidence requires a pull request number")
         Path(EVIDENCE_FILE).write_text(json.dumps({
             "version": 1, "tree": git_tree(), "plan": plan,
             "repository": repository, "event": os.environ["GITHUB_EVENT_NAME"],
+            "pr_number": pr_number,
             "run_id": int(os.environ["GITHUB_RUN_ID"]),
             "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
         }), encoding="utf-8")

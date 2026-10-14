@@ -220,13 +220,12 @@ regression and that live or native tests remain behind their dedicated gates.
 ## Reusing successful PR validation after merge
 
 A successful PR gate with E2E smoke selected uploads `pr-quality-evidence` for seven days. The evidence
-records the actual checked-out Git tree, complete compact execution plan, run ID,
-and run attempt. An ordinary main push can reuse it only for a single merge
+records the actual checked-out Git tree, complete compact execution plan, PR number,
+run ID and run attempt. An ordinary main push can reuse it only for a single merge
 commit whose first parent is the push's previous main revision and whose second
 parent is the head of the associated merged PR from this repository.
 
-The lookup requires a completed successful run of this same workflow, associated
-with that exact PR head and number, and an unexpired evidence artifact from the
+The lookup requires a completed successful run of this same workflow, for that exact PR head with artifact evidence recording the PR number, and an unexpired evidence artifact from the
 same run attempt. Its tested tree and all execution-plan fields except changed
 filenames must exactly match the main checkout and selected plan. The top-level
 gate verifies that change selection succeeded and every reused workflow skipped;

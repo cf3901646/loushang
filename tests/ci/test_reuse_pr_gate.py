@@ -36,7 +36,7 @@ class FakeAPI:
         self.commit = {"parents": [{"sha": "base"}, {"sha": "head"}], "tree": {"sha": "tree"}}
         self.artifact = {"name": reuse.ARTIFACT, "id": 300, "expired": False}
         self.evidence = {"version": 1, "tree": "tree", "repository": self.repository,
-                         "event": "pull_request", "run_id": 100, "run_attempt": 1,
+                         "event": "pull_request", "pr_number": 7, "run_id": 100, "run_attempt": 1,
                          "plan": {**self.plan, "paths": ["old.py"]}}
 
     def request(self, path, *, archive=False):
@@ -63,6 +63,13 @@ class FakeAPI:
 class EvidenceTests(unittest.TestCase):
     def test_successful_same_tree_and_execution_plan_reuses_run(self):
         self.assertEqual(FakeAPI().find(), 100)
+
+    def test_merged_run_can_have_empty_pr_list_but_evidence_must_match_pr(self):
+        api = FakeAPI()
+        api.run["pull_requests"] = []
+        self.assertEqual(api.find(), 100)
+        api.evidence["pr_number"] = 8
+        self.assertIsNone(api.find())
 
     def test_push_must_be_one_exact_pr_merge_into_main(self):
         for key, value in (("ref", "refs/heads/other"), ("after", "other"),
@@ -96,7 +103,7 @@ class EvidenceTests(unittest.TestCase):
         for key, value in (("conclusion", "failure"), ("conclusion", "cancelled"),
                            ("status", "in_progress"), ("event", "push"),
                            ("head_sha", "other"), ("workflow_id", 6),
-                           ("pull_requests", []),
+                           ("id", 101),
                            ("head_repository", {"full_name": "fork/repo"})):
             with self.subTest(key=key, value=value):
                 api = FakeAPI()
@@ -106,6 +113,7 @@ class EvidenceTests(unittest.TestCase):
     def test_tree_attempt_repository_and_all_plan_fields_must_match(self):
         for key, value in (("tree", "other"), ("run_attempt", 2), ("run_id", 101),
                            ("version", 2), ("event", "push"), ("repository", "fork/repo"),
+                           ("pr_number", 8),
                            ("plan", {"version": 1, "workflows": {"e2e": False}})):
             with self.subTest(key=key):
                 api = FakeAPI()
@@ -145,10 +153,12 @@ class EvidenceTests(unittest.TestCase):
     def test_record_keeps_actual_tree_run_attempt_and_plan(self):
         with tempfile.TemporaryDirectory() as tmp:
             destination = Path(tmp) / reuse.EVIDENCE_FILE
+            event_path = Path(tmp) / "event.json"
+            event_path.write_text(json.dumps({"number": 7}))
             environment = {
                 "CI_PLAN": json.dumps(FakeAPI().plan), "GITHUB_REPOSITORY": "owner/repo",
                 "GITHUB_EVENT_NAME": "pull_request", "GITHUB_RUN_ID": "100",
-                "GITHUB_RUN_ATTEMPT": "2",
+                "GITHUB_RUN_ATTEMPT": "2", "GITHUB_EVENT_PATH": str(event_path),
             }
             original_path = Path
             def evidence_path(name):
@@ -162,6 +172,7 @@ class EvidenceTests(unittest.TestCase):
             self.assertEqual(evidence["tree"], "checked-out-tree")
             self.assertEqual(evidence["run_attempt"], 2)
             self.assertEqual(evidence["run_id"], 100)
+            self.assertEqual(evidence["pr_number"], 7)
             self.assertEqual(evidence["plan"], FakeAPI().plan)
 
     def test_api_failure_falls_back_to_testing_and_records_no_reuse(self):
