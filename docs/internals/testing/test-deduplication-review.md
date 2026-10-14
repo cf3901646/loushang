@@ -249,3 +249,22 @@ JUnit 派生与模块报告分别证明“子集证据真实”和“模块集�
 完整目录 139 项通过，2.493 秒。当前成本很小，删除或跨文件合并不会显著缩短 PR，
 却会降低失败定位或引入共享夹具状态，因此本批保留全部节点。审计没有增加 required
 check、workflow、job、route、平台、触发或失败条件。
+
+## 12. Dev 目录初始分组与误路由收敛
+
+`tests/dev` 的 45 个文件包含 406 个静态测试函数，参数化后收集 1674 个实例。明确
+绑定当前 worktree 源码的 Linux 离线运行结果为 1669 项通过、5 项平台条件跳过，
+243.10 秒。这里混合了纯比较/收据合同、真实子进程监督、进程树回收、临时 Git 与
+wheel、POSIX 行为及跨平台 observer，不能把目录整体归作快速单元。忽略函数名和
+源码位置的完整 AST 扫描没有重复簇；参数矩阵和相似合同仍待继续语义审查。
+
+路由逐文件检查发现，18 个 `test_lmux_*` 文件和
+`test_screen_first_probe_readiness.py` 复用已有 G18 runner、comparison 或 Coding
+probe，却没有进入 G18/AppService 路径规则。它们的 test-only PR 因此使用未知路径
+全量回退，误选八类 workflow。现将 19 个路径加入已有 G18/AppService owner，静态
+验证均收敛到相同的 `docs`、`appservice`、`host_runtime` check 与 `units`、`e2e`
+workflow；这只删除无关选择，未增加任何门禁。
+
+AppService 工作流仍按用户要求暂停，现有 owner 也不直接执行这 19 个测试文件。
+若要在修改这些测试时新增精确 targeted 执行，将形成新的 PR 失败条件；按审批规则
+须先提交成本、断言和回退方案，本批不实施。
