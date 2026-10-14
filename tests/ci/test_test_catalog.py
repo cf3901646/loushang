@@ -21,7 +21,7 @@ module_unit_paths = catalog_module.module_unit_paths
 class CatalogTests(unittest.TestCase):
     def test_reviewed_modules_cover_their_complete_current_test_directories(self):
         catalog = load_catalog(ROOT)
-        self.assertEqual(set(catalog["modules"]), {"channel", "resource", "work", "agent", "harnesswork"})
+        self.assertEqual(set(catalog["modules"]), {"channel", "resource", "work", "agent", "harnesswork", "method"})
         for module, entry in catalog["modules"].items():
             discovered = {
                 p.relative_to(ROOT).as_posix()
@@ -37,7 +37,8 @@ class CatalogTests(unittest.TestCase):
                      "tests/agent/test_agent_loop.py", "tests/examples/test_agent_examples.py",
                      "tests/harnesswork/integrations/test_session.py",
                      "tests/harnesswork/fixtures/legacy_coding_plan.jsonl",
-                     "tests/harnesswork/fixtures/legacy_coding_plan_projection.json"):
+                     "tests/harnesswork/fixtures/legacy_coding_plan_projection.json",
+                     "tests/method/test_method_loader.py", "tests/method/test_runtime.py"):
             with self.subTest(path=path):
                 plan = select([path], root=ROOT, pr_fast=True)
                 self.assertFalse(plan["e2e"])
@@ -58,7 +59,7 @@ class CatalogTests(unittest.TestCase):
         self.assertTrue(select(["tests/harnesswork/fixtures/new_shared.json"], root=ROOT, pr_fast=True)["e2e"])
 
     def test_classified_module_runner_has_static_checks_and_full_reviewed_set(self):
-        for module in ("channel", "resource", "work", "agent", "harnesswork"):
+        for module in ("channel", "resource", "work", "agent", "harnesswork", "method"):
             planned = commands(f"unit_{module}", root=ROOT)
             self.assertEqual(len(planned), 2)
             self.assertIn("ruff", planned[0])

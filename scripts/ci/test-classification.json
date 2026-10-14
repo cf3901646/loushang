@@ -166,6 +166,52 @@
           ]
         }
       }
+    },
+    "method": {
+      "complete": true,
+      "review": "reviewed complete directory; immutable types, in-memory registries/selectors, controlled runtime and isolated temporary resource discovery; no Product session, external process or live provider",
+      "files": {
+        "tests/method/test_method_compiler.py": {
+          "category": "unit",
+          "assertion": "single-turn and fixed-plan compilation, metadata/default propagation and malformed plan rejection"
+        },
+        "tests/method/test_method_loader.py": {
+          "category": "contract",
+          "assertion": "isolated temporary method/skill resources: discovery, reload snapshots, precedence and future-manifest omission"
+        },
+        "tests/method/test_method_projection.py": {
+          "category": "unit",
+          "assertion": "stable guidance and JSON-safe plan/step facts, policy metadata, null keys and empty content"
+        },
+        "tests/method/test_method_registry.py": {
+          "category": "unit",
+          "assertion": "in-memory listing, lookup, duplicate rejection and selected state"
+        },
+        "tests/method/test_method_selector.py": {
+          "category": "unit",
+          "assertion": "exact id/name selection from registry or descriptor collection"
+        },
+        "tests/method/test_method_types.py": {
+          "category": "unit",
+          "assertion": "descriptor, context, applicability, plan, step and projection defaults and taxonomy hints"
+        },
+        "tests/method/test_package_boundaries.py": {
+          "category": "contract",
+          "assertion": "static Method package source inspection rejects Coding product dependencies"
+        },
+        "tests/method/test_public_api.py": {
+          "category": "contract",
+          "assertion": "public P1 type surface and absence of multi-agent coordination types"
+        },
+        "tests/method/test_runtime.py": {
+          "category": "contract",
+          "assertion": "temporary method resource prepares a non-Coding turn and controlled settings compose policy precedence"
+        },
+        "tests/method/test_skill_adapter.py": {
+          "category": "contract",
+          "assertion": "legacy facade identity and controlled SkillDescriptor conversion of content, applicability and optional metadata"
+        }
+      }
     }
   }
 }

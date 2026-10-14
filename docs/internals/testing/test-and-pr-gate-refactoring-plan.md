@@ -290,7 +290,7 @@ R4 将全部单元测试的语义去重纳入范围，允许减少冗余用例�
 | harnesswork | 7 | 32 | 角色完整初审；两份专用 golden 夹具登记 |
 | hosting | 28 | 309 | 待逐项审查 |
 | integration | 7 | 10 | 待逐项审查 |
-| method | 10 | 37 | 待逐项审查 |
+| method | 10 | 37 | 角色完整初审 |
 | ontology | 21 | 152 | 待逐项审查 |
 | protocols | 4 | 101 | 待逐项审查 |
 | resource | 2 | 5 | 完整初审 |
@@ -309,3 +309,7 @@ Agent 的 7 个目录文件和现有 examples 合同完成角色初审，受控�
 模块报告门禁：原 blanket allow-skipped 改为按完整分类状态验证，已审查必要集合零跳过；实际 testcase 与声明数量、唯一身份及 owner 一致，未分片报告覆盖全部登记文件。未审查 legacy 集合仍保留平台 skip 兼容，不能因此宣称其必需跳过策略已全部审查。缺失产物上传改为 error。129 项 CI 合同通过；真实 Agent 报告 155 项、零跳过，通过新验证器；此前 AppHost legacy 报告 2657 项、11 项 Windows 条件跳过也通过兼容验证。分片并集和逐 node 必需集合的完整证明仍待后续迁移。
 
 HarnessWork 分类与专用夹具：7 个文件为受控执行/事件投影、临时或只读 JSONL、公开符号/导入合同。名称包含 integrations 的两个文件不启动真实 Product 会话；CLI 文件直接调用 API，不运行 CLI 子进程。两份 golden 数据仅由 `test_plan_projection_golden.py` 读取，已登记 owner、用途和消费者；路径缺失、消费者缺失/重复/跨 owner 均失败。未知夹具、共享 conftest 和混合源码仍保守取并集。完整集合 32 项通过，1.61 秒；真实报告零跳过并覆盖全部登记文件，通过新门禁。CI 合同 130 项通过。声明消费者属于人工审查的明确归属，不替代全部动态 Python 依赖分析；真实集成-only 路由和其他目录仍待完成。
+
+Method 的 10 个文件完成角色初审：不可变类型、内存 registry/selector、受控 runtime/settings、临时目录资源发现和静态包边界，不启动 Product 会话、外部进程或 live provider。完整集合 37 项通过，2.28 秒；真实报告零跳过并覆盖全部登记文件。test-only 修改走模块短路径。
+
+AI 静态重复候选中的两组已经合并：两个名称声称 get-stream 的用例实际仍只调用 `register_api_adapter`，分别与同文件 legacy 和 optional-legacy 注册拒绝用例完全相同。去重后完整 `test_api_streaming.py` 51 项通过，1.22 秒；旧用例到保留集合映射见[测试去重实施记录](test-deduplication-review.md)。AI 全目录尚未完成角色分类，因此其他 AI 修改仍保持现有保守路由。
