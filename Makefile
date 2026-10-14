@@ -220,8 +220,6 @@ APPHOST_TEST_PATHS := \
 	tests/harnesstui/test_hosted_mux_shell.py \
 	tests/harnesstui/test_hosted_mux_terminal.py \
 	tests/harnesstui/test_hosted_mux_settlement.py \
-	tests/coding/test_mux_terminal_process.py \
-	tests/coding/test_mux_product_terminal.py \
 	tests/foundation/observability/test_identity.py \
 	tests/coding/test_hosted_command.py \
 	tests/coding/test_hosted_discovery_command.py \
@@ -229,10 +227,8 @@ APPHOST_TEST_PATHS := \
 	tests/coding/test_hosted_bootstrap.py \
 	tests/coding/test_hosted_local_discovery.py \
 	tests/coding/test_hosted_local_discovery_subprocess.py \
-	tests/coding/test_hosted_local.py \
 	tests/coding/test_hosted_local_ownership.py \
 	tests/coding/test_mux_command.py \
-	tests/coding/test_mux_subprocess.py \
 	tests/coding/test_hosted_subprocess.py \
 	tests/coding/test_hosted_catalog.py \
 	tests/coding/test_hosted_session.py \
@@ -266,6 +262,11 @@ APPHOST_TEST_PATHS := \
 	tests/architecture/test_foreground_hosted_application_g12.py \
 	tests/architecture/test_durable_hosted_application_continuity_g13_design.py \
 	tests/architecture/test_durable_hosted_application_continuity_g13.py
+APPHOST_TARGETED_TEST_PATHS := \
+	tests/coding/test_hosted_local.py \
+	tests/coding/test_mux_product_terminal.py \
+	tests/coding/test_mux_subprocess.py \
+	tests/coding/test_mux_terminal_process.py
 APPHOST_LINT_SUPPORT := \
 	tests/coding/_hosted_windows_api.py \
 	tests/coding/_hosted_windows_observer.py \
@@ -527,13 +528,13 @@ test-hosting:
 check-apphost: lint-apphost typecheck-apphost test-apphost test-hosted-product-g8-evidence test-hosted-product-g9-linux-evidence test-hosted-product-g10-linux-evidence
 
 lint-apphost:
-	uv --cache-dir .uv-cache run --extra dev ruff check $(APPHOST_SOURCES) $(APPHOST_TEST_PATHS) $(APPHOST_LINT_SUPPORT)
+	uv --cache-dir .uv-cache run --extra dev ruff check $(APPHOST_SOURCES) $(APPHOST_TEST_PATHS) $(APPHOST_TARGETED_TEST_PATHS) $(APPHOST_LINT_SUPPORT)
 
 typecheck-apphost:
 	uv --cache-dir .uv-cache run --extra dev mypy --follow-imports=silent $(APPHOST_SOURCES)
 
 test-apphost:
-	uv --cache-dir .uv-cache run --extra dev $(PYTEST_RUNNER) $(APPHOST_TEST_PATHS) -q
+	uv --cache-dir .uv-cache run --extra dev $(PYTEST_RUNNER) $(APPHOST_TEST_PATHS) $(APPHOST_TARGETED_TEST_PATHS) -q
 
 test-hosted-product-g8-evidence:
 	mkdir -p .artifacts

@@ -156,3 +156,12 @@ pytest 进程；报告条目重复不直接计为重复执行。
 尾部的主要手段。下一轮应逐项判断 144.96 秒独有集合中哪些是普通 PR 必需冒烟、
 哪些适合按变更触发或定时运行。任何因此新增或扩大 test route、平台、job 或失败
 条件的方案均先进入审批包；未获明确批准前只记录建议，不修改门禁。
+
+首批执行归属收敛移除 AppHost PR 主回归中的四个已有 targeted owner：
+`test_hosted_local.py`、`test_mux_product_terminal.py`、`test_mux_subprocess.py` 和
+`test_mux_terminal_process.py`。它们在 #746 AppHost 报告中合计 56.16 秒；直接修改
+由 catalog 的 Ubuntu integration/platform job 执行，schedule/manual full 也会
+执行，且本地 `make check-apphost` 继续包含完整集合。普通 AppHost PR 保留
+`tests/apphost` 全包、架构合同、G8/G9 组合、G10 native/installed canary、Windows
+G8/G9/G10/G13 及独立三平台核心冒烟。本批只删除旧 PR 清单归属，不新增 job、
+test route、平台、触发或失败条件。
