@@ -79,21 +79,38 @@ def verify_report(
     if allow_skipped and counts["tests"] - counts["skipped"] <= 0:
         problems.append("at least one test must pass when skipped tests are allowed")
 
-    passed_classes = {
-        case.get("classname", "")
+    passed_cases = {
+        (case.get("classname", ""), case.get("name", ""))
         for suite in suites
         for case in suite.findall("testcase")
         if case.find("skipped") is None
         and case.find("failure") is None
         and case.find("error") is None
     }
-    for file in required_files:
-        owner = Path(file.split("::", 1)[0]).with_suffix("").as_posix().replace("/", ".")
-        if not any(
-            classname == owner or classname.startswith(owner + ".")
-            for classname in passed_classes
-        ):
-            problems.append(f"required test file has no passing case: {file}")
+    for required in required_files:
+        parts = required.split("::")
+        owner = Path(parts[0]).with_suffix("").as_posix().replace("/", ".")
+        if len(parts) == 1:
+            matched = any(
+                classname == owner or classname.startswith(owner + ".")
+                for classname, _name in passed_cases
+            )
+        elif len(parts) == 2:
+            matched = any(
+                classname == owner
+                and (name == parts[1] or name.startswith(parts[1] + "["))
+                for classname, name in passed_cases
+            )
+        elif len(parts) == 3:
+            matched = any(
+                classname == f"{owner}.{parts[1]}"
+                and (name == parts[2] or name.startswith(parts[2] + "["))
+                for classname, name in passed_cases
+            )
+        else:
+            matched = False
+        if not matched:
+            problems.append(f"required test target has no passing case: {required}")
 
     properties = {
         (item.get("name") or ""): item.get("value") or ""

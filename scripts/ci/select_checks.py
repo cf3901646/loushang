@@ -19,6 +19,7 @@ from test_catalog import (
     all_targeted_test_cases,
     load_catalog,
     reviewed_unit_owner,
+    targeted_node_owner,
     targeted_test_cases,
 )
 
@@ -36,6 +37,8 @@ PR_ROUTING_FILES = {
     "tests/ci/test_source_imports.py",
     "scripts/ci/verify_module_report.py",
     "tests/ci/test_module_report.py",
+    "scripts/dev/verify_pytest_xml.py",
+    "tests/dev/test_verify_pytest_xml.py",
     "scripts/ci/verify_gate.py",
     "tests/ci/test_change_gates.py",
     "scripts/ci/reuse_pr_gate.py",
@@ -253,7 +256,13 @@ def select(
             # owns its exact execution.  Test-only changes do not expand into
             # the package regression or unrelated product smoke workflows.
             reviewed_test_paths.add(path)
-            targeted_test_paths.add(path)
+            node_owner = targeted_node_owner(path, catalog=catalog)
+            if node_owner is None:
+                targeted_test_paths.add(path)
+            else:
+                # A mixed file keeps its unlisted unit/contract nodes in the
+                # module regression while its reviewed slow nodes run exactly.
+                unit_packages.add(node_owner)
         if (
             path.startswith(WINDOWS_WORKER_FULL_TEST_PREFIXES)
             or path in WINDOWS_WORKER_FULL_BOUNDARIES
