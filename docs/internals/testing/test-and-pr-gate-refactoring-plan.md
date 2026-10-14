@@ -287,7 +287,7 @@ R4 将全部单元测试的语义去重纳入范围，允许减少冗余用例�
 | foundation | 11 | 87 | 待逐项审查 |
 | harness | 475 | 4107 | 待逐项审查 |
 | harnesstui | 98 | 624 | 待逐项审查 |
-| harnesswork | 7 | 32 | 待逐项审查 |
+| harnesswork | 7 | 32 | 角色完整初审；两份专用 golden 夹具登记 |
 | hosting | 28 | 309 | 待逐项审查 |
 | integration | 7 | 10 | 待逐项审查 |
 | method | 10 | 37 | 待逐项审查 |
@@ -307,3 +307,5 @@ Agent 的 7 个目录文件和现有 examples 合同完成角色初审，受控�
 目录型 extras 追加复核：完整分类后仅执行展开后的文件清单，不再追加其父目录；新增合同防止后续 AI protocols 分类时重复收集。CI 合同增至 123 项通过。Ruff、Actions 语法与文档检查通过。
 
 模块报告门禁：原 blanket allow-skipped 改为按完整分类状态验证，已审查必要集合零跳过；实际 testcase 与声明数量、唯一身份及 owner 一致，未分片报告覆盖全部登记文件。未审查 legacy 集合仍保留平台 skip 兼容，不能因此宣称其必需跳过策略已全部审查。缺失产物上传改为 error。129 项 CI 合同通过；真实 Agent 报告 155 项、零跳过，通过新验证器；此前 AppHost legacy 报告 2657 项、11 项 Windows 条件跳过也通过兼容验证。分片并集和逐 node 必需集合的完整证明仍待后续迁移。
+
+HarnessWork 分类与专用夹具：7 个文件为受控执行/事件投影、临时或只读 JSONL、公开符号/导入合同。名称包含 integrations 的两个文件不启动真实 Product 会话；CLI 文件直接调用 API，不运行 CLI 子进程。两份 golden 数据仅由 `test_plan_projection_golden.py` 读取，已登记 owner、用途和消费者；路径缺失、消费者缺失/重复/跨 owner 均失败。未知夹具、共享 conftest 和混合源码仍保守取并集。完整集合 32 项通过，1.61 秒；真实报告零跳过并覆盖全部登记文件，通过新门禁。CI 合同 130 项通过。声明消费者属于人工审查的明确归属，不替代全部动态 Python 依赖分析；真实集成-only 路由和其他目录仍待完成。

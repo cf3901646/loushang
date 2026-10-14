@@ -47,6 +47,23 @@ def load_catalog(root: Path) -> dict:
         for file, role in files.items():
             if not isinstance(role, dict) or role.get("category") not in {"unit", "contract"} or not isinstance(role.get("assertion"), str) or not role["assertion"].strip():
                 raise ValueError(f"invalid reviewed test role: {file}")
+        fixtures = entry.get("fixtures", {})
+        if not isinstance(fixtures, dict):
+            raise ValueError(f"invalid fixture inventory: {module}")
+        for fixture, role in fixtures.items():
+            if (not fixture.startswith(f"tests/{module}/")
+                    or ".." in Path(fixture).parts or fixture in files
+                    or not (root / fixture).is_file()):
+                raise ValueError(f"invalid or missing dedicated fixture: {fixture}")
+            if (not isinstance(role, dict) or role.get("category") not in {"unit", "contract"}
+                    or not isinstance(role.get("assertion"), str) or not role["assertion"].strip()):
+                raise ValueError(f"invalid dedicated fixture role: {fixture}")
+            consumers = role.get("consumers")
+            if (not isinstance(consumers, list) or not consumers
+                    or not all(isinstance(consumer, str) for consumer in consumers)
+                    or len(set(consumers)) != len(consumers)
+                    or set(consumers) - set(files)):
+                raise ValueError(f"unreviewed dedicated fixture consumers: {fixture}")
     return catalog
 
 
@@ -57,6 +74,6 @@ def module_unit_paths(module: str, *, root: Path) -> list[str] | None:
 
 def reviewed_unit_owner(path: str, *, catalog: dict) -> str | None:
     for module, entry in catalog["modules"].items():
-        if path in entry["files"]:
+        if path in entry["files"] or path in entry.get("fixtures", {}):
             return module
     return None

@@ -116,6 +116,56 @@
           "assertion": "load existing guarded examples and build public model descriptors only; no main invocation or live calls"
         }
       }
+    },
+    "harnesswork": {
+      "complete": true,
+      "review": "reviewed complete directory; controlled session/executor/event objects and isolated JSONL/import contracts, no actual Product session/server/native containment",
+      "files": {
+        "tests/harnesswork/test_cli.py": {
+          "category": "contract",
+          "assertion": "direct inspection/creation API over temporary JSONL files; no CLI process"
+        },
+        "tests/harnesswork/test_runtime.py": {
+          "category": "unit",
+          "assertion": "opaque synthetic ontology executor and in-memory log; success lifecycle and emitted domain fact"
+        },
+        "tests/harnesswork/test_public_api.py": {
+          "category": "contract",
+          "assertion": "canonical exports, legacy kernel/integration symbol identity and fresh Python import order/dependency isolation; no Product process"
+        },
+        "tests/harnesswork/test_plan_projection.py": {
+          "category": "unit",
+          "assertion": "synthetic event records: completed/failed/cancelled steps, deviation/policy metadata, plan facts and ignored unowned entries"
+        },
+        "tests/harnesswork/test_plan_projection_golden.py": {
+          "category": "contract",
+          "assertion": "read-only legacy golden JSONL projection compared against exact expected plan/step metadata"
+        },
+        "tests/harnesswork/integrations/test_session.py": {
+          "category": "contract",
+          "assertion": "controlled design session and in-memory log: profile vocabulary, direct/work delivery, prepared-turn validation and ordered plan prompts"
+        },
+        "tests/harnesswork/integrations/test_agent_events.py": {
+          "category": "contract",
+          "assertion": "controlled agent/AI event objects: projected content/tools/audit/queue metadata, strict JSON/schema rejection, snapshots and custom serializer"
+        }
+      },
+      "fixtures": {
+        "tests/harnesswork/fixtures/legacy_coding_plan.jsonl": {
+          "category": "contract",
+          "assertion": "read-only historical work log for necessary plan replay contract",
+          "consumers": [
+            "tests/harnesswork/test_plan_projection_golden.py"
+          ]
+        },
+        "tests/harnesswork/fixtures/legacy_coding_plan_projection.json": {
+          "category": "contract",
+          "assertion": "exact expected plan/step projection for historical work log contract",
+          "consumers": [
+            "tests/harnesswork/test_plan_projection_golden.py"
+          ]
+        }
+      }
     }
   }
 }

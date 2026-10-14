@@ -21,7 +21,7 @@ module_unit_paths = catalog_module.module_unit_paths
 class CatalogTests(unittest.TestCase):
     def test_reviewed_modules_cover_their_complete_current_test_directories(self):
         catalog = load_catalog(ROOT)
-        self.assertEqual(set(catalog["modules"]), {"channel", "resource", "work", "agent"})
+        self.assertEqual(set(catalog["modules"]), {"channel", "resource", "work", "agent", "harnesswork"})
         for module, entry in catalog["modules"].items():
             discovered = {
                 p.relative_to(ROOT).as_posix()
@@ -34,7 +34,10 @@ class CatalogTests(unittest.TestCase):
         for path in ("tests/resource/test_frontmatter.py", "tests/channel/test_host.py",
                      "tests/channel/test_session_work_adapter.py", "tests/work/test_runtime.py",
                      "tests/work/test_event_log.py", "tests/agent/test_proxy.py",
-                     "tests/agent/test_agent_loop.py", "tests/examples/test_agent_examples.py"):
+                     "tests/agent/test_agent_loop.py", "tests/examples/test_agent_examples.py",
+                     "tests/harnesswork/integrations/test_session.py",
+                     "tests/harnesswork/fixtures/legacy_coding_plan.jsonl",
+                     "tests/harnesswork/fixtures/legacy_coding_plan_projection.json"):
             with self.subTest(path=path):
                 plan = select([path], root=ROOT, pr_fast=True)
                 self.assertFalse(plan["e2e"])
@@ -49,9 +52,13 @@ class CatalogTests(unittest.TestCase):
                 self.assertTrue(select([test, change], root=ROOT, pr_fast=True)["e2e"])
         unknown = select(["tests/coding/test_new_integration.py"], root=ROOT, pr_fast=True)
         self.assertTrue(unknown["e2e"])
+        fixture = "tests/harnesswork/fixtures/legacy_coding_plan.jsonl"
+        self.assertTrue(select([fixture, "src/loushang/harnesswork/runtime.py"], root=ROOT, pr_fast=True)["e2e"])
+        self.assertTrue(select([fixture, "tests/conftest.py"], root=ROOT, pr_fast=True)["e2e"])
+        self.assertTrue(select(["tests/harnesswork/fixtures/new_shared.json"], root=ROOT, pr_fast=True)["e2e"])
 
     def test_classified_module_runner_has_static_checks_and_full_reviewed_set(self):
-        for module in ("channel", "resource", "work", "agent"):
+        for module in ("channel", "resource", "work", "agent", "harnesswork"):
             planned = commands(f"unit_{module}", root=ROOT)
             self.assertEqual(len(planned), 2)
             self.assertIn("ruff", planned[0])
@@ -114,6 +121,35 @@ class CatalogTests(unittest.TestCase):
         self.assertNotIn("tests/protocols", command)
         for path in paths:
             self.assertEqual(command.count(path), 1)
+
+    def test_dedicated_fixture_requires_existing_path_and_reviewed_consumers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "scripts/ci").mkdir(parents=True)
+            (root / "tests/demo").mkdir(parents=True)
+            test = "tests/demo/test_one.py"
+            fixture = "tests/demo/golden.json"
+            (root / test).write_text("def test_one(): pass\n")
+            (root / fixture).write_text("{}")
+            role = {"category": "contract", "assertion": "golden contract", "consumers": [test]}
+            entry = {"complete": True, "files": {test: {
+                "category": "unit", "assertion": "one behavior"}}, "fixtures": {fixture: role}}
+            path = root / "scripts/ci/test-classification.json"
+            def write():
+                path.write_text(json.dumps({"version": 1, "modules": {"demo": entry}}))
+            write()
+            self.assertEqual(catalog_module.reviewed_unit_owner(fixture, catalog=load_catalog(root)), "demo")
+            self.assertEqual(module_unit_paths("demo", root=root), [test])
+            for consumers in ([], ["tests/other/test_two.py"], [test, test], test):
+                role["consumers"] = consumers
+                write()
+                with self.subTest(consumers=consumers), self.assertRaises(ValueError):
+                    load_catalog(root)
+            role["consumers"] = [test]
+            write()
+            (root / fixture).unlink()
+            with self.assertRaisesRegex(ValueError, "missing dedicated fixture"):
+                load_catalog(root)
 
     def test_schema_and_category_errors_do_not_create_an_empty_green_plan(self):
         with tempfile.TemporaryDirectory() as tmp:

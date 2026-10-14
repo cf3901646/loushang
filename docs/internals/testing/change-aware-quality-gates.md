@@ -52,13 +52,21 @@ it. Long campaigns must not silently return to ordinary PR gates.
 ## Selection policy
 
 The reviewed [test classification catalog](../../../scripts/ci/test-classification.json)
-currently covers the complete Agent, Channel, Resource and Work test directories,
+currently covers the complete Agent, Channel, Resource, Work and HarnessWork test directories,
 including Agent's owned examples contracts. Changes
 limited to these unit/contract files run the owner's complete reviewed set and
 Ruff without selecting global integration/E2E. Mixed source changes and shared
 fixtures retain their normal impact union. Missing or stale file classifications
 fail validation; owned extras must also be classified and run exactly once.
 Unreviewed modules retain their existing coverage.
+
+HarnessWork's two registered golden fixtures have one reviewed contract consumer.
+Changes limited to these fixtures run the owner's complete module set without
+global E2E. Fixture metadata requires an existing owner-local path and a unique,
+nonempty list of reviewed consumers. Shared conftest, unknown fixture paths and
+mixed source edits retain their broader impact selection. Consumer declarations
+must be reviewed when fixture usage changes; this is an explicit ownership
+inventory rather than a complete automatic Python dependency analysis.
 
 The module workflow validates actual JUnit testcase counts and identities through
 [verify_module_report.py](../../../scripts/ci/verify_module_report.py). Reviewed
