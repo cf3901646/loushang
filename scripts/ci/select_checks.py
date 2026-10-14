@@ -26,6 +26,7 @@ from test_catalog import (
 
 ROOT = Path(__file__).resolve().parents[2]
 PR_ROUTING_FILES = {
+    ".github/workflows/apphost-quality.yml",
     ".github/workflows/quality.yml",
     "scripts/ci/check-scopes.json",
     "scripts/ci/select_checks.py",
@@ -332,7 +333,12 @@ def select(
         if pr_fast and not full and path == SMOKE_TEST:
             e2e = True
             continue
-        if pr_fast and not full and path in SCOPED_WORKFLOWS:
+        if (
+            pr_fast
+            and not full
+            and path in SCOPED_WORKFLOWS
+            and path not in PR_ROUTING_FILES
+        ):
             owned = [check for scope in SCOPED_WORKFLOWS[path]
                      for check in rules["workflows"][scope]]
             enable(["ci", *owned], f"{path}: validate the changed reusable workflow")
@@ -400,6 +406,17 @@ def select(
                     path == p or path.startswith(p + "/") for p in variables[variable]
                 ):
                     enable([name], f"{path}: {variable}")
+                    if (
+                        pr_fast
+                        and not full
+                        and variable.endswith("_TEST_PATHS")
+                        and path.startswith("tests/")
+                        and path.endswith(".py")
+                    ):
+                        # The existing Makefile test inventory already runs
+                        # this test through its declared owner.  A test-only
+                        # edit does not need the unrelated Product E2E smoke.
+                        reviewed_test_paths.add(path)
                     matched = True
         for covered in variables["HARNESSTUI_TEST_PATHS"]:
             if path == covered or path.startswith(covered + "/"):

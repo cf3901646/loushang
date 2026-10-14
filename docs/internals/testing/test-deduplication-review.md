@@ -293,3 +293,37 @@ PR #763 同分支远程对照中，旧运行 `38588834269` 的两个模块单元
 Resume E2E 为 29/41/63 秒，总墙钟同口径 84 秒。新运行 `38589276148` 保留模块单元
 并明确跳过 E2E，总墙钟 61 秒；`changes` 在两轮间从 10 秒波动到 26 秒，所以实际
 端到端净减少 23 秒，不能把三个 E2E job 的时间直接相加作为墙钟收益。
+
+## 13. Architecture 目录部分初审
+
+`tests/architecture` 当前有 62 个测试文件和 654 个收集实例。它不是单一快速单元
+套件：文件分别进入 Harness、Hosting、AppHost 等历史清单，且包含全仓源码库存、
+导入边界、文档状态、平台证据和运行时所有权合同。控制分支上的首次整目录性能探测
+在 900 秒上限时仍约有 12% 未完成；该控制分支包含未推送提交，因此这次探测只作为
+成本证据，不作为远端主线通过或失败结论。不能把整目录加入普通 PR 门禁。
+
+首个确定热点位于 `test_hosted_product_runtime_v1_baseline.py`。其中
+`test_current_inventory_matches_source_and_retained_absences` 为寻找 AppHost 反向依赖，
+原先对 `src/loushang` 下每个 Python 文件执行 AST 解析。基于 `origin/main` 的隔离
+基线为 16.48 秒。现在先检查源码是否包含断言所需的精确 `loushang.apphost` 前缀；
+不含此前缀的文件不可能由原助手返回匹配项，候选文件仍走相同 AST 解析。导入事实
+同时按文件名和实际源码内容缓存为不可变 tuple，对调用方继续返回独立 set。
+
+同一节点优化后为 0.81 秒，约快 20 倍；该文件全部 11 项通过、总计 1.73 秒。
+测试名称、断言、源码读取和候选文件 AST 语义均保持不变。
+
+路由复核还发现，该测试已同时列入 `HOSTING_TEST_PATHS` 和
+`APPHOST_TEST_PATHS`，却因不在已完整分类的目录中又附加三平台 Resume E2E。
+选择器现在把现有 Makefile `*_TEST_PATHS` 当作 test-only 文件的既有 owner：保留
+所有原 owner 和依赖，只停止追加不执行这些文件的通用 E2E。源码、未知测试、
+非 Python 支持文件、专项 targeted 路由和完整验证保持原规则。该文件的计划由
+`Hosting + AppHost + E2E` 收敛为 `Hosting + AppHost`；139 项现有 CI 契约全部
+通过。此项只删除重复执行，没有增加 check、workflow、job、route、平台、触发或
+失败条件。
+
+远程首轮还暴露 AppHost workflow 内部耦合：同一个 `apphost` 开关同时启动普通
+回归和 Windows native 证据，即使计划已明确关闭 E2E。Windows native job 现在只在
+既有 `apphost` 与 `e2e` 风险位同时成立时运行；AppHost 源码、未知变更和完整验证仍
+满足该条件，已审查 test-only 改动只保留普通回归。`apphost-quality.yml` 自身的修改
+归入已有 CI 契约短路径，由路由/聚合合同与 actionlint 验证，不再为了验证 YAML
+条件而执行产品和 Windows native 场景。这同样只收窄现有门禁。

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import re
+from functools import cache
 from pathlib import Path
 
 from loushang.foundation.platform_paths import PlatformPaths
@@ -188,13 +189,19 @@ def _status_fields(path: Path) -> dict[str, str]:
 
 
 def _imports(path: Path) -> set[str]:
+    source = _read(path)
+    return set(_import_facts(str(path), source))
+
+
+@cache
+def _import_facts(filename: str, source: str) -> tuple[str, ...]:
     imports: set[str] = set()
-    for node in ast.walk(ast.parse(_read(path), filename=str(path))):
+    for node in ast.walk(ast.parse(source, filename=filename)):
         if isinstance(node, ast.Import):
             imports.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module is not None:
             imports.add(node.module)
-    return imports
+    return tuple(sorted(imports))
 
 
 def _table_first_column(text: str) -> tuple[str, ...]:
@@ -646,6 +653,7 @@ def test_current_inventory_matches_source_and_retained_absences() -> None:
         path
         for path in Path("src/loushang").rglob("*.py")
         if not path.is_relative_to(APPHOST_SOURCE)
+        if "loushang.apphost" in _read(path)
         if any(imported.startswith("loushang.apphost") for imported in _imports(path))
     }
     assert reverse_apphost_consumers == {

@@ -227,7 +227,7 @@ jobs:
           if-no-files-found: error
 
   apphost-windows-native-gate:
-    if: ${{ fromJSON(inputs.plan).checks.apphost }}
+    if: ${{ fromJSON(inputs.plan).checks.apphost && fromJSON(inputs.plan).e2e }}
     name: apphost-windows-native-gate
     runs-on: windows-2022
     timeout-minutes: 10

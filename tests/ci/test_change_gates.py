@@ -380,6 +380,8 @@ class ScopeTests(unittest.TestCase):
         for path, scopes in selector.SCOPED_WORKFLOWS.items():
             with self.subTest(path=path):
                 self.assertTrue((ROOT / path).is_file())
+                if path in selector.PR_ROUTING_FILES:
+                    continue
                 plan = selector.select([path], pr_fast=True)
                 expected = {"docs", "ci"} | {c for scope in scopes
                                                     for c in rules["workflows"][scope]}
@@ -1343,7 +1345,7 @@ class WorkflowContractTests(unittest.TestCase):
             jobs = {
                 job: f"{section}.{scope}" if section != "checks" else scope
                 for job, section, scope in re.findall(
-                    r"^  ([\w-]+):\n    if: \$\{\{ fromJSON\(inputs.plan\).(checks|windows|workflows).([\w-]+) \}\}",
+                    r"^  ([\w-]+):\n    if: \$\{\{ fromJSON\(inputs.plan\).(checks|windows|workflows).([\w-]+)(?: [^}]*)? \}\}",
                     text,
                     re.M,
                 )
