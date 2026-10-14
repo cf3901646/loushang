@@ -61,6 +61,16 @@ failures. For changes to CI selection itself, run the focused `tests/ci` suite
 and Actions syntax validation locally; the PR provides full remote validation.
 See `docs/internals/testing/change-aware-quality-gates.md` for the shared rules.
 
+Do not add or expand a PR gate without explicit approval from the authorized
+approver. This includes adding a required check, workflow, job, test route,
+runner platform or matrix entry; broadening path triggers; restoring a paused
+workflow; moving scheduled/nonblocking coverage into the blocking PR path; or
+making an existing PR result fail under a new condition. A general request to
+improve or refactor CI does not by itself approve a gate increase. Before
+requesting approval, record the proposed trigger, unique assertion, platforms,
+expected wall-clock cost, overlap with existing coverage, and rollback. Static
+analysis and proposal writing may continue while approval is pending.
+
 ## Configuration & Contributor Notes
 Model metadata is defined in `src/loushang/ai/model/models.json`; keep examples and docs aligned with it. Treat `examples/ai/` as public guidance: main examples should show the shortest supported path, while protocol-heavy or custom-registry flows should be marked advanced.
 

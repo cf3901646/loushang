@@ -6,6 +6,7 @@
 - 全量盘点：[16 个工作流、71 个源 job 的分析与去向](test-and-pr-gate-inventory.md)。
 - 当前行为依据：[现行门禁说明](change-aware-quality-gates.md)、[选择器](../../../scripts/ci/select_checks.py)及其工作流。各项按阶段实现与验证；未交付项不作为当前配置，暂停项不自动恢复。
 - 评审记录：[三视角评审](test-and-pr-gate-refactoring-review.md)。
+- 审批边界：任何新增或扩大的 PR 门禁必须由审批方对具体方案明确批准；本 goal 的一般实施授权不替代门禁增加审批。
 
 ## 1. 目标与约束
 
@@ -257,6 +258,13 @@ R4 将全部单元测试的语义去重纳入范围，允许减少冗余用例�
 
 用户重新建立 goal 后开始实施，最终要求 PR 目标门禁控制在 10 分钟内。本节更新实施状态；原 R4 文档评审是历史方案评审，不能当作新增实现的验收。R4 方案快照保存在任务分支提交 `b2e33ff6`。
 
+门禁增加审批规则适用于后续全部批次：新增 required check、workflow、job、
+test route、平台/矩阵、路径触发或失败条件，恢复暂停项，或把 schedule/
+nonblocking 覆盖移入阻塞 PR 路径，都须先提交包含触发、断言、平台、预计成本、
+重复覆盖和回退的审批包并获得明确批准。即使方案称为覆盖等价重分类，只要某类
+PR 因此多执行任务或多出失败条件，也不能自行实施。未获批准时只做审计、计时、
+重复判定和方案记录。
+
 第一批实现：
 
 - 新增独立测试角色登记，区别于仅用于快速路由资格的旧 unit-tests 清单。
@@ -355,3 +363,23 @@ PR #745 的远程全选运行 `38559343364` 为 5 分 04 秒，Coding 8 个 job 
 分类策略 v5 支持混合文件的 node 级 targeted 角色。首批依据远程 slowest 证据，把 `test_agent_session_runtime.py` 中 27 个持久会话生命周期函数和 `arch/test_activation.py` 中 5 个真实产品组合函数登记为 Ubuntu integration；两个文件仍留在 Coding 模块回归，未登记的单元/合同节点继续执行，模块命令只用精确 `--deselect` 移出 32 个登记 node。修改混合文件会同时执行 Coding 回归和这些精确 node，不附加通用 E2E；定时 full 也纳入这些 node。catalog 用 AST 校验 node 真实存在并禁止与整文件 override 重叠；JUnit verifier 从逐文件要求提升为逐 node 身份要求，参数化 node 允许其具体参数实例匹配，不能由同文件的其他通过用例遮蔽。
 
 首批 node 本地独立验证为会话运行时 29 个参数化实例全部通过、7 分 51 秒，Arch 5 项全部通过、1 分 44 秒。重新分类后的 Coding 0/8 代表分片为 459 项通过、3 项跳过、耗时 5 分 29 秒；本机明显慢于近期远程 runner，因此只证明剩余集合与 deselect 行为正确，实际 PR 墙钟收益仍以远程全选运行验收。
+
+### 待审批门禁变更 AP-01：第二批混合文件 node 路由
+
+状态：仅完成只读审计，未实现、未提交、未推送。曾在本地草稿工作树开始修改，
+收到审批约束后已停止测试并完整撤销草稿，临时分支和 worktree 已删除。
+
+| 项目 | 审批材料 |
+| --- | --- |
+| 目的 | 将 5 个混合 Coding 文件中的 32 个真实 Session/Product composition 节点从普通 Coding 分片移到精确 Ubuntu integration 路由；文件中未列出的解析、选择、状态机和合同节点继续归模块回归 |
+| 触发变化 | 普通 Coding 源码 PR 少执行这 32 个节点；直接修改对应测试文件时由“一个模块 job”变为“模块 job + 一个 targeted job”，两者合计仍各执行一次；schedule/manual full 仍各执行一次 |
+| 文件/节点数 | `test_agent_session_runtime.py` 8、`test_bootstrap.py` 11、`test_cli.py` 9、`test_continuity.py` 1、`test_control_services.py` 3 |
+| 平台 | 仅 `ubuntu-24.04`；不新增 Windows/macOS 执行 |
+| 唯一断言 | 持久会话索引/恢复、真实默认 runtime 与 capability composition、Session 级 policy/model/settings、transcript blob continuity、CLI 子进程入口 |
+| #746 远程成本证据 | 32 个实例净 pytest 时间合计 111.10 秒；按文件为 24.16/38.84/32.32/4.30/11.48 秒，最慢单项 6.12 秒。环境安装另计；直接修改单文件仍低于 15 分钟 job 预算 |
+| 重复关系 | 当前全部位于 Coding 8 分片；批准后使用精确 `--deselect` 与 targeted node ID 转移 owner，不新增测试用例，不与核心 E2E 合并 |
+| 新增门禁面 | 对这 5 个测试文件的 test-only PR 新增一个并行 targeted job，属于 job/route 增加，必须审批；普通源码 PR 与 full 计划不增加用例数 |
+| 失败语义 | targeted integration 零 skip、零 failure/error，JUnit 逐 node 证明；模块报告继续覆盖未登记节点 |
+| 回退 | 删除这 5 个 node 登记，模块 runner 自动恢复整文件收集；分类策略版本随回退更新，旧证据不可复用 |
+
+审批方未明确批准 AP-01 前，不实施该批或以其他名称拆分实施。
