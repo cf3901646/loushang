@@ -2,7 +2,7 @@
 - 盘点日期：2026-10-14。
 - 源码基线：远端 `main` 的 `ed01d756b0b043cbca2a4352f847118205038adc`；当前控制工作区保留本地合并历史。
 - 基线范围：16 个工作流、71 个源 job 定义，包含顶层调用与子汇总；不是某次运行的任务数。平台矩阵、动态模块/分片会展开，不能将源定义数当运行数。
-- 当前实现：删除重复的 `package-quality` 及顶层 `packages` 调用，把 AppService 八个历史阶段 job 重组为两个能力 job，并删除十个 reusable 内部 `selected-checks` runner 后，为 15 个工作流、51 个源 job 定义；Agent/Coding/Foundation/AppService/AppServer 离线回归由统一模块工作流唯一执行。PR #746 全选运行 `38563194640` 实际展开 50 个 job，其中 43 个成功、7 个按计划跳过、零失败；源定义数与一次运行展开数继续分开统计。
+- 当前实现：删除重复的 `package-quality` 及顶层 `packages` 调用，把 AppService 八个历史阶段 job 重组为两个能力 job，删除十个 reusable 内部 `selected-checks` runner，并合并 TUI 与 HarnessTUI 的同环境 job 后，为 15 个工作流、48 个源 job 定义；Agent/Coding/Foundation/AppService/AppServer 离线回归由统一模块工作流唯一执行。PR #746 全选运行 `38563194640` 实际展开 50 个 job，其中 43 个成功、7 个按计划跳过、零失败；该运行早于最近两次 job 合并，源定义数与一次运行展开数继续分开统计。
 - 状态：全量 job 层分析与拟议去向。十个模块已完成整目录角色登记，其中 AppServer/AppService 已显式分离 unit/contract 与 integration/platform；其他目录的语义去重及具体 collected node ID、夹具依赖、唯一断言和实际配置仍待分类验收，不宣称已完成全仓逐用例去重。
 - 综合方案：[重构与优化测试与 PR 门禁](test-and-pr-gate-refactoring-plan.md)。实施 goal 已启动；表格保留基线职责并在已迁移项上标明当前处置。
 ## 审查规则
@@ -111,6 +111,11 @@ schedule/nonblocking 覆盖移入阻塞 PR 路径，以及新增失败条件。�
 | `harnesstui-core` | 共享 UI lint、类型和合同回归 | 与模块/TUI 范围交叉需要 marker/node 核对 | 唯一模块归属，渲染另选 | HarnessTUI 模块 |
 | `coding-ui` | Coding UI 适配 lint、类型和回归 | Coding 原回归已有排除所有权，需继续防重 | 保留适配断言并入模块执行 | Coding UI 模块 |
 | `selected-checks` | 两个 UI 范围结果校验 | 独立汇总 runner | 校验完整性后合并 | 防误绿汇总 |
+
+当前实现把 `harnesstui-core` 与 `coding-ui` 合并为一个 Ubuntu job，按原有两个
+选择 boolean 分别执行命令、验证报告并上传证据。两项同时选中时只准备一次环境；
+只选中其中一项时不执行另一项。运行实例由最多 2 个减为 1 个，测试集合、触发范围
+和报告失败语义保持不变。
 
 ### host-runtime-quality.yml
 
