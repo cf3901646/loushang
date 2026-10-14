@@ -439,16 +439,20 @@ def select(
     gate_infra = any(
         path.startswith((".github/workflows/", "scripts/ci/"))
         and path != ".github/workflows/e2e-smoke-quality.yml"
+        and path not in PR_ROUTING_FILES
         for path in paths
     )
     if pr_fast and not full and gate_infra:
-        # Gate changes exercise Agent regression and E2E alongside their owned checks.
+        # Unclassified gate changes exercise Agent regression and E2E alongside
+        # their owned checks. Reviewed routing files are fully owned by the CI
+        # contract suite and must not start unrelated product validation.
         if not checks["agent"]:
             unit_packages.add("agent")
         e2e = True
     if pr_fast and not full and any(
         path.startswith(("src/", "tests/")) and not path.endswith((".md", ".rst"))
         and path not in reviewed_test_paths
+        and path not in PR_ROUTING_FILES
         for path in paths
     ):
         e2e = True

@@ -343,11 +343,23 @@ class ScopeTests(unittest.TestCase):
                     {name for name, enabled in plan["checks"].items() if enabled},
                     {"docs", "ci"},
                 )
+                self.assertEqual(
+                    {name for name, enabled in plan["workflows"].items() if enabled},
+                    set(),
+                )
+                self.assertEqual(plan["unit_packages"], [])
+                self.assertFalse(plan["e2e"])
         plan = selector.select(sorted(selector.PR_ROUTING_FILES), pr_fast=True)
         self.assertEqual(
             {name for name, enabled in plan["checks"].items() if enabled},
             {"docs", "ci"},
         )
+        self.assertEqual(
+            {name for name, enabled in plan["workflows"].items() if enabled},
+            set(),
+        )
+        self.assertEqual(plan["unit_packages"], [])
+        self.assertFalse(plan["e2e"])
 
     def test_smoke_workflow_only_runs_ci_and_both_platform_smokes(self):
         plan = selector.select([".github/workflows/e2e-smoke-quality.yml"], pr_fast=True)

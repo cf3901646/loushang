@@ -248,6 +248,14 @@ fails `changes`, which in turn fails `quality-gate`.
 The entrypoint always runs: skipping the whole workflow with a path filter can
 leave a required check pending. The gate validates job-level skips and selected
 results.
+
+Reviewed routing selectors, catalogs, report verifiers, and their CI contract
+tests are owned by the existing CI contract check. A PR containing only those
+files runs documentation invariants, all CI routing and aggregation contracts,
+and Actions syntax validation in the existing `changes` job without starting a
+reusable Agent regression or product E2E workflow.
+Unclassified CI scripts, the main workflow, shared test execution machinery,
+and scoped reusable workflows retain their conservative or explicit owners.
 See GitHub's [workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax)
 and [reusable workflows](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows).
 
