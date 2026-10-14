@@ -401,11 +401,6 @@ class CodingDeferredHostedSessionV1:
         from .resume_activation_attempt_v2 import CodingActivationAttemptV2
         from .resume_activation_plan import plan_coding_resume_async
         from .resume_continuation import prepare_coding_resume_continuation
-        from .resume_permission_confirmation import (
-            CodingResumePermissionConfirmation,
-            coding_resume_permission_request,
-        )
-        from .sandbox import coding_workspace_execution_profile
 
         async with self._activation_lock:
             if self._close_task is not None:
@@ -508,52 +503,12 @@ class CodingDeferredHostedSessionV1:
                 subject_digest=subject_digest,
                 effect_owners=tuple(sorted(plugin_owners, key=lambda owner: owner.identity)),
             )
-            execution_profile = coding_workspace_execution_profile(workspace, writable=True)
-            confirmation = await self._approval.confirm(
-                coding_resume_permission_request(
-                    attempt,
-                    actor_id="hosted-controller",
-                    expansion_codes=("authority.unknown",),
-                    execution_profile=execution_profile,
-                    policy_evaluator=cast("NativeResumePolicy", policy_engine),
-                    hosted_subject_scope=scope,
-                    hosted_subject_control=subject_control,
-                )
-            )
-            if confirmation is None:
-                raise PermissionError("Coding Hosted Resume permission was not confirmed")
-            permission = CodingResumePermissionConfirmation(
-                attempt,
-                "hosted-controller",
-                ("authority.unknown",),
-                self._approval,
-                confirmation,
-                execution_profile=execution_profile,
-                policy_evaluator=cast("NativeResumePolicy", policy_engine),
-                hosted_subject_scope=scope,
-                hosted_subject_control=subject_control,
-            )
-
-            def current_policy() -> NativeResumePolicy:
-                current = workspace_tool_runtime_settings(
-                    self._services.settings_manager
-                ).policy_engine
-                if current is None:
-                    raise CodingHostedCatalogError()
-                return cast(NativeResumePolicy, current)
-
             def admit(observed: CodingActivationAttemptV1) -> None:
                 if type(observed) is not CodingActivationAttemptV2:
                     raise CodingResumeRecoveryRequired(
                         "input.effect_owner_set_unsupported"
                     )
-                permission.require_current(
-                    observed,
-                    current_execution_profile=coding_workspace_execution_profile(
-                        workspace, writable=True
-                    ),
-                    current_policy_evaluator=current_policy(),
-                )
+                require_subject()
                 if self._close_task is not None:
                     raise CodingHostedCatalogError()
 
@@ -580,32 +535,28 @@ class CodingDeferredHostedSessionV1:
                         expected_set_id=plan.composition_comparison.candidate_set_id,
                     )
 
-            try:
-                continuation = await prepare_coding_resume_continuation(
-                    manager_type=self._source.manager_type,
-                    session_file=self._source.record.path,
-                    plan=plan,
-                    current_owner_inputs=plan.owner_inputs,
-                    attempt=attempt,
-                    input_record_id=f"resume-record:{stable}",
-                    text=text,
-                    created_at=datetime.now(UTC),
-                    require_current_admission=admit,
-                    require_current_epoch_settlement=settle,
-                    services=self._services,
-                    model=self._model,
-                    stream_fn=self._stream_fn,
-                    tools=self._tools,
-                    output_capture_factory=self._output_capture_factory,
-                    approval_resolver=self._approval,
-                    tool_policy_evaluator=policy_engine,
-                    observe_input_identity=self._observe_input_identity,
-                    product_owner_selection=self._product_owner_selection,
-                    resume_writer_factory=self._source.writer_factory,
-                )
-            except BaseException:
-                self._approval.release_confirmation(confirmation)
-                raise
+            continuation = await prepare_coding_resume_continuation(
+                manager_type=self._source.manager_type,
+                session_file=self._source.record.path,
+                plan=plan,
+                current_owner_inputs=plan.owner_inputs,
+                attempt=attempt,
+                input_record_id=f"resume-record:{stable}",
+                text=text,
+                created_at=datetime.now(UTC),
+                require_current_admission=admit,
+                require_current_epoch_settlement=settle,
+                services=self._services,
+                model=self._model,
+                stream_fn=self._stream_fn,
+                tools=self._tools,
+                output_capture_factory=self._output_capture_factory,
+                approval_resolver=self._approval,
+                tool_policy_evaluator=policy_engine,
+                observe_input_identity=self._observe_input_identity,
+                product_owner_selection=self._product_owner_selection,
+                resume_writer_factory=self._source.writer_factory,
+            )
             try:
                 await self._source.close()
             except BaseException:

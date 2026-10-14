@@ -60,6 +60,64 @@ class _TerminalSurface:
         pass
 
 
+def test_unverified_tail_screen_is_read_only_and_never_prepares_writer(
+    tmp_path,
+):
+    async def scenario():
+        manager = await SessionManager.new(
+            session_dir=tmp_path / "sessions",
+            cwd=str(tmp_path),
+            defer_materialization=False,
+        )
+        await manager.append_message(
+            UserMessage(role="user", content="recent only", timestamp=1.0)
+        )
+        path = manager.session_file
+        await manager.dispose_runtime_profile()
+        assert path is not None
+
+        def forbidden_factory(*args, **kwargs):
+            pytest.fail("read-only tail must not construct a Session")
+
+        root = AgentSessionRuntime(
+            session_dir=path.parent,
+            session_factory=forbidden_factory,
+        )
+        try:
+            page = await root.preview_resume_recent_page(path)
+            app = ScreenCodingTuiApp(
+                model_label=None,
+                cwd=str(tmp_path),
+                branch=None,
+                session_label=manager.header.conversation_id,
+            )
+            prepared = build_coding_resume_history_screen(
+                runtime=root,
+                session_ref=path,
+                history=page,
+                app=app,
+                prepare_input=None,
+                surface=_TerminalSurface(),
+                stderr=StringIO(),
+            )
+            assert any(
+                isinstance(record, UserPromptRecord)
+                and record.text == "recent only"
+                for record in prepared.history_records
+            )
+            assert await prepared.action_host.submit(
+                ConversationTextAction("continue")
+            ) is None
+            assert root.current_session is None
+            assert await prepared.action_host.submit(
+                ConversationTextAction("/quit")
+            ) == 0
+        finally:
+            await root.dispose_session_runtime()
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("mode", ["history", "completed", "denied", "revoked", "cancelled", "closed_before_writer", "wrong_target", "rebind_failed", "unknown_transport", "cancel_recovery"])
 def test_native_screen_history_then_one_original_resume_input(tmp_path, monkeypatch, mode):
     monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))

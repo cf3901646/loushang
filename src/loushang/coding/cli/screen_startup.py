@@ -155,8 +155,9 @@ async def run_screen_first_cli(
                     raise RuntimeError(
                         "Embedded Resume requires the native Coding Root"
                     )
-                history = await context.runtime.preview_resume_history(resume)
-                await context.runtime.start_configured_resume_planning(history)
+                history = await context.runtime.preview_resume_startup(resume)
+                if history.status == "preview":
+                    await context.runtime.start_configured_resume_planning(history)
                 return CliPhaseResult.continue_with(
                     EmbeddedResumeStartup(resume, history)
                 )

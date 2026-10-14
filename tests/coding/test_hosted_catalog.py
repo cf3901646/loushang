@@ -334,8 +334,8 @@ def test_canonical_hosted_history_previews_changed_environment_without_activatio
         with pytest.raises(RuntimeError, match="closed"):
             await hosted.snapshot()
         monkeypatch.setattr(fresh, "_open", original_open)
-        with pytest.raises(ValueError, match="unsupported capability profile"):
-            await fresh.open_candidate(rows[0].reference)
+        reopened = await fresh.open_candidate(rows[0].reference)
+        await reopened.close()
         assert path.read_bytes() == before
 
     asyncio.run(scenario())

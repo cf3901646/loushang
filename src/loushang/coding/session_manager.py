@@ -10,9 +10,10 @@ from typing import Self
 
 from loushang.ai.types import UserMessage
 from loushang.coding.composition_provenance import (
+    CODING_COMPOSITION_HEADER_KEY,
     composition_header_metadata,
-    pinned_composition_plan,
-    startup_composition_record,
+    historical_composition_provenance,
+    historical_startup_composition_record,
 )
 from loushang.coding.composition_sets import (
     CodingCompositionSetPlan,
@@ -32,7 +33,6 @@ from loushang.harness.runtime import (
     ResolvedRuntimeProfile,
     RuntimeProfileBinding,
     RuntimeProfileSnapshot,
-    RuntimeProfileSnapshotCapability,
 )
 from loushang.harness.transcript import (
     AgentTranscriptLifecycle,
@@ -87,7 +87,10 @@ from .resume_binding_v2 import (
     prepare_coding_resume_v2_user_record,
     validate_coding_resume_v2_user_record,
 )
-from .resume_history import read_coding_resume_snapshot
+from .resume_history import (
+    MAX_CODING_RESUME_HISTORY_BYTES,
+    read_coding_resume_snapshot,
+)
 from .resume_input_lookup import (
     CodingResumeInputLookupQueryV1,
     CodingResumeInputLookupResultV1,
@@ -171,10 +174,15 @@ def _validate_coding_restored_header(
     runtime_profile: ResolvedRuntimeProfile,
     persist: bool,
 ) -> None:
+    # The Header records the runtime that originally created the transcript.
+    # Restoring a readable transcript must not require today's runtime,
+    # capability, model, permission, or resource configuration to equal that
+    # historical snapshot.  Current execution authority is established by the
+    # new runtime after the history has been admitted.
     CODING_TRANSCRIPT_RUNTIME.validate_snapshot(
         header.metadata,
         runtime_profile,
-        require_current=persist,
+        require_current=False,
     )
     raw_capability_snapshot = header.metadata.get(
         CODING_CAPABILITY_PROFILE_METADATA_KEY
@@ -187,41 +195,6 @@ def _validate_coding_restored_header(
             "Coding cannot resume a session with a capability profile for Product "
             f"{capability_snapshot.product_id!r}"
         )
-    current_capability_snapshot = CODING_CAPABILITY_PROFILE.snapshot()
-    if persist and _selected_capabilities(
-        capability_snapshot,
-        current=current_capability_snapshot,
-    ) != _selected_capabilities(
-        current_capability_snapshot,
-        current=current_capability_snapshot,
-    ):
-        raise ValueError(
-            "Coding cannot resume a session with an unsupported capability profile"
-        )
-
-
-def _selected_capabilities(
-    snapshot: RuntimeProfileSnapshot,
-    *,
-    current: RuntimeProfileSnapshot,
-) -> tuple[RuntimeProfileSnapshotCapability, ...]:
-    """Compare continuity-critical slots; auxiliary interaction is additive."""
-
-    current_capabilities = {
-        capability.slot: capability for capability in current.capabilities
-    }
-    return tuple(
-        replace(
-            capability,
-            shape=current_capabilities[capability.slot].shape,
-            variation_semantic=current_capabilities[capability.slot].variation_semantic,
-        )
-        if capability.variation_semantic is None
-        and capability.slot in current_capabilities
-        else capability
-        for capability in snapshot.capabilities
-        if capability.selections and capability.slot != SIDE_QUESTION_PROVIDER_SLOT.key
-    )
 
 
 def _resolve_coding_binding_input(persist: bool) -> ResolvedRuntimeProfile:
@@ -312,7 +285,7 @@ class SessionManager(
         history = await settled_io(
             read_coding_resume_snapshot,
             context.session_file,
-            max_bytes=8 * 1024 * 1024,
+            max_bytes=MAX_CODING_RESUME_HISTORY_BYTES,
             selected_leaf_id=plan.selected_leaf_id,
             expected_source_fingerprint=plan.source_fingerprint,
         )
@@ -553,7 +526,9 @@ class SessionManager(
         if (
             self.persist
             and isinstance(message, UserMessage)
-            and pinned_composition_plan(self.get_header().metadata) is not None
+            and historical_composition_provenance(
+                self.get_header().metadata
+            ) is not None
             and not getattr(self, "_coding_composition_ready", False)
         ):
             raise ValueError(
@@ -993,13 +968,21 @@ class SessionManager(
         return self.runtime_profile
 
     def _fork_header_metadata(self) -> Mapping[str, JSONValue] | None:
-        pinned = pinned_composition_plan(self.get_header().metadata)
-        if pinned is None:
+        provenance = historical_composition_provenance(
+            self.get_header().metadata
+        )
+        if provenance is None:
             # A legacy transcript may still be branched as transcript data.
             # Its fork remains unproven and cannot be opened as a Product
             # composition until a new Session is created with a sealed choice.
             return None
-        return composition_header_metadata(pinned)
+        return {
+            CODING_COMPOSITION_HEADER_KEY: {
+                "version": 1,
+                "setId": provenance.set_id,
+                "planFingerprint": provenance.plan_fingerprint,
+            }
+        }
 
     def get_runtime_capability(self, slot: str) -> object | tuple[object, ...]:
         return self._lifecycle_session.product_binding.value(slot)
@@ -1012,9 +995,16 @@ class SessionManager(
         self._coding_composition_ready = False
         if self.persist:
             self.require_no_unsettled_resume_activation()
-        pinned = pinned_composition_plan(self.get_header().metadata)
-        if pinned is not None:
-            return pinned
+        provenance = historical_composition_provenance(
+            self.get_header().metadata
+        )
+        if provenance is not None:
+            if provenance.set_id != plan.set_id:
+                raise ValueError(
+                    "Coding Session is pinned to "
+                    f"{provenance.set_id}; requested {plan.set_id}"
+                )
+            return plan
         if not self.persist:
             return plan
         try:
@@ -1030,15 +1020,17 @@ class SessionManager(
     def mark_composition_startup_prepared(self) -> None:
         if self.persist:
             self.require_no_unsettled_resume_activation()
-        pinned = pinned_composition_plan(self.get_header().metadata)
-        if pinned is None:
+        provenance = historical_composition_provenance(
+            self.get_header().metadata
+        )
+        if provenance is None:
             raise ValueError("Coding Session has no pinned composition plan")
-        startup = startup_composition_record(self.get_entries())
+        startup = historical_startup_composition_record(self.get_entries())
         if startup is None:
             raise ValueError("Coding Session has no startup composition receipt")
         if (
-            startup["setId"] != pinned.set_id
-            or startup["planFingerprint"] != pinned.fingerprint
+            startup["setId"] != provenance.set_id
+            or startup["planFingerprint"] != provenance.plan_fingerprint
         ):
             raise ValueError("Coding Session startup receipt differs from its header")
         self._coding_composition_ready = True
@@ -1070,15 +1062,19 @@ class SessionManager(
         if projection.binding_status == "unknown_version":
             raise CodingResumeRecoveryRequired("history.activation_unknown_version")
         if projection.binding_status == "bound":
-            # A persisted Binding settles the input, not this process's current
-            # authority. Only the original locally published candidate retains
-            # live proof; reopened or fork-selected evidence cannot recreate it.
+            # A valid persisted Binding settles the historical input across a
+            # process restart. It grants no current Tool or model authority;
+            # those come from the runtime being built now. When this process
+            # owns a local commit proof, retain the stronger identity check.
             proof = self._resume_committed_input
-            if proof is None or projection.binding_record_id != proof[1].record_id:
-                raise CodingResumeRecoveryRequired("runtime.current_admission_required")
-            self._require_committed_resume_input(
-                proof[0].attempt_id, proof[1].record_id
-            )
+            if proof is not None:
+                if projection.binding_record_id != proof[1].record_id:
+                    raise CodingResumeRecoveryRequired(
+                        "runtime.current_admission_required"
+                    )
+                self._require_committed_resume_input(
+                    proof[0].attempt_id, proof[1].record_id
+                )
         self._activation_guard_snapshot = snapshot
 
 
