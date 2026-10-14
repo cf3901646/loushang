@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 from dataclasses import replace
@@ -1798,6 +1799,30 @@ def recovery_seed(root, scope_name):
     return scope, record, path
 
 
+@pytest.fixture(scope="module")
+def _recovery_cwd_template(tmp_path_factory):
+    parent = tmp_path_factory.mktemp("g18-recovery-cwd")
+    root = parent / "active"
+    root.mkdir()
+    recovery_seed(root, "cwd")
+    snapshot = parent / "snapshot"
+    shutil.copytree(root, snapshot)
+    return root, snapshot
+
+
+@pytest.fixture
+def recovery_cwd_seed(_recovery_cwd_template):
+    from loushang.appservice.continuity import decode_application_continuity_record
+    from tests.coding.test_hosted_client import _launch
+
+    root, snapshot = _recovery_cwd_template
+    shutil.rmtree(root)
+    shutil.copytree(snapshot, root)
+    scope = next(item for item in _launch(root).scopes if item.scope.value == "cwd")
+    path = root / "application/coding.default.json"
+    return root, scope, decode_application_continuity_record(path.read_bytes()), path
+
+
 @pytest.mark.parametrize("scope_name", ["cwd", "user_home"])
 def test_recovery_seed_validates_linked_state_without_mutating_files(
     tmp_path, scope_name
@@ -1845,11 +1870,11 @@ def test_recovery_seed_validates_linked_state_without_mutating_files(
         "directory-index",
     ],
 )
-def test_recovery_seed_rejects_changed_workload(tmp_path, fault):
+def test_recovery_seed_rejects_changed_workload(recovery_cwd_seed, fault):
     from loushang.appservice.continuity import encode_application_continuity_record
     from tests.coding._g18_native_probe import validate_recovery_seed
 
-    scope, record, path = recovery_seed(tmp_path, "cwd")
+    tmp_path, scope, record, path = recovery_cwd_seed
     if fault == "revision":
         record = replace(record, record_revision=6)
     elif fault == "member":
