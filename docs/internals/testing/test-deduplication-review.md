@@ -106,6 +106,13 @@ AppHost A0、A0.2、A0.3/A0.4 与 Hosted Application G11 的导入扫描统一�
 
 新增缓存合同验证覆盖绝对/相对/别名/条件导入、两种成员模式、相同输入单次解析、返回集合隔离、同大小同时间戳内容变更、非法相对导入与语法错误；CI 合同增至 121 项通过。
 
+完整 `tests/architecture/test_import_boundaries.py` 也有自己的相对导入错误格式和
+成员展开语义，不能直接改用不同返回约定。该文件现在按 `文件名 + 实际源码内容`
+缓存不可变的绝对导入 tuple；每次调用仍重新读取源码，内容变化立即形成新键，
+返回给调用方的 list 也彼此隔离。全部现有边界测试身份和断言保持不变。同机完整
+165 项对照从 537.86 秒降到 83.79 秒；旧远程 #746 报告中的同文件 testcase 时间
+合计 134.02 秒，最终远程收益仍以本次 PR 运行确认。
+
 ## 6. AI 示例唯一执行
 
 旧 `check-ai` 先由 `scripts/ai/check_examples.py` 子进程执行所有离线 AI 示例，再由 `tests/examples` 重跑它们，最后 coverage 又运行 `test_ai_examples.py`；同时把 Agent/Coding/Harness examples 带入 AI gate。现在保留带文件清单、环境清理、输出和公开导入断言的 pytest owner，把 AI 与 Auth example tests 各放入 coverage 执行一次，移除重复脚本阶段及无关 examples 全目录。示例脚本本身和独立检查工具仍保留；变更只收敛 PR gate 的重复执行。
