@@ -1,6 +1,6 @@
 # 重构与优化测试与 PR 门禁
 
-- 文档修订：R12，2026-10-14。
+- 文档修订：R13，2026-10-14。
 - 状态：实施进行中；用户已建立新 goal。六类长门禁仍保持暂停。
 - 范围：现有全部工作流、源 job、平台矩阵、测试清单、执行器及汇总检查的分类、去重、有效合并与迁移。
 - 全量盘点：[16 个工作流、71 个源 job 的分析与去向](test-and-pr-gate-inventory.md)。
@@ -586,6 +586,18 @@ HarnessTUI core 的 16 个测试入口中，`tests/harnesstui` 与两个 Archite
 `tests/harnesstui` 内部完全相同函数体。本轮不删除测试 node。剩余逐 node 角色、
 共享消费者合同的长期 owner 与 TUI 原生/渲染边界记为 AP-08；任何新增或扩大的
 执行归属仍须先提交触发、独有断言、平台、墙钟、重复关系和回退材料并获得审批。
+
+同一 Harnesstui job 同时选择 core 与 Coding UI 时，原实现虽然共享依赖准备，仍顺序
+调用两次 runner，因而 Ruff、mypy 和 pytest 各启动两次。两组测试文件已经由 CI
+合同证明互斥，静态源码清单也是现有 `check-harnesstui` 的完整并集；现在增加联合
+runner scope，在双选时对去重后的源码和测试并集各执行一次。单选路径仍保持原
+owner、报告和命令。完整 PR 计划的本地联合验证为 1516 passed、64 deselected，
+精确等于远程顺序基线的 928+588 passed 与 5+59 deselected。
+
+曾评估在同一 runner 并发启动两套完整命令；共享 mypy cache 触发 1.20 内部错误，
+隔离 mypy/ruff cache 后虽消除竞态，但本机 CPU/IO 争用使 core 单组增至 214.92 秒，
+因此否决并发方案。联合清单保持顺序工具执行和一次 pytest，不增加 job、route、平台、
+触发或失败条件；远程收益以本批 PR 对 2 分 24 秒基线的实测为准。
 
 ## TUI 增量审计与 AP-09
 
