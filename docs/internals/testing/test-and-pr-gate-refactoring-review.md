@@ -167,3 +167,18 @@ AI 示例执行追加复核：覆盖视角保留 pytest 中的离线执行、固
 AI 完整验证追加证据：858 项通过、7 项 deselect、45.18 秒，总覆盖率 90.65%，三个细分 coverage target、Ruff、mypy、catalog 与 import boundary 均通过。覆盖视角接受本次执行收敛；性能视角只记录本地测试墙钟，不外推远程总耗时。
 
 远程时长复核：运行 `38523545906` 的创建到完成墙钟为 9 分 53 秒；仍启用的 AppHost、Harnesstui、AI、TUI、LSP 最慢 job 分别约 4 分 13 秒、3 分、1 分 3 秒、1 分 12 秒、57 秒，彼此并行，没有证据支持继续扩大暂停范围。旧 16 个 Coding shard 最长约 5 分 5 秒且最后结束，结合 `38528465735` 的普通 UI PR 仍由 Coding shard 收尾，性能视角接受“先验收 8 shard”方向；维护视角保留当前六类暂停清单，避免把短且独有的平台/LSP 覆盖无依据地移除。
+
+TUI 增量复核：覆盖视角确认 Linux shared/POSIX platform 的 11 个完整文件、114 个
+实例均进入现有 TUI unit 命令，且 `tui_native` 选择必然依赖 `tui_unit`；PTY/backend、
+CLI、tmux、Windows platform 和两平台 render 仍由原 owner 执行。性能视角以 #775
+同次运行的 107 项 6.82 秒、7 项 0.27 秒及 48 秒 Linux native job 为基线，只接受
+同平台同配置重复删除，不把 Windows 执行当作复本。维护视角保持本地 `current`
+platform runner 可用，只修改 CI 编排，并明确本批没有新增门禁或失败条件。内部接受
+Linux platform 执行归并；跨平台 render 是否可缩减及剩余逐 node 分类作为 AP-09，
+未经审批不增加任何执行面。
+
+Scoped workflow 路由复核：覆盖视角保留每个 reusable workflow 的完整 owner、full
+platform 标志、host-runtime 完整模式和顶层汇总，CI 合同继续逐 workflow 核对 job
+及 guard；Agent unit 与产品 E2E 没有读取 workflow 产物或验证其编排。性能视角删除
+这两项固定附加任务，未知/共享 gate infrastructure 仍走原保守回退。维护视角直接
+收紧现有 scoped workflow 合同，没有新增 workflow、测试 route 或失败条件。

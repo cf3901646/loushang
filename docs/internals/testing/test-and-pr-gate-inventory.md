@@ -200,9 +200,10 @@ schedule/nonblocking 覆盖移入阻塞 PR 路径，以及新增失败条件。�
 
 当前实现保留 `tui-unit` 和 `deterministic-render`，并把
 `terminal-platform-unit`、`native-terminal`、`tmux-scrollback` 合并到按平台展开的
-`native-terminal` job。Linux 同一 runner 顺序执行 shared/POSIX、PTY 和 tmux；
-Windows 同一 runner 在完整路径执行 shared/Windows 与 ConPTY，普通路径仍只执行
-原 ConPTY 短冒烟。测试命令和逐报告验证保持，活动实例由最多 8 个减为 5 个。
+`native-terminal` job。Linux 的 shared/POSIX platform 文件已由必选 `tui-unit` 在
+相同环境执行，native job 不再重复 114 个实例，只保留 PTY 与 tmux；Windows 同一
+runner 在完整路径执行 shared/Windows 与 ConPTY，普通路径仍只执行原 ConPTY 短冒烟。
+活动实例仍为最多 5 个，必要测试身份的执行 owner 唯一化。
 
 ### windows-shell-compatibility.yml
 

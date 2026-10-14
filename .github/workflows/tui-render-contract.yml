@@ -97,25 +97,18 @@ jobs:
       - name: Create report directory
         run: uv run python -c "from pathlib import Path; Path('.artifacts').mkdir(exist_ok=True)"
 
+      # The Ubuntu tui-unit job already runs these unmarked files in the same
+      # source/Python environment. Keep the shared profile here only for the
+      # distinct Windows platform configuration.
       - name: Shared terminal platform units
-        if: ${{ runner.os == 'Linux' || fromJSON(inputs.plan).windows.tui_full }}
+        if: ${{ runner.os == 'Windows' && fromJSON(inputs.plan).windows.tui_full }}
         run: >-
           uv run python scripts/run_tui_platform_tests.py shared
           --junitxml=.artifacts/terminal-platform-shared.xml -q
 
       - name: Reject empty, skipped, or failing shared report
-        if: ${{ runner.os == 'Linux' || fromJSON(inputs.plan).windows.tui_full }}
+        if: ${{ runner.os == 'Windows' && fromJSON(inputs.plan).windows.tui_full }}
         run: uv run python scripts/dev/verify_pytest_xml.py .artifacts/terminal-platform-shared.xml
-
-      - name: POSIX terminal platform units
-        if: runner.os == 'Linux'
-        run: >-
-          uv run python scripts/run_tui_platform_tests.py posix
-          --junitxml=.artifacts/terminal-platform-posix.xml -q
-
-      - name: Reject empty, skipped, or failing POSIX report
-        if: runner.os == 'Linux'
-        run: uv run python scripts/dev/verify_pytest_xml.py .artifacts/terminal-platform-posix.xml
 
       - name: Windows terminal platform units
         if: ${{ runner.os == 'Windows' && fromJSON(inputs.plan).windows.tui_full }}

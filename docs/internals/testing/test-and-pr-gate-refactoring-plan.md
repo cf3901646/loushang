@@ -1,6 +1,6 @@
 # 重构与优化测试与 PR 门禁
 
-- 文档修订：R10，2026-10-14。
+- 文档修订：R11，2026-10-14。
 - 状态：实施进行中；用户已建立新 goal。六类长门禁仍保持暂停。
 - 范围：现有全部工作流、源 job、平台矩阵、测试清单、执行器及汇总检查的分类、去重、有效合并与迁移。
 - 全量盘点：[16 个工作流、71 个源 job 的分析与去向](test-and-pr-gate-inventory.md)。
@@ -303,7 +303,7 @@ PR 因此多执行任务或多出失败条件，也不能自行实施。未获�
 | protocols | 4 | 101 | 完整初审；109 个收集实例，全部为受控协议单元/合同 |
 | resource | 2 | 5 | 完整初审 |
 | root | 1 | 1 | 完整初审；打包入口合同 |
-| tui | 87 | 1336 | 待逐项审查 |
+| tui | 87 | 1336 | 增量角色、重复和远程成本初审完成；Ubuntu platform 的 114 个重复实例归并到既有 TUI unit owner，native backend/tmux 与 Windows platform 保留 |
 | work | 7 | 45 | 完整初审 |
 
 后续仍须完成其他目录分类、全部单元语义去重、其余历史 job 迁移、按能力执行、原生预算、真实 PR 和 main 验收。当前局部实现不满足 goal 完成条件。
@@ -585,3 +585,36 @@ HarnessTUI core 的 16 个测试入口中，`tests/harnesstui` 与两个 Archite
 `tests/harnesstui` 内部完全相同函数体。本轮不删除测试 node。剩余逐 node 角色、
 共享消费者合同的长期 owner 与 TUI 原生/渲染边界记为 AP-08；任何新增或扩大的
 执行归属仍须先提交触发、独有断言、平台、墙钟、重复关系和回退材料并获得审批。
+
+## TUI 增量审计与 AP-09
+
+当前 `tests/tui` 有 87 个 `test_*.py` 文件、1336 个静态测试函数。忽略名称并保留
+参数、decorator 与完整函数体的 AST 扫描没有完全重复簇。现有 TUI workflow 将
+普通离线 unit、deterministic render、terminal platform、native PTY/ConPTY 与 tmux
+按 marker、平台和 runner 分开；render、native backend/CLI、tmux 的 node 与 unit
+集合互斥，Windows 平台执行也提供独立 OS 配置证据。
+
+PR #775 的运行 `38620682467` 提供当前远程成本：TUI unit 在 Ubuntu 为 1273 passed、
+118 deselected、13.83 秒，job 墙钟 30 秒；render 在 Ubuntu/Windows 各为 181 passed，
+分别 36.56/26.84 秒，job 墙钟 56/66 秒；POSIX native job 为 48 秒，ConPTY job 为
+78 秒。全部通过，暂停的 Windows Shell、Worker reboot 等 workflow 继续 skipped。
+
+POSIX native job 原先先运行 9 个 shared platform 文件的 107 个实例（6.82 秒），
+再运行 2 个 POSIX platform 文件的 7 个实例（0.27 秒）。这 11 个文件没有被 unit
+marker 表达式排除，已在同一候选、Ubuntu、Python 3.11、源码 checkout 下由必选的
+`tui-unit` job 完整执行；`tui_native -> tui_unit` 是现有选择依赖。因此 Linux native
+job 删除这 114 个整文件重复实例，继续执行 12 个真实 PTY/backend/CLI 合同（14.43
+秒）和 3 个 tmux 合同（4.71 秒）。Windows full 路径仍执行 107 个 shared、24 个
+Windows platform 与 12 个 ConPTY 合同；普通路径的 ConPTY 短冒烟保持不变。
+
+该变更只从现有 Linux native job 删除重复执行，不增加 workflow、job、route、平台、
+触发、测试或失败条件。deterministic render 的 Windows 配置及剩余逐 node 角色记录为
+AP-09；若拟缩减跨平台证据，须先证明平台输出等价。任何反向扩张仍须按工作区规则
+提交触发、独有断言、平台、墙钟、重复关系与回退方案并获得审批。
+
+同轮复核 scoped reusable workflow 的变更路由：每个已登记 workflow 修改都会运行
+现有 CI 合同及自己的完整 owner，包括既有 full platform 分支；原选择器还统一附加
+Agent unit 与产品 E2E，但二者不读取或验证该 workflow 的独有编排。现在只有未知或
+共享 gate infrastructure 继续使用 Agent/E2E 保守回退，已登记 scoped workflow 不再
+附加无关任务。该缩减不影响 workflow 自身 checks、Windows full 标志、host-runtime
+完整模式或顶层 fail-closed 汇总。

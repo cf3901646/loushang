@@ -382,18 +382,21 @@ class ScopeTests(unittest.TestCase):
                 self.assertTrue((ROOT / path).is_file())
                 if path in selector.PR_ROUTING_FILES:
                     continue
+                if not scopes:
+                    # Covered by the dedicated E2E workflow contract above.
+                    continue
                 plan = selector.select([path], pr_fast=True)
                 expected = {"docs", "ci"} | {c for scope in scopes
                                                     for c in rules["workflows"][scope]}
                 if set(scopes) & {"harness", "hosting", "apphost", "appservice"}:
                     expected.add("host_runtime")
                 self.assertEqual({k for k, v in plan["checks"].items() if v}, expected)
-                expected_workflows = set(scopes) | {"e2e"}
+                expected_workflows = set(scopes)
                 if "host_runtime" in expected:
                     expected_workflows.add("host-runtime")
-                if scopes:
-                    expected_workflows.add("units")
                 self.assertEqual({k for k, v in plan["workflows"].items() if v}, expected_workflows)
+                self.assertEqual(plan["unit_packages"], [])
+                self.assertFalse(plan["e2e"])
         plan = selector.select([".github/workflows/windows-shell-compatibility.yml"], pr_fast=True)
         self.assertTrue(plan["windows"]["worker_full"])
         self.assertTrue(plan["windows"]["shell_full"])
