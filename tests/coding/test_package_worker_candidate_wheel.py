@@ -4391,8 +4391,10 @@ def test_worker_source_catalog_pins_explicit_product_candidate(
                                     await resumed_session.dispose()
 
                             asyncio.run(verify_resumed_turn_and_revocation())
+                            # Initial, changed-current-catalog, and resumed
+                            # preparations each acquire their own Worker gate.
                             assert len(CodingWorkerStartGateJournal(product).attempts()) == (
-                                len(gate_attempts_before_direct) + 2
+                                len(gate_attempts_before_direct) + 3
                             )
                         direct_retention = review_coding_product_worker_history_retention(
                             product, attempt_id=direct_gate_attempts[0].attempt_id
