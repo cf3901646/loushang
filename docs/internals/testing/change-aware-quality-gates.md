@@ -265,7 +265,9 @@ Run `python3 -m unittest discover -s tests/ci -v` after changing selection or
 aggregation. These tests cover documentation, package consumers, native
 terminals, evidence manifests, Git ranges, renames, and rejection of false green
 results. Actions also checks workflow syntax with pinned actionlint 1.7.12 when
-CI infrastructure changes. Platform evidence manifests and their verifiers
+CI infrastructure changes. The top-level `quality.yml` aggregator and its routing
+scripts use this CI contract path; editing them does not start unrelated product
+regressions. Platform evidence manifests and their verifiers
 remain in the corresponding reusable workflows.
 
 Broad Harness/AppHost/Hosting suite commands remain available for selected
@@ -275,8 +277,9 @@ regression and that live or native tests remain behind their dedicated gates.
 
 ## Reusing successful PR validation after merge
 
-A successful PR gate with E2E smoke selected uploads `pr-quality-evidence` for seven days. The evidence
-records the actual checked-out Git tree, complete compact execution plan, PR number,
+A successful PR gate with E2E smoke or package unit regression selected attempts to upload
+`pr-quality-evidence` for seven days. Evidence recording is nonblocking: if the record or upload fails,
+the merge push runs its selected checks normally. The evidence records the actual checked-out Git tree, complete compact execution plan, PR number,
 run ID and run attempt. An ordinary main push can reuse it only for a single merge
 commit whose first parent is the push's previous main revision and whose second
 parent is the head of the associated merged PR from this repository.
