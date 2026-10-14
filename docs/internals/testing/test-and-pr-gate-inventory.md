@@ -188,6 +188,12 @@ schedule/nonblocking 覆盖移入阻塞 PR 路径，以及新增失败条件。�
 | `tmux-scrollback` | tmux pane/history/scrollback | 独有 tmux 能力，不属于普通 UI 修改 | 仅 tmux/scrollback 路径或专项执行 | tmux 专项 |
 | `selected-checks` | 渲染/平台/原生/tmux 所选结果校验 | 多层汇总 runner | 合并时仍拒绝预期平台/用例缺失 | 防误绿汇总 |
 
+当前实现保留 `tui-unit` 和 `deterministic-render`，并把
+`terminal-platform-unit`、`native-terminal`、`tmux-scrollback` 合并到按平台展开的
+`native-terminal` job。Linux 同一 runner 顺序执行 shared/POSIX、PTY 和 tmux；
+Windows 同一 runner 在完整路径执行 shared/Windows 与 ConPTY，普通路径仍只执行
+原 ConPTY 短冒烟。测试命令和逐报告验证保持，活动实例由最多 8 个减为 5 个。
+
 ### windows-shell-compatibility.yml
 
 工作流来源：[windows-shell-compatibility.yml](../../../.github/workflows/windows-shell-compatibility.yml)。
