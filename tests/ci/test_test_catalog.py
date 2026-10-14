@@ -16,6 +16,7 @@ select = importlib.import_module("select_checks").select
 catalog_module = importlib.import_module("test_catalog")
 load_catalog = catalog_module.load_catalog
 module_unit_paths = catalog_module.module_unit_paths
+module_is_fully_classified = catalog_module.module_is_fully_classified
 targeted_test_cases = catalog_module.targeted_test_cases
 CATALOG_VERSION = catalog_module.CATALOG_VERSION
 
@@ -75,10 +76,11 @@ class CatalogTests(unittest.TestCase):
         ):
             with self.subTest(targeted=targeted):
                 plan = select([targeted], root=ROOT, pr_fast=True)
-                self.assertTrue(plan["e2e"])
+                self.assertFalse(plan["e2e"])
                 self.assertTrue(plan["targeted_tests"])
                 self.assertTrue(plan["targeted_jobs"])
                 self.assertTrue(plan["workflows"]["units"])
+                self.assertFalse(plan["module_tests"])
         fixture = "tests/harnesswork/fixtures/legacy_coding_plan.jsonl"
         self.assertTrue(select([fixture, "src/loushang/harnesswork/runtime.py"], root=ROOT, pr_fast=True)["e2e"])
         self.assertTrue(select([fixture, "tests/conftest.py"], root=ROOT, pr_fast=True)["e2e"])
@@ -146,7 +148,10 @@ class CatalogTests(unittest.TestCase):
     def test_classified_directory_extras_are_not_collected_again(self):
         paths = ["tests/ai/test_auth.py", "tests/protocols/test_protocol_contracts.py",
                  "tests/examples/test_ai_examples.py", "tests/examples/test_auth_examples.py"]
-        with patch("run_checks.module_unit_paths", return_value=paths):
+        with (
+            patch("run_checks.module_unit_paths", return_value=paths),
+            patch("run_checks.module_is_fully_classified", return_value=True),
+        ):
             command = commands("unit_ai", root=ROOT)[-1]
         self.assertNotIn("tests/protocols", command)
         for path in paths:
@@ -217,6 +222,7 @@ class CatalogTests(unittest.TestCase):
             )
             loaded = load_catalog(root)
             self.assertEqual(module_unit_paths("demo", root=root), [unit])
+            self.assertTrue(module_is_fully_classified("demo", root=root))
             self.assertEqual(catalog_module.reviewed_unit_owner(
                 unit, catalog=loaded
             ), "demo")
@@ -261,6 +267,73 @@ class CatalogTests(unittest.TestCase):
                     ValueError, "platforms"
                 ):
                     load_catalog(root)
+
+    def test_partial_targeted_overrides_shrink_only_reviewed_module_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "scripts/ci").mkdir(parents=True)
+            (root / "tests/demo").mkdir(parents=True)
+            unit = "tests/demo/test_unit.py"
+            integration = "tests/demo/test_integration.py"
+            for path in (unit, integration):
+                (root / path).write_text("def test_case(): pass\n")
+            role = {
+                "category": "integration",
+                "assertion": "reviewed real service boundary",
+                "platforms": ["ubuntu-24.04"],
+            }
+            catalog = {
+                "version": CATALOG_VERSION,
+                "modules": {},
+                "targeted_overrides": {
+                    "demo": {"review": "incremental", "files": {integration: role}}
+                },
+            }
+            (root / "scripts/ci/test-classification.json").write_text(
+                json.dumps(catalog)
+            )
+            loaded = load_catalog(root)
+            self.assertEqual(module_unit_paths("demo", root=root), [unit])
+            self.assertFalse(module_is_fully_classified("demo", root=root))
+            self.assertIsNone(catalog_module.reviewed_unit_owner(
+                unit, catalog=loaded
+            ))
+            self.assertEqual(
+                targeted_test_cases(integration, catalog=loaded),
+                [(integration, role)],
+            )
+
+            (root / integration).unlink()
+            with self.assertRaisesRegex(ValueError, "missing targeted override"):
+                load_catalog(root)
+
+    def test_reviewed_coding_integration_overrides_leave_unknown_tests_conservative(self):
+        unit_paths = module_unit_paths("coding", root=ROOT)
+        self.assertIsNotNone(unit_paths)
+        self.assertFalse(module_is_fully_classified("coding", root=ROOT))
+        self.assertIn("tests/coding/test_agent_session_runtime.py", unit_paths)
+        for mixed in (
+            "tests/coding/arch/test_activation.py",
+            "tests/coding/test_bootstrap.py",
+            "tests/coding/test_cli.py",
+            "tests/coding/test_lmux_command.py",
+            "tests/coding/test_lmux_selector.py",
+            "tests/coding/test_lmux_stop_all.py",
+            "tests/coding/test_package_materializer.py",
+            "tests/coding/test_resume_activation_plan.py",
+            "tests/coding/test_tool_registry.py",
+        ):
+            self.assertIn(mixed, unit_paths)
+        reviewed = "tests/coding/test_package_cutover_cli.py"
+        self.assertNotIn(reviewed, unit_paths)
+        plan = select([reviewed], root=ROOT, pr_fast=True)
+        self.assertFalse(plan["e2e"])
+        self.assertFalse(plan["module_tests"])
+        self.assertEqual(
+            [(job["path"], job["os"], job["category"])
+             for job in plan["targeted_jobs"]],
+            [(reviewed, "ubuntu-24.04", "integration")],
+        )
 
 
 if __name__ == "__main__":

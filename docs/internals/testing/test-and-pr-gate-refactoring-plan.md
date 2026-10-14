@@ -1,6 +1,6 @@
 # 重构与优化测试与 PR 门禁
 
-- 文档修订：R5，2026-10-14。
+- 文档修订：R6，2026-10-14。
 - 状态：实施进行中；用户已建立新 goal。六类长门禁仍保持暂停。
 - 范围：现有全部工作流、源 job、平台矩阵、测试清单、执行器及汇总检查的分类、去重、有效合并与迁移。
 - 全量盘点：[16 个工作流、71 个源 job 的分析与去向](test-and-pr-gate-inventory.md)。
@@ -335,3 +335,9 @@ AppServer/AppService 完成整目录行为分类。AppServer 的 17 个受控 un
 Targeted 文件不再只靠“扩大路由”间接覆盖：integration/platform 文件或其登记夹具被修改时，模块 workflow 按分类中受限的 runner 清单直接执行消费测试。当前 loopback/stdio/POSIX 测试在 Ubuntu 执行，Windows record 在 Windows 执行，continuity 同时覆盖 Ubuntu 与 Windows；integration 报告零 skip，platform 报告允许不适用用例但至少一项必须通过。路径通过环境变量加引号传递，artifact 使用内部数字 ID，不把变更文件名拼入 shell 或产物名。unit/contract 修改仍不会触发 targeted job，live 类别也不会自动访问外部服务。
 
 远程基线运行 `38523545906`（旧 16 个 Coding shard）从创建到完成为 9 分 53 秒。该次全选路径中 AppHost 最慢 job 4 分 13 秒、Harnesstui 3 分、AI 1 分 3 秒、TUI 1 分 12 秒、LSP 57 秒，均并行且未形成 15 分钟尾部；Coding shard 最长约 5 分 5 秒，并受 runner 排队影响形成最终尾部。因此暂不扩大六类暂停清单，优先以本分支的 8 个实测均衡 Coding shard 做远程验收。运行 `38528465735` 的普通 UI PR 为 5 分 59 秒，其中旧 16 shard 最晚结束；这些结果只证明旧基线和瓶颈位置，不证明新配置已达标。
+
+PR #742 的最终全选运行 `38548023281` 从创建到顶层汇总完成为 11 分 01 秒。跨平台恢复冒烟为 25–63 秒，除 Coding 外的必需任务约 3 分 30 秒内结束；8 个 Coding 分片为唯一尾部，最慢分片用例阶段为 7 分 48 秒。日志中的慢项集中于真实终端、已安装 wheel、跨进程服务、包切换/删除/GC CLI 和完整插件旅程，不能继续称为单元回归。
+
+分类策略 v4 增加增量 targeted override：已用远程 slowest 报告和静态进程边界复核的 55 个 Coding 文件移出普通模块回归，修改这些文件或其专用入口时只执行登记平台上的精确文件；不附加模块全集或通用 E2E。其余 372 个 Coding 测试文件继续保守进入原模块回归，不能因局部分类而取得 unit-only 资格。初次候选中的 9 个混合文件含有参数解析、选择算法、注册表或纯计划等单元/合同用例，已从整文件 override 撤回，等拆文件或支持 node 级分类后再迁移。第一轮只移出 30 个文件后，本地原 2/8 慢分片仍需 9 分 18 秒，证明少数 top case 不足以解决混合集合；新增第二轮进程边界审查后须由远程全选重新计时。作为代表，`test_package_gc_cli.py` 两项真实 CLI 用例分别为 53.75 秒和 47.29 秒，整文件 1 分 47 秒，保留为 targeted integration。
+
+55 文件版本复跑原 2/8 分片为 545 项通过、4 项跳过、1 项失败，耗时 7 分 29 秒，比 30 文件版本缩短 1 分 49 秒。失败项 `test_only_live_mux_among_multiple_services_attaches_without_selector` 单独复跑 14.89 秒通过，因此记录为顺序或环境敏感信号，不把该次分片当作绿色验收；远程 8 分片仍是合并前的正式耗时和稳定性证据。

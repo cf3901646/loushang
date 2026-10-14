@@ -94,3 +94,13 @@ AppHost A0、A0.2、A0.3/A0.4 与 Hosted Application G11 的导入扫描统一�
 旧 `check-ai` 先由 `scripts/ai/check_examples.py` 子进程执行所有离线 AI 示例，再由 `tests/examples` 重跑它们，最后 coverage 又运行 `test_ai_examples.py`；同时把 Agent/Coding/Harness examples 带入 AI gate。现在保留带文件清单、环境清理、输出和公开导入断言的 pytest owner，把 AI 与 Auth example tests 各放入 coverage 执行一次，移除重复脚本阶段及无关 examples 全目录。示例脚本本身和独立检查工具仍保留；变更只收敛 PR gate 的重复执行。
 
 完整新配置实测 858 项通过、7 项 marker deselect，45.18 秒；总覆盖率 90.65%，三个细分 coverage target 均通过。Ruff、76 个 AI 源文件 mypy、catalog 和 import boundary 同时通过。该数据是本地执行时间，不包含远程 runner 安装和排队。
+
+## 7. Coding 混合集合拆分
+
+PR #742 的 8 个 Coding 分片报告共执行约 4,798 项。slowest 列表中的主要耗时来自真实终端/PTY、子进程服务、安装 wheel、包迁移/删除/GC CLI、Worker 修复和完整插件旅程；这些文件按实际边界登记为 integration、platform 或 e2e，而非按 `not live` 标记继续归入单元。
+
+策略 v4 先登记 55 个有运行或静态进程边界证据、且适合整文件迁移的文件。未登记的 372 个文件仍在保守模块集合中，避免把尚未审查的测试默认为单元；targeted 文件变更精确执行自身，不再同时展开 8 个模块分片和通用 E2E。初次候选中的 9 个混合文件仍保留在模块回归，防止同文件的参数解析、选择算法、注册表或纯计划单元用例丢失。代表文件 `test_package_gc_cli.py` 两项通过，耗时 53.75/47.29 秒，证明它是应按能力触发的真实 CLI 集成场景。
+
+第一轮仅移出 slowest 报告出现的 30 个文件时，原最慢 2/8 分片本地仍为 593 项通过、10 项跳过、9 分 18 秒。哈希重新分配及剩余跨进程文件使尾部没有改善，因此不据此减少分片数；第二轮扩展到所有已核对的显式进程边界后再做远程测量。此记录不宣称 Coding 全目录分类完成。
+
+第二轮收紧为 55 个适合整文件迁移的文件后，同一 2/8 分片为 545 项通过、4 项跳过、1 项失败、7 分 29 秒。失败的 lmux selector 用例单独复跑 14.89 秒通过，属于需要继续治理的顺序/环境敏感信号；本次只把 1 分 49 秒的耗时下降作为方向性数据，绿色与全分片尾部以远程 PR 运行确认。

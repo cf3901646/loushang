@@ -198,12 +198,21 @@ def select(
         enable(list(checks), "explicit full validation")
     variables = make_paths(root)
     reviewed_test_paths: set[str] = set()
+    targeted_test_paths: set[str] = set()
     targeted_cases: set[tuple[str, str, str]] = set()
     for path in sorted(set(paths)):
+        direct_targeted: list[tuple[str, dict]] = []
         if pr_fast and not full:
-            for test, role in targeted_test_cases(path, catalog=catalog):
+            direct_targeted = targeted_test_cases(path, catalog=catalog)
+            for test, role in direct_targeted:
                 for platform in role["platforms"]:
                     targeted_cases.add((test, platform, role["category"]))
+        if direct_targeted:
+            # A reviewed integration/platform test or its dedicated fixture
+            # owns its exact execution.  Test-only changes do not expand into
+            # the package regression or unrelated product smoke workflows.
+            reviewed_test_paths.add(path)
+            targeted_test_paths.add(path)
         if (
             path.startswith(WINDOWS_WORKER_FULL_TEST_PREFIXES)
             or path in WINDOWS_WORKER_FULL_BOUNDARIES
@@ -251,7 +260,7 @@ def select(
         if pr_fast and not full and path in PR_ROUTING_FILES:
             enable(["ci"], f"{path}: PR gate routing regression and Actions syntax")
             continue
-        if pr_fast and not full:
+        if pr_fast and not full and not direct_targeted:
             parts = Path(path).parts
             package = None
             if len(parts) >= 4 and parts[:2] == ("src", "loushang"):
@@ -322,10 +331,17 @@ def select(
     # These historical package jobs ran the same offline pytest inventories as
     # the module runner.  Give their selected checks to the one module runner so
     # ordinary, risk and full plans cannot execute the same suite twice.
-    unit_packages.update(
-        module for check, module in CHECK_MODULE_REGRESSIONS.items()
-        if checks[check]
+    targeted_only = bool(targeted_test_paths) and all(
+        path in targeted_test_paths
+        or path.endswith((".md", ".rst"))
+        or path in rules["document_files"]
+        for path in paths
     )
+    if not targeted_only:
+        unit_packages.update(
+            module for check, module in CHECK_MODULE_REGRESSIONS.items()
+            if checks[check]
+        )
     workflows = {
         name: any(checks[check] for check in scopes)
         for name, scopes in rules["workflows"].items()
@@ -463,9 +479,10 @@ def select(
         )) for path in paths)
     )
     # Retain complete offline regressions when a paused native workflow owned them.
-    for workflow, packages in PAUSED_MODULES.items():
-        if workflow in PAUSED_WORKFLOWS and workflows[workflow]:
-            unit_packages.update(packages)
+    if not targeted_only:
+        for workflow, packages in PAUSED_MODULES.items():
+            if workflow in PAUSED_WORKFLOWS and workflows[workflow]:
+                unit_packages.update(packages)
     unit_jobs = [
         {"package": package, "shard": shard,
          "shards": MODULE_SHARD_COUNTS.get(package, 1)}
