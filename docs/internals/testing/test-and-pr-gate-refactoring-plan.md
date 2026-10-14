@@ -291,24 +291,26 @@ PR 因此多执行任务或多出失败条件，也不能自行实施。未获�
 | ci | 3 | 112 | 待逐项审查 |
 | coding | 429 | 3933 | 待逐项审查 |
 | dev | 45 | 404 | 待逐项审查 |
-| examples | 6 | 49 | 待逐项审查 |
+| examples | 6 | 49 | 角色完整初审；61 个模块所属示例合同实例 |
 | foundation | 11 | 87 | Ubuntu 模块角色完整初审 |
 | harness | 475 | 4107 | 待逐项审查 |
 | harnesstui | 98 | 624 | 待逐项审查 |
 | harnesswork | 7 | 32 | 角色完整初审；两份专用 golden 夹具登记 |
 | hosting | 28 | 309 | 待逐项审查 |
-| integration | 7 | 10 | 待逐项审查 |
+| integration | 7 | 10 | 角色完整初审；4 个 live LSP、5 个 Ontology 集成实例、33 个示例 smoke |
 | method | 10 | 37 | 角色完整初审 |
 | ontology | 21 | 152 | 角色完整初审；内存/临时 SQLite 与受控线程合同 |
 | protocols | 4 | 101 | 完整初审；109 个收集实例，全部为受控协议单元/合同 |
 | resource | 2 | 5 | 完整初审 |
-| root | 1 | 1 | 待逐项审查 |
+| root | 1 | 1 | 完整初审；打包入口合同 |
 | tui | 87 | 1336 | 待逐项审查 |
 | work | 7 | 45 | 完整初审 |
 
 后续仍须完成其他目录分类、全部单元语义去重、其余历史 job 迁移、按能力执行、原生预算、真实 PR 和 main 验收。当前局部实现不满足 goal 完成条件。
 
 Protocols 目录完成角色与重复审查。4 个文件的 101 个静态函数收集为 109 个实例，分别覆盖 Anthropic Messages、OpenAI Chat Completions、OpenAI Responses 和 Faux adapter 的 wire payload、流式事件、资源关闭、typed capability/default、认证头及错误语义。SDK 均由内存 fake module 或合成事件替代，不访问真实网络；跨协议名称相似的 max-token、reasoning、auth 与 tool-call 用例断言各自不同的 wire contract，不能合并为一个协议的结果。未删除测试 node。三个真实协议文件完全重复的 context normalization、request mode 和 stream 启动驱动已合并到共享 `_runtime.py`，净减少 75 行测试支撑代码；109 项仍全部通过，1.36 秒。所属 AI 完整离线回归 858 项通过、7 项 live deselect，31.28 秒；总覆盖率 90.65% 及三个细分阈值、Ruff、mypy、catalog 和 import boundary 均通过。
+
+Root、Examples 与 Integration 小目录完成角色初审。Root 唯一用例约束 `pyproject.toml` 的 console script。Examples 的 61 个收集实例分别归 Agent、AI/Auth、Coding 与 Harness 模块，覆盖公开导入、受控 fake 模型/认证、脚本 help/import 和独有示例输出；相似入口断言属于不同公开示例，未发现可删除的行为复本。Integration 的 42 个实例分为 4 个显式 live LSP Server 兼容用例、5 个 Ontology 内存/SQLite 产品组合实例和 33 个 manifest 示例进程 smoke。非 live 联合运行 97 项通过、3 项稳定失败、4 项 live deselect，3 分 58.95 秒；失败均为 `legacy-007/013/019` 在新建临时目录首次创建 Session 时得到 transcript writer `conflict/unavailable`，精确复跑仍为 3 项失败，12.89 秒。该 manifest smoke 目前没有正常 PR 执行 owner；直接修改会保守选择全量门禁却不会执行自身。为它新增 targeted route 属于门禁增加，未经审批不实施；现阶段也不能把这组失败且近 4 分钟的 33 场景加入阻塞 PR。
 
 第二批本地实现：Work 全目录受控单元/日志合同已分类；5 个已确认冗余单元用例已有替代映射；AppHost Linux 的 join、composition、canary 从主回归派生报告，保留独有 Worker close 和 installed 验证。完整主集合离线验证 2646 项通过、11 项 Windows 条件跳过，518.16 秒；从完整报告派生后原 manifest 均通过。详见[测试去重实施记录](test-deduplication-review.md)。后续仍需优化实测缓慢的全仓静态扫描与原生执行分组，不把局部结果作为全仓验收。
 
