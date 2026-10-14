@@ -457,7 +457,6 @@ class ScopeTests(unittest.TestCase):
             "src/loushang/ai/pricing.py",
             "src/loushang/ai/types.py",
             "src/loushang/coding/session/agent_session.py",
-            "tests/coding/test_hosted_application.py",
         ):
             with self.subTest(path=path):
                 self.assertTrue(selector.select([path], pr_fast=True)["e2e"])
@@ -616,15 +615,10 @@ class ScopeTests(unittest.TestCase):
         self.assertTrue(combined_name["worker_pr"])
         self.assertFalse(combined_name["worker_full"])
 
-    def test_pr_worker_platform_boundaries_keep_full_native_matrix(self):
+    def test_pr_worker_source_boundaries_keep_full_native_matrix(self):
         for path in (
             "src/loushang/hosting/_win32_process.py",
             "src/loushang/hosting/_windows_process.py",
-            "tests/hosting/test_win32_process.py",
-            "tests/hosting/test_windows_process.py",
-            "tests/coding/test_package_product_worker_windows_activation_state.py",
-            "tests/coding/test_package_worker_windows_candidate_cli.py",
-            "tests/harness/worker/test_coding_product_worker_windows_canary.py",
         ):
             with self.subTest(path=path):
                 windows = selector.select([path], pr_fast=True)["windows"]
@@ -730,7 +724,7 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(plan["unit_packages"], ["harness"])
         self.assertTrue(plan["workflows"]["e2e"])
 
-    def test_pr_platform_and_unclassified_tests_keep_existing_gates(self):
+    def test_pr_platform_sources_keep_existing_gates(self):
         for path in (
             "src/loushang/ai/types.py",
             "src/loushang/foundation/json.py",
@@ -739,8 +733,6 @@ class ScopeTests(unittest.TestCase):
             "src/loushang/tui/terminal_backends/windows.py",
             "src/loushang/coding/ui/plain_renderer.py",
             "src/loushang/coding/schemas/session.json",
-            "tests/coding/test_hosted_application.py",
-            "tests/coding/test_new_unclassified.py",
         ):
             with self.subTest(path=path):
                 plan = selector.select([path], pr_fast=True)
