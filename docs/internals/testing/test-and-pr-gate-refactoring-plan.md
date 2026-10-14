@@ -1,6 +1,6 @@
 # 重构与优化测试与 PR 门禁
 
-- 文档修订：R9，2026-10-14。
+- 文档修订：R10，2026-10-14。
 - 状态：实施进行中；用户已建立新 goal。六类长门禁仍保持暂停。
 - 范围：现有全部工作流、源 job、平台矩阵、测试清单、执行器及汇总检查的分类、去重、有效合并与迁移。
 - 全量盘点：[16 个工作流、71 个源 job 的分析与去向](test-and-pr-gate-inventory.md)。
@@ -294,7 +294,7 @@ PR 因此多执行任务或多出失败条件，也不能自行实施。未获�
 | examples | 6 | 49 | 角色完整初审；61 个模块所属示例合同实例 |
 | foundation | 11 | 87 | Ubuntu 模块角色完整初审 |
 | harness | 474 | 4106 | 增量角色、重复和远程成本初审完成；当前统一模块仍执行完整离线目录，5386 passed、121 个 Windows/native 条件 skip；完整 node 归属为 AP-07，未经审批不迁移 |
-| harnesstui | 98 | 624 | 待逐项审查 |
+| harnesstui | 98 | 625 | 增量角色、重复和远程成本初审完成；共享 TUI/Harness 消费者文件仅在其包 owner 同时选择时去除重复执行，HarnessTUI-only 路径保持原集合 |
 | harnesswork | 7 | 32 | 角色完整初审；两份专用 golden 夹具登记 |
 | hosting | 28 | 309 | 角色与完全重复初审完成；454 个实例按受控合同、混合文件、POSIX/Windows 原生边界分类，恢复或补齐执行 owner 仍须审批 |
 | integration | 7 | 10 | 角色完整初审；4 个 live LSP、5 个 Ontology 集成实例、33 个示例 smoke |
@@ -556,3 +556,32 @@ job、平台、触发或失败条件。
 
 审批方未明确批准 AP-07 的具体清单前，不完成 Harness catalog、不迁移本地进程或
 Windows 节点、不恢复暂停 Harness workflow。现有 4 分片完整离线路径保持不变。
+
+## HarnessTUI 增量审计与 AP-08
+
+当前 `tests/harnesstui` 有 98 个 `test_*.py` 文件、625 个静态测试函数。该模块没有
+complete module catalog、targeted whole-file override 或 targeted node；现有专用
+workflow 使用维护在 Makefile 中的显式共享清单，并将 HarnessTUI core 与 Coding UI
+分在同一 Ubuntu job 内顺序执行。两部分清单没有共同测试文件，Coding UI 的 39 个
+Coding 文件也已从 Coding 后端模块集合排除。
+
+PR #746 的全选运行 `38563194640` 中，旧 HarnessTUI core 报告为 1020 passed、零
+skip、testcase 时间 143.47 秒，`tests.architecture.test_import_boundaries` 单类占
+134.02 秒；Coding UI 为 588 passed、零 skip、30.89 秒，其中 UI import boundary
+占 22.08 秒。既有 import-boundary 缓存优化后，PR #755 运行 `38575727132` 的 core
+仍为 1020 passed、零 skip，testcase 时间降为 30.89 秒，合并 job 墙钟约 60 秒；
+该 PR 从创建到顶层完成约 1 分 58 秒。优化改变的是重复静态扫描成本，没有删断言。
+
+HarnessTUI core 的 16 个测试入口中，`tests/harnesstui` 与两个 Architecture 合同由
+该 route 独有；另有 8 个 `tests/tui` 文件和 5 个 `tests/harness` 文件承担跨模块
+消费者合同。当同一候选计划也选择 TUI unit owner 时，原配置会在相同 Ubuntu 源码
+环境重复执行这 8 个完整文件；选择 Harness unit owner 时同理重复执行 5 个完整文件。
+执行器现在读取已有选择计划，只在对应包 owner 同时被选择时从 HarnessTUI core
+剔除这些完全相同的文件。单独修改 HarnessTUI 时仍保留原 16 个入口；TUI 候选为
+8 个入口，Harness 候选为 11 个入口。该变化不新增 workflow、job、route、平台、
+触发或失败条件，只消除同一候选、同一平台、同一配置下的整文件重复执行。
+
+忽略函数名称并保留参数、decorator 与完整函数体的 AST 扫描没有发现
+`tests/harnesstui` 内部完全相同函数体。本轮不删除测试 node。剩余逐 node 角色、
+共享消费者合同的长期 owner 与 TUI 原生/渲染边界记为 AP-08；任何新增或扩大的
+执行归属仍须先提交触发、独有断言、平台、墙钟、重复关系和回退材料并获得审批。

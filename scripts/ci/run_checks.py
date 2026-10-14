@@ -175,6 +175,16 @@ def commands(
         tests = [
             path for path in all_tests if path.startswith("tests/coding/") == coding
         ]
+        if not coding and plan is not None:
+            # Shared consumer contracts stay in the Harnesstui-only route.  If
+            # their canonical package owner is already selected for this same
+            # candidate, execute the identical file there only once.
+            if plan["checks"]["tui_unit"]:
+                tests = [path for path in tests if not path.startswith("tests/tui/")]
+            if "harness" in plan["unit_packages"]:
+                tests = [
+                    path for path in tests if not path.startswith("tests/harness/")
+                ]
         source_vars = (
             [
                 "HARNESSTUI_CODING_ADAPTERS",
