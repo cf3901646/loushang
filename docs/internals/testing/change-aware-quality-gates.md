@@ -5,6 +5,39 @@ It selects checks once, calls the affected reusable workflows, and verifies
 their results through `quality-gate`. Local development uses the same
 [selection rules](../../../scripts/ci/check-scopes.json).
 
+## Temporary long-running gate pause
+
+The following entire reusable workflows are paused by user request while their
+necessary scenarios and execution costs are reviewed:
+
+| Workflow | Observed long task |
+| --- | --- |
+| Windows Shell Compatibility | Session recovery/direct 30–34 minutes; normal GC 27 minutes |
+| Hosting Quality | Sustained Worker query 24 minutes |
+| AppService Quality | Windows AppService 20 minutes |
+| Host Runtime Quality | Runtime group 15 minutes |
+| Registered Worker Reboot Drill | QEMU recovery 13 minutes |
+| Harness Quality | Linux native/contract composite 11 minutes |
+
+This applies to PRs, main pushes, scheduled and manual full validation. The
+root `quality-gate` expects these workflows to skip and continues enforcing all
+other selected workflows. Complete affected Harness, Hosting, AppService and
+AppServer offline module regressions run through the module workflow instead;
+Harness retains its four deterministic shards. Three-platform core persistence
+and selected terminal cancellation smoke remain enabled. Windows tests in
+other selected workflows remain enabled.
+
+Original native test cases and inventories are retained. `PAUSED_WORKFLOWS` and
+`PAUSED_MODULES` in `scripts/ci/select_checks.py` record the pause and offline
+coverage replacement. Remove a workflow from both mappings when restoring its
+reviewed gate. Runs already in progress keep their original selection plans.
+
+Restore scenarios individually: ordinary module regression; one or two portable
+core smoke flows; affected-platform native smoke; path-selected crash/GC/recovery;
+and separately scheduled sustained/reboot campaigns. Record each scenario's
+unique assertion, owner paths, runtime and duplicate coverage before restoring
+it. Long campaigns must not silently return to ordinary PR gates.
+
 ## Selection policy
 
 | Change | Required scope |

@@ -33,6 +33,12 @@ shard_hash = load_script("shard_hash")
 
 
 class ScopeTests(unittest.TestCase):
+    def setUp(self):
+        # Retain the underlying routing contracts for eventual gate restoration.
+        pause = patch.object(selector, "PAUSED_WORKFLOWS", set())
+        pause.start()
+        self.addCleanup(pause.stop)
+
     def selected(self, *paths):
         return {
             name
@@ -459,6 +465,8 @@ class ScopeTests(unittest.TestCase):
     def test_empty_changes_do_not_start_product_checks(self):
         self.assertEqual(self.selected(), {"docs"})
 
+
+
     def test_workflow_plan_omits_diagnostic_reasons(self):
         plan = selector.select(["src/loushang/coding/lsp/client.py"])
 
@@ -777,6 +785,41 @@ class ScopeTests(unittest.TestCase):
                     else:
                         self.assertTrue(all(plan["checks"].values()))
                         self.assertTrue(plan["windows"]["worker_full"])
+
+
+class PauseTests(unittest.TestCase):
+    def test_windows_shell_pause_applies_to_pr_push_and_full_validation(self):
+        for full, fast in ((False, True), (True, True), (True, False), (False, False)):
+            with self.subTest(full=full, fast=fast):
+                plan = selector.select([".github/workflows/windows-shell-compatibility.yml"],
+                                       full=full, pr_fast=fast)
+                self.assertFalse(plan["workflows"]["windows-shell"])
+                self.assertFalse(selector.workflow_plan(plan)["workflows"]["windows-shell"])
+                # Other selected jobs remain required and fail closed.
+                with contextlib.redirect_stdout(io.StringIO()):
+                    guard.verify(plan, {"windows-shell": {"result": "skipped"},
+                                        "apphost": {"result": "success"}},
+                                 {"windows-shell": "windows-shell", "apphost": "apphost"},
+                                 section="workflows")
+                with self.assertRaises(ValueError), contextlib.redirect_stdout(io.StringIO()):
+                    guard.verify(plan, {"windows-shell": {"result": "skipped"},
+                                        "apphost": {"result": "failure"}},
+                                 {"windows-shell": "windows-shell", "apphost": "apphost"},
+                                 section="workflows")
+
+    def test_long_gates_pause_but_complete_module_regressions_remain(self):
+        for full, fast in ((False, True), (True, True), (True, False)):
+            with self.subTest(full=full, fast=fast):
+                plan = selector.select([".github/workflows/quality.yml"], full=full, pr_fast=fast)
+                self.assertTrue(all(not plan["workflows"][w] for w in selector.PAUSED_WORKFLOWS))
+                self.assertTrue({"harness", "hosting", "appservice", "appserver"}
+                                <= set(plan["unit_packages"]))
+                self.assertEqual(sum(j["package"] == "harness" for j in plan["unit_jobs"]), 4)
+                self.assertTrue(plan["workflows"]["units"])
+                self.assertTrue(plan["e2e"])
+                self.assertTrue(plan["workflows"]["apphost"])
+                self.assertTrue(plan["workflows"]["packages"])
+
 
 
 class GateTests(unittest.TestCase):
