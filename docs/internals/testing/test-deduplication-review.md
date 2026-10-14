@@ -492,3 +492,38 @@ loopback 生命周期为 0.58 秒，其余单项不超过 0.40 秒。当前没�
 时，选择器会运行这 148 项，但不会执行被修改文件自身；其余 564 个非 live 实例的
 完整 owner 和两个 loopback 节点的分类执行已记为 AP-04。补齐它们会新增 PR 失败条件，
 未经审批不修改清单、catalog 或 workflow。
+
+## 17. AppHost 目录完整初审与测试准备提速
+
+`tests/apphost` 的 64 个文件包含 693 个静态测试函数，安全离线选择器下收集 1217
+个实例。完整执行为 1216 passed、1 skipped；唯一跳过项是
+`test_harness_session_integration.py::test_adapter_windows_native_backend_is_explicitly_fail_closed`，
+它要求 Windows native backend。其余集合不访问公网或真实大模型，但并不全是单元
+测试：13 个文件直接使用 `subprocess`，多个 managed 文件覆盖真实文件、SQLite、锁、
+本机 socket、进程和信号边界。临时 managed 根还要求整条祖先目录链满足私有权限，
+因此本地审计使用 mode `0700` 的独立临时根，不能把普通 repo-local 临时目录失败解释
+成 Product 死锁或回归。
+
+现有 AppHost 模块短路径只登记 `test_catalog.py`、`test_contracts.py`、
+`test_managed_admission_record.py`、`test_managed_contracts.py`、
+`test_managed_paths.py`、`test_managed_trace_buffer.py` 和 `test_router.py`，分别收集
+12/27/34/47/21/10/14 项，共 165 项。修改其余 57 个测试文件时，选择器仍只运行这个
+既有模块集合；不会运行被修改文件自身，也不会附加 E2E。其余 1052 个实例的完整
+owner 记为 AP-05，未经审批不修改 inventory、catalog、workflow、平台或失败条件。
+
+本轮没有删除测试节点。忽略函数名称后的完整 AST 扫描未发现完全重复函数；managed
+故障矩阵虽然结构相近，但覆盖不同事务阶段、持久状态和恢复结果，不能仅凭相似代码
+合并。两处已确认的成本来自测试准备，而非被验证行为：
+
+- launcher 的 cold hello 用例原先真实等待 10.1 秒，只为证明 15 秒 owner budget 不会
+  被默认 10 秒 connection phase 截断。现在推进事件循环单调时钟并让出一次调度；若
+  默认 10 秒 timeout 仍错误包裹 hello，它仍会触发，聚焦执行由 10.11 秒降至 0.43 秒。
+- managed log reader 原先为构造读取边界逐条执行 220 次锁、SQLite 和 durability 写入。
+  现在先用一次真实 write 建立并绑定 charged file，再用生产 `_encode` 构造同样的 220
+  个合法 frame，一次写入测试夹具；真实 `os.pread`、切断首帧、序号 121--220 与读取
+  上限断言保持不变，聚焦调用由 5.23 秒降至 0.07 秒。
+
+相同完整命令优化前为 1216 passed、1 skipped、103.74 秒，优化后为 1216 passed、
+1 skipped、87.87 秒，墙钟减少 15.87 秒（15.3%）；最慢单项降到 2.02 秒。该结果只
+证明 Linux 安全离线集合和本轮测试准备修改，不替代 Windows native、installed 或
+远程 runner 证据，也不批准 AP-05。
