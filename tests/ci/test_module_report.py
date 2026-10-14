@@ -51,6 +51,47 @@ class ModuleReportTests(unittest.TestCase):
             verify("demo", self.report, root=self.root)
         self.assertIn("skipped=1", verify("legacy", self.report, root=self.root))
 
+    def test_partial_classification_retains_platform_skip_allowance(self):
+        catalog = {
+            "version": CATALOG_VERSION,
+            "modules": {},
+            "targeted_overrides": {
+                "demo": {
+                    "review": "incremental",
+                    "files": {
+                        "tests/demo/test_two.py": {
+                            "category": "platform",
+                            "assertion": "native platform behavior",
+                            "platforms": ["windows-2022"],
+                        }
+                    },
+                }
+            },
+        }
+        (self.root / "scripts/ci/test-classification.json").write_text(
+            json.dumps(catalog)
+        )
+        self.write(
+            cases=(
+                '<testcase classname="tests.demo.test_one" name="test_pass"/>'
+                '<testcase classname="tests.demo.test_one" name="test_platform">'
+                "<skipped/></testcase>"
+            ),
+            skipped=1,
+        )
+        self.assertIn("skipped=1", verify("demo", self.report, root=self.root))
+
+        self.write(
+            cases=(
+                '<testcase classname="tests.demo.test_one" name="test_platform">'
+                "<skipped/></testcase>"
+            ),
+            tests=1,
+            skipped=1,
+        )
+        with self.assertRaisesRegex(ValueError, "no passing tests"):
+            verify("demo", self.report, root=self.root)
+
     def test_missing_file_fails_but_valid_shard_does_not_claim_other_files(self):
         self.write(cases='<testcase classname="tests.demo.test_one" name="test_case"/>', tests=1)
         with self.assertRaisesRegex(ValueError, "files are missing"):
