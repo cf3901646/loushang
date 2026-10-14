@@ -659,3 +659,14 @@ Store head 将 journal 的 device、inode、size、mtime 和 ctime 纳入身份�
 owner，但暂停状态使其当前没有活动直接执行 owner。补齐执行会新增 PR 失败条件，
 已列为 AP-10；未经指定审批方批准，不修改 catalog、workflow、平台或失败条件。
 本节只记录审计与否决证据。
+
+## 23. Typing 合同与根夹具补充盘点
+
+顶层目录复核发现一个非 pytest 类型合同：`tests/typing/input_intent_contract.py`。
+它没有 `test_` 函数，必须由 mypy 显式消费；当前 `typecheck-tui` 只检查生产源码，
+所以该文件没有活动执行 owner。补接会新增 PR 失败条件，列为 AP-11，未经指定审批方
+批准不修改 Makefile 或 workflow。
+
+根夹具中，`contained_query_worker.c` 的两个消费者都在 Coding package worker 测试，
+不存在跨 owner 重复；`resume_overflow_with_thinking.jsonl` 没有当前消费者，也不被
+任何门禁读取，因此不会贡献运行时间。本轮不删除测试、夹具或节点，只补齐库存边界。

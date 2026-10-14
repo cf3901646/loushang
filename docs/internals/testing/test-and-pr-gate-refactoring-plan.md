@@ -1,6 +1,6 @@
 # 重构与优化测试与 PR 门禁
 
-- 文档修订：R11，2026-10-14。
+- 文档修订：R12，2026-10-14。
 - 状态：实施进行中；用户已建立新 goal。六类长门禁仍保持暂停。
 - 范围：现有全部工作流、源 job、平台矩阵、测试清单、执行器及汇总检查的分类、去重、有效合并与迁移。
 - 全量盘点：[16 个工作流、71 个源 job 的分析与去向](test-and-pr-gate-inventory.md)。
@@ -304,6 +304,7 @@ PR 因此多执行任务或多出失败条件，也不能自行实施。未获�
 | resource | 2 | 5 | 完整初审 |
 | root | 1 | 1 | 完整初审；打包入口合同 |
 | tui | 87 | 1336 | 增量角色、重复和远程成本初审完成；Ubuntu platform 的 114 个重复实例归并到既有 TUI unit owner，native backend/tmux 与 Windows platform 保留 |
+| typing | 1 | 0 | 一个显式 mypy 类型合同；当前没有活动执行 owner，首次接入列为 AP-11，未经审批不实施 |
 | work | 7 | 45 | 完整初审 |
 
 后续仍须完成其他目录分类、全部单元语义去重、其余历史 job 迁移、按能力执行、原生预算、真实 PR 和 main 验收。当前局部实现不满足 goal 完成条件。
@@ -636,6 +637,24 @@ AP-10：审批材料须逐文件列出独有断言、目标平台、现有与目
 
 本轮只形成审计和本地证据，没有新增或扩大 required check、workflow、job、test
 route、平台/矩阵、触发条件或失败条件。
+
+## 根测试资产审计与 AP-11
+
+最终顶层目录核对补齐了 pytest 目录之外的测试资产。`tests/typing` 只有
+`input_intent_contract.py`，它用 mypy 验证开放的 `InputIntent` kind、泛型协变和
+`_prompt_input_intent` 的收窄边界。原实施计划要求显式运行该文件，但当前
+`typecheck-tui` 只检查 `src/loushang/tui`，现有 workflow、Makefile 和执行器均没有
+消费该类型合同。把它加入 PR 检查会让此前未执行的合同首次形成失败条件，属于门禁
+增加，记为 AP-11；须由指定审批方批准具体触发、owner、成本和回退后才能实施。
+
+根 `tests/fixtures` 不是独立测试模块。`worker/contained_query_worker.c` 由两个 Coding
+package worker 测试消费，随 Coding owner 分类；`sessions/resume_overflow_with_thinking.jsonl`
+在当前仓库没有源码、脚本、workflow 或文档消费者，是不产生执行成本的孤立数据清理
+候选。删除它不会加速门禁，本批不借最终审计扩大变更范围。`tests/__pycache__` 是被
+忽略的本地产物，不属于仓库测试库存。
+
+本轮仍不修改 test catalog、Makefile、workflow、平台、触发或失败条件。AP-11 只是
+审批材料入口，不构成批准。
 
 同轮复核 scoped reusable workflow 的变更路由：每个已登记 workflow 修改都会运行
 现有 CI 合同及自己的完整 owner，包括既有 full platform 分支；原选择器还统一附加
