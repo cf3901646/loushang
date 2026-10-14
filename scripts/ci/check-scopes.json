@@ -619,7 +619,8 @@
         "architecture",
         "docs"
       ],
-      "reason": "architecture documentation tooling"
+      "reason": "architecture documentation tooling",
+      "pr_test_only": true
     },
     {
       "paths": [
