@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 CATALOG_FILE = "scripts/ci/test-classification.json"
-CATALOG_VERSION = 3
+CATALOG_VERSION = 4
 MODULE_CATEGORIES = {"unit", "contract"}
 TARGETED_CATEGORIES = {"integration", "platform", "live", "e2e"}
 TARGETED_RUNNERS = {"ubuntu-24.04", "macos-15", "windows-2022"}
@@ -23,11 +23,12 @@ def load_catalog(root: Path) -> dict:
     path = root / CATALOG_FILE
     if not path.exists():
         # During incremental migration, absence retains the complete old route.
-        return {"version": CATALOG_VERSION, "modules": {}}
+        return {"version": CATALOG_VERSION, "modules": {}, "targeted_overrides": {}}
     catalog = json.loads(path.read_text())
     if (not isinstance(catalog, dict)
             or catalog.get("version") != CATALOG_VERSION
-            or not isinstance(catalog.get("modules"), dict)):
+            or not isinstance(catalog.get("modules"), dict)
+            or not isinstance(catalog.get("targeted_overrides", {}), dict)):
         raise ValueError("invalid test classification catalog")
     for module, entry in catalog["modules"].items():
         if not module.isidentifier() or not isinstance(entry, dict) or entry.get("complete") is not True:
@@ -78,15 +79,57 @@ def load_catalog(root: Path) -> dict:
                     or len(set(consumers)) != len(consumers)
                     or set(consumers) - set(files)):
                 raise ValueError(f"unreviewed dedicated fixture consumers: {fixture}")
+    for module, entry in catalog.get("targeted_overrides", {}).items():
+        if (not module.isidentifier() or module in catalog["modules"]
+                or not isinstance(entry, dict)):
+            raise ValueError(f"invalid partial targeted module: {module}")
+        files = entry.get("files")
+        if not isinstance(files, dict) or not files:
+            raise ValueError(f"empty targeted override: {module}")
+        discovered = {
+            path.relative_to(root).as_posix()
+            for path in (root / "tests" / module).rglob("test_*.py")
+        }
+        for path, role in files.items():
+            if path not in discovered:
+                raise ValueError(f"missing targeted override: {path}")
+            if (not isinstance(role, dict)
+                    or role.get("category") not in TARGETED_CATEGORIES
+                    or role.get("category") == "live"
+                    or not isinstance(role.get("assertion"), str)
+                    or not role["assertion"].strip()):
+                raise ValueError(f"invalid targeted override: {path}")
+            _validate_platforms(path, role)
     return catalog
 
 
 def module_unit_paths(module: str, *, root: Path) -> list[str] | None:
-    entry = load_catalog(root)["modules"].get(module)
-    return sorted(
-        path for path, role in entry["files"].items()
-        if role["category"] in MODULE_CATEGORIES
-    ) if entry else None
+    catalog = load_catalog(root)
+    entry = catalog["modules"].get(module)
+    if entry:
+        return sorted(
+            path for path, role in entry["files"].items()
+            if role["category"] in MODULE_CATEGORIES
+        )
+    override = catalog.get("targeted_overrides", {}).get(module)
+    if not override:
+        return None
+    discovered = {
+        path.relative_to(root).as_posix()
+        for path in (root / "tests" / module).rglob("test_*.py")
+    }
+    for extra in MODULE_EXTRA_TESTS.get(module, []):
+        extra_path = root / extra
+        discovered.update(
+            path.relative_to(root).as_posix() for path in (
+                extra_path.rglob("test_*.py") if extra_path.is_dir() else [extra_path]
+            )
+        )
+    return sorted(discovered - set(override["files"]))
+
+
+def module_is_fully_classified(module: str, *, root: Path) -> bool:
+    return module in load_catalog(root)["modules"]
 
 
 def reviewed_unit_owner(path: str, *, catalog: dict) -> str | None:
@@ -118,6 +161,10 @@ def targeted_test_cases(path: str, *, catalog: dict) -> list[tuple[str, dict]]:
             if consumer_role["category"] not in TARGETED_CATEGORIES - {"live"}:
                 raise ValueError(f"targeted fixture has non-targeted consumer: {path}")
             cases.append((consumer, consumer_role))
+    for entry in catalog.get("targeted_overrides", {}).values():
+        role = entry["files"].get(path)
+        if role is not None:
+            cases.append((path, role))
     return cases
 
 

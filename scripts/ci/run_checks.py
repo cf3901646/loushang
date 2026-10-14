@@ -10,7 +10,11 @@ import sys
 from pathlib import Path
 
 from select_checks import ROOT, make_paths
-from test_catalog import MODULE_EXTRA_TESTS, module_unit_paths
+from test_catalog import (
+    MODULE_EXTRA_TESTS,
+    module_is_fully_classified,
+    module_unit_paths,
+)
 
 OFFLINE_MARKERS = (
     "not live and not requires_host_runtime and not tui_render_contract "
@@ -85,7 +89,7 @@ def commands(
             + ["-m", markers,
                "--skip-host-runtime", "--strict-markers", "-q", *shard_args]
         ]
-        if classified is not None:
+        if classified is not None and module_is_fully_classified(package, root=root):
             result.insert(0, [python, "-m", "ruff", "check", f"src/loushang/{package}", *paths])
         return result
     if scope == "e2e_smoke":
