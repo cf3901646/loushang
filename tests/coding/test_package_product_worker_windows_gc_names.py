@@ -6,6 +6,7 @@ import os
 from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -16,9 +17,43 @@ from loushang.coding.package_product_worker_windows_gc_history import (
     _require_c5_gc_history,
     _require_known_windows_worker_state_names,
 )
+from loushang.coding.package_product_worker_windows_history_sources import (
+    CodingWindowsWorkerHistorySourceFileV1,
+    CodingWindowsWorkerHistorySourceSnapshotV1,
+)
+from loushang.coding.package_product_worker_windows_history_write_fence import (
+    require_windows_worker_legacy_history_writable,
+)
 from loushang.coding.package_product_worker_windows_recovery_inventory import (
     CodingWindowsWorkerRecoveryAttemptV1,
 )
+
+
+def test_windows_worker_history_source_identity_round_trips_strictly() -> None:
+    source = CodingWindowsWorkerHistorySourceFileV1(
+        name="worker-opt-in.jsonl", size=3, sha256_digest=sha256(b"abc").hexdigest()
+    )
+    snapshot = CodingWindowsWorkerHistorySourceSnapshotV1.create(
+        scope_id="scope-a", store_id="store-a", lease_owner_revision=2, files=(source,)
+    )
+    assert (
+        CodingWindowsWorkerHistorySourceSnapshotV1.from_dict(snapshot.to_dict())
+        == snapshot
+    )
+    changed = snapshot.to_dict()
+    changed["snapshotDigest"] = sha256(b"changed").hexdigest()
+    with pytest.raises(ValueError, match="source snapshot is invalid"):
+        CodingWindowsWorkerHistorySourceSnapshotV1.from_dict(changed)
+    changed = snapshot.to_dict()
+    changed["files"] = [{**source.to_dict(), "size": True}]
+    with pytest.raises(ValueError, match="source file is invalid"):
+        CodingWindowsWorkerHistorySourceSnapshotV1.from_dict(changed)
+    with pytest.raises(ValueError, match="source file is invalid"):
+        CodingWindowsWorkerHistorySourceFileV1(
+            name="worker-history-base-opt-in-v1.json",
+            size=3,
+            sha256_digest=sha256(b"abc").hexdigest(),
+        )
 
 
 def test_windows_worker_gc_accepts_current_owned_state_names() -> None:
@@ -30,6 +65,17 @@ def test_windows_worker_gc_accepts_current_owned_state_names() -> None:
             "worker-native-release-approvals.jsonl",
             "worker-native-release-approvals.jsonl.lock",
             "worker-native-backend-release-v1.whl",
+            "worker-history-preparation-v1.json",
+            "worker-history-preparation-v1.json.stage",
+            "worker-history-checkpoint-v1.json",
+            "worker-history-checkpoint-v1.json.stage",
+            "worker-history-base-opt-in-v1.json",
+            "worker-history-base-opt-in-v1.json.stage",
+            "worker-history-base-receipt-v1.json",
+            "worker-history-base-supervisor-v1.json",
+            "worker-history-base-c5-v1.json",
+            "worker-history-base-launch-intent-v1.json",
+            "worker-history-base-native-provisioning-v1.json",
             "worker-activation-receipts.jsonl",
             "worker-activation-receipts.jsonl.lock",
             "worker-activation-state.jsonl",
@@ -46,6 +92,217 @@ def test_windows_worker_gc_accepts_current_owned_state_names() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "name",
+    (
+        "worker-history-cutover-v1.json",
+        "worker-history-cutover-v1.json.stage",
+        "WORKER-HISTORY-CUTOVER-V1.JSON",
+        ".worker-history-cutover-v1.json",
+    ),
+)
+def test_windows_worker_cutover_marker_blocks_legacy_writes_before_publication(
+    name: str,
+) -> None:
+    with patch(
+        "loushang.coding.package_product_worker_windows_history_write_fence.windows_listdir_at",
+        return_value=(name,),
+    ):
+        with pytest.raises(ValueError, match="legacy history cutover is present"):
+            require_windows_worker_legacy_history_writable(5)
+    with pytest.raises(ValueError, match="state owner is unrecognized"):
+        _require_known_windows_worker_state_names((name,))
+
+
+def test_windows_worker_legacy_write_fence_accepts_pre_cutover_inventory() -> None:
+    with patch(
+        "loushang.coding.package_product_worker_windows_history_write_fence.windows_listdir_at",
+        return_value=("worker-opt-in.jsonl", "worker-supervisor.jsonl"),
+    ):
+        require_windows_worker_legacy_history_writable(5)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native Windows Product root required")
+def test_windows_worker_cutover_marker_refuses_old_journal_writes_without_lock_creation(
+    tmp_path: Path,
+) -> None:
+    from loushang.coding._plugin_lifecycle import (
+        resolve_ephemeral_coding_plugin_lifecycle_state_layout,
+    )
+    from loushang.coding.package_legacy_windows_receipt import (
+        write_windows_private_receipt,
+    )
+    from loushang.coding.package_pre_b_snapshot import (
+        cutover_and_bootstrap_coding_package_product,
+    )
+    from loushang.coding.package_product_runtime import (
+        open_coding_fenced_product_application_owner,
+    )
+    from loushang.coding.package_product_worker_windows_crash_stage_retirement import (
+        retire_coding_windows_product_worker_crash_stage,
+    )
+    from loushang.coding.package_product_worker_windows_crash_stage_review import (
+        CodingWindowsWorkerCrashStageReviewV1,
+    )
+    from loushang.coding.package_product_worker_windows_history_write_fence import (
+        WINDOWS_WORKER_HISTORY_CUTOVER_NAME,
+    )
+    from loushang.coding.package_product_worker_windows_native_approval_journal import (
+        CodingWindowsWorkerNativeApprovalJournal,
+    )
+    from loushang.coding.package_product_worker_windows_opt_in_journal import (
+        CodingWindowsWorkerOptInJournal,
+    )
+    from loushang.coding.package_product_worker_windows_partial_stage_retirement import (
+        retire_coding_windows_product_worker_partial_stage,
+    )
+    from loushang.coding.package_product_worker_windows_partial_stage_review import (
+        CodingWindowsWorkerPartialStageReviewV1,
+    )
+    from loushang.coding.package_product_worker_windows_reserved_review import (
+        CodingWindowsWorkerReservedNoEffectReviewV1,
+    )
+    from loushang.coding.package_product_worker_windows_stage_retirement import (
+        retire_coding_windows_product_worker_complete_stage,
+    )
+    from loushang.coding.package_product_worker_windows_stage_review import (
+        CodingWindowsWorkerStageReviewV1,
+    )
+    from loushang.coding.package_product_worker_windows_supervisor_journal import (
+        open_coding_windows_product_worker_supervisor_journal,
+    )
+    from loushang.coding.package_product_worker_windows_unlaunched_stage_retirement import (
+        retire_coding_windows_product_worker_settled_unlaunched_stage,
+    )
+    from loushang.harness.config.agent import SettingsManager
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    lifecycle = resolve_ephemeral_coding_plugin_lifecycle_state_layout(
+        tmp_path / "session-state", cwd=workspace
+    )
+    settings = SettingsManager(
+        global_settings_path=tmp_path / "global" / "settings.json",
+        project_settings_path=workspace / ".loushang" / "settings.json",
+    )
+    cutover_and_bootstrap_coding_package_product(
+        lifecycle,
+        settings,
+        workspace=workspace,
+        namespace_id="e" * 64,
+        runtime_version="2.0.0",
+        runtime_protocol_epoch=2,
+        windows_candidate=True,
+    )
+    owner = open_coding_fenced_product_application_owner(
+        lifecycle,
+        workspace=workspace,
+        runtime_version="2.0.0",
+        runtime_protocol_epoch=2,
+        windows_candidate=True,
+    )
+    try:
+        product = owner.runtime_owner.product_owner
+        write_windows_private_receipt(
+            product.state_root / WINDOWS_WORKER_HISTORY_CUTOVER_NAME,
+            b"pending-cutover",
+        )
+        scope_id = product.policy.project_scope_id
+        with product.gc_gate.guard(require_write=True):
+            with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
+                with pytest.raises(
+                    ValueError, match="legacy history cutover is present"
+                ):
+                    CodingWindowsWorkerOptInJournal(
+                        product.state_root / "worker-opt-in.jsonl", scope_id=scope_id
+                    ).change(
+                        directory_fd=root,
+                        plugin_id="example",
+                        operation_id="operation-1",
+                        expected_generation=0,
+                        action="revoke",
+                        opt_in=None,
+                    )
+                with pytest.raises(
+                    ValueError, match="legacy history cutover is present"
+                ):
+                    CodingWindowsWorkerNativeApprovalJournal(
+                        product.state_root / "worker-native-release-approvals.jsonl",
+                        scope_id=scope_id,
+                    ).change(
+                        directory_fd=root,
+                        operation_id="operation-2",
+                        expected_generation=0,
+                        action="revoke",
+                        approval=None,
+                    )
+        journal = open_coding_windows_product_worker_supervisor_journal(product)
+        with pytest.raises(ValueError, match="legacy history cutover is present"):
+            with journal._exclusive():
+                pass
+        assert not (product.state_root / "worker-opt-in.jsonl.lock").exists()
+        assert not (
+            product.state_root / "worker-native-release-approvals.jsonl.lock"
+        ).exists()
+        assert not (product.state_root / "worker-supervisor.jsonl.lock").exists()
+        identity = (1, 10, 1, 0, 100)
+        executable = (1, 12, 1, 1024, 102)
+        common = dict(
+            attempt_id="7" * 32,
+            intent_fingerprint="b" * 64,
+            lease_owner_revision=3,
+            entrypoint="worker.exe",
+            stage_identity=identity,
+            directory_identities=(),
+            marker_identity=(1, 11, 1, 200, 101),
+            executable_identity=executable,
+            executable_digest="f" * 64,
+        )
+        reviews = (
+            (
+                retire_coding_windows_product_worker_complete_stage,
+                CodingWindowsWorkerStageReviewV1(
+                    **common, native_revision=4, supervisor_revision=5
+                ),
+            ),
+            (
+                retire_coding_windows_product_worker_partial_stage,
+                CodingWindowsWorkerPartialStageReviewV1(
+                    attempt_id="7" * 32,
+                    lease_owner_revision=3,
+                    stage_identity=identity,
+                    directory_identities=(),
+                    entrypoint=None,
+                    executable_identity=None,
+                    executable_digest=None,
+                ),
+            ),
+            (
+                retire_coding_windows_product_worker_crash_stage,
+                CodingWindowsWorkerCrashStageReviewV1(
+                    **common,
+                    repaired_lease_id="3" * 64,
+                    lease_repair_revision=2,
+                    native_revision=4,
+                    supervisor_revision=None,
+                    native_spec_fingerprint="c" * 64,
+                ),
+            ),
+            (
+                retire_coding_windows_product_worker_settled_unlaunched_stage,
+                CodingWindowsWorkerReservedNoEffectReviewV1(
+                    **common, native_revision=2
+                ),
+            ),
+        )
+        for retire, review in reviews:
+            with pytest.raises(ValueError, match="legacy history cutover is present"):
+                retire(product, expected_review=review)
+        assert not any(product.state_root.glob("worker-*-stage-retire-*.json"))
+    finally:
+        owner.close()
+
+
 @pytest.mark.skipif(os.name != "nt", reason="native Windows Product root required")
 def test_windows_worker_history_source_capture_is_private_and_fail_closed(
     tmp_path: Path,
@@ -59,11 +316,20 @@ def test_windows_worker_history_source_capture_is_private_and_fail_closed(
     from loushang.coding.package_product_runtime import (
         open_coding_fenced_product_application_owner,
     )
+    from loushang.coding.package_product_worker_windows_checkpoint import (
+        publish_coding_windows_worker_history_checkpoint,
+    )
+    from loushang.coding.package_product_worker_windows_history_preparation import (
+        prepare_coding_windows_worker_history,
+    )
     from loushang.coding.package_product_worker_windows_history_sources import (
         CodingWindowsWorkerHistorySemanticReadV1,
         capture_coding_windows_worker_history_sources,
         read_coding_windows_worker_history_semantics,
         review_coding_windows_worker_settled_history_sources,
+    )
+    from loushang.coding.package_product_worker_windows_history_write_fence import (
+        WINDOWS_WORKER_HISTORY_CUTOVER_NAME,
     )
     from loushang.foundation.windows_private_acl import WindowsPrivateDirectoryAcl
     from loushang.harness.config.agent import SettingsManager
@@ -111,6 +377,49 @@ def test_windows_worker_history_source_capture_is_private_and_fail_closed(
         assert semantic.source_snapshot == before
         assert semantic.offline_recovery.store_id == before.store_id
         assert semantic.offline_recovery.gc_revision_refs == frozenset()
+        with patch(
+            "loushang.coding.package_legacy_windows_receipt.windows_rename_at",
+            side_effect=RuntimeError("injected preparation publication interruption"),
+        ):
+            with pytest.raises(RuntimeError, match="publication interruption"):
+                prepare_coding_windows_worker_history(product)
+        with pytest.raises(ValueError, match="stage remains"):
+            capture_coding_windows_worker_history_sources(product)
+        marker_name = WINDOWS_WORKER_HISTORY_CUTOVER_NAME
+        with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
+            with WindowsPrivateDirectoryAcl() as acl:
+                marker = open_windows_regular_file_at(
+                    root,
+                    marker_name,
+                    create_new=True,
+                    write=True,
+                    security_descriptor=acl.security_descriptor,
+                )
+                os.close(marker)
+            windows_flush_directory(root)
+        with pytest.raises(ValueError, match="legacy history cutover is present"):
+            prepare_coding_windows_worker_history(product)
+        assert not (product.state_root / "worker-history-preparation-v1.json").exists()
+        with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
+            windows_unlink_at(root, marker_name)
+            windows_flush_directory(root)
+        prepared = prepare_coding_windows_worker_history(product)
+        assert prepared.source_snapshot == before
+        assert prepare_coding_windows_worker_history(product) == prepared
+        assert capture_coding_windows_worker_history_sources(product) == before
+        assert read_coding_windows_worker_history_semantics(product) == semantic
+        with patch(
+            "loushang.coding.package_legacy_windows_receipt.windows_rename_at",
+            side_effect=RuntimeError("injected checkpoint publication interruption"),
+        ):
+            with pytest.raises(RuntimeError, match="publication interruption"):
+                publish_coding_windows_worker_history_checkpoint(product)
+        with pytest.raises(ValueError, match="stage remains"):
+            capture_coding_windows_worker_history_sources(product)
+        checkpoint = publish_coding_windows_worker_history_checkpoint(product)
+        assert checkpoint.source_snapshot == before
+        assert publish_coding_windows_worker_history_checkpoint(product) == checkpoint
+        assert capture_coding_windows_worker_history_sources(product) == before
         with pytest.raises(ValueError, match="semantic read is invalid"):
             CodingWindowsWorkerHistorySemanticReadV1(
                 source_snapshot=before,

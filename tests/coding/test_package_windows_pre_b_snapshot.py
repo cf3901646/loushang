@@ -2793,6 +2793,9 @@ def _assert_windows_product_worker_native_approval_journal(
     )
     owner = CodingWindowsWorkerNativeApprovalOwner(product)
     assert owner.current() is None
+    with product.gc_gate.guard():
+        with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
+            assert journal.history_read_only(directory_fd=root) == ()
     assert not path.exists()
     assert not path.with_name(path.name + ".lock").exists()
     with pytest.raises(CodingWorkerNativeApprovalError) as absent:
@@ -2817,6 +2820,7 @@ def _assert_windows_product_worker_native_approval_journal(
                 approval=synthetic,
             )
             assert journal.current(directory_fd=root) == approved
+            assert journal.history_read_only(directory_fd=root) == (approved,)
             assert (
                 journal.change(
                     directory_fd=root,
@@ -2847,6 +2851,9 @@ def _assert_windows_product_worker_native_approval_journal(
         == revoked
     )
     assert owner.current() == revoked
+    with product.gc_gate.guard():
+        with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
+            assert journal.history_read_only(directory_fd=root) == (approved, revoked)
     held = path.with_name(path.name + ".held")
     path.replace(held)
     try:
@@ -3881,8 +3888,54 @@ def _retain_windows_c5_test_attempt(
 def _assert_windows_worker_retired_history_allows_gc(
     tmp_path: Path, *, partial_attempt_id: str | None
 ) -> None:
+    from loushang.coding.package_product_worker_windows_c5_base import (
+        CodingWindowsWorkerC5SemanticBaseV1,
+    )
+    from loushang.coding.package_product_worker_windows_checkpoint import (
+        publish_coding_windows_worker_history_checkpoint,
+        read_coding_windows_worker_history_checkpoint,
+    )
+    from loushang.coding.package_product_worker_windows_desired_references import (
+        CodingWindowsWorkerDesiredReferenceReviewV1,
+    )
+    from loushang.coding.package_product_worker_windows_history_bases import (
+        publish_coding_windows_worker_history_bases,
+        read_coding_windows_worker_history_bases,
+    )
+    from loushang.coding.package_product_worker_windows_history_cutover_preflight import (
+        review_coding_windows_worker_history_cutover_candidate,
+    )
+    from loushang.coding.package_product_worker_windows_history_cutover_record import (
+        WINDOWS_WORKER_HISTORY_CUTOVER_NAME,
+        CodingWindowsWorkerHistoryCutoverRecordV1,
+    )
+    from loushang.coding.package_product_worker_windows_history_join import (
+        CodingWindowsWorkerHistorySemanticJoinV1,
+    )
+    from loushang.coding.package_product_worker_windows_history_preparation import (
+        CodingWindowsWorkerHistoryPreparationV1,
+        prepare_coding_windows_worker_history,
+    )
     from loushang.coding.package_product_worker_windows_history_sources import (
+        read_coding_windows_worker_history_semantics,
         review_coding_windows_worker_settled_history_sources,
+    )
+    from loushang.coding.package_product_worker_windows_launch_intent_base import (
+        CodingWindowsWorkerLaunchIntentSemanticBaseV1,
+    )
+    from loushang.coding.package_product_worker_windows_package_references import (
+        review_coding_windows_worker_package_references,
+    )
+    from loushang.coding.package_product_worker_windows_persisted_bases import (
+        _read_coding_windows_worker_persisted_bases_under_gc_guard,
+        read_coding_windows_worker_persisted_bases,
+        read_coding_windows_worker_persisted_cutover,
+    )
+    from loushang.coding.package_product_worker_windows_provisioning_base import (
+        CodingWindowsWorkerNativeProvisioningSemanticBaseV1,
+    )
+    from loushang.coding.package_product_worker_windows_supervisor_base import (
+        CodingWindowsWorkerSupervisorSemanticBaseV1,
     )
 
     workspace = tmp_path / "workspace"
@@ -4093,6 +4146,178 @@ def _assert_windows_worker_retired_history_allows_gc(
             item.name == "worker-activation-receipts.jsonl"
             for item in history_review.source_snapshot.files
         )
+        semantic = read_coding_windows_worker_history_semantics(product)
+        assert semantic.source_snapshot == history_review.source_snapshot
+        assert semantic.desired_inventory_revision is not None
+        assert semantic.desired_history_digest is not None
+        assert len(semantic.desired_history_digest) == 64
+        native_base = (
+            CodingWindowsWorkerNativeProvisioningSemanticBaseV1.from_semantic_read(
+                CodingWindowsWorkerHistoryPreparationV1.create(semantic), semantic
+            )
+        )
+        assert native_base.attempt_ids == tuple(
+            item.attempt_id
+            for item in semantic.offline_recovery.native_provisioning_attempts
+        )
+        assert native_base.attempt_ids
+        prepared_join = CodingWindowsWorkerHistoryPreparationV1.create(semantic)
+        c5_base = CodingWindowsWorkerC5SemanticBaseV1.from_semantic_read(
+            prepared_join, semantic
+        )
+        supervisor_base = CodingWindowsWorkerSupervisorSemanticBaseV1.from_semantic_read(
+            prepared_join, semantic
+        )
+        effect_ids = tuple(
+            sorted(
+                item.attempt_id
+                for item in semantic.offline_recovery.attempts
+                if item.launch_request_fingerprint is not None
+                or item.native_phase is not None
+                or item.supervisor_phase is not None
+            )
+        )
+        assert effect_ids == native_base.attempt_ids
+        assert set(effect_ids).issubset(c5_base.known_attempt_ids)
+        assert set(supervisor_base.retired_attempt_ids).issubset(effect_ids)
+        assert set(effect_ids).issubset(
+            item.attempt_id for item in semantic.offline_recovery.attempts
+        )
+        launch_base = CodingWindowsWorkerLaunchIntentSemanticBaseV1.from_semantic_read(
+            prepared_join, semantic
+        )
+        assert set(supervisor_base.retired_attempt_ids).issubset(
+            launch_base.intent_attempt_ids
+        )
+        joined = CodingWindowsWorkerHistorySemanticJoinV1.from_semantic_read(
+            prepared_join, semantic
+        )
+        assert joined.native_provisioning == native_base
+        assert joined.launched_attempt_ids
+        desired_review = CodingWindowsWorkerDesiredReferenceReviewV1.from_semantic_read(
+            CodingWindowsWorkerHistoryPreparationV1.create(semantic), semantic
+        )
+        package_review = review_coding_windows_worker_package_references(product)
+        assert package_review.desired_review_digest == desired_review.review_digest
+        assert package_review.history_join_digest == joined.review_digest
+        assert package_review.lease_owner_revision == (
+            semantic.source_snapshot.lease_owner_revision
+        )
+        assert {
+            attempt_id for attempt_id, _ in package_review.worker_backup_observations
+        } == {item.attempt_id for item in semantic.offline_recovery.attempts}
+        prepared = prepare_coding_windows_worker_history(product)
+        with pytest.raises(ValueError, match="checkpoint is absent"):
+            read_coding_windows_worker_history_checkpoint(product)
+        checkpoint = publish_coding_windows_worker_history_checkpoint(product)
+        assert read_coding_windows_worker_history_checkpoint(product) == checkpoint
+        with pytest.raises(ValueError, match="base is absent"):
+            read_coding_windows_worker_history_bases(product)
+        base_stage = product.state_root / "worker-history-base-opt-in-v1.json.stage"
+        with (
+            patch(
+                "loushang.coding.package_legacy_windows_receipt.windows_rename_at",
+                side_effect=OSError("injected base publication interruption"),
+            ),
+            pytest.raises(OSError, match="injected base publication interruption"),
+        ):
+            publish_coding_windows_worker_history_bases(product)
+        assert base_stage.read_bytes() == joined.opt_in.to_bytes()
+        with pytest.raises(ValueError, match="history stage remains"):
+            read_coding_windows_worker_history_bases(product)
+        base_stage.write_bytes(b"changed")
+        with pytest.raises(ValueError, match="base source changed"):
+            publish_coding_windows_worker_history_bases(product)
+        assert not (product.state_root / "worker-history-base-receipt-v1.json").exists()
+        base_stage.write_bytes(joined.opt_in.to_bytes())
+        assert publish_coding_windows_worker_history_bases(product) == checkpoint
+        assert read_coding_windows_worker_history_bases(product) == checkpoint
+        assert not base_stage.exists()
+        persisted = read_coding_windows_worker_persisted_bases(product)
+        assert persisted.checkpoint == checkpoint
+        assert persisted.native_provisioning == joined.native_provisioning
+        with pytest.raises(ValueError, match="cutover marker is absent"):
+            read_coding_windows_worker_persisted_cutover(product)
+        marker = CodingWindowsWorkerHistoryCutoverRecordV1.from_persisted_bases(
+            persisted
+        )
+        assert review_coding_windows_worker_history_cutover_candidate(product) == marker
+        base_path = product.state_root / "worker-history-base-opt-in-v1.json"
+        base_bytes = base_path.read_bytes()
+
+        def tamper_base_after_source_review(*_args, **_kwargs):
+            base_path.write_bytes(b"changed")
+            return checkpoint
+
+        try:
+            with (
+                patch(
+                    "loushang.coding.package_product_worker_windows_history_cutover_preflight._current_checkpoint_under_guard",
+                    side_effect=tamper_base_after_source_review,
+                ),
+                pytest.raises(ValueError, match="base"),
+            ):
+                review_coding_windows_worker_history_cutover_candidate(product)
+        finally:
+            base_path.write_bytes(base_bytes)
+        marker_path = product.state_root / WINDOWS_WORKER_HISTORY_CUTOVER_NAME
+        write_windows_private_receipt(marker_path, marker.to_bytes())
+        try:
+            with pytest.raises(ValueError, match="state owner is unrecognized"):
+                review_coding_windows_worker_history_cutover_candidate(product)
+            with pytest.raises(ValueError, match="state owner is unrecognized"):
+                read_coding_windows_worker_persisted_bases(product)
+            assert read_coding_windows_worker_persisted_cutover(product) == (
+                marker,
+                persisted,
+            )
+            with product.gc_gate.guard(require_write=True):
+                with (
+                    product.epoch_runtime.borrow_product_state_root_descriptor() as root
+                ):
+                    assert _read_coding_windows_worker_persisted_bases_under_gc_guard(
+                        product, root, require_cutover=True
+                    ) == (persisted, marker)
+            marker_path.write_bytes(b"changed-marker")
+            with pytest.raises(ValueError, match="cutover record is invalid"):
+                read_coding_windows_worker_persisted_cutover(product)
+        finally:
+            marker_path.unlink()
+        checkpoint_stage = (
+            product.state_root / "worker-history-checkpoint-v1.json.stage"
+        )
+        checkpoint_stage.write_bytes(b"unpublished")
+        try:
+            with pytest.raises(ValueError, match="persisted stage remains"):
+                review_coding_windows_worker_history_cutover_candidate(product)
+            with pytest.raises(RuntimeError, match="unexpected stage"):
+                read_coding_windows_worker_history_checkpoint(product)
+        finally:
+            checkpoint_stage.unlink()
+        assert checkpoint.preparation_digest == prepared.record_digest
+        assert checkpoint.package_reference_digest == package_review.review_digest
+        assert checkpoint.native_approval_record_digests
+        assert checkpoint.receipt_fingerprints == (
+            semantic.offline_recovery.retained_receipt_fingerprints
+        )
+        assert {
+            fingerprint
+            for fingerprint, _, _ in desired_review.retained_receipt_revisions
+        } == set(semantic.offline_recovery.retained_receipt_fingerprints)
+        assert joined.launched_attempt_ids == joined.supervisor.retired_attempt_ids
+        assert "9" * 32 in joined.launched_attempt_ids
+        assert "a" * 32 in joined.launch_intent.intent_attempt_ids
+        assert "a" * 32 not in joined.launched_attempt_ids
+        assert "operator:windows-worker-gc-revoke" in (
+            semantic.offline_recovery.retained_opt_in_operation_ids
+        )
+        assert semantic.offline_recovery.retained_receipt_fingerprints
+        assert "9" * 32 in {
+            item.attempt_id
+            for item in semantic.offline_recovery.retained_activation_attempts
+        }
+        assert dict(semantic.offline_recovery.native_job_absence)["9" * 32] is True
+        assert not semantic.offline_recovery.gc_revision_refs
         candidate = next(
             item for item in gc.candidates() if item.package_revision == revision
         )

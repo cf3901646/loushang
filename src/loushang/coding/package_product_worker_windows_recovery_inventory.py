@@ -18,6 +18,7 @@ from loushang.harness.plugin_management.package_gc_reservation import (
     PluginPackageGcReservationSnapshotV1,
 )
 from loushang.harness.plugin_management.records import PluginPackageRevisionRefV1
+from loushang.harness.worker.activation_state_journal import _StateRecord
 from loushang.harness.worker.journal import WorkerAttemptPhase, WorkerAttemptRecordV1
 from loushang.hosting import observe_windows_worker_job_absent
 
@@ -27,6 +28,7 @@ from .package_product_backup_types import (
 )
 from .package_product_worker_activation_history import (
     CodingProductWorkerRetainedAttemptV1,
+    project_coding_worker_retained_attempts,
 )
 from .package_product_worker_gc_references import (
     coding_worker_gc_revision_refs,
@@ -38,6 +40,7 @@ from .package_product_worker_windows_activation_state_journal import (
     CodingWindowsWorkerActivationStateJournal,
 )
 from .package_product_worker_windows_launch_intent import (
+    CodingWindowsWorkerLaunchIntentV1,
     _inspect_intents_under_gc_guard,
 )
 from .package_product_worker_windows_opt_in_journal import (
@@ -48,6 +51,9 @@ from .package_product_worker_windows_payload_inventory import (
 )
 from .package_product_worker_windows_provisioning import (
     inspect_coding_windows_product_worker_provisioning_attempts,
+)
+from .package_product_worker_windows_provisioning_journal import (
+    WindowsWorkerProvisioningAttemptV1,
 )
 from .package_product_worker_windows_receipt_journal import (
     CodingWindowsWorkerReceiptJournal,
@@ -97,9 +103,7 @@ class CodingWindowsWorkerRecoveryAttemptV1:
     def clean_exit_settled(self) -> bool:
         """Require a launched Worker with complete native and process cleanup."""
 
-        return (
-            self.supervisor_phase == "stopped" and self._retained_native_exit_settled
-        )
+        return self.supervisor_phase == "stopped" and self._retained_native_exit_settled
 
     @property
     def fenced_exit_settled(self) -> bool:
@@ -207,6 +211,9 @@ class CodingWindowsWorkerOfflineRecoverySnapshotV1:
     gc_reservation_revision: int
     gc_revision_refs: frozenset[PluginPackageRevisionRefV1]
     worker_backup_observations: tuple[CodingWorkerBackupReferenceObservationV1, ...]
+    activation_state_records: tuple[_StateRecord, ...] = ()
+    launch_intents: tuple[CodingWindowsWorkerLaunchIntentV1, ...] = ()
+    native_provisioning_attempts: tuple[WindowsWorkerProvisioningAttemptV1, ...] = ()
 
     @property
     def opt_in_history_revision(self) -> int:
@@ -754,7 +761,13 @@ def _inspect_coding_windows_product_worker_offline_recovery_under_gc_guard(
     """Join semantic histories under an already held Product quiescence/gate."""
 
     product.assert_root_gc_authority_current()
-    attempts = _inspect_windows_worker_recovery_inventory_under_gc_guard(product)
+    native_provisioning_attempts = (
+        inspect_coding_windows_product_worker_provisioning_attempts(product)
+    )
+    attempts = _inspect_windows_worker_recovery_inventory_under_gc_guard(
+        product, native_attempts=native_provisioning_attempts
+    )
+    launch_intents = _inspect_intents_under_gc_guard(product)
     with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
         opt_in_decisions = CodingWindowsWorkerOptInJournal(
             product.state_root / "worker-opt-in.jsonl",
@@ -768,10 +781,15 @@ def _inspect_coding_windows_product_worker_offline_recovery_under_gc_guard(
         product
     ).inspect_records()
     activation_journal = CodingWindowsWorkerActivationStateJournal(product)
-    activation_owner_present, activation_state = (
-        activation_journal.load_with_presence_read_only()
+    activation_owner_present, activation_state_records = (
+        activation_journal.records_with_presence_read_only()
     )
-    retained_activation_attempts = activation_journal.retained_attempts_read_only()
+    activation_state = (
+        None if not activation_state_records else activation_state_records[-1].document
+    )
+    retained_activation_attempts = project_coding_worker_retained_attempts(
+        activation_state_records
+    )
     native_job_absence = tuple(
         (
             attempt.attempt_id,
@@ -804,11 +822,16 @@ def _inspect_coding_windows_product_worker_offline_recovery_under_gc_guard(
         gc_reservation_revision=gc_snapshot.journal_revision,
         gc_revision_refs=coding_worker_gc_revision_refs(gc_snapshot),
         worker_backup_observations=worker_backup_observations,
+        activation_state_records=activation_state_records,
+        launch_intents=launch_intents,
+        native_provisioning_attempts=native_provisioning_attempts,
     )
 
 
 def _inspect_windows_worker_recovery_inventory_under_gc_guard(
     product: WindowsLocalWheelProductSessionOwner,
+    *,
+    native_attempts: tuple[WindowsWorkerProvisioningAttemptV1, ...] | None = None,
 ) -> tuple[CodingWindowsWorkerRecoveryAttemptV1, ...]:
     """Reuse one already-held Product GC gate for a pre-effect admission check."""
 
@@ -827,10 +850,12 @@ def _inspect_windows_worker_recovery_inventory_under_gc_guard(
     intents = {
         item.attempt_id: item for item in _inspect_intents_under_gc_guard(product)
     }
-    native = {
-        item.attempt_id: item
-        for item in inspect_coding_windows_product_worker_provisioning_attempts(product)
-    }
+    native_source = (
+        inspect_coding_windows_product_worker_provisioning_attempts(product)
+        if native_attempts is None
+        else native_attempts
+    )
+    native = {item.attempt_id: item for item in native_source}
     supervisor_records = open_coding_windows_product_worker_supervisor_journal(
         product
     ).inspect_records()

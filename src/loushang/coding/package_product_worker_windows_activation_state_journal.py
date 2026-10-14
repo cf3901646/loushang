@@ -46,6 +46,9 @@ from .package_product_worker_activation_history import (
     project_coding_worker_retained_attempts,
     validate_coding_worker_activation_attempt_history,
 )
+from .package_product_worker_windows_history_write_fence import (
+    require_windows_worker_legacy_history_writable,
+)
 
 _NAME = "worker-activation-state.jsonl"
 _LOCK = _NAME + ".lock"
@@ -105,6 +108,13 @@ class CodingWindowsWorkerActivationStateJournal:
         _present, records = self._read_records_with_presence()
         return project_coding_worker_retained_attempts(records)
 
+    def records_with_presence_read_only(
+        self,
+    ) -> tuple[bool, tuple[_StateRecord, ...]]:
+        """Expose the same validated read to guarded Product history capture."""
+
+        return self._read_records_with_presence()
+
     def _read_records_with_presence(self) -> tuple[bool, tuple[_StateRecord, ...]]:
         with self._product.gc_gate.guard(), self._thread_lock:
             self._product.assert_root_gc_authority_current()
@@ -146,6 +156,7 @@ class CodingWindowsWorkerActivationStateJournal:
                 self._product.epoch_runtime.borrow_product_state_root_descriptor() as root,
             ):
                 self._require_root(root, acl)
+                require_windows_worker_legacy_history_writable(root)
                 if expected_revision and not self._lock_exists(root):
                     self._require_no_state_entries(root)
                     self._require_root(root, acl)
