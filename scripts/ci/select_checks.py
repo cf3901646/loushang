@@ -8,13 +8,19 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
 import json
 import os
 import re
 import subprocess
 from pathlib import Path
 
-from test_catalog import load_catalog, reviewed_unit_owner, targeted_test_cases
+from test_catalog import (
+    all_targeted_test_cases,
+    load_catalog,
+    reviewed_unit_owner,
+    targeted_test_cases,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 PR_ROUTING_FILES = {
@@ -23,6 +29,7 @@ PR_ROUTING_FILES = {
     "scripts/ci/unit-tests.json",
     "scripts/ci/test-classification.json",
     "scripts/ci/test_catalog.py",
+    "scripts/ci/run_targeted_tests.py",
     "tests/ci/test_test_catalog.py",
     "scripts/ci/derive_junit.py",
     "tests/ci/test_derive_junit.py",
@@ -75,6 +82,11 @@ FAST_RISK_RULE_REASONS = {"AI consumer contracts"}
 # Coding value uses PR #740's 4,798-case report: eight hash shards had a 399 s
 # slowest shard, leaving setup margin inside the ten-minute PR target.
 MODULE_SHARD_COUNTS = {"coding": 8, "harness": 4, "harnesstui": 2, "tui": 2}
+FULL_TARGETED_SHARDS = {
+    "ubuntu-24.04": 8,
+    "windows-2022": 2,
+    "macos-15": 1,
+}
 CHECK_MODULE_REGRESSIONS = {
     "agent": "agent",
     "coding": "coding",
@@ -174,6 +186,31 @@ def make_paths(root: Path = ROOT) -> dict[str, list[str]]:
     }
 
 
+def make_targeted_jobs(
+    cases: set[tuple[str, str, str]], *, full: bool
+) -> list[dict]:
+    buckets: dict[tuple[str, str, int], list[str]] = {}
+    for path, platform, category in sorted(cases):
+        shard_count = FULL_TARGETED_SHARDS[platform] if full else 1
+        shard = int.from_bytes(
+            hashlib.sha256(path.encode()).digest()[:8], "big"
+        ) % shard_count
+        buckets.setdefault((platform, category, shard), []).append(path)
+    return [
+        {
+            "id": index,
+            "paths": sorted(paths),
+            "os": platform,
+            "category": category,
+            "allow_skipped": category == "platform",
+            "timeout_minutes": 30 if full else 15,
+        }
+        for index, ((platform, category, _), paths) in enumerate(
+            sorted(buckets.items())
+        )
+    ]
+
+
 def select(
     paths: list[str], *, full: bool = False, pr_fast: bool = False, root: Path = ROOT
 ) -> dict:
@@ -200,6 +237,10 @@ def select(
     reviewed_test_paths: set[str] = set()
     targeted_test_paths: set[str] = set()
     targeted_cases: set[tuple[str, str, str]] = set()
+    if full:
+        for test, role in all_targeted_test_cases(catalog=catalog):
+            for platform in role["platforms"]:
+                targeted_cases.add((test, platform, role["category"]))
     for path in sorted(set(paths)):
         direct_targeted: list[tuple[str, dict]] = []
         if pr_fast and not full:
@@ -489,11 +530,7 @@ def select(
         for package in sorted(unit_packages)
         for shard in range(MODULE_SHARD_COUNTS.get(package, 1))
     ]
-    targeted_jobs = [
-        {"id": index, "path": path, "os": platform, "category": category,
-         "allow_skipped": category == "platform"}
-        for index, (path, platform, category) in enumerate(sorted(targeted_cases))
-    ]
+    targeted_jobs = make_targeted_jobs(targeted_cases, full=full)
     workflows["units"] = bool(unit_jobs or targeted_jobs)
     for workflow in PAUSED_WORKFLOWS:
         workflows[workflow] = False

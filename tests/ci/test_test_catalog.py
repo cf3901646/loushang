@@ -14,6 +14,8 @@ sys.path.insert(0, str(ROOT / "scripts/ci"))
 commands = importlib.import_module("run_checks").commands
 select = importlib.import_module("select_checks").select
 catalog_module = importlib.import_module("test_catalog")
+all_targeted_test_cases = catalog_module.all_targeted_test_cases
+target_paths = importlib.import_module("run_targeted_tests").target_paths
 load_catalog = catalog_module.load_catalog
 module_unit_paths = catalog_module.module_unit_paths
 module_is_fully_classified = catalog_module.module_is_fully_classified
@@ -330,10 +332,52 @@ class CatalogTests(unittest.TestCase):
         self.assertFalse(plan["e2e"])
         self.assertFalse(plan["module_tests"])
         self.assertEqual(
-            [(job["path"], job["os"], job["category"])
+            [(job["paths"], job["os"], job["category"])
              for job in plan["targeted_jobs"]],
-            [(reviewed, "ubuntu-24.04", "integration")],
+            [([reviewed], "ubuntu-24.04", "integration")],
         )
+
+    def test_full_validation_runs_every_offline_targeted_owner(self):
+        catalog = load_catalog(ROOT)
+        expected = {
+            (path, platform, role["category"])
+            for path, role in all_targeted_test_cases(catalog=catalog)
+            for platform in role["platforms"]
+        }
+        plan = select([], root=ROOT, full=True, pr_fast=True)
+        actual = {
+            (path, job["os"], job["category"])
+            for job in plan["targeted_jobs"]
+            for path in job["paths"]
+        }
+        self.assertEqual(actual, expected)
+        self.assertLess(len(plan["targeted_jobs"]), len(expected))
+        self.assertTrue(plan["targeted_tests"])
+        self.assertTrue(plan["workflows"]["units"])
+
+    def test_targeted_batch_paths_are_json_and_repository_owned(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            test = root / "tests/demo/test_example.py"
+            test.parent.mkdir(parents=True)
+            test.write_text("def test_case(): pass\n")
+            self.assertEqual(
+                target_paths(
+                    json.dumps(["tests/demo/test_example.py::test_case"]),
+                    root=root,
+                ),
+                ["tests/demo/test_example.py::test_case"],
+            )
+            for invalid in (
+                "",
+                "null",
+                "[]",
+                '["tests/demo/test_example.py", "tests/demo/test_example.py"]',
+                '["../test_example.py"]',
+                '["tests/demo/missing.py"]',
+            ):
+                with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                    target_paths(invalid, root=root)
 
 
 if __name__ == "__main__":

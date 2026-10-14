@@ -110,3 +110,7 @@ PR #743 的完整远程运行 `38554483283` 为 6 分 04 秒，8 个 Coding job 
 第三轮从 #743 的 8 份 slowest 报告继续复核。新增 13 个适合整文件迁移的真实执行、托管会话、持久化、LSP、终端和恢复文件，targeted 合计 68 个，359 个文件继续保守回归。候选 `test_hosted_session.py` 同时包含 Ubuntu 集成和 Windows 原生条件用例，Ubuntu 为 18 项通过、1 项跳过，已撤回整文件分类，等待 node 级分类。
 
 部分分类把 Coding 目录展开为显式文件后，pytest 的 `--ignore` 不会再次排除同一显式参数，导致 39 个由 Harnesstui/Coding UI 独立拥有的文件重新进入 Coding 后端；#743 的两个 13 秒全仓 import 扫描即由此重复。runner 现在先从显式 Coding 集合移除这 39 个文件，同时保留 Harnesstui/Coding UI owner。新增 13 个 targeted 文件在合并验证集合中全部通过；修正后的本地 0/8 为 463 项通过、2 项平台条件跳过，原 #743 远端 0/8 为 538 项通过、3 项跳过。不同 runner 的墙钟不作倍数比较，下一次远程全选确认最终尾部。
+
+PR #744 远程全选运行 `38557834260` 绿色完成于 4 分 58 秒。Coding 8 个 job 为 2 分 04 秒至 2 分 57 秒，0/8 从 #743 的 3 分 30 秒降为 2 分 56 秒；Ubuntu/macOS/Windows 恢复冒烟为 26/40/64 秒。该结果确认重复 owner 移除和第三轮分类没有丢失顶层必需检查。
+
+完整验证覆盖补强：此前 catalog targeted 文件只在自身发生改动时执行，schedule/manual full 会从模块集合排除它们却不生成 targeted job。现在 full plan 枚举所有非 live targeted owner，并按平台、类别和稳定路径哈希合并为 19 个批次（当前 76 个平台执行），避免 76 次独立环境安装。普通 PR 仍只批处理实际改动的 targeted 文件。批处理使用 JSON 路径数组和 Python 参数列表，不经过 shell 路径拼接；JUnit 验证要求每个登记文件至少有一项通过，不能由同批其他文件掩盖全 skip。双文件实际执行 11 项通过，两个文件均通过文件级报告验证。
