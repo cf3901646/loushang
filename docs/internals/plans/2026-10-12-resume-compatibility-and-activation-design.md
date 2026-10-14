@@ -2,7 +2,7 @@
 
 ## Status
 
-- 2026-10-14 correction in progress: restore admission treats historical
+- 2026-10-14 correction completed by #735: restore admission treats historical
   Runtime/Capability profiles, composition fingerprints, Plugin/Resource/Skill
   selections, workspace instructions, permission settings and model selection
   as audit evidence only. A readable Session is continued with the current
@@ -3538,5 +3538,6 @@ The corrected contract is:
 Regression evidence covers changed Runtime/Capability profiles, AGENTS and
 Skill content, current model, permission profile, Plugin catalog fingerprint,
 12,000-record history above 8 MiB, headless continuation without a Resume
-approval prompt, and native macOS legacy same-ID continuation. CI evidence is
-recorded only after the branch workflow completes.
+approval prompt, and native macOS legacy same-ID continuation. Final CI run
+`38507720597` completed with 90 successful checks, one expected skip and no
+failures.
