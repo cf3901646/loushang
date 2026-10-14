@@ -1,8 +1,8 @@
 # 现有全部测试与 PR 门禁盘点
 - 盘点日期：2026-10-14。
-- 源码基线：远端已合并 `1f1fcaf1ac4cc240b5d32170a1fa7e2f67c3dd30` 的内容；当前控制工作区保留本地合并历史。
+- 源码基线：远端 `main` 的 `ed01d756b0b043cbca2a4352f847118205038adc`；当前控制工作区保留本地合并历史。
 - 基线范围：16 个工作流、71 个源 job 定义，包含顶层调用与子汇总；不是某次运行的任务数。平台矩阵、动态模块/分片会展开，不能将源定义数当运行数。
-- 当前实现：删除重复的 `package-quality` 及顶层 `packages` 调用，把 AppService 八个历史阶段 job 重组为两个能力 job，并删除十个 reusable 内部 `selected-checks` runner 后，为 15 个工作流、50 个源 job 定义；Agent/Coding/Foundation/AppService/AppServer 离线回归由统一模块工作流唯一执行。
+- 当前实现：删除重复的 `package-quality` 及顶层 `packages` 调用，把 AppService 八个历史阶段 job 重组为两个能力 job，并删除十个 reusable 内部 `selected-checks` runner 后，为 15 个工作流、51 个源 job 定义；Agent/Coding/Foundation/AppService/AppServer 离线回归由统一模块工作流唯一执行。PR #746 全选运行 `38563194640` 实际展开 50 个 job，其中 43 个成功、7 个按计划跳过、零失败；源定义数与一次运行展开数继续分开统计。
 - 状态：全量 job 层分析与拟议去向。十个模块已完成整目录角色登记，其中 AppServer/AppService 已显式分离 unit/contract 与 integration/platform；其他目录的语义去重及具体 collected node ID、夹具依赖、唯一断言和实际配置仍待分类验收，不宣称已完成全仓逐用例去重。
 - 综合方案：[重构与优化测试与 PR 门禁](test-and-pr-gate-refactoring-plan.md)。实施 goal 已启动；表格保留基线职责并在已迁移项上标明当前处置。
 ## 审查规则
@@ -10,6 +10,14 @@
 每个 job 都分析目的、必要断言、重复覆盖、执行配置、时间、触发、报告消费者及迁移去向。相同文件清单仅是重复候选，须比较最终 node ID、marker、平台、安装形态和运行参数；不同配置的独有断言不可直接删。未实测项注明待测。
 
 当前暂停的六类工作流保留暂停。所有汇总校验也纳入合并审查：root 只看到 reusable workflow 总结果时，不能直接删子汇总。只有新机制可观察并拒绝预期子 job、矩阵或必需用例缺失/跳过时，才允许替代旧 selected-checks。
+
+任何 PR 门禁增加都必须先取得审批方明确批准。增加包括新增 required
+check/workflow/job/test route/平台或矩阵，扩大路径触发，恢复暂停门禁，把
+schedule/nonblocking 覆盖移入阻塞 PR 路径，以及新增失败条件。一般性的“优化、
+重构、加速门禁”授权不能替代本项审批。审批材料至少列出触发范围、唯一断言、
+平台、预计墙钟、与现有覆盖的重叠、失败语义和回退方法；批准记录应关联具体
+方案或提交。只读盘点和方案编写可继续。覆盖等价的路由调整如果让任何变更类别
+多执行任务或新增失败条件，也按门禁增加处理。
 
 当前实现已统一为一个必需的顶层 `quality-gate`。所有 reusable job 都直接绑定选择计划的 `checks` 或 `windows` boolean；CI 合同核对每个 job ID、所属 workflow scope 和 guard，动态模块/E2E 另有专用完整性合同。GitHub 将任一 matrix/job 的失败或取消传播到 reusable caller，顶层 verifier 要求所选 caller success、未选 caller skipped，并拒绝 missing、failed、cancelled 和 unexpected skip。原十个 `selected-checks` 只重复启动 runner 读取 `needs`，现已删除；表格中的同名行保留为基线审计记录。
 
