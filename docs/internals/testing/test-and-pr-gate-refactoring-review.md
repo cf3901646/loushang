@@ -158,6 +158,8 @@ AppServer/AppService 目录分类追加复核：覆盖视角逐文件区分受�
 
 单一顶层汇总追加复核：覆盖视角确认所有普通 reusable job 都直接使用已登记的 check/windows owner，动态 module/E2E 保留专用选择与报告合同；任一实际 job 或 matrix failure/cancellation 会使 caller 非 success，再由顶层 verifier 拒绝。性能视角删除十个仅 checkout 并读取 `needs` 的汇总 runner，减少排队与启动，不减少测试执行。维护视角用一个静态合同核对全部 workflow job/guard/scope，并保留顶层对 missing、failed、cancelled、unexpected skip 的负例；Actions 语法验证通过后接受该结构变更。
 
+PR #742 首轮远程验证发现 TUI 架构测试仍把每个 reusable 内的旧 `verify_gate.py` 和 `if: always()` 当作必需结构，Ubuntu/Windows deterministic-render 因同一过期断言失败。现改为明确拒绝子工作流 `selected-checks`/`verify_gate.py`，并要求根级 `quality-gate` 同时依赖 TUI/HarnessTUI、使用 `if: always()` 和统一 verifier；聚焦用例通过。这保留 fail-closed 语义并防止旧重复汇总回归。
+
 AI 示例执行追加复核：覆盖视角保留 pytest 中的离线执行、固定文件清单、输出、公开导入及 Auth 行为断言，并将两份 owned example tests 纳入 coverage；性能视角删除独立脚本重复执行和 `tests/examples` 全目录重跑。维护视角不删除示例或工具，仅让 AI gate 有一个 pytest owner，CI 合同拒绝 owned example 路径重复或缺失。
 
 AI 完整验证追加证据：858 项通过、7 项 deselect、45.18 秒，总覆盖率 90.65%，三个细分 coverage target、Ruff、mypy、catalog 与 import boundary 均通过。覆盖视角接受本次执行收敛；性能视角只记录本地测试墙钟，不外推远程总耗时。
