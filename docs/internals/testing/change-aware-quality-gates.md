@@ -81,7 +81,8 @@ coverage still requires the planned shard collection and ownership checks.
 | Change | Required scope |
 | --- | --- |
 | Ordinary Markdown/RST documentation | Existing documentation invariants and changed Markdown links; no product dependency installation |
-| Ordinary package source or classified unit test on a PR or main push | That package's complete offline regression directory and explicitly owned extras, plus documentation and source dependency facts |
+| Ordinary package source on a PR or main push | That package's complete offline regression directory and explicitly owned extras, plus documentation and source dependency facts |
+| Test implementation or package-owned test fixture only | Its existing module or targeted owner; no global integration, consumer, native, or E2E expansion |
 | Session, conversation, transcript, or hosted application code on a PR or main push | Package units plus a focused create → turn → resume → turn → close E2E smoke |
 | Public AI contracts, shared Foundation, plugin SDK, and platform or native code | Existing affected package and consumer gates |
 | Terminal lifecycle/platform code | TUI units, playback, native PTY/ConPTY, and tmux; a PR runs one Windows ConPTY startup/exit case unless it changes native backend ownership |
@@ -94,11 +95,14 @@ coverage still requires the planned shard collection and ownership checks.
 | Main merge push with matching successful PR evidence | Lightweight documentation and any applicable CI static checks, plus verification of the successful same-tree, same-plan PR run |
 | Shared dependencies, main gate infrastructure, or unknown non-document paths | All configured checks |
 
-The fast PR/main-push route is limited to known package source and exact test files in
-the [routing inventory](../../../scripts/ci/unit-tests.json). New or unclassified
-test files continue through the existing selector until reviewed. Each fast
-module job runs every test in its package directory with offline selectors;
-the routing inventory identifies eligible paths, not a smaller test subset.
+The fast PR/main-push source route is limited to known package source. A change
+contained under an owned `tests/<package>/` tree selects that package's existing
+module regression without adding global integration or E2E. Registered targeted
+tests and dedicated fixtures keep their exact existing targeted owner; the core
+smoke file keeps the E2E workflow. Shared test infrastructure such as root
+`tests/conftest.py`, CI runners, and paths without an owner remain conservative.
+Each unclassified module job still runs every test in its package directory with
+offline selectors; this test-only rule changes routing, not the collected suite.
 Coding excludes its separately owned UI suite, and existing AI, Agent, Coding,
 and Harness example tests retain their package owner. Coding, Harness,
 HarnessTUI, and TUI module jobs use deterministic shards. Coding uses eight
@@ -136,9 +140,11 @@ shared test infrastructure. Package dependency direction does not mean every
 consumer change must rerun all of its providers' suites.
 
 The narrow routing-file exception applies to pull requests and ordinary main
-pushes. Scheduled/manual validation stays full. The main workflow, other unclassified CI files, test runners, build dependencies,
-and new unclassified test files
-still select the complete gate.
+pushes. Scheduled/manual validation stays full. The main workflow, other
+unclassified CI files, test runners, shared test infrastructure, and build
+dependencies still select the complete gate. New files inside a known package
+test tree use that package's module regression; they do not silently create a
+new integration or platform route.
 
 Windows jobs have a second selection within their affected scope. An ordinary
 PR or main push selected for Windows Shell runs native shell execution and an

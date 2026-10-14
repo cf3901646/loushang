@@ -46,6 +46,9 @@ class CatalogTests(unittest.TestCase):
                      "tests/channel/test_session_work_adapter.py", "tests/work/test_runtime.py",
                      "tests/work/test_event_log.py", "tests/agent/test_proxy.py",
                      "tests/agent/test_agent_loop.py", "tests/examples/test_agent_examples.py",
+                     "tests/examples/test_ai_examples.py",
+                     "tests/protocols/test_protocol_contracts.py",
+                     "tests/coding/test_package_product_worker_windows_activation_state.py",
                      "tests/harnesswork/integrations/test_session.py",
                      "tests/ontology/test_typed_query.py",
                      "tests/harnesswork/fixtures/legacy_coding_plan.jsonl",
@@ -53,6 +56,9 @@ class CatalogTests(unittest.TestCase):
                      "tests/method/test_method_loader.py", "tests/method/test_runtime.py",
                      "tests/foundation/test_json_contract.py",
                      "tests/foundation/observability/test_sinks.py",
+                     "tests/harness/workspace/test_exec_capture.py",
+                     "tests/hosting/test_posix_release_launcher.py",
+                     "tests/apphost/test_launcher.py",
                      "tests/appserver/test_connection_protocol.py",
                      "tests/appserver/fixtures/execution_v1.json",
                      "tests/appservice/test_execution_guard.py"):
@@ -70,7 +76,12 @@ class CatalogTests(unittest.TestCase):
             with self.subTest(change=change):
                 self.assertTrue(select([test, change], root=ROOT, pr_fast=True)["e2e"])
         unknown = select(["tests/coding/test_new_integration.py"], root=ROOT, pr_fast=True)
-        self.assertTrue(unknown["e2e"])
+        self.assertFalse(unknown["e2e"])
+        self.assertEqual(unknown["unit_packages"], ["coding"])
+        self.assertEqual(
+            [name for name, enabled in unknown["workflows"].items() if enabled],
+            ["units"],
+        )
         for targeted in (
             "tests/appserver/test_local.py",
             "tests/appserver/_stdio_child.py",

@@ -96,7 +96,7 @@ Windows direct 用例串行执行候选构建与安装、原生后端审核、�
 | 改动 | 必需验证 |
 | --- | --- |
 | 普通文档-only | 文档检查；无产品单元、集成或 E2E |
-| 纯单元测试及单元专用夹具 | 所属模块完整单元回归和适用静态检查；无集成/E2E |
+| 普通测试实现及包内测试夹具 | 已有模块或 targeted owner；不附加全局集成、消费者、原生或 E2E |
 | 合同测试 | 受影响合同与所属模块回归；若合同描述跨组件行为，补必要消费者验证 |
 | 集成/E2E/原生/故障用例及专用夹具 | 受影响用例与相关测试助手检查，不扩展到无关集成组 |
 | 普通源码 | 受影响模块完整单元回归、适用静态检查、核心冒烟 A |
@@ -110,7 +110,7 @@ Windows direct 用例串行执行候选构建与安装、原生后端审核、�
 
 以下不属于普通文档-only：运行时 prompt/skill、机器消费配置、测试预期与夹具、证据清单、生成依赖事实等。改动虽只发生在 Markdown 或 JSON 文件，仍按实际消费者选择。
 
-“测试-only”是选择输入，不是免测凭证。跨类别共享助手、pytest 配置及工作流变更必须追踪真实影响范围。纯 test-only 不默认附加全局 A/B，但被修改的冒烟自身必须执行。
+“测试-only”是选择输入，不是免测凭证。包内测试实现运行所属模块的完整离线回归；已登记 integration/platform 测试运行既有 targeted owner。跨类别共享助手、根级 pytest 配置及工作流变更必须追踪真实影响范围。纯 test-only 不默认附加全局 A/B、消费者或原生矩阵，但被修改的冒烟自身必须执行。
 
 ## 5. 目标门禁结构
 
@@ -363,6 +363,8 @@ PR #745 的远程全选运行 `38559343364` 为 5 分 04 秒，Coding 8 个 job 
 分类策略 v5 支持混合文件的 node 级 targeted 角色。首批依据远程 slowest 证据，把 `test_agent_session_runtime.py` 中 27 个持久会话生命周期函数和 `arch/test_activation.py` 中 5 个真实产品组合函数登记为 Ubuntu integration；两个文件仍留在 Coding 模块回归，未登记的单元/合同节点继续执行，模块命令只用精确 `--deselect` 移出 32 个登记 node。修改混合文件会同时执行 Coding 回归和这些精确 node，不附加通用 E2E；定时 full 也纳入这些 node。catalog 用 AST 校验 node 真实存在并禁止与整文件 override 重叠；JUnit verifier 从逐文件要求提升为逐 node 身份要求，参数化 node 允许其具体参数实例匹配，不能由同文件的其他通过用例遮蔽。
 
 首批 node 本地独立验证为会话运行时 29 个参数化实例全部通过、7 分 51 秒，Arch 5 项全部通过、1 分 44 秒。重新分类后的 Coding 0/8 代表分片为 459 项通过、3 项跳过、耗时 5 分 29 秒；本机明显慢于近期远程 runner，因此只证明剩余集合与 deselect 行为正确，实际 PR 墙钟收益仍以远程全选运行验收。
+
+普通 test-only 路由随后收敛到已有 owner。PR #756 只修改 Harness 测试与测试说明，却因未分类测试路径继续触发 Hosting 模块和三平台 E2E；新规则令已知 `tests/<package>/` 下的 Python 测试实现与助手只运行该包现有模块回归，已登记 integration/platform 文件仍运行原 targeted owner，核心 smoke 文件仍运行 E2E。根级 `tests/conftest.py`、CI runner、未知非 Python fixture 及无 owner 路径继续保守取并集。以 #756 路径重算只选择 4 个 Harness 分片，移除 1 个 Hosting job 和 3 个 E2E job；不新增 job、route、平台、触发或失败条件。139 项 CI 路由合同、Ruff 和文档检查通过后仍需 PR 远程验收。
 
 ### 待审批门禁变更 AP-01：第二批混合文件 node 路由
 

@@ -16,6 +16,7 @@ import subprocess
 from pathlib import Path
 
 from test_catalog import (
+    MODULE_EXTRA_TESTS,
     all_targeted_test_cases,
     load_catalog,
     reviewed_unit_owner,
@@ -214,6 +215,23 @@ def make_targeted_jobs(
     ]
 
 
+def test_tree_module_owner(
+    path: str, *, unit_inventory: dict[str, list[str]]
+) -> str | None:
+    """Return the module that owns an ordinary test-tree-only change."""
+
+    if not path.endswith(".py"):
+        return None
+    parts = Path(path).parts
+    if len(parts) >= 3 and parts[0] == "tests" and parts[1] in unit_inventory:
+        return parts[1]
+    for module, extras in MODULE_EXTRA_TESTS.items():
+        for extra in extras:
+            if path == extra or path.startswith(extra.rstrip("/") + "/"):
+                return module
+    return None
+
+
 def select(
     paths: list[str], *, full: bool = False, pr_fast: bool = False, root: Path = ROOT
 ) -> dict:
@@ -267,6 +285,18 @@ def select(
             # Do not let older directory or Makefile inventories add product
             # workflows after the exact file/node jobs have been selected.
             continue
+        if pr_fast and not full and path != SMOKE_TEST:
+            owner = reviewed_unit_owner(path, catalog=catalog) or test_tree_module_owner(
+                path, unit_inventory=unit_inventory
+            )
+            if owner is not None:
+                # Test implementation and owned fixture changes validate their
+                # package regression only. Product source, shared test support,
+                # the core smoke, and explicitly classified targeted tests keep
+                # their separate risk routes.
+                unit_packages.add(owner)
+                reviewed_test_paths.add(path)
+                continue
         if (
             path.startswith(WINDOWS_WORKER_FULL_TEST_PREFIXES)
             or path in WINDOWS_WORKER_FULL_BOUNDARIES
@@ -290,10 +320,6 @@ def select(
             "document_files"
         ]:
             enable(["docs"], f"{path}: documentation")
-            continue
-        if pr_fast and not full and (owner := reviewed_unit_owner(path, catalog=catalog)):
-            unit_packages.add(owner)
-            reviewed_test_paths.add(path)
             continue
         if pr_fast and not full and path == MODULE_REGRESSION_WORKFLOW:
             # This reusable workflow only runs offline module regressions. Gate
@@ -322,8 +348,8 @@ def select(
             elif len(parts) >= 3 and parts[0] == "tests":
                 package = parts[1]
             if package in unit_inventory and package not in FAST_EXCLUDED_PACKAGES:
-                # Test support and newly added tests require the established
-                # routing until they are explicitly classified as unit tests.
+                # Non-Python package fixtures that have no registered owner
+                # retain the conservative package and product routing.
                 test_is_unit = (
                     path.startswith("src/") and path.endswith(".py")
                 ) or path in unit_inventory[package]
