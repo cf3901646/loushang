@@ -409,6 +409,8 @@ class ScopeTests(unittest.TestCase):
         self.assertIn('--require-tests-count "$SMOKE_CASE_COUNT"', workflow)
         self.assertIn("CI_PLAN: ${{ inputs.plan }}", workflow)
         self.assertIn("fromJSON(inputs.plan).e2e_interaction && 2 || 1", workflow)
+        report_step = workflow.split("- name: Verify every selected smoke case ran and passed", 1)[1]
+        self.assertIn("shell: bash", report_step.split("- uses:", 1)[0])
         self.assertIn("uv run python scripts/ci/run_checks.py e2e_smoke", workflow)
 
     def test_interaction_smoke_is_selected_for_control_paths_only(self):

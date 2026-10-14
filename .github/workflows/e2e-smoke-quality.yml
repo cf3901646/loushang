@@ -31,9 +31,10 @@ jobs:
         env:
           CI_PLAN: ${{ inputs.plan }}
           PYTEST_ADDOPTS: >-
-            --junitxml=.artifacts/resume-turn-${{ matrix.os }}.xml
+            --junitxml=.artifacts/resume-turn-${{ matrix.os }}.xml -o junit_family=xunit1
         run: uv run python scripts/ci/run_checks.py e2e_smoke
       - name: Verify every selected smoke case ran and passed
+        shell: bash
         env:
           SMOKE_CASE_COUNT: ${{ fromJSON(inputs.plan).e2e_interaction && 2 || 1 }}
         run: >-
