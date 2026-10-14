@@ -343,7 +343,10 @@ def select(
             owned = [check for scope in SCOPED_WORKFLOWS[path]
                      for check in rules["workflows"][scope]]
             enable(["ci", *owned], f"{path}: validate the changed reusable workflow")
-            e2e = True
+            if not SCOPED_WORKFLOWS[path]:
+                # The E2E reusable workflow has no separate check scope; its
+                # own existing smoke jobs are the behavior being validated.
+                e2e = True
             continue
         if pr_fast and not full and path in PR_ROUTING_FILES:
             enable(["ci"], f"{path}: PR gate routing regression and Actions syntax")
@@ -477,10 +480,16 @@ def select(
         and path not in PR_ROUTING_FILES
         for path in paths
     )
-    if pr_fast and not full and gate_infra:
-        # Unclassified gate changes exercise Agent regression and E2E alongside
-        # their owned checks. Reviewed routing files are fully owned by the CI
-        # contract suite and must not start unrelated product validation.
+    unscoped_gate_infra = any(
+        path.startswith((".github/workflows/", "scripts/ci/"))
+        and path not in SCOPED_WORKFLOWS
+        and path not in PR_ROUTING_FILES
+        for path in paths
+    )
+    if pr_fast and not full and unscoped_gate_infra:
+        # Unclassified gate changes exercise Agent regression and E2E. Scoped
+        # reusable workflows already execute their complete owning checks;
+        # unrelated product behavior does not validate their orchestration.
         if not checks["agent"]:
             unit_packages.add("agent")
         e2e = True

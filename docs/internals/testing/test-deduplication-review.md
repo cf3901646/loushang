@@ -619,3 +619,24 @@ Ubuntu 源码环境执行两次。执行器现按计划分别剔除 8 个或 5 �
 
 该改动只缩减现有执行，没有新增门禁、平台、触发、测试 route 或失败条件。其余
 逐 node 分类及任何覆盖扩张列为 AP-08，必须经门禁增加审批后才可实施。
+
+## 21. TUI Linux platform 与 unit owner 去重
+
+`tests/tui` 当前有 87 个测试文件、1336 个静态测试函数；忽略测试名称后的完整 AST
+函数体扫描没有重复簇。PR #775 中 TUI unit 为 1273 passed、118 deselected、13.83
+秒；Ubuntu render 181 项、36.56 秒；Linux native job 墙钟 48 秒。
+
+Linux native job 的 shared/POSIX platform 两段分别为 107 项、6.82 秒和 7 项、0.27
+秒。对应 11 个文件没有 `tui_render_contract`、`tui_terminal_backend`、
+`tui_terminal_contract` 或 `tui_tmux_integration` marker；现有 `tui_native` 选择又
+必然依赖 `tui_unit`，所以它们已在同一 Ubuntu/Python/源码配置的完整 TUI unit 集合
+执行。Linux native job 现只保留 12 项真实 PTY/backend/CLI 和 3 项 tmux 合同。
+
+Windows full 仍执行 shared/Windows platform 与 ConPTY，普通 Windows 路径仍执行
+原 ConPTY 短冒烟；两平台 render 集合保持。此变更减少 114 个同配置重复实例，没有
+新增门禁、测试 route、平台、触发或失败条件。
+
+已登记的 scoped reusable workflow 修改也已有唯一 owner：CI 合同检查选择和 Actions
+结构，workflow 自身运行其完整 checks 与平台分支。原先额外启动的 Agent module 与
+产品 E2E 不消费该 workflow 的结果，也不验证其独有编排，现已删除。未知 workflow、
+共享执行器和其他未分类 gate infrastructure 仍保留原 Agent/E2E 保守回退。
