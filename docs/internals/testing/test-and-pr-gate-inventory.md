@@ -180,6 +180,11 @@ schedule/nonblocking 覆盖移入阻塞 PR 路径，以及新增失败条件。�
 | `lsp` | 调用对应复用工作流 | 编排入口不是额外测试，保留和子用例的对应关系 | 重组为能力分组入口，不再按历史流程扩展 | LSP 集成 |
 | `quality-gate` | 必需汇总和 PR 证据生成 | 职责必要；报告不能与所选全集脱钩 | 保留一个必需入口，证明矩阵/用例完整性 | 最终汇总 |
 
+`changes` 中的路由合同会在同一 Python 进程内生成大量独立变更计划。分类清单的
+完整目录核对和 targeted node AST 校验现在对该次不可变 checkout 只执行一次；
+临时或其他 root 不缓存，仍支持测试中的增删文件和清单变更验证。该优化不减少
+合同断言、路由样本或失败条件。
+
 ### tui-render-contract.yml
 
 工作流来源：[tui-render-contract.yml](../../../.github/workflows/tui-render-contract.yml)。

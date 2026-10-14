@@ -18,9 +18,19 @@ MODULE_EXTRA_TESTS = {
     "harness": ["tests/examples/test_harness_tool_authoring_example.py",
                 "tests/examples/test_harness_document_product_example.py"],
 }
+_CHECKOUT_ROOT = Path(__file__).resolve().parents[2]
+_VALIDATED_CHECKOUT_CATALOG: dict | None = None
 
 
 def load_catalog(root: Path) -> dict:
+    global _VALIDATED_CHECKOUT_CATALOG
+    root = root.resolve()
+    if root == _CHECKOUT_ROOT and _VALIDATED_CHECKOUT_CATALOG is not None:
+        # A CI process sees one immutable checkout. Full validation scans every
+        # classified directory and parses targeted test nodes, so reuse it for
+        # the many routing examples in that process. Other roots remain
+        # uncached because catalog tests intentionally mutate them.
+        return _VALIDATED_CHECKOUT_CATALOG
     path = root / CATALOG_FILE
     if not path.exists():
         # During incremental migration, absence retains the complete old route.
@@ -140,6 +150,8 @@ def load_catalog(root: Path) -> dict:
             unknown = set(nodes) - available
             if unknown:
                 raise ValueError(f"missing targeted test nodes in {path}: {sorted(unknown)}")
+    if root == _CHECKOUT_ROOT:
+        _VALIDATED_CHECKOUT_CATALOG = catalog
     return catalog
 
 
