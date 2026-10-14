@@ -212,6 +212,56 @@
           "assertion": "legacy facade identity and controlled SkillDescriptor conversion of content, applicability and optional metadata"
         }
       }
+    },
+    "foundation": {
+      "complete": true,
+      "review": "reviewed complete directory for the Ubuntu module runner; strict JSON, isolated observability/filesystem/runtime-scope contracts and fresh Python import boundary; no Product session, service, live network or native platform matrix",
+      "files": {
+        "tests/foundation/test_json_contract.py": {
+          "category": "unit",
+          "assertion": "strict JSON copying/validation/dumping, nested paths, cycles, unicode, integer bounds and implicit-coercion rejection"
+        },
+        "tests/foundation/test_json.py": {
+          "category": "contract",
+          "assertion": "canonical public JSON surface and basic strict value behavior"
+        },
+        "tests/foundation/test_observability.py": {
+          "category": "contract",
+          "assertion": "stable root observability exports and canonical symbol ownership"
+        },
+        "tests/foundation/test_import_boundaries.py": {
+          "category": "contract",
+          "assertion": "static repository imports plus one fresh Python import isolation process; retired namespaces and optional observability loading remain absent"
+        },
+        "tests/foundation/test_runtime_scope.py": {
+          "category": "contract",
+          "assertion": "temporary runtime trees and real local file locks: private modes, lease cleanup, safe sweep/admission, symlink and ownership refusal on the Ubuntu/POSIX runner"
+        },
+        "tests/foundation/observability/test_context.py": {
+          "category": "unit",
+          "assertion": "nested log context binding, restoration and isolated context copies"
+        },
+        "tests/foundation/observability/test_identity.py": {
+          "category": "unit",
+          "assertion": "bounded stable observability identity normalization"
+        },
+        "tests/foundation/observability/test_problem_text.py": {
+          "category": "unit",
+          "assertion": "safe bounded problem text and exception rendering"
+        },
+        "tests/foundation/observability/test_projection.py": {
+          "category": "unit",
+          "assertion": "strict JSON-safe observability payload projection and fallback metadata"
+        },
+        "tests/foundation/observability/test_runtime.py": {
+          "category": "contract",
+          "assertion": "temporary-file and injected sink runtime contexts restore borrowed/global configuration across success and failure"
+        },
+        "tests/foundation/observability/test_sinks.py": {
+          "category": "contract",
+          "assertion": "temporary debug/trace sinks: routing, scope filters, exact safe wire/text shapes, latest links and failure containment"
+        }
+      }
     }
   }
 }

@@ -284,7 +284,7 @@ R4 将全部单元测试的语义去重纳入范围，允许减少冗余用例�
 | coding | 429 | 3933 | 待逐项审查 |
 | dev | 45 | 404 | 待逐项审查 |
 | examples | 6 | 49 | 待逐项审查 |
-| foundation | 11 | 87 | 待逐项审查 |
+| foundation | 11 | 87 | Ubuntu 模块角色完整初审 |
 | harness | 475 | 4107 | 待逐项审查 |
 | harnesstui | 98 | 624 | 待逐项审查 |
 | harnesswork | 7 | 32 | 角色完整初审；两份专用 golden 夹具登记 |
@@ -313,3 +313,5 @@ HarnessWork 分类与专用夹具：7 个文件为受控执行/事件投影、�
 Method 的 10 个文件完成角色初审：不可变类型、内存 registry/selector、受控 runtime/settings、临时目录资源发现和静态包边界，不启动 Product 会话、外部进程或 live provider。完整集合 37 项通过，2.28 秒；真实报告零跳过并覆盖全部登记文件。test-only 修改走模块短路径。
 
 AI 静态重复候选中的两组已经合并：两个名称声称 get-stream 的用例实际仍只调用 `register_api_adapter`，分别与同文件 legacy 和 optional-legacy 注册拒绝用例完全相同。去重后完整 `test_api_streaming.py` 51 项通过，1.22 秒；旧用例到保留集合映射见[测试去重实施记录](test-deduplication-review.md)。AI 全目录尚未完成角色分类，因此其他 AI 修改仍保持现有保守路由。
+
+Foundation 的 11 个文件完成 Ubuntu 模块 runner 角色初审：严格 JSON、观测投影/上下文/临时 sink、临时 runtime scope 与真实本地文件锁、静态仓库边界及一个新 Python 解释器的 import 隔离。它们不启动 Product 会话、服务或 live 网络；POSIX 权限、symlink 与 ownership 断言在 Ubuntu 上属于必要合同。参数化后真实报告 110 项、零跳过、覆盖全部登记文件，38.41 秒，通过模块报告验证器。Foundation test-only 修改走模块短路径；Foundation 源码仍按共享公共依赖的消费者规则扩大验证，本批不缩小源码影响面。
