@@ -50,7 +50,7 @@ jobs:
         run: >-
           uv run python scripts/dev/verify_pytest_xml.py
           .artifacts/resume-darwin-legacy.xml
-          --require-tests-count 1
+          --require-tests-count 2
           --require-property native_platform=darwin
           --require-property resume_route=legacy-same-id
       - uses: actions/upload-artifact@v4

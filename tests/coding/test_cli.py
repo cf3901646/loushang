@@ -7034,6 +7034,98 @@ def test_run_cli_bare_resume_enters_history_before_session_activation(
     assert tui_runner.calls == []
 
 
+@pytest.mark.parametrize("platform", ["darwin", "win32"])
+def test_run_cli_bare_resume_uses_legacy_activation_without_history_first_route(
+    tmp_path,
+    monkeypatch,
+    platform,
+) -> None:
+    from loushang.coding.cli import application as cli_main
+    from loushang.harness.continuity import ContinuityTarget
+    from loushang.harnesstui.continuity import ContinuityPickerSelection
+
+    session = FakeSession("selected")
+    runtime = FakeRuntime(session)
+    tui_runner = FakeRunner()
+    target = ContinuityTarget(
+        provider_id="coding.sessions",
+        opaque_id="picked-session",
+        revision="7",
+    )
+    prepared_targets = []
+    shutdown_calls = []
+    lease = object()
+
+    class _Hub:
+        def reference(self):
+            class _Reference:
+                async def prepare(self, selected):
+                    prepared_targets.append(selected)
+                    return lease
+
+                def release(self) -> None:
+                    return None
+
+            return _Reference()
+
+    class _Composition:
+        hub = _Hub()
+
+        async def dispose(self) -> None:
+            return None
+
+    async def select_and_activate(**kwargs):
+        result = await kwargs["activate"](target)
+        return ContinuityPickerSelection(target=target, activation_result=result)
+
+    async def bind_configured(_runtime, **_kwargs):
+        return _Composition()
+
+    async def consume(selected_lease):
+        assert selected_lease is lease
+        return SimpleNamespace(current=session)
+
+    async def shutdown(selected_runtime):
+        shutdown_calls.append(selected_runtime)
+
+    async def forbid_history(*_args, **_kwargs):
+        raise AssertionError(f"{platform} selected native history-first Resume")
+
+    monkeypatch.setattr(cli_main.sys, "platform", platform)
+    monkeypatch.setattr(
+        cli_main,
+        "bind_coding_configured_continuity",
+        bind_configured,
+    )
+    monkeypatch.setattr(cli_main, "consume_prepared_activation", consume)
+    monkeypatch.setattr(
+        cli_main,
+        "resolve_coding_continuity_history_source",
+        forbid_history,
+    )
+    monkeypatch.setattr(cli_main, "shutdown_coding_continuity", shutdown)
+
+    exit_code = asyncio.run(
+        cli_main.run_cli(
+            ["--resume"],
+            stdin=TtyStringIO(),
+            stdout=TtyStringIO(),
+            stderr=StringIO(),
+            cwd=tmp_path,
+            services=_fake_services(),
+            runtime_builder=lambda **kwargs: runtime,
+            tui_runner=tui_runner,
+            continuity_runner=select_and_activate,
+        )
+    )
+
+    assert exit_code == 0
+    assert prepared_targets == [target]
+    assert shutdown_calls == []
+    assert len(tui_runner.calls) == 1
+    assert tui_runner.calls[0]["session"] is session
+
+
 def test_run_cli_bare_resume_rejects_noninteractive_channel_before_resolution(
     tmp_path,
 ) -> None:

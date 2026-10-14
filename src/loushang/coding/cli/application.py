@@ -57,6 +57,7 @@ from loushang.coding.cli.lsp import extract_lsp_argv, run_coding_lsp_command
 from loushang.coding.cli.multiagent import run_coding_multiagent_command
 from loushang.coding.cli.resume_startup import (
     configure_embedded_resume_startup,
+    embedded_resume_history_route_admitted,
     run_embedded_resume_history_host,
 )
 from loushang.coding.cli.startup_route import _cli_launch_plan
@@ -194,6 +195,7 @@ from loushang.harness.cli.plugin_listing import (
 )
 from loushang.harness.cli.plugin_preview import format_plugin_current_preview
 from loushang.harness.config.agent import SettingsManager
+from loushang.harness.continuity import consume_prepared_activation
 from loushang.harness.diagnostics.observability_runtime import (
     session_observability_context,
     startup_observability_context,
@@ -902,9 +904,14 @@ async def _run_coding_pre_session_bootstrap(
             )
         raise
     continuity_reference = composition.hub.reference()
+    history_first = embedded_resume_history_route_admitted()
+    activated = False
     try:
 
         async def activate(target):
+            if not history_first:
+                lease = await continuity_reference.prepare(target)
+                return await consume_prepared_activation(lease)
             reference = await resolve_coding_continuity_history_source(
                 composition,
                 target,
@@ -924,15 +931,27 @@ async def _run_coding_pre_session_bootstrap(
         if selection is None:
             return CliPhaseResult.exit(0)
         result = selection.activation_result
-        if not isinstance(result, EmbeddedResumeStartup):
+        if history_first:
+            if not isinstance(result, EmbeddedResumeStartup):
+                raise RuntimeError(
+                    "Continuity selection did not resolve native Coding history"
+                )
+            return CliPhaseResult.continue_with(result)
+        session = getattr(result, "current", None)
+        if session is None:
+            getter = getattr(context.runtime, "get_current_session", None)
+            session = getter() if callable(getter) else None
+        if session is None:
             raise RuntimeError(
-                "Continuity selection did not resolve native Coding history"
+                "Continuity activation did not publish a Product session"
             )
-        return CliPhaseResult.continue_with(result)
+        activated = True
+        return CliPhaseResult.continue_with(session)
     finally:
         continuity_reference.release()
         await composition.dispose()
-        await shutdown_coding_continuity(context.runtime)
+        if history_first or not activated:
+            await shutdown_coding_continuity(context.runtime)
 
 
 def _continuity_keybindings(settings_manager: object | None) -> object | None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -28,6 +29,12 @@ from loushang.harnesstui.conversation.host import (
     run_action_host_conversation_screen,
 )
 from loushang.harnesstui.status.provider import StatusProvider
+
+
+def embedded_resume_history_route_admitted() -> bool:
+    """Return whether history-first first-input continuation is admitted."""
+
+    return sys.platform == "linux"
 
 
 def configure_embedded_resume_startup(context: Any) -> None:
@@ -155,5 +162,6 @@ async def run_embedded_resume_history_host(
 
 __all__ = [
     "configure_embedded_resume_startup",
+    "embedded_resume_history_route_admitted",
     "run_embedded_resume_history_host",
 ]

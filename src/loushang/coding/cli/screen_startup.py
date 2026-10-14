@@ -112,6 +112,7 @@ async def run_screen_first_cli(
     ) -> int:
         from loushang.coding.cli.resume_startup import (
             configure_embedded_resume_startup,
+            embedded_resume_history_route_admitted,
             run_embedded_resume_history_host,
         )
         from loushang.coding.embedded_resume import EmbeddedResumeStartup
@@ -146,7 +147,10 @@ async def run_screen_first_cli(
 
         async def pre_session(context: Any) -> Any:
             resume = context.state.args.resume
-            if isinstance(resume, str):
+            if (
+                isinstance(resume, str)
+                and embedded_resume_history_route_admitted()
+            ):
                 from loushang.coding.runtime.agent_session_runtime import (
                     AgentSessionRuntime,
                 )
