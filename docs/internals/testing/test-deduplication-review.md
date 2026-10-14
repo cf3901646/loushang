@@ -41,6 +41,13 @@
 | `tests/coding/test_file_mutation_queue.py::{test_run_with_file_mutation_queue_accepts_sync_callback,test_mutation_queue_uses_its_direct_harness_owner}` | `tests/harness/workspace/test_mutation_queue.py::test_mutation_queue_runner_accepts_sync_results_and_cleans_up` | 统一保留同步 callback 返回与锁清理；从同一模块重复导入后比较对象身份没有额外消费者边界 |
 | `tests/coding/test_file_mutation_queue.py::test_run_with_file_mutation_queue_cleans_up_after_callback_error` | `tests/harness/workspace/test_mutation_queue.py::test_mutation_queue_cleans_up_after_callback_failure` | 同一 canonical runner、异步异常传播与锁表清理 |
 | `tests/ontology/test_action_schema.py::test_schema_v3_documents_are_not_loaded_as_v4` | `tests/ontology/test_schema.py::test_schema_v3_documents_are_not_loaded_as_v4` | `load_json` 在解析内容前按同一 format 字段拒绝 v3；换用包含 action 的合法 v4 草稿不会形成新的版本边界 |
+| `tests/coding/test_frontmatter.py::{test_parse_frontmatter_normalizes_crlf_and_block_scalars,test_parse_frontmatter_supports_simple_lists_and_maps,test_parse_frontmatter_supports_nested_maps}` | `tests/harness/resources/test_frontmatter.py::{test_parse_frontmatter_normalizes_newlines_and_block_scalars,test_parse_frontmatter_supports_lists_and_nested_maps}` | Coding 文件直接导入 canonical Harness parser，没有 Coding adapter；Harness owner 覆盖 CRLF/block scalar、list 和 nested map 的相同解析边界 |
+| `tests/coding/test_frontmatter.py::test_parse_frontmatter_keeps_original_body_without_complete_frontmatter` | `tests/harness/resources/test_frontmatter.py::{test_parse_frontmatter_returns_plain_content_unchanged,test_parse_frontmatter_preserves_unterminated_document}` | Harness owner 分别保留普通正文与未闭合 frontmatter 的原文保持，并额外校验完整结果值 |
+| `tests/coding/test_frontmatter.py::test_parse_frontmatter_reports_invalid_yaml_location` | `tests/harness/resources/test_frontmatter.py::test_parse_frontmatter_reports_source_location` | 同一 canonical 异常、输入及 line/field 断言 |
+| `tests/coding/test_prompt_assembly.py::test_prompt_template_args_do_not_recursively_substitute_argument_values` | `tests/harness/capabilities/test_prompt.py::test_template_expansion_does_not_reprocess_argument_values` | 完整调用、恶意占位符参数和输出断言相同；Coding 文件直接调用 canonical Harness helper，没有 Coding adapter |
+| `tests/ai/test_provider_contract_matrix.py::test_builtin_registration_is_frozen_to_core_adapter_matrix` | `tests/ai/contracts/test_core_provider_contracts.py::test_builtin_registration_matches_core_contracts` | 两份矩阵包含同一三个 core adapter，均对 builtin registry 的排序 API 集合做相同断言；文档矩阵文件保留文档一致性职责 |
+| `tests/ai/test_provider_contract_matrix.py::test_core_production_adapters_implement_api_adapter_contract` | `tests/ai/contracts/test_core_provider_contracts.py::test_core_adapters_implement_invoke_raw_contract` | canonical contract 对同一三个具体 adapter 保留全部旧断言，并额外验证 PreparedRequest adapter、prepare 与 invoke_prepared 签名 |
+| `tests/coding/test_workspace_path_mutation_compatibility.py::test_workspace_mutation_queue_preserves_owner_identity` | `tests/harness/workspace/test_mutation_queue.py` 的 canonical runner/context 行为集合 | 两种导入写法都解析为同一个 Harness 模块，没有 legacy Coding facade；同模块对象自等不构成消费者合同 |
 | `tests/coding/test_screen_coding_tui_mode.py::test_run_coding_tui_non_interactive_keeps_plain_prompt_loop` | `tests/coding/test_ui_mode.py::test_run_coding_tui_non_interactive_keeps_plain_prompt_loop` | 两个函数体完全相同，均 patch 同一 mode 入口并断言非交互分支、prompt 与参数集合；保留 fixture 更小且职责更聚焦的 UI mode owner |
 
 Harness host 测试文件只包含这三个重复项，且也直接导入 canonical events 类型，没有独有 facade 合同，因此删除整个重复文件。canonical events 的失败传播且不阻塞后续事件用例继续保留。
@@ -68,7 +75,7 @@ Harness host 测试文件只包含这三个重复项，且也直接导入 canoni
 - 完整报告显示反复扫描全仓的静态依赖检查单项耗时 60.804/42.307/21.760 秒；两个终端进程死亡恢复用例分别为 38.180/31.081 秒。这些是后续共享扫描和能力拆分的实测依据，不以增加超时解决。
 - 上述数字为本地执行，不证明 PR 排队和总耗时达标；真实 installed 与 Windows 运行仍待交付验证。
 
-仍需完成其他非相同 AST 的语义重复、全部目录角色与夹具影响、其余跨工作流唯一执行、历史 job 重组、必要原生场景和真实多次 PR/main 验收。当前共删除 18 个旧 node ID，其中 mutation queue 的 2 个独有合同迁入 canonical Harness owner；数量变化本身不代表全部单元测试去重完成。
+仍需完成其他非相同 AST 的语义重复、全部目录角色与夹具影响、其余跨工作流唯一执行、历史 job 重组、必要原生场景和真实多次 PR/main 验收。当前共删除 27 个旧 node ID，其中 mutation queue 的 2 个独有合同迁入 canonical Harness owner；数量变化本身不代表全部单元测试去重完成。
 
 ## 5. 共享全仓源码扫描准备
 

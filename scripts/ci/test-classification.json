@@ -213,6 +213,96 @@
         }
       }
     },
+    "ontology": {
+      "complete": true,
+      "review": "reviewed complete directory; in-memory and temporary SQLite stores, controlled threads and static import checks, no Product session, external process, live network or native platform dependency",
+      "files": {
+        "tests/ontology/test_action_planning.py": {
+          "category": "contract",
+          "assertion": "schema-bound action planning, preconditions, authority, deterministic identity and commit conflicts against an in-memory fact store"
+        },
+        "tests/ontology/test_action_schema.py": {
+          "category": "contract",
+          "assertion": "action schema validation, serialization, compatibility and package digest impact"
+        },
+        "tests/ontology/test_deployment_profile.py": {
+          "category": "contract",
+          "assertion": "deployment profiles, locked schema/source identities and deterministic JSON validation"
+        },
+        "tests/ontology/test_fact_model.py": {
+          "category": "unit",
+          "assertion": "fact identity, immutable values, canonical exports and validation boundaries"
+        },
+        "tests/ontology/test_fact_projection.py": {
+          "category": "unit",
+          "assertion": "fact-to-projection folding, ordering, tombstones and schema-bound value validation"
+        },
+        "tests/ontology/test_fact_schema_revalidation.py": {
+          "category": "contract",
+          "assertion": "in-memory and temporary SQLite schema revalidation, replacement and failure preservation"
+        },
+        "tests/ontology/test_fact_sqlite_v3.py": {
+          "category": "contract",
+          "assertion": "temporary SQLite fact journal v3 transactions, restart, backup, concurrency and corruption rejection"
+        },
+        "tests/ontology/test_fact_store_conformance.py": {
+          "category": "contract",
+          "assertion": "shared memory and temporary SQLite fact-store conformance for append, query, conflict and snapshots"
+        },
+        "tests/ontology/test_identity_crosswalk.py": {
+          "category": "unit",
+          "assertion": "crosswalk identity normalization, ambiguity, source binding and deterministic serialization"
+        },
+        "tests/ontology/test_import_boundaries.py": {
+          "category": "contract",
+          "assertion": "static Ontology source dependency direction and public export ownership"
+        },
+        "tests/ontology/test_mapped_source_materialization.py": {
+          "category": "contract",
+          "assertion": "controlled source records through mapping, fact persistence and memory or temporary SQLite projection materialization"
+        },
+        "tests/ontology/test_materialization_correctness.py": {
+          "category": "contract",
+          "assertion": "temporary SQLite materialization replacement, ordering, restart and corruption boundaries"
+        },
+        "tests/ontology/test_package_artifacts.py": {
+          "category": "contract",
+          "assertion": "deterministic ontology package artifacts, digests and invalid payload rejection"
+        },
+        "tests/ontology/test_projection_store_conformance.py": {
+          "category": "contract",
+          "assertion": "memory and temporary SQLite projection-store replacement, conflicts, concurrency and failure atomicity"
+        },
+        "tests/ontology/test_schema.py": {
+          "category": "unit",
+          "assertion": "schema compilation, validation, canonical v4 serialization and older format refusal"
+        },
+        "tests/ontology/test_schema_evolution.py": {
+          "category": "contract",
+          "assertion": "schema compatibility classification across identity, type, authority and constraint changes"
+        },
+        "tests/ontology/test_schema_interfaces.py": {
+          "category": "contract",
+          "assertion": "schema protocol interfaces and immutable public type surface"
+        },
+        "tests/ontology/test_source_adapter_contract.py": {
+          "category": "contract",
+          "assertion": "controlled source adapter identity, cursor and schema binding contracts"
+        },
+        "tests/ontology/test_source_materialization_contracts.py": {
+          "category": "contract",
+          "assertion": "source mapping and projection contracts with in-memory records and explicit failure cases"
+        },
+        "tests/ontology/test_sqlite_storage_compatibility.py": {
+          "category": "contract",
+          "assertion": "temporary SQLite layout versioning, metadata, backup and unsupported-store refusal"
+        },
+        "tests/ontology/test_typed_query.py": {
+          "category": "unit",
+          "assertion": "typed query predicates, ordering, limits, schema validation and deterministic evaluation"
+        }
+      }
+    },
     "foundation": {
       "complete": true,
       "review": "reviewed complete directory for the Ubuntu module runner; strict JSON, isolated observability/filesystem/runtime-scope contracts and fresh Python import boundary; no Product session, service, live network or native platform matrix",

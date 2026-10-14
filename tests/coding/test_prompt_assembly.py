@@ -509,15 +509,6 @@ def test_prompt_template_args_parse_quotes_and_substitute_pi_placeholders() -> N
     )
 
 
-def test_prompt_template_args_do_not_recursively_substitute_argument_values() -> None:
-    from loushang.harness.capabilities.prompt import substitute_prompt_template_args
-
-    assert (
-        substitute_prompt_template_args("$ARGUMENTS", ["$1", "$ARGUMENTS", "${@:2}"])
-        == "$1 $ARGUMENTS ${@:2}"
-    )
-
-
 def test_preflight_user_input_substitutes_prompt_template_args_when_placeholders_exist() -> (
     None
 ):

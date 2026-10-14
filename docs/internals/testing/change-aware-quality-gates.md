@@ -52,7 +52,8 @@ it. Long campaigns must not silently return to ordinary PR gates.
 ## Selection policy
 
 The reviewed [test classification catalog](../../../scripts/ci/test-classification.json)
-currently covers the complete Agent, Channel, Resource, Work, HarnessWork, Method and Foundation test directories,
+currently covers the complete Agent, Channel, Resource, Work, HarnessWork, Method,
+Foundation and Ontology test directories,
 including Agent's owned examples contracts. Changes
 limited to these unit/contract files run the owner's complete reviewed set and
 Ruff without selecting global integration/E2E. Mixed source changes and shared

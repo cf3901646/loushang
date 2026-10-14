@@ -21,7 +21,10 @@ module_unit_paths = catalog_module.module_unit_paths
 class CatalogTests(unittest.TestCase):
     def test_reviewed_modules_cover_their_complete_current_test_directories(self):
         catalog = load_catalog(ROOT)
-        self.assertEqual(set(catalog["modules"]), {"channel", "resource", "work", "agent", "harnesswork", "method", "foundation"})
+        self.assertEqual(set(catalog["modules"]), {
+            "channel", "resource", "work", "agent", "harnesswork", "method",
+            "foundation", "ontology",
+        })
         for module, entry in catalog["modules"].items():
             discovered = {
                 p.relative_to(ROOT).as_posix()
@@ -36,6 +39,7 @@ class CatalogTests(unittest.TestCase):
                      "tests/work/test_event_log.py", "tests/agent/test_proxy.py",
                      "tests/agent/test_agent_loop.py", "tests/examples/test_agent_examples.py",
                      "tests/harnesswork/integrations/test_session.py",
+                     "tests/ontology/test_typed_query.py",
                      "tests/harnesswork/fixtures/legacy_coding_plan.jsonl",
                      "tests/harnesswork/fixtures/legacy_coding_plan_projection.json",
                      "tests/method/test_method_loader.py", "tests/method/test_runtime.py",

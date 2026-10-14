@@ -291,7 +291,7 @@ R4 将全部单元测试的语义去重纳入范围，允许减少冗余用例�
 | hosting | 28 | 309 | 待逐项审查 |
 | integration | 7 | 10 | 待逐项审查 |
 | method | 10 | 37 | 角色完整初审 |
-| ontology | 21 | 152 | 待逐项审查 |
+| ontology | 21 | 152 | 角色完整初审；内存/临时 SQLite 与受控线程合同 |
 | protocols | 4 | 101 | 待逐项审查 |
 | resource | 2 | 5 | 完整初审 |
 | root | 1 | 1 | 待逐项审查 |
@@ -317,3 +317,5 @@ AI 静态重复候选中的两组已经合并：两个名称声称 get-stream �
 Foundation 的 11 个文件完成 Ubuntu 模块 runner 角色初审：严格 JSON、观测投影/上下文/临时 sink、临时 runtime scope 与真实本地文件锁、静态仓库边界及一个新 Python 解释器的 import 隔离。它们不启动 Product 会话、服务或 live 网络；POSIX 权限、symlink 与 ownership 断言在 Ubuntu 上属于必要合同。参数化后真实报告 110 项、零跳过、覆盖全部登记文件，38.41 秒，通过模块报告验证器。Foundation test-only 修改走模块短路径；Foundation 源码仍按共享公共依赖的消费者规则扩大验证，本批不缩小源码影响面。
 
 固定 Coding 门禁重组：删除 `package-quality.yml` 和顶层 `packages` 调用；Agent、Coding、Foundation 的 selected check 统一映射到模块执行，风险与 full 计划也只执行一次对应离线集合。Coding 由固定 16 片降为基于 #740 真实 4,798 项报告选择的 8 片；当前哈希算法重算的最慢净用例时间 399 秒。顶层 `quality-gate` 同步删除旧调用依赖，仍对所有现存所选 workflow 的 failed/cancelled/missing/unexpected skip fail closed。CI 合同与 Actions 语法验证通过后，仍需真实 PR 墙钟验收。
+
+Ontology 的 21 个文件完成角色初审：schema/action/fact/query/source/projection 合同使用内存或临时 SQLite，线程并发用受控 barrier/executor，不启动 Product 会话、外部进程、live 网络或原生平台。去除一项被 canonical schema v3 拒绝合同包含的重复用例后，完整模块 219 项、零跳过，6.16 秒并通过模块报告验证器；test-only 修改走模块短路径。

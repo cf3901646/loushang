@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from loushang.ontology.package import build_ontology_package_artifact
@@ -13,7 +11,6 @@ from loushang.ontology.schema import (
     OntologyCompiler,
     OntologyPackageDraft,
     PropertyDefinition,
-    SchemaCompilationError,
     SetPropertyEffectDefinition,
     StateAuthority,
     ValueType,

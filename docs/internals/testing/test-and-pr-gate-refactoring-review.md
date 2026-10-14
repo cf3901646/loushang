@@ -149,3 +149,5 @@ Method/AI 追加复核：覆盖视角核对 Method 10 个文件的受控边界�
 Foundation 追加复核：覆盖视角保留真实本地文件锁、POSIX 私有模式/symlink/ownership、观测 sink 及 fresh-interpreter import 合同，参数化后 110 项零跳过且全部 11 个文件进入报告；性能视角只缩短 test-only 修改，本地 38.41 秒，Foundation 源码作为共享依赖仍走消费者并集；维护视角明确当前分类绑定 Ubuntu module runner，不将它当作 Windows 原生证据。内部接受 Foundation test-only 的局部分类，跨平台消费者与全仓验收仍待完成。
 
 固定 Coding 门禁重组追加复核：覆盖视角确认旧风险路径与普通路径调用相同 Coding 离线清单，迁移后 selected check 仍生成完整模块任务，平台/LSP/host-runtime 选择保持叠加；Agent/Foundation 同样只有一个离线 owner。性能视角用 #740 的 4,798 个真实 testcase 身份和耗时按生产哈希重算，8 片最慢 399 秒、6 片最慢 516 秒，选择 8 片并保留远程验收缺口。维护视角删除整份重复 workflow、顶层调用和旧子汇总，统一使用模块报告验证与最终 fail-closed 汇总；CI 合同和 Actions 语法必须通过后才接受本批。
+
+Ontology 与跨 owner 去重追加复核：覆盖视角逐文件核对 21 个 Ontology owner，保留 schema、action、fact、source、query、projection、内存/SQLite、并发/恢复的不同边界；完整报告 219 项零跳过。mutation queue 的两个独有合同迁入 Harness 后删除历史 Coding 复本，frontmatter、prompt、AI adapter 及 Ontology v3 的旧用例均有替代映射。性能视角确认 Ontology 全集 6.16 秒，本轮跨 owner 审查删除 20 个旧 node ID 且不增加全局 E2E。维护视角将 canonical 行为放在 Harness/AI/Ontology owner，消费者仅保留真实 facade 或适配合同；CI 路由与完整目录校验需继续通过。
