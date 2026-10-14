@@ -497,7 +497,7 @@ class ScopeTests(unittest.TestCase):
                 self.assertNotIn("tests/coding/test_pr_smoke.py::test_terminal_cancel_tool_then_message_and_exit", command)
         self.assertTrue(selector.select([], full=True)["e2e_interaction"])
 
-    def test_sustained_worker_query_runs_for_its_test_and_full_validation(self):
+    def test_sustained_worker_query_does_not_expand_targeted_test(self):
         ordinary = selector.select(
             ["src/loushang/coding/session/agent_session.py"], pr_fast=True
         )
@@ -511,7 +511,7 @@ class ScopeTests(unittest.TestCase):
         full = selector.select([], full=True, pr_fast=True)
         self.assertFalse(ordinary["checks"]["hosting_sustained"])
         self.assertFalse(worker["checks"]["hosting_sustained"])
-        self.assertTrue(owned_test["checks"]["hosting_sustained"])
+        self.assertFalse(owned_test["checks"]["hosting_sustained"])
         self.assertTrue(full["checks"]["hosting_sustained"])
 
     def test_empty_changes_do_not_start_product_checks(self):
@@ -622,13 +622,9 @@ class ScopeTests(unittest.TestCase):
             "src/loushang/hosting/_windows_process.py",
             "tests/hosting/test_win32_process.py",
             "tests/hosting/test_windows_process.py",
-            "tests/coding/test_package_windows_pre_b_snapshot.py",
             "tests/coding/test_package_product_worker_windows_activation_state.py",
             "tests/coding/test_package_worker_windows_candidate_cli.py",
             "tests/harness/worker/test_coding_product_worker_windows_canary.py",
-            "tests/coding/test_package_worker_candidate_wheel.py",
-            "tests/coding/test_package_worker_native_cli.py",
-            "tests/coding/test_plugin_author_smoke.py",
         ):
             with self.subTest(path=path):
                 windows = selector.select([path], pr_fast=True)["windows"]
