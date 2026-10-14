@@ -152,6 +152,8 @@ Foundation 追加复核：覆盖视角保留真实本地文件锁、POSIX 私有
 
 Coding 分片再次合并复核：覆盖视角以 PR #779 的 8 份 JUnit 重建 3771 个精确 node ID，哈希回算原分片零错配，证明输入并集和唯一性；4 片候选只改变同一集合的执行分配。性能视角按报告实测时间重算，4 片最慢 198.444 秒，比 8 片最慢增加约 98 秒，同时减少四套 runner 准备和上传，预期仍低于 10 分钟。维护视角只修改统一的 `MODULE_SHARD_COUNTS` 和数量合同，既有动态 matrix、报告验证与顶层 fail-closed 汇总保持不变；真实 PR 墙钟和四份报告并集是接受条件。
 
+Coding 四分片远程复核：覆盖视角比较 #779 八份与 #780 四份 JUnit，3771 项身份的 missing/added/新分片交集均为零；性能视角确认四个 job 为 3 分 06 秒至 4 分 11 秒，runner 数减半且仍低于单任务 5 分钟目标；维护视角确认无需修改 workflow、报告验证器或汇总依赖。手动 full 的 targeted #5 另耗时 835.20 秒并因一个 H6 专属 skip 被既有零 skip 校验拒绝，不能用四分片成功掩盖；测试准备优化可继续，分类、允许 skip 或恢复 H6 必须另行审批。
+
 Ontology 与跨 owner 去重追加复核：覆盖视角逐文件核对 21 个 Ontology owner，保留 schema、action、fact、source、query、projection、内存/SQLite、并发/恢复的不同边界；完整报告 219 项零跳过。mutation queue 的两个独有合同迁入 Harness 后删除历史 Coding 复本，frontmatter、prompt、AI adapter 及 Ontology v3 的旧用例均有替代映射。性能视角确认 Ontology 全集 6.16 秒，本轮跨 owner 审查删除 20 个旧 node ID 且不增加全局 E2E。维护视角将 canonical 行为放在 Harness/AI/Ontology owner，消费者仅保留真实 facade 或适配合同；CI 路由与完整目录校验需继续通过。
 
 AppService 能力重组追加复核：覆盖视角保留 G16/G17 原 native manifest、installed runner 和 Windows 两项短冒烟，只改变 job owner 与共享准备；离线模块回归已有独立唯一 owner。性能视角把每个平台的多次 dependency setup、两次 wheel build 合并为各一次，两个能力 job 都设 15 分钟上限，但 installed 全族未有新实测，因此 workflow 继续暂停。维护视角移除历史阶段 job 和子汇总，两个 job 与 caller 使用同一选择条件，Actions 语法和 CI 合同静态验证其完整 job 集；真实矩阵与墙钟仍是恢复前验收项。
