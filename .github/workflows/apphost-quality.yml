@@ -193,7 +193,6 @@ jobs:
           name: hosted-product-g8-linux-junit
           path: .artifacts/hosted-product-g8.xml
           if-no-files-found: error
-
       - name: Derive composition and rollback evidence
         run: |
           uv run --extra dev python scripts/ci/derive_junit.py .artifacts/apphost-regression.xml .artifacts/hosted-product-g9-linux.xml --class tests.coding.test_apphost_composition
@@ -287,18 +286,3 @@ jobs:
             .artifacts/hosted-product-g10-windows.xml
             .artifacts/hosted-application-g13-windows.xml
           if-no-files-found: error
-
-  selected-checks:
-    name: Selected checks
-    if: always()
-    needs: [apphost-quality, apphost-windows-native-gate]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Verify selected jobs
-        env:
-          CI_PLAN: ${{ inputs.plan }}
-          CI_NEEDS: ${{ toJSON(needs) }}
-        run: >-
-          python scripts/ci/verify_gate.py
-          --jobs '{"apphost-quality":"apphost","apphost-windows-native-gate":"apphost"}'

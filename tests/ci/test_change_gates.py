@@ -1301,7 +1301,8 @@ class WorkflowContractTests(unittest.TestCase):
                 self.assertNotRegex(text, r"(?m)^  (pull_request|push|schedule):")
                 self.assertIn("  workflow_call:", text)
 
-    def test_reusable_guards_cover_every_expensive_job_with_its_actual_scope(self):
+    def test_reusable_jobs_are_guarded_and_use_the_single_root_aggregate(self):
+        rules = json.loads((ROOT / "scripts/ci/check-scopes.json").read_text())
         for path in (ROOT / ".github/workflows").glob("*.yml"):
             if path.name == "quality.yml":
                 continue
@@ -1317,40 +1318,24 @@ class WorkflowContractTests(unittest.TestCase):
             all_jobs = set(
                 re.findall(r"^  ([\w-]+):", text.split("\njobs:\n")[1], re.M)
             )
-            root_aggregated = {
-                "architecture-quality.yml": "source-facts",
-                "package-unit-quality.yml": "package",
-                "e2e-smoke-quality.yml": "resume-turn",
-                "appservice-quality.yml": {"native-service", "installed-service"},
-            }.get(path.name)
-            if root_aggregated is not None:
-                # The required top-level gate already checks this reusable
-                # workflow's result; a second runner adds only queue latency.
-                expected = (
-                    {root_aggregated}
-                    if isinstance(root_aggregated, str)
-                    else root_aggregated
-                )
-                self.assertEqual(all_jobs, expected, path.name)
-                if path.name == "appservice-quality.yml":
-                    self.assertEqual(set(jobs), expected, path.name)
-                self.assertNotIn("selected-checks:", text)
+            self.assertNotIn("selected-checks:", text)
+            if path.name in {"package-unit-quality.yml", "e2e-smoke-quality.yml"}:
+                # Dynamic module matrices and the multiline E2E condition are
+                # covered by their dedicated selection tests below.
                 continue
-            mapping = json.loads(re.search(r"--jobs '(.*)'", text)[1])
-            mapped = {
-                job: (
-                    "windows." + scope
-                    if "--section windows" in text and "." not in scope
-                    else scope
-                )
-                for job, scope in mapping.items()
+            self.assertEqual(all_jobs, set(jobs), path.name)
+            workflow_scopes = selector.SCOPED_WORKFLOWS[path.relative_to(ROOT).as_posix()]
+            allowed_checks = {
+                check for scope in workflow_scopes
+                for check in rules["workflows"][scope]
             }
-            self.assertEqual(jobs, mapped, path.name)
-            self.assertEqual(all_jobs, set(mapping) | {"selected-checks"}, path.name)
-            summary = text.split("\n  selected-checks:\n")[1]
-            needs = re.search(r"    needs: \[(.*)\]", summary)[1]
-            self.assertEqual(set(needs.split(", ")), set(mapping), path.name)
-            self.assertIn("    if: always()", text)
+            for section_scope in jobs.values():
+                section, separator, scope = section_scope.partition(".")
+                if separator:
+                    self.assertEqual(section, "windows", path.name)
+                    self.assertEqual(workflow_scopes, ("windows-shell",))
+                else:
+                    self.assertIn(section, allowed_checks, path.name)
 
     def test_appservice_historical_jobs_are_grouped_by_capability(self):
         text = (ROOT / ".github/workflows/appservice-quality.yml").read_text()

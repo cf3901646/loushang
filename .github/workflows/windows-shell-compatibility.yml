@@ -84,7 +84,6 @@ jobs:
           name: windows-worker-pr-query-pytest-report
           path: .artifacts/windows-worker-pr-query.xml
           if-no-files-found: warn
-
   windows-worker:
     if: ${{ fromJSON(inputs.plan).windows.worker_full }}
     runs-on: windows-2022
@@ -510,19 +509,3 @@ jobs:
             .artifacts/windows-runtime-lifecycle.xml
           include-hidden-files: true
           if-no-files-found: warn
-
-  selected-checks:
-    name: Selected checks
-    if: always()
-    needs: [windows-pr-smoke, windows-worker-pr-query, windows-shell, windows-worker, windows-worker-session, windows-worker-gc-normal, windows-worker-gc-crash]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Verify selected jobs
-        env:
-          CI_PLAN: ${{ inputs.plan }}
-          CI_NEEDS: ${{ toJSON(needs) }}
-        run: >-
-          python scripts/ci/verify_gate.py
-          --section windows
-          --jobs '{"windows-pr-smoke":"smoke","windows-worker-pr-query":"worker_pr","windows-shell":"shell_full","windows-worker":"worker_full","windows-worker-session":"worker_full","windows-worker-gc-normal":"worker_full","windows-worker-gc-crash":"worker_full"}'

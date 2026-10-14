@@ -2,7 +2,7 @@
 - 盘点日期：2026-10-14。
 - 源码基线：远端已合并 `1f1fcaf1ac4cc240b5d32170a1fa7e2f67c3dd30` 的内容；当前控制工作区保留本地合并历史。
 - 基线范围：16 个工作流、71 个源 job 定义，包含顶层调用与子汇总；不是某次运行的任务数。平台矩阵、动态模块/分片会展开，不能将源定义数当运行数。
-- 当前实现：删除重复的 `package-quality` 及顶层 `packages` 调用，并把 AppService 八个历史阶段 job 重组为两个能力 job 后，为 15 个工作流、60 个源 job 定义；Agent/Coding/Foundation/AppService/AppServer 离线回归由统一模块工作流唯一执行。
+- 当前实现：删除重复的 `package-quality` 及顶层 `packages` 调用，把 AppService 八个历史阶段 job 重组为两个能力 job，并删除十个 reusable 内部 `selected-checks` runner 后，为 15 个工作流、50 个源 job 定义；Agent/Coding/Foundation/AppService/AppServer 离线回归由统一模块工作流唯一执行。
 - 状态：全量 job 层分析与拟议去向。全部单元的语义去重及具体 collected node ID、夹具依赖、唯一断言和实际配置尚待分类验收；不宣称已完成逐用例去重。
 - 综合方案：[重构与优化测试与 PR 门禁](test-and-pr-gate-refactoring-plan.md)。实施 goal 已启动；表格保留基线职责并在已迁移项上标明当前处置。
 ## 审查规则
@@ -10,6 +10,8 @@
 每个 job 都分析目的、必要断言、重复覆盖、执行配置、时间、触发、报告消费者及迁移去向。相同文件清单仅是重复候选，须比较最终 node ID、marker、平台、安装形态和运行参数；不同配置的独有断言不可直接删。未实测项注明待测。
 
 当前暂停的六类工作流保留暂停。所有汇总校验也纳入合并审查：root 只看到 reusable workflow 总结果时，不能直接删子汇总。只有新机制可观察并拒绝预期子 job、矩阵或必需用例缺失/跳过时，才允许替代旧 selected-checks。
+
+当前实现已统一为一个必需的顶层 `quality-gate`。所有 reusable job 都直接绑定选择计划的 `checks` 或 `windows` boolean；CI 合同核对每个 job ID、所属 workflow scope 和 guard，动态模块/E2E 另有专用完整性合同。GitHub 将任一 matrix/job 的失败或取消传播到 reusable caller，顶层 verifier 要求所选 caller success、未选 caller skipped，并拒绝 missing、failed、cancelled 和 unexpected skip。原十个 `selected-checks` 只重复启动 runner 读取 `needs`，现已删除；表格中的同名行保留为基线审计记录。
 
 ## 全部工作流与 job
 

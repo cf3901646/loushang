@@ -321,3 +321,5 @@ Foundation 的 11 个文件完成 Ubuntu 模块 runner 角色初审：严格 JSO
 Ontology 的 21 个文件完成角色初审：schema/action/fact/query/source/projection 合同使用内存或临时 SQLite，线程并发用受控 barrier/executor，不启动 Product 会话、外部进程、live 网络或原生平台。去除一项被 canonical schema v3 拒绝合同包含的重复用例后，完整模块 219 项、零跳过，6.16 秒并通过模块报告验证器；test-only 修改走模块短路径。
 
 AppService 历史门禁重组：删除 `appservice-quality`、`g16-*`、`g17-*` 和 `selected-checks` 八个阶段 job，改为 `native-service` 与 `installed-service` 两个能力矩阵。离线 AppService/AppServer 回归继续由统一模块 runner 执行；native 按平台共享一次依赖准备，installed 按平台共享一次 wheel build，原 manifest 验证及 Windows 两项短冒烟保留。两个能力 job 与 caller 绑定同一 AppService 选择条件，最终结果进入唯一顶层汇总。该 workflow 继续暂停；installed 两个隔离环境仍可能超过 15 分钟，须进一步缩成必要场景并经真实平台计时后才能恢复。
+
+统一汇总：删除其余十个 reusable workflow 内部的 `selected-checks` runner，只保留顶层 `quality-gate`。每个 reusable job 的 guard 必须是选择计划中的实际 owner boolean，静态 CI 合同要求 job 清单与 scope 一致；matrix/job failure 或 cancellation 由 reusable caller 传播，顶层 verifier 对所有 caller 执行 success/skipped 的 fail-closed 比对。动态模块矩阵、E2E 报告和测试身份继续由各自报告验证器证明，不以删除汇总 runner 代替用例完整性校验。
