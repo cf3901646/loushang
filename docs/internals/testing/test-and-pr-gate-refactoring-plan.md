@@ -349,3 +349,9 @@ PR #743 的完整远程全选运行 `38554483283` 在 6 分 04 秒内绿色完�
 PR #744 的远程全选运行 `38557834260` 为 4 分 58 秒，Coding 8 个 job 为 2 分 04 秒至 2 分 57 秒，三平台恢复冒烟为 26–64 秒，全部通过。0/8 从 #743 的 3 分 30 秒降为 2 分 56 秒，证明重复 UI owner 已从 Coding 后端移除。
 
 full validation 现在补回全部非 live catalog targeted owner。当前 76 个“文件 × 平台”执行按平台、类别和稳定路径哈希合成 19 个批次，同 runner 只安装一次依赖；普通 PR 仍只运行改动文件的批次。批处理报告除失败/错误/skip 规则外，还逐文件要求至少一个通过用例，防止平台文件全 skip 被其他文件遮蔽。该路径用于 schedule/manual 完整验证，不把完整集成集合重新放回普通 PR。
+
+PR #745 的远程全选运行 `38559343364` 为 5 分 04 秒，Coding 8 个 job 为 2 分 16 秒至 2 分 58 秒，三平台恢复冒烟为 27–56 秒，全部通过；合并 push `38560055118` 在 50 秒内复用同树同计划证据完成。完整 targeted 批次在普通 PR 正确跳过，只在 schedule/manual full 计划运行。
+
+分类策略 v5 支持混合文件的 node 级 targeted 角色。首批依据远程 slowest 证据，把 `test_agent_session_runtime.py` 中 27 个持久会话生命周期函数和 `arch/test_activation.py` 中 5 个真实产品组合函数登记为 Ubuntu integration；两个文件仍留在 Coding 模块回归，未登记的单元/合同节点继续执行，模块命令只用精确 `--deselect` 移出 32 个登记 node。修改混合文件会同时执行 Coding 回归和这些精确 node，不附加通用 E2E；定时 full 也纳入这些 node。catalog 用 AST 校验 node 真实存在并禁止与整文件 override 重叠；JUnit verifier 从逐文件要求提升为逐 node 身份要求，参数化 node 允许其具体参数实例匹配，不能由同文件的其他通过用例遮蔽。
+
+首批 node 本地独立验证为会话运行时 29 个参数化实例全部通过、7 分 51 秒，Arch 5 项全部通过、1 分 44 秒。重新分类后的 Coding 0/8 代表分片为 459 项通过、3 项跳过、耗时 5 分 29 秒；本机明显慢于近期远程 runner，因此只证明剩余集合与 deselect 行为正确，实际 PR 墙钟收益仍以远程全选运行验收。

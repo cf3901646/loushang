@@ -13,6 +13,7 @@ from select_checks import ROOT, make_paths
 from test_catalog import (
     MODULE_EXTRA_TESTS,
     module_is_fully_classified,
+    module_targeted_nodeids,
     module_unit_paths,
 )
 
@@ -83,6 +84,10 @@ def commands(
              "--ci-shard-count", str(shards)]
             if shards > 1 else []
         )
+        deselect_args = [
+            f"--deselect={nodeid}"
+            for nodeid in module_targeted_nodeids(package, root=root)
+        ]
         # Ordinary and risk routes share the complete offline inventory. When
         # the plan schedules a separate E2E job, that job owns the canary.
         markers = OFFLINE_MARKERS
@@ -92,6 +97,7 @@ def commands(
             pytest
             + (coding_ignores if package == "coding" else [])
             + paths + extras
+            + deselect_args
             + ["-m", markers,
                "--skip-host-runtime", "--strict-markers", "-q", *shard_args]
         ]
