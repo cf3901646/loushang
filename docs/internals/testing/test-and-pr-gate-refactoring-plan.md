@@ -288,7 +288,7 @@ PR 因此多执行任务或多出失败条件，也不能自行实施。未获�
 | appservice | 16 | 187 | 完整初审；14 个 unit/contract，1 个 integration，1 个 platform |
 | architecture | 62 | 654 | 待逐项审查 |
 | channel | 6 | 39 | 完整初审 |
-| ci | 3 | 112 | 待逐项审查 |
+| ci | 6 | 139 | 完整初审；选择、归属、证据、聚合及复用合同 |
 | coding | 429 | 3933 | 待逐项审查 |
 | dev | 45 | 404 | 待逐项审查 |
 | examples | 6 | 49 | 角色完整初审；61 个模块所属示例合同实例 |
@@ -311,6 +311,15 @@ PR 因此多执行任务或多出失败条件，也不能自行实施。未获�
 Protocols 目录完成角色与重复审查。4 个文件的 101 个静态函数收集为 109 个实例，分别覆盖 Anthropic Messages、OpenAI Chat Completions、OpenAI Responses 和 Faux adapter 的 wire payload、流式事件、资源关闭、typed capability/default、认证头及错误语义。SDK 均由内存 fake module 或合成事件替代，不访问真实网络；跨协议名称相似的 max-token、reasoning、auth 与 tool-call 用例断言各自不同的 wire contract，不能合并为一个协议的结果。未删除测试 node。三个真实协议文件完全重复的 context normalization、request mode 和 stream 启动驱动已合并到共享 `_runtime.py`，净减少 75 行测试支撑代码；109 项仍全部通过，1.36 秒。所属 AI 完整离线回归 858 项通过、7 项 live deselect，31.28 秒；总覆盖率 90.65% 及三个细分阈值、Ruff、mypy、catalog 和 import boundary 均通过。
 
 Root、Examples 与 Integration 小目录完成角色初审。Root 唯一用例约束 `pyproject.toml` 的 console script。Examples 的 61 个收集实例分别归 Agent、AI/Auth、Coding 与 Harness 模块，覆盖公开导入、受控 fake 模型/认证、脚本 help/import 和独有示例输出；相似入口断言属于不同公开示例，未发现可删除的行为复本。Integration 的 42 个实例分为 4 个显式 live LSP Server 兼容用例、5 个 Ontology 内存/SQLite 产品组合实例和 33 个 manifest 示例进程 smoke。非 live 联合运行 97 项通过、3 项稳定失败、4 项 live deselect，3 分 58.95 秒；失败均为 `legacy-007/013/019` 在新建临时目录首次创建 Session 时得到 transcript writer `conflict/unavailable`，精确复跑仍为 3 项失败，12.89 秒。该 manifest smoke 目前没有正常 PR 执行 owner；直接修改会保守选择全量门禁却不会执行自身。为它新增 targeted route 属于门禁增加，未经审批不实施；现阶段也不能把这组失败且近 4 分钟的 33 场景加入阻塞 PR。
+
+CI 目录完成角色与重复初审。6 个文件、139 个静态测试函数分别验证选择与暂停、
+测试归属、JUnit 派生、模块报告完整性、主分支证据复用、导入事实缓存、顶层聚合、
+Git diff 范围和工作流结构。全部使用临时 Git 仓库、合成 XML、fake GitHub API、
+静态文件或 mock 执行器，不访问网络、不启动 Product。忽略名称的完整 AST 扫描
+没有重复函数；相邻断言虽会触及同一计划字段，但分别约束触发、清单完整性、报告
+真实性和 fail-closed 汇总，不能互相替代。本地 139 项全部通过，2.493 秒，因此
+保留现有节点及文件内隔离夹具，不为减少少量测试代码引入跨文件共享状态。本批只
+完成审计记录，不增加或扩大任何门禁。
 
 第二批本地实现：Work 全目录受控单元/日志合同已分类；5 个已确认冗余单元用例已有替代映射；AppHost Linux 的 join、composition、canary 从主回归派生报告，保留独有 Worker close 和 installed 验证。完整主集合离线验证 2646 项通过、11 项 Windows 条件跳过，518.16 秒；从完整报告派生后原 manifest 均通过。详见[测试去重实施记录](test-deduplication-review.md)。后续仍需优化实测缓慢的全仓静态扫描与原生执行分组，不把局部结果作为全仓验收。
 
