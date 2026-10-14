@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 jobs:
-  harnesstui-core:
-    if: ${{ fromJSON(inputs.plan).checks.harnesstui }}
+  harnesstui-and-coding-ui:
+    if: ${{ fromJSON(inputs.plan).workflows.harnesstui }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -31,6 +31,7 @@ jobs:
         run: uv run python -c "from pathlib import Path; Path('.artifacts').mkdir(exist_ok=True)"
 
       - name: Harnesstui quality gate
+        if: ${{ fromJSON(inputs.plan).checks.harnesstui }}
         env:
           PYTEST_ADDOPTS: >-
             -o faulthandler_timeout=60
@@ -38,35 +39,19 @@ jobs:
         run: uv run python scripts/ci/run_checks.py harnesstui
 
       - name: Reject empty, skipped, or failing report
+        if: ${{ fromJSON(inputs.plan).checks.harnesstui }}
         run: uv run python scripts/dev/verify_pytest_xml.py .artifacts/harnesstui-core.xml
 
       - name: Upload pytest report
-        if: always()
+        if: ${{ always() && fromJSON(inputs.plan).checks.harnesstui }}
         uses: actions/upload-artifact@v4
         with:
           name: harnesstui-core-pytest-report
           path: .artifacts/harnesstui-core.xml
           if-no-files-found: warn
-  coding-ui:
-    if: ${{ fromJSON(inputs.plan).checks.coding_ui }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - uses: astral-sh/setup-uv@v5
-
-      - name: Install dependencies
-        run: make bootstrap
-
-      - name: Create report directory
-        run: uv run python -c "from pathlib import Path; Path('.artifacts').mkdir(exist_ok=True)"
-
-      - name: Harnesstui quality gate
+      - name: Coding UI quality gate
+        if: ${{ fromJSON(inputs.plan).checks.coding_ui }}
         env:
           PYTEST_ADDOPTS: >-
             -o faulthandler_timeout=60
@@ -74,10 +59,11 @@ jobs:
         run: uv run python scripts/ci/run_checks.py coding_ui
 
       - name: Reject empty, skipped, or failing report
+        if: ${{ fromJSON(inputs.plan).checks.coding_ui }}
         run: uv run python scripts/dev/verify_pytest_xml.py .artifacts/coding-ui.xml
 
       - name: Upload pytest report
-        if: always()
+        if: ${{ always() && fromJSON(inputs.plan).checks.coding_ui }}
         uses: actions/upload-artifact@v4
         with:
           name: coding-ui-pytest-report

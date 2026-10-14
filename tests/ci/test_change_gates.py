@@ -1343,7 +1343,7 @@ class WorkflowContractTests(unittest.TestCase):
             jobs = {
                 job: f"{section}.{scope}" if section != "checks" else scope
                 for job, section, scope in re.findall(
-                    r"^  ([\w-]+):\n    if: \$\{\{ fromJSON\(inputs.plan\).(checks|windows).(\w+) \}\}",
+                    r"^  ([\w-]+):\n    if: \$\{\{ fromJSON\(inputs.plan\).(checks|windows|workflows).([\w-]+) \}\}",
                     text,
                     re.M,
                 )
@@ -1365,8 +1365,11 @@ class WorkflowContractTests(unittest.TestCase):
             for section_scope in jobs.values():
                 section, separator, scope = section_scope.partition(".")
                 if separator:
-                    self.assertEqual(section, "windows", path.name)
-                    self.assertEqual(workflow_scopes, ("windows-shell",))
+                    if section == "windows":
+                        self.assertEqual(workflow_scopes, ("windows-shell",))
+                    else:
+                        self.assertEqual(section, "workflows", path.name)
+                        self.assertEqual(workflow_scopes, (scope,), path.name)
                 else:
                     self.assertIn(section, allowed_checks, path.name)
 
