@@ -41,27 +41,27 @@ jobs:
           uv run python scripts/dev/verify_pytest_xml.py
           .artifacts/resume-turn-${{ matrix.os }}.xml
           --require-tests-count "$SMOKE_CASE_COUNT"
-      - name: Verify macOS legacy same-ID Resume after resource change
+      - name: Verify macOS Session lifecycle Resume after resource change
         if: runner.os == 'macOS'
         env:
           PYTEST_ADDOPTS: >-
-            --junitxml=.artifacts/resume-darwin-legacy.xml
+            --junitxml=.artifacts/resume-darwin.xml
         run: >-
           uv run python scripts/dev/run_pytest.py
-          tests/coding/test_resume_darwin_legacy.py -q
+          tests/coding/test_resume_darwin.py -q
       - name: Verify macOS Resume evidence
         if: runner.os == 'macOS'
         run: >-
           uv run python scripts/dev/verify_pytest_xml.py
-          .artifacts/resume-darwin-legacy.xml
-          --require-tests-count 1
+          .artifacts/resume-darwin.xml
+          --require-tests-count 2
           --require-property native_platform=darwin
-          --require-property resume_route=legacy-same-id
+          --require-property resume_route=session-lifecycle
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: resume-turn-${{ matrix.os }}-pytest-report
           path: |
             .artifacts/resume-turn-${{ matrix.os }}.xml
-            .artifacts/resume-darwin-legacy.xml
+            .artifacts/resume-darwin.xml
           if-no-files-found: warn
