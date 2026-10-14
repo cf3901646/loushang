@@ -91,6 +91,7 @@
         "scripts/dev/reevaluate_g18_comparison.py"
       ],
       "checks": ["appservice"],
+      "pr_test_only": true,
       "reason": "G18 installed startup, lmux evidence and collector regressions"
     },
     {
