@@ -348,6 +348,57 @@ class ScopeTests(unittest.TestCase):
             {"docs", "ci"},
         )
 
+    def test_smoke_workflow_only_runs_ci_and_both_platform_smokes(self):
+        plan = selector.select([".github/workflows/e2e-smoke-quality.yml"], pr_fast=True)
+        self.assertEqual({k for k, v in plan["checks"].items() if v}, {"docs", "ci"})
+        self.assertEqual({k for k, v in plan["workflows"].items() if v}, {"e2e"})
+        self.assertTrue(plan["e2e_interaction"])
+        self.assertFalse(plan["windows"]["worker_full"])
+
+    def test_smoke_test_change_runs_its_own_cases_without_unrelated_suites(self):
+        plan = selector.select([selector.SMOKE_TEST], pr_fast=True)
+        self.assertEqual({k for k, v in plan["checks"].items() if v}, {"docs"})
+        self.assertEqual({k for k, v in plan["workflows"].items() if v}, {"e2e"})
+        self.assertTrue(plan["e2e_interaction"])
+        self.assertTrue(all(selector.select([selector.SMOKE_TEST], full=True)["checks"].values()))
+
+    def test_reusable_workflows_validate_their_complete_owned_scope(self):
+        rules = json.loads((ROOT / "scripts/ci/check-scopes.json").read_text())
+        for path, scopes in selector.SCOPED_WORKFLOWS.items():
+            with self.subTest(path=path):
+                self.assertTrue((ROOT / path).is_file())
+                plan = selector.select([path], pr_fast=True)
+                expected = {"docs", "ci"} | {c for scope in scopes
+                                                    for c in rules["workflows"][scope]}
+                if set(scopes) & {"packages", "harness", "hosting", "apphost", "appservice"}:
+                    expected.add("host_runtime")
+                self.assertEqual({k for k, v in plan["checks"].items() if v}, expected)
+                expected_workflows = set(scopes) | {"e2e"}
+                if "host_runtime" in expected:
+                    expected_workflows.add("host-runtime")
+                if scopes and "packages" not in scopes:
+                    expected_workflows.add("units")
+                self.assertEqual({k for k, v in plan["workflows"].items() if v}, expected_workflows)
+        plan = selector.select([".github/workflows/windows-shell-compatibility.yml"], pr_fast=True)
+        self.assertTrue(plan["windows"]["worker_full"])
+        self.assertTrue(plan["windows"]["shell_full"])
+
+    def test_smoke_workflow_does_not_expand_a_mixed_windows_change(self):
+        source = "src/loushang/coding/package_product_worker_catalog.py"
+        baseline = selector.select([source], pr_fast=True)
+        mixed = selector.select([source, ".github/workflows/e2e-smoke-quality.yml"], pr_fast=True)
+        self.assertEqual(mixed["windows"], baseline["windows"])
+        self.assertEqual(mixed["host_runtime_smoke"], baseline["host_runtime_smoke"])
+        self.assertTrue(mixed["e2e_interaction"])
+
+    def test_root_unknown_and_scheduled_workflows_stay_full(self):
+        for path in (".github/workflows/quality.yml", ".github/workflows/new.yml"):
+            self.assertTrue(all(selector.select([path], pr_fast=True)["checks"].values()))
+        self.assertTrue(all(selector.select([".github/workflows/e2e-smoke-quality.yml"],
+                                            pr_fast=True, full=True)["checks"].values()))
+        mixed = selector.select([".github/workflows/e2e-smoke-quality.yml", "uv.lock"], pr_fast=True)
+        self.assertTrue(all(mixed["checks"].values()))
+
     def test_module_regression_workflow_change_runs_its_complete_inventory(self):
         for paths in (
             [selector.MODULE_REGRESSION_WORKFLOW],
@@ -699,17 +750,12 @@ class ScopeTests(unittest.TestCase):
     def test_pr_gate_change_exercises_new_reusable_workflows(self):
         for path in (
             ".github/workflows/quality.yml",
-            ".github/workflows/package-quality.yml",
-            ".github/workflows/windows-shell-compatibility.yml",
             "scripts/ci/windows_worker_session_cases.py",
         ):
             with self.subTest(path=path):
                 plan = selector.select([path], pr_fast=True)
-                self.assertEqual(plan["unit_packages"], ["agent"])
-                self.assertEqual(
-                    plan["unit_jobs"],
-                    [{"package": "agent", "shard": 0, "shards": 1}],
-                )
+                self.assertEqual(plan["unit_packages"], [])
+                self.assertEqual(plan["unit_jobs"], [])
                 self.assertTrue(plan["e2e"])
                 self.assertTrue(all(plan["checks"].values()))
 
@@ -791,7 +837,8 @@ class PauseTests(unittest.TestCase):
     def test_windows_shell_pause_applies_to_pr_push_and_full_validation(self):
         for full, fast in ((False, True), (True, True), (True, False), (False, False)):
             with self.subTest(full=full, fast=fast):
-                plan = selector.select([".github/workflows/windows-shell-compatibility.yml"],
+                plan = selector.select([".github/workflows/windows-shell-compatibility.yml",
+                                        ".github/workflows/quality.yml"],
                                        full=full, pr_fast=fast)
                 self.assertFalse(plan["workflows"]["windows-shell"])
                 self.assertFalse(selector.workflow_plan(plan)["workflows"]["windows-shell"])
@@ -823,6 +870,18 @@ class PauseTests(unittest.TestCase):
 
 
 class GateTests(unittest.TestCase):
+    def test_reused_gate_requires_all_jobs_skipped(self):
+        plan = {"version": 1, "workflows": {"e2e": True}}
+        with contextlib.redirect_stdout(io.StringIO()):
+            guard.verify(plan, {"e2e": {"result": "skipped"}}, {"e2e": "e2e"},
+                         section="workflows", reused=True)
+        for result in ("success", "failure", "cancelled", None):
+            with self.assertRaises(ValueError), contextlib.redirect_stdout(io.StringIO()):
+                guard.verify(plan, {"e2e": {"result": result}}, {"e2e": "e2e"},
+                             section="workflows", reused=True)
+        with self.assertRaises(ValueError):
+            guard.verify({"version": 1, "checks": {}}, {}, {}, reused=True)
+
     def verify(self, selected, result):
         with contextlib.redirect_stdout(io.StringIO()):
             guard.verify(

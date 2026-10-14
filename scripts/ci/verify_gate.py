@@ -8,7 +8,7 @@ import os
 
 
 def verify(
-    plan: dict, needs: dict, jobs: dict[str, str], *, section: str = "checks"
+    plan: dict, needs: dict, jobs: dict[str, str], *, section: str = "checks", reused: bool = False
 ) -> None:
     if plan.get("version") != 1 or not isinstance(plan.get(section), dict):
         raise ValueError("missing or invalid change-selection plan")
@@ -16,6 +16,8 @@ def verify(
         raise ValueError(
             f"job inventory mismatch: expected {sorted(jobs)}, got {sorted(needs)}"
         )
+    if reused and section != "workflows":
+        raise ValueError("PR evidence only applies to top-level workflow aggregation")
     errors = []
     for job, scope in jobs.items():
         job_section, separator, job_scope = scope.partition(".")
@@ -27,7 +29,7 @@ def verify(
             selected = plan[section].get(scope)
         if not isinstance(selected, bool):
             raise ValueError(f"missing boolean selection for {scope}")
-        expected = "success" if selected else "skipped"
+        expected = "success" if selected and not reused else "skipped"
         result = needs[job].get("result")
         if result != expected:
             errors.append(f"{job}: expected {expected}, got {result}")
@@ -49,11 +51,17 @@ def main() -> None:
         changes = needs.pop("changes", {})
         if changes.get("result") != "success":
             raise ValueError("change selection failed or did not run")
+    reused_run = os.environ.get("CI_REUSED_RUN", "")
+    if reused_run:
+        if not args.require_changes or not reused_run.isdigit() or int(reused_run) <= 0:
+            raise ValueError("invalid reused PR evidence dependency")
+        print(f"Selected checks were satisfied by successful PR run {reused_run}")
     verify(
         json.loads(os.environ["CI_PLAN"]),
         needs,
         json.loads(args.jobs),
         section=args.section,
+        reused=bool(reused_run),
     )
 
 
