@@ -405,7 +405,7 @@ class ScopeTests(unittest.TestCase):
         self.assertTrue(mixed["e2e_interaction"])
 
     def test_root_unknown_and_scheduled_workflows_stay_full(self):
-        for path in (".github/workflows/quality.yml", ".github/workflows/new.yml"):
+        for path in (".github/workflows/new.yml",):
             self.assertTrue(all(selector.select([path], pr_fast=True)["checks"].values()))
         self.assertTrue(all(selector.select([".github/workflows/e2e-smoke-quality.yml"],
                                             pr_fast=True, full=True)["checks"].values()))
@@ -443,8 +443,7 @@ class ScopeTests(unittest.TestCase):
     def test_pr_routing_exception_keeps_build_and_other_ci_files_full(self):
         expected = set(selector.select([], full=True)["checks"])
         for path in (
-            "pyproject.toml", ".github/workflows/quality.yml",
-            "scripts/ci/run_checks.py", "tests/ci/test_new_gate.py",
+            "pyproject.toml", "scripts/ci/run_checks.py", "tests/ci/test_new_gate.py",
         ):
             with self.subTest(path=path):
                 actual = selector.select([path], pr_fast=True)["checks"]
@@ -756,10 +755,7 @@ class ScopeTests(unittest.TestCase):
                 } <= set(plan["unit_packages"]))
 
     def test_pr_gate_change_exercises_new_reusable_workflows(self):
-        for path in (
-            ".github/workflows/quality.yml",
-            "scripts/ci/windows_worker_session_cases.py",
-        ):
+        for path in ("scripts/ci/windows_worker_session_cases.py",):
             with self.subTest(path=path):
                 plan = selector.select([path], pr_fast=True)
                 self.assertTrue({"agent", "coding", "foundation"}
@@ -873,7 +869,7 @@ class PauseTests(unittest.TestCase):
         for full, fast in ((False, True), (True, True), (True, False), (False, False)):
             with self.subTest(full=full, fast=fast):
                 plan = selector.select([".github/workflows/windows-shell-compatibility.yml",
-                                        ".github/workflows/quality.yml"],
+                                        ".github/workflows/new.yml"],
                                        full=full, pr_fast=fast)
                 self.assertFalse(plan["workflows"]["windows-shell"])
                 self.assertFalse(selector.workflow_plan(plan)["workflows"]["windows-shell"])
@@ -892,7 +888,7 @@ class PauseTests(unittest.TestCase):
     def test_long_gates_pause_but_complete_module_regressions_remain(self):
         for full, fast in ((False, True), (True, True), (True, False)):
             with self.subTest(full=full, fast=fast):
-                plan = selector.select([".github/workflows/quality.yml"], full=full, pr_fast=fast)
+                plan = selector.select([".github/workflows/new.yml"], full=full, pr_fast=fast)
                 self.assertTrue(all(not plan["workflows"][w] for w in selector.PAUSED_WORKFLOWS))
                 self.assertTrue({"harness", "hosting", "appservice", "appserver"}
                                 <= set(plan["unit_packages"]))
