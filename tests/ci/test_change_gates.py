@@ -409,6 +409,8 @@ class ScopeTests(unittest.TestCase):
         self.assertIn('--require-tests-count "$SMOKE_CASE_COUNT"', workflow)
         self.assertIn("CI_PLAN: ${{ inputs.plan }}", workflow)
         self.assertIn("fromJSON(inputs.plan).e2e_interaction && 2 || 1", workflow)
+        report_step = workflow.split("- name: Verify every selected smoke case ran and passed", 1)[1]
+        self.assertIn("shell: bash", report_step.split("- uses:", 1)[0])
         self.assertIn("uv run python scripts/ci/run_checks.py e2e_smoke", workflow)
         self.assertIn("tests/coding/test_resume_darwin_legacy.py", workflow)
         self.assertIn("--require-property native_platform=darwin", workflow)
