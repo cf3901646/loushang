@@ -166,13 +166,14 @@ def commands(
         return [
             pytest + ["tests/tui", "-m", OFFLINE_MARKERS, "--skip-host-runtime", "-q"]
         ]
-    if scope in {"harnesstui", "coding_ui"}:
+    if scope in {"harnesstui", "coding_ui", "harnesstui_all"}:
         all_tests = (
             inventories["HARNESSTUI_TEST_PATHS"]
             + inventories["CODING_TUI_PRODUCT_TEST_PATHS"]
         )
         coding = scope == "coding_ui"
-        tests = [
+        combined = scope == "harnesstui_all"
+        tests = all_tests if combined else [
             path for path in all_tests if path.startswith("tests/coding/") == coding
         ]
         if not coding and plan is not None:
@@ -187,6 +188,14 @@ def commands(
                 ]
         source_vars = (
             [
+                "HARNESSTUI_SHARED_SOURCES",
+                "HARNESSTUI_CODING_ADAPTERS",
+                "CODING_TUI_PRODUCT_SOURCES",
+                "HARNESSTUI_TEST_SUPPORT",
+            ]
+            if combined
+            else
+            [
                 "HARNESSTUI_CODING_ADAPTERS",
                 "CODING_TUI_PRODUCT_SOURCES",
                 "HARNESSTUI_TEST_SUPPORT",
@@ -194,7 +203,10 @@ def commands(
             if coding
             else ["HARNESSTUI_SHARED_SOURCES"]
         )
-        sources = [path for name in source_vars for path in inventories[name]]
+        sources = list(dict.fromkeys(
+            path for name in source_vars for path in inventories[name]
+        ))
+        tests = list(dict.fromkeys(tests))
         typed = [path for path in sources if not path.startswith("tests/")]
         return [
             [python, "-m", "ruff", "check", *sources, *tests],
