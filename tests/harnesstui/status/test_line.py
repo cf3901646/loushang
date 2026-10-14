@@ -55,7 +55,7 @@ def test_status_line_fields_use_product_order_priority_and_tokens() -> None:
         ("loushang", 90, "workspace"),
         ("main", 80, "branch"),
         ("abcd", 70, "session"),
-        ("perm=standard", 35, "permissions"),
+        ("standard", 35, "permissions"),
         ("running", 60, "runtime.running"),
         ("queued=2 steer=1", 50, "queue"),
         ("Saved", 40, "message"),
@@ -73,10 +73,19 @@ def test_status_line_fields_keep_current_missing_value_fallbacks() -> None:
         "cwd",
         "no-branch",
         "no-session",
-        "perm=standard",
+        "standard",
         "idle",
     ]
     assert fields[5].token == "runtime.idle"
+
+
+def test_status_line_fields_show_only_model_from_full_model_identity() -> None:
+    fields = status_line_fields(
+        _snapshot(model_label="kimi-code:kimi-code-anthropic:kimi-for-coding"),
+        StatusLineSettings(),
+    )
+
+    assert fields[0].text == "kimi-for-coding"
 
 
 def test_status_line_fields_can_disable_regular_fields() -> None:
@@ -106,7 +115,7 @@ def test_status_line_queue_auto_true_false_behavior() -> None:
         "loushang",
         "main",
         "abcd",
-        "perm=standard",
+        "standard",
         "idle",
     ]
     assert (

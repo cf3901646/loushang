@@ -184,7 +184,7 @@ def _run_model_select() -> object:
     result.assert_text_contains("Select Model")
     result.assert_text_contains("Model set: openai:test-endpoint:gpt-5.4")
     result.assert_text_contains(
-        "openai:test-endpoint:gpt-5.4 | repo | main | abcd | idle"
+        "gpt-5.4 | repo | main | abcd | idle"
     )
     result.assert_no_clear_screen()
     assert result.app.active_surface is None

@@ -47,7 +47,13 @@ def status_line_fields(
 ) -> tuple[StatusField, ...]:
     fields: list[StatusField] = []
     if settings.model:
-        fields.append(StatusField(snapshot.model_label or "model", priority=100, token="model"))
+        fields.append(
+            StatusField(
+                _status_line_model_label(snapshot.model_label),
+                priority=100,
+                token="model",
+            )
+        )
     if settings.workspace:
         fields.append(StatusField(cwd_label(snapshot.cwd), priority=90, token="workspace"))
     if settings.branch:
@@ -57,7 +63,7 @@ def status_line_fields(
     if settings.permissions:
         fields.append(
             StatusField(
-                f"perm={snapshot.permission_profile or 'standard'}",
+                snapshot.permission_profile or "standard",
                 priority=35,
                 token="permissions",
             )
@@ -137,6 +143,15 @@ def cwd_label(cwd: str) -> str:
     if not cwd:
         return "cwd"
     return cwd.rstrip("/").rsplit("/", 1)[-1] or cwd
+
+
+def _status_line_model_label(model_label: str | None) -> str:
+    if not model_label:
+        return "model"
+    identity = model_label.split(":", 2)
+    if len(identity) == 3 and all(identity):
+        return identity[2]
+    return model_label
 
 
 def _setting_value(settings: object, key: str, default: object) -> object:
