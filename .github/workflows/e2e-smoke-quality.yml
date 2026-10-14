@@ -27,16 +27,19 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --locked --extra dev
       - run: uv run python -c "from pathlib import Path; Path('.artifacts').mkdir(exist_ok=True)"
-      - name: Resume session and send another message
+      - name: Real tool, persisted resume and selected terminal cancellation smoke
         env:
+          CI_PLAN: ${{ inputs.plan }}
           PYTEST_ADDOPTS: >-
             --junitxml=.artifacts/resume-turn-${{ matrix.os }}.xml
         run: uv run python scripts/ci/run_checks.py e2e_smoke
-      - name: Verify the end-to-end case ran and passed
+      - name: Verify every selected smoke case ran and passed
+        env:
+          SMOKE_CASE_COUNT: ${{ fromJSON(inputs.plan).e2e_interaction && 2 || 1 }}
         run: >-
           uv run python scripts/dev/verify_pytest_xml.py
           .artifacts/resume-turn-${{ matrix.os }}.xml
-          --require-tests-count 1
+          --require-tests-count "$SMOKE_CASE_COUNT"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
