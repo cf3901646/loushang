@@ -182,3 +182,12 @@ platform 标志、host-runtime 完整模式和顶层汇总，CI 合同继续逐 
 及 guard；Agent unit 与产品 E2E 没有读取 workflow 产物或验证其编排。性能视角删除
 这两项固定附加任务，未知/共享 gate infrastructure 仍走原保守回退。维护视角直接
 收紧现有 scoped workflow 合同，没有新增 workflow、测试 route 或失败条件。
+
+Dev 完整初审追加复核：覆盖视角确认 45 个文件同时包含纯合同、真实子进程、临时
+Git/wheel、POSIX 与恢复验收，不能整体降为快速单元；完整离线集合 1669 passed、
+5 skipped，AST 扫描无完全重复簇。性能视角接受既有 12 个故障参数的同路径 seed
+复用，但否决正向场景复制快照的进一步合并：聚焦验证 4 项失败，Store head 的
+device/inode/时间身份无法由复制保持。维护视角不允许测试辅助代码重写持久化 head
+来掩盖该差异；19 个当前无活动直接执行 owner 的路径列为 AP-10，任何首次接入、
+恢复暂停项或新增失败条件都必须由指定审批方明确批准。本批仅接受审计记录，不增加
+或扩大任何门禁。
