@@ -802,8 +802,23 @@ class ScopeTests(unittest.TestCase):
                 if classified is None:
                     self.assertIn("tests/" + package, command)
                 else:
+                    separately_owned = set()
+                    if package == "coding":
+                        inventories = selector.make_paths()
+                        separately_owned = {
+                            path
+                            for name in (
+                                "HARNESSTUI_TEST_PATHS",
+                                "CODING_TUI_PRODUCT_TEST_PATHS",
+                            )
+                            for path in inventories[name]
+                            if path.startswith("tests/coding/")
+                        }
                     for path in classified:
-                        self.assertIn(path, command)
+                        if path in separately_owned:
+                            self.assertNotIn(path, command)
+                        else:
+                            self.assertIn(path, command)
                 self.assertIn("not e2e_smoke", command[command.index("-m") + 1])
                 self.assertIn("--skip-host-runtime", command)
         (coding_shard,) = runner.commands("unit_coding", shard=0, shards=8)
@@ -1036,6 +1051,12 @@ class SuiteSelectionTests(unittest.TestCase):
     def test_coding_backend_excludes_the_separately_owned_ui_inventory(self):
         (command,) = runner.commands("coding")
         self.assertIn("--ignore=tests/coding/test_screen_coding_tui_app.py", command)
+        for path in (
+            "tests/coding/test_ui_import_boundaries.py",
+            "tests/coding/test_screen_coding_tui_app.py",
+            "tests/coding/test_prompt_command.py",
+        ):
+            self.assertNotIn(path, command)
         plan = selector.select(["src/loushang/coding/lsp/client.py"])
         (host_command,) = runner.commands("host_runtime", plan=plan)
         self.assertIn(

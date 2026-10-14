@@ -66,6 +66,12 @@ def commands(
         classified = module_unit_paths(package, root=root)
         if classified is not None:
             paths = classified
+            if package == "coding":
+                # Partial Coding classification expands the directory into
+                # explicit files. Pytest's --ignore does not suppress a path
+                # that is also passed explicitly, so remove the separately
+                # owned TUI inventory before constructing the command.
+                paths = [path for path in paths if path not in coding_ui_paths]
         # A complete catalog already expands every extra directory into files.
         # Appending the directory would collect those cases a second time.
         extras = [] if classified is not None else MODULE_EXTRA_TESTS.get(package, [])
