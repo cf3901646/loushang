@@ -982,11 +982,9 @@ def test_staged_resume_first_input_rejects_changed_transcript_revision(tmp_path)
     asyncio.run(scenario())
 
 
-def test_reopened_bound_input_requires_current_admission_before_bootstrap_or_write(
-    tmp_path, monkeypatch,
+def test_reopened_bound_input_continues_with_a_fresh_current_runtime(
+    tmp_path,
 ) -> None:
-    from loushang.coding import bootstrap
-
     async def scenario() -> None:
         manager = await SessionManager.new(
             session_dir=tmp_path, cwd=str(tmp_path), session_id="session-1",
@@ -1017,25 +1015,20 @@ def test_reopened_bound_input_requires_current_admission_before_bootstrap_or_wri
         before = path.read_bytes()
         restored = await SessionManager.load(path)
 
-        def forbidden_selection(*args, **kwargs):
-            pytest.fail("historical Binding reached Product runtime selection")
-
-        monkeypatch.setattr(bootstrap, "_select_direct_coding_product_factory", forbidden_selection)
         try:
             assert project_coding_activation_attempt_path(
                 restored._transcript.active_path(), current_session_id="session-1",
             ).status == "none"
             assert read_coding_resume_snapshot(path, max_bytes=1024 * 1024).binding_status == "bound"
-            with pytest.raises(CodingResumeRecoveryRequired, match="runtime.current_admission_required"):
-                restored.require_no_unsettled_resume_activation()
-            with pytest.raises(CodingResumeRecoveryRequired, match="runtime.current_admission_required"):
-                bootstrap.create_agent_session(session_manager=restored, no_tools=True)
-            with pytest.raises(CodingResumeRecoveryRequired, match="runtime.current_admission_required"):
-                await restored.append_message(UserMessage(role="user", content="next", timestamp=2.0))
-            assert len(restored.get_entries()) == 2
+            restored.require_no_unsettled_resume_activation()
+            await restored.append_message(
+                UserMessage(role="user", content="next", timestamp=2.0)
+            )
+            assert len(restored.get_entries()) == 3
+            assert restored.get_leaf_entry().payload.content == "next"
         finally:
             await restored.dispose_runtime_profile()
-        assert path.read_bytes() == before
+        assert path.read_bytes().startswith(before)
 
     asyncio.run(scenario())
 

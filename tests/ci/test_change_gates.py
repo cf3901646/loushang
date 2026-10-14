@@ -412,6 +412,9 @@ class ScopeTests(unittest.TestCase):
         report_step = workflow.split("- name: Verify every selected smoke case ran and passed", 1)[1]
         self.assertIn("shell: bash", report_step.split("- uses:", 1)[0])
         self.assertIn("uv run python scripts/ci/run_checks.py e2e_smoke", workflow)
+        self.assertIn("tests/coding/test_resume_darwin_legacy.py", workflow)
+        self.assertIn("--require-property native_platform=darwin", workflow)
+        self.assertIn("--require-property resume_route=legacy-same-id", workflow)
 
     def test_interaction_smoke_is_selected_for_control_paths_only(self):
         for path in (

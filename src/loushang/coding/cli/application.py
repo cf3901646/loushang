@@ -909,8 +909,9 @@ async def _run_coding_pre_session_bootstrap(
                 composition,
                 target,
             )
-            history = await context.runtime.preview_resume_history(reference)
-            await context.runtime.start_configured_resume_planning(history)
+            history = await context.runtime.preview_resume_startup(reference)
+            if history.status == "preview":
+                await context.runtime.start_configured_resume_planning(history)
             return EmbeddedResumeStartup(reference, history)
 
         selection = await continuity_runner(

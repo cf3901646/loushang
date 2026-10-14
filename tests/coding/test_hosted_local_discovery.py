@@ -12,7 +12,6 @@ from loushang.appserver.local_record import LocalConnectionDirectoryV1
 from loushang.appserver.protocol import (
     AppErrorCodeV1,
     AppServiceError,
-    InteractionOutcomeV1,
     MuxCreateV1,
     MuxSelectorV1,
     SessionListV1,
@@ -111,7 +110,6 @@ def test_G17_PRODUCT_local_discovery_views_resume_interact_and_detach(
                 await controller.submit("after local resume")
                 assert state.active_window is not None
                 # The turn reply and the scoped event relay are independent.
-                approval = None
                 async with asyncio.timeout(45):
                     while not any(
                         record.kind.value == "assistant"
@@ -119,19 +117,8 @@ def test_G17_PRODUCT_local_discovery_views_resume_interact_and_detach(
                     ):
                         await controller.poll()
                         assert not state.snapshot_required
-                        if (
-                            approval is None
-                            and state.active_window.pending_interaction_id is not None
-                        ):
-                            approval = asyncio.create_task(
-                                controller.respond_interaction(
-                                    state.active_window.pending_interaction_id,
-                                    InteractionOutcomeV1.APPROVE,
-                                )
-                            )
+                        assert state.active_window.pending_interaction_id is None
                         await asyncio.sleep(0.001)
-                assert approval is not None
-                await approval
                 assert [
                     record.text
                     for record in state.active_window.records
@@ -159,7 +146,7 @@ def test_G17_PRODUCT_local_discovery_views_resume_interact_and_detach(
             directory.close()
 
     # The scenario opens two Product B Sessions and completes the Resume
-    # validation/approval/continuation path for each one.
+    # validation/continuation path for each one without a blanket approval.
     asyncio.run(asyncio.wait_for(scenario(), 120))
 
 
@@ -216,7 +203,6 @@ def test_G17_PRODUCT_picker_resumes_both_scopes_interacts_and_retains_history(
                 shell.handle(InputEvent(kind="text", text="continue from picker"))
                 shell.handle(InputEvent(kind="key", key="enter"))
                 await settle(shell)
-                approval = None
                 async with asyncio.timeout(30):
                     while not any(
                         record.kind.value == "assistant"
@@ -224,17 +210,10 @@ def test_G17_PRODUCT_picker_resumes_both_scopes_interacts_and_retains_history(
                     ):
                         await shell.poll()
                         assert not shell.state.snapshot_required
-                        interaction = shell.state.active_window.pending_interaction_id
-                        if approval is None and interaction is not None:
-                            approval = asyncio.create_task(
-                                shell._controller.respond_interaction(
-                                    interaction,
-                                    InteractionOutcomeV1.APPROVE,
-                                )
-                            )
+                        assert (
+                            shell.state.active_window.pending_interaction_id is None
+                        )
                         await asyncio.sleep(0.001)
-                assert approval is not None
-                await approval
                 await shell.close()
                 assert not shell.cleanup_pending
                 # Logical UI detach leaves the native connection and application alive.

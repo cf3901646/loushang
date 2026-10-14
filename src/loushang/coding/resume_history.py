@@ -33,6 +33,8 @@ from .resume_activation_projection_v2 import project_coding_activation_attempt_p
 from .resume_binding import CodingRuntimeBindingV1
 from .resume_binding_v2 import CodingRuntimeBindingV2
 
+MAX_CODING_RESUME_HISTORY_BYTES = 64 * 1024 * 1024
+
 
 @dataclass(frozen=True, slots=True)
 class CodingResumeHeaderPreview:
@@ -118,8 +120,11 @@ def read_coding_resume_snapshot(
 ) -> CodingResumeHistoryPreview:
     """Read a bounded historical snapshot without acquiring transcript authority."""
 
-    if type(max_bytes) is not int or not 1 <= max_bytes <= 8 * 1024 * 1024:
-        raise ValueError("Coding Resume snapshot budget must be within 1 to 8 MiB")
+    if (
+        type(max_bytes) is not int
+        or not 1 <= max_bytes <= MAX_CODING_RESUME_HISTORY_BYTES
+    ):
+        raise ValueError("Coding Resume snapshot budget must be within 1 to 64 MiB")
     source_path = Path(path)
     source_fingerprint = session_file_authority_fingerprint(source_path)
     if (
@@ -220,6 +225,7 @@ __all__ = [
     "CodingResumeHeaderPreview",
     "CodingResumeHistoryPreview",
     "CodingResumeRecentPage",
+    "MAX_CODING_RESUME_HISTORY_BYTES",
     "inspect_coding_resume_header",
     "read_coding_resume_header",
     "read_coding_resume_recent_page",

@@ -28,7 +28,7 @@ from loushang.harness.resume_effects import ResumeEffectParentContextV1
 from loushang.harness.transcript.directory import AgentTranscriptDirectoryRuntime
 
 from ._base_product_composition import CodingBaseProductSessionAssembly
-from .composition_provenance import startup_composition_record
+from .composition_provenance import historical_startup_composition_record
 from .package_product_worker_ordinary_error import CodingWorkerOrdinaryBootstrapError
 from .package_product_worker_payload import plan_coding_product_worker_pending_launch
 from .package_product_worker_pending_host import (
@@ -118,7 +118,9 @@ def prepare_coding_product_worker_ordinary_binding(
         raise CodingWorkerOrdinaryBootstrapError(
             "coding_worker_ordinary_product_scope_changed"
         )
-    existing_startup = startup_composition_record(session_manager.get_entries())
+    existing_startup = historical_startup_composition_record(
+        session_manager.get_entries()
+    )
     if existing_startup is None and session_manager.get_entries():
         raise CodingWorkerOrdinaryBootstrapError(
             "coding_worker_ordinary_startup_provenance_missing"

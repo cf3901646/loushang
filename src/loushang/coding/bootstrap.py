@@ -84,7 +84,10 @@ from loushang.coding.capabilities import (
     CODING_LSP_CAPABILITY,
     coding_capability_mount_mode,
 )
-from loushang.coding.composition_provenance import composition_header_metadata
+from loushang.coding.composition_provenance import (
+    composition_header_metadata,
+    historical_composition_provenance,
+)
 from loushang.coding.composition_sets import (
     CODING_KERNEL_PROMPT_REVISION,
     CodingCompositionSetId,
@@ -647,6 +650,13 @@ def _create_agent_session(
     )
     session_no_tools_mode = normalize_no_tools(no_tools)
     requested_composition_set = _canonical_coding_composition_set(composition_set)
+    historical_composition = historical_composition_provenance(
+        session_manager.get_header().metadata
+    )
+    if historical_composition is not None and not composition_set_explicit:
+        requested_composition_set = resolve_coding_composition_set(
+            historical_composition.set_id
+        )
     if _resume_bootstrap_admission is not None:
         _resume_bootstrap_admission.require(session_manager, requested_composition_set)
     services = services or create_services()

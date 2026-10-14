@@ -2,6 +2,13 @@
 
 ## Status
 
+- 2026-10-14 correction completed by #735: restore admission treats historical
+  Runtime/Capability profiles, composition fingerprints, Plugin/Resource/Skill
+  selections, workspace instructions, permission settings and model selection
+  as audit evidence only. A readable Session is continued with the current
+  environment. Resume itself does not request `authority.unknown`; current
+  Tool policy still governs each new operation. Full writable validation is
+  bounded at 64 MiB, with a read-only recent-page fallback above that bound.
 - Hosted history binding: explicit catalog `open_history_binding` and
   `open_history_candidate` entries now
   deliver bounded selected-branch history through the existing Hosted adapter
@@ -115,8 +122,9 @@
   production activation coordinator is not implemented. The internal publication
   boundary below is not a durable publication receipt or crash-recovery authority.
   Coding AgentSession now builds detached current composition observations in
-  a separate internal receipt builder. Ordinary startup calls that builder and
-  retains its existing historical Header/startup equality checks. The builder
+  a separate internal receipt builder. Ordinary startup calls that builder;
+  the 2026-10-14 correction removes its former current-versus-historical
+  Header/startup equality checks. The builder
   reads current Plugin revisions, Product policy revision, Catalog selection,
   Worker receipt and owner generation references without reading or appending
   transcript history or enabling execution. A sentinel verifies this with the
@@ -259,8 +267,8 @@
 - Owning scope: Coding Session continuity; collaborating scopes: Harness,
   AppHost, AppService, AppServer, HarnessTUI.
 - Source baseline: `5c148849`; source links describe this baseline, not implemented changes.
-- Method: existing local `archmethod/method/`, revision
-  `5b31521605ce12e20134de74fa3877b5717127e4`, read without upstream checks.
+- Method: local `/home/dev/lsspace/archmethod` `master`, revision
+  `0f9bd3ff51afabeaaf76cc38dff1ceb279b7d37e`, read without upstream checks.
 - Review: three independent GPT-6 Astra perspectives; results are recorded in
   [the review record](2026-10-12-resume-compatibility-and-activation-review.md).
 
@@ -338,9 +346,9 @@ LMUX 支持以及避免 prepare 重复；故障与一致性条款是相应的工
 | --- | --- |
 | AGENTS、Prompt、Skill、插件增删升级、工具面变化 | 打开历史；按当前环境规划；记录分类差异或降级能力 |
 | 同名 composition 的实现变化 | 保留 setId 意图，解析当前定义；旧 plan fingerprint 仅作证据 |
-| 显式禁用工具、explicit_only、模型/thinking/cwd 意图 | 保留意图；无法满足时提示 unavailable 或请求显式重新绑定 |
+| 显式禁用工具、模型、thinking、cwd 变化 | 使用本次启动的当前选择继续；历史值只供审计与差异展示 |
 | 权限/策略收紧 | 新操作立即遵循当前限制 |
-| 未经明确配置确认的权限扩大 | 历史可读；执行前显示具体扩大项并确认 |
+| 权限配置变化 | 使用本次启动的当前权限继续；Resume 不额外制造权限扩大，具体新操作仍由当前 Policy/Approval 判定 |
 | 缺 composition provenance，但 Product 身份与 transcript 可确认 | legacy_unknown，同 ID 继续；不补写 Header |
 | 缺 Product 身份、来源冲突或无法判定的格式 | 类型化兼容处理；不能默认猜测 Product；按可读性提供查看/导出 |
 | 核心格式损坏、不支持的核心 schema、解密失败 | 限制可写恢复；只在有读取授权且数据可读时提供只读/原始导出 |
@@ -3463,8 +3471,9 @@ cannot enforce protocols it predates. The minimum writable contract is
 Worker `resume-context/v1` capabilities. Operators may inspect/export with the
 baseline reader, but must upgrade forward before another write.
 
-The large matrix measures bounded unverified display. Final writable
-revalidation remains capped at 8 MiB of selected history, so an uncompact
+The large matrix measures bounded unverified display. The 2026-10-14 correction
+raises final writable revalidation to 64 MiB of selected history, so the verified
+12.67 MiB field sample remains writable. An uncompact
 100,000-record Session is not claimed as writable. It stays readable through
 the bounded preview and fails closed for continuation until its selected
 history fits the verified range. This is the published support boundary rather
@@ -3496,3 +3505,39 @@ Writer. Windows and macOS keep the pre-existing cross-platform legacy same-ID
 Hosted recovery path, including process-death history recovery and a fresh
 ordinary turn. They do not substitute a read-only Resume wrapper for that
 existing G16 contract.
+
+#### 2026-10-14 field correction: current environment cannot veto history
+
+Two real local transcripts exposed gaps after the original merge: 1.32 MiB
+(126 records) and 12.67 MiB (2,170 records). Both decoded completely and were
+unchanged during diagnosis. The old entry rejected changed Resource and Plugin
+fingerprints as `effective composition changed`; the history-first entry used a
+1 MiB default and unconditionally requested `authority.unknown`, including when
+the computed composition differences were empty.
+
+The corrected contract is:
+
+1. A readable historical Header, Runtime Profile, Capability Profile,
+   composition receipt and Plugin/Resource receipt are validated against their
+   own schema and Product identity. They are not compared for equality with the
+   current installation.
+2. An unspecified composition choice retains the historical set ID while using
+   its current implementation. Current Plugin, Resource, Skill, AGENTS, model,
+   thinking, directory and permission inputs build the new turn.
+3. Resume does not request a permission grant merely because the historical
+   permission baseline is absent or different. The current execution profile
+   and Tool policy govern new operations through their normal owners.
+4. The full history and Writer revalidation paths share a 64 MiB limit. Larger
+   Sessions remain available through the bounded recent-history view until a
+   streaming or indexed full-verification path is delivered.
+5. Linux uses the native history-first Writer. macOS and Windows retain the
+   legacy same-ID continuation path; native macOS CI must prove that a changed
+   current Resource environment can append a fresh ordinary turn without
+   rewriting the original Header.
+
+Regression evidence covers changed Runtime/Capability profiles, AGENTS and
+Skill content, current model, permission profile, Plugin catalog fingerprint,
+12,000-record history above 8 MiB, headless continuation without a Resume
+approval prompt, and native macOS legacy same-ID continuation. Final CI run
+`38507720597` completed with 90 successful checks, one expected skip and no
+failures.
