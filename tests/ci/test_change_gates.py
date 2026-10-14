@@ -406,12 +406,38 @@ class ScopeTests(unittest.TestCase):
         self.assertTrue(selector.select([], full=True, pr_fast=True)["e2e"])
         workflow = (ROOT / ".github/workflows/e2e-smoke-quality.yml").read_text()
         self.assertIn("os: [ubuntu-24.04, macos-15, windows-2022]", workflow)
-        self.assertIn("--require-tests-count 1", workflow)
+        self.assertIn('--require-tests-count "$SMOKE_CASE_COUNT"', workflow)
+        self.assertIn("CI_PLAN: ${{ inputs.plan }}", workflow)
+        self.assertIn("fromJSON(inputs.plan).e2e_interaction && 2 || 1", workflow)
+        report_step = workflow.split("- name: Verify every selected smoke case ran and passed", 1)[1]
+        self.assertIn("shell: bash", report_step.split("- uses:", 1)[0])
         self.assertIn("uv run python scripts/ci/run_checks.py e2e_smoke", workflow)
         self.assertIn("tests/coding/test_resume_darwin.py", workflow)
         self.assertIn("--require-tests-count 2", workflow)
         self.assertIn("--require-property native_platform=darwin", workflow)
         self.assertIn("--require-property resume_route=session-lifecycle", workflow)
+
+    def test_interaction_smoke_is_selected_for_control_paths_only(self):
+        for path in (
+            "src/loushang/agent/agent.py",
+            "src/loushang/coding/session/agent_session.py",
+            "src/loushang/coding/ui/screen_input.py",
+            "src/loushang/harness/tools/core.py",
+            "src/loushang/harnesstui/conversation/control.py",
+        ):
+            with self.subTest(path=path):
+                plan = selector.select([path], pr_fast=True)
+                self.assertTrue(plan["e2e_interaction"])
+                self.assertTrue(selector.workflow_plan(plan)["e2e_interaction"])
+                command, = runner.commands("e2e_smoke", plan=plan)
+                self.assertIn("tests/coding/test_pr_smoke.py::test_terminal_cancel_tool_then_message_and_exit", command)
+        for path in ("docs/guide.md", "src/loushang/ai/pricing.py"):
+            with self.subTest(path=path):
+                plan = selector.select([path], pr_fast=True)
+                self.assertFalse(plan["e2e_interaction"])
+                command, = runner.commands("e2e_smoke", plan=plan)
+                self.assertNotIn("tests/coding/test_pr_smoke.py::test_terminal_cancel_tool_then_message_and_exit", command)
+        self.assertTrue(selector.select([], full=True)["e2e_interaction"])
 
     def test_sustained_worker_query_runs_for_its_test_and_full_validation(self):
         ordinary = selector.select(
@@ -439,7 +465,7 @@ class ScopeTests(unittest.TestCase):
         compact = selector.workflow_plan(plan)
 
         self.assertEqual(
-            set(compact), {"version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "windows", "host_runtime_smoke", "hosting_worker_pr_smoke"}
+            set(compact), {"version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "e2e_interaction", "windows", "host_runtime_smoke", "hosting_worker_pr_smoke"}
         )
         self.assertEqual(compact["paths"], plan["paths"])
         self.assertEqual(compact["checks"], plan["checks"])

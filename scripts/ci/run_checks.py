@@ -88,11 +88,16 @@ def commands(
                "--skip-host-runtime", "--strict-markers", "-q", *shard_args]
         ]
     if scope == "e2e_smoke":
+        cases = [
+            "tests/coding/test_pr_smoke.py::test_real_session_tool_persistence_resume_and_close"
+        ]
+        if plan is None or plan.get("e2e_interaction"):
+            cases.append(
+                "tests/coding/test_pr_smoke.py::test_terminal_cancel_tool_then_message_and_exit"
+            )
         return [
             pytest
-            + [
-                "tests/coding/test_hosted_application.py::"
-                "test_G12_VERTICAL_CANARY_crosses_real_composition_create_turn_resume_close",
+            + cases + [
                 "-m", "e2e_smoke and not live", "--strict-markers", "-q",
             ]
         ]

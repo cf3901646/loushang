@@ -389,6 +389,28 @@ def select(
         "unit_packages": sorted(unit_packages),
         "unit_jobs": unit_jobs,
         "e2e": e2e,
+        "e2e_interaction": e2e and (full or gate_infra or all(checks.values()) or any(
+            path.startswith((
+                "src/loushang/agent/", "tests/agent/",
+                "src/loushang/tui/", "tests/tui/",
+                "src/loushang/harnesstui/", "tests/harnesstui/",
+                "src/loushang/coding/ui/", "tests/coding/test_screen_",
+                "src/loushang/coding/session/", "tests/coding/test_agent_session",
+                "src/loushang/coding/tools/", "src/loushang/coding/tool_", "tests/coding/test_tool_",
+                "src/loushang/coding/session_manager.py",
+                "src/loushang/coding/appservice_adapter.py",
+                "src/loushang/appservice/execution", "tests/appservice/test_execution",
+                "src/loushang/appserver/execution", "tests/appserver/test_execution",
+                "src/loushang/coding/policy", "tests/coding/test_policy",
+                "src/loushang/harness/session/", "tests/harness/session/",
+                "src/loushang/harness/tools/", "tests/harness/tools/",
+                "src/loushang/harness/approval/", "tests/harness/approval/",
+                "src/loushang/harness/policy/", "tests/harness/policy/",
+                "src/loushang/harness/workspace/", "tests/harness/workspace/",
+                "src/loushang/coding/hosted", "tests/coding/test_hosted",
+                "tests/coding/test_pr_smoke.py",
+            )) for path in paths
+        )),
         "windows": windows,
         "host_runtime_smoke": host_runtime_smoke,
         "hosting_worker_pr_smoke": hosting_worker_pr_smoke,
@@ -407,7 +429,7 @@ def workflow_plan(plan: dict) -> dict:
     """
     return {
         key: plan[key]
-        for key in ("version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "windows", "host_runtime_smoke", "hosting_worker_pr_smoke")
+        for key in ("version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "e2e_interaction", "windows", "host_runtime_smoke", "hosting_worker_pr_smoke")
     }
 
 
