@@ -206,3 +206,25 @@ stream 启动代码，只替换 API 名称。该驱动已合并到 `_runtime.py`
 858 项通过、7 项 live deselect，31.28 秒；总覆盖率 90.65% 及三个细分阈值、
 Ruff、mypy、catalog 和 import boundary 均通过。本批减少维护重复，不改变门禁、
 route、平台、触发或失败条件。
+
+## 10. Root、Examples 与 Integration 初审
+
+Root 的 1 个实例只约束打包 console script。Examples 的 49 个静态函数收集为
+61 个实例，按 Agent、AI/Auth、Coding 和 Harness 的公开示例分别验证公开导入、
+受控 fake 模型或认证、脚本 help/import 与独有输出。忽略函数名的完整 AST 没有
+重复测试；相似的 module loader 属于多个模块 owner，共享它需要先定义跨 owner
+测试助手的影响路由，因此本批不以无归属 helper 替换局部代码。
+
+Integration 的 10 个静态函数收集为 42 个实例：4 个显式 `live` LSP Server
+兼容用例，5 个 Ontology 内存/SQLite 产品组合实例，以及 33 个 manifest 示例
+子进程 smoke。LSP 用例分别验证 Pyright、TypeScript、gopls、rust-analyzer 的真实
+协议和诊断生命周期；Ontology 用例覆盖 action/fact 投影与真实 SQLite 重启、身份
+拒绝边界，不能跨平台或存储配置合并。
+
+Root、Examples 与 Integration 的非 live 联合运行结果为 97 项通过、3 项失败、
+4 项 live deselect，3 分 58.95 秒。`legacy-007/013/019` 三个示例在各自新建临时
+目录首次创建 Session 时稳定得到 transcript writer `conflict/unavailable`；精确
+复跑仍为 3 项失败、12.89 秒，不能作为绿色证据。manifest smoke 的 33 个参数逐个
+启动子进程，最慢两个为 24.69 秒和 20.11 秒；当前正常 PR workflow 不执行该文件，
+直接修改它却会因无 owner 保守选择全量门禁。为它新增 targeted owner 会增加测试
+route，须单独审批；本批仅记录问题，不改变门禁、测试身份或失败条件。
