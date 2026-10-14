@@ -5,6 +5,16 @@ It selects checks once, calls the affected reusable workflows, and verifies
 their results through `quality-gate`. Local development uses the same
 [selection rules](../../../scripts/ci/check-scopes.json).
 
+## Refactoring proposal
+
+The proposed [重构与优化测试与 PR 门禁](test-and-pr-gate-refactoring-plan.md)
+consolidates test classification, minimal capability coverage, duplicate removal,
+and replacement of historical phase jobs with module/capability gates. Its
+[three-view review](test-and-pr-gate-refactoring-review.md) records findings and
+revisions. Its [complete current gate inventory](test-and-pr-gate-inventory.md)
+accounts for all workflows and source job definitions. This remains a proposal while implementation is paused; the current
+selection rules and pause policy below remain in effect.
+
 ## Temporary long-running gate pause
 
 The following entire reusable workflows are paused by user request while their
