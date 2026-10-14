@@ -1,6 +1,6 @@
 # 重构与优化测试与 PR 门禁
 
-- 文档修订：R7，2026-10-14。
+- 文档修订：R8，2026-10-14。
 - 状态：实施进行中；用户已建立新 goal。六类长门禁仍保持暂停。
 - 范围：现有全部工作流、源 job、平台矩阵、测试清单、执行器及汇总检查的分类、去重、有效合并与迁移。
 - 全量盘点：[16 个工作流、71 个源 job 的分析与去向](test-and-pr-gate-inventory.md)。
@@ -283,13 +283,13 @@ PR 因此多执行任务或多出失败条件，也不能自行实施。未获�
 | --- | --- | --- | --- |
 | agent | 7 | 126 | 角色完整初审；附属 examples 合同也纳入 |
 | ai | 56 | 540 | 角色与完全重复初审完成；719 个实例分为 710 个受控合同、2 个 loopback 集成节点和 7 个显式 live vendor 场景，短路径覆盖缺口待审批 |
-| apphost | 64 | 693 | 待逐项审查 |
+| apphost | 64 | 693 | 角色、重复和成本初审完成；1217 个实例中现有短路径覆盖 165 个，其余执行归属为 AP-05，未经审批不补齐 |
 | appserver | 22 | 168 | 完整初审；17 个 unit/contract，3 个 integration，2 个 platform |
 | appservice | 16 | 187 | 完整初审；14 个 unit/contract，1 个 integration，1 个 platform |
 | architecture | 62 | 654 | 角色与完全重复初审完成；654 项静态/内存合同 8 分 23 秒全绿，历史 owner 重叠与未归属路由仍待审批重组 |
 | channel | 6 | 39 | 完整初审 |
 | ci | 6 | 139 | 完整初审；选择、归属、证据、聚合及复用合同 |
-| coding | 429 | 3933 | 待逐项审查 |
+| coding | 440 | 3959 | 增量角色与完整重复初审完成；68 个整文件 targeted owner、2 个混合文件的 32 个 node 已登记，333 个 Coding 文件与 1 个示例文件仍走保守模块集合；完整分类缺口未经审批不改路由 |
 | dev | 45 | 406 | 部分初审；19 个遗漏的 G18/lmux 测试路径已收敛到既有 owner |
 | examples | 6 | 49 | 角色完整初审；61 个模块所属示例合同实例 |
 | foundation | 11 | 87 | Ubuntu 模块角色完整初审 |
@@ -513,3 +513,24 @@ workflow、job、平台矩阵、触发或失败条件。
 
 审批方未明确批准 AP-05 前，不补齐 AppHost 活动模块清单、不建立新的 targeted
 route、不扩大平台矩阵，也不恢复任何暂停门禁。
+
+### 待审批门禁变更 AP-06：Coding 剩余混合集合完整归属
+
+状态：完成当前目录规模、实际远程执行、平台跳过、完全重复和热点初审；该材料尚未
+达到逐 node 审批精度，未修改 classification catalog、模块清单、workflow、job、平台、
+触发或失败条件。
+
+| 项目 | 审批材料 |
+| --- | --- |
+| 目的 | 将 Coding 当前保守模块集合逐 node 分成必要单元/合同、真实集成、平台和 E2E owner，并消除 Ubuntu 模块中的平台 skip 与完全不收集的显式路径 |
+| 当前规模 | 440 个测试文件、3959 个静态测试函数；已有 68 个整文件 targeted owner（53 integration、14 platform、1 E2E）和两个混合文件的 32 个 integration node |
+| 当前模块集合 | 命令显式包含 333 个 Coding 文件和 1 个 Coding examples 文件；v5 远程报告为 3723 个实例，其中 3703 passed、20 skipped、0 failed，testcase 时间 530.29 秒 |
+| 未证明路径 | 21 个显式路径在该 Ubuntu 报告中没有 testcase，主要是 Windows base、terminal marker、installed evidence、PR smoke 和 render contract；20 个 skip 来自 9 个 Darwin/Windows/secure-staging 混合文件。不能把“在命令参数中”当作已执行证据 |
+| 热点 | `test_bootstrap.py` 138.79 秒、`test_cli.py` 50.74 秒、`test_lmux_command.py` 48.58 秒、`test_resume_runtime_publication.py` 33.61 秒；前者包含当前默认 Product composition，后两类包含真实 CLI/lmux 或逐故障状态隔离 |
+| 重复关系 | 当前 440 文件忽略测试名称后的完整 AST 函数体扫描无重复簇；8 个分片报告按 testcase 身份无分片重叠。相似恢复参数覆盖不同持久状态、撤销时点和恢复结果，不能按模板相似删除 |
+| 现有性能 | v5 远程 8 个 Coding job 为约 1 分 33 秒至 2 分 21 秒；该轮完整顶层流水线约 5 分 27 秒，已低于 10 分钟目标，但不证明剩余角色完整 |
+| 新增门禁面 | 将未执行的平台/marker 路径加入活动 owner、给混合文件增加 targeted node、改变平台或让 schedule/full 首次执行缺失路径，均会增加 route 或失败条件，必须逐项审批；本批不实施 |
+| 审批前置 | 补齐每个拟迁移 node ID、唯一断言、现有 owner、目标平台、远程耗时和回退；与 AP-01 的 5 个文件去重后再提交，不以本初审直接视为批准 |
+
+审批方未明确批准 AP-06 的具体 node 清单前，不完成 Coding catalog、不移动剩余节点、
+不启用当前未执行路径，也不扩大平台矩阵。现有 8 分片保持不变。

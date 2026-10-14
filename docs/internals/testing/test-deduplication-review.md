@@ -527,3 +527,42 @@ owner 记为 AP-05，未经审批不修改 inventory、catalog、workflow、平�
 1 skipped、87.87 秒，墙钟减少 15.87 秒（15.3%）；最慢单项降到 2.02 秒。该结果只
 证明 Linux 安全离线集合和本轮测试准备修改，不替代 Windows native、installed 或
 远程 runner 证据，也不批准 AP-05。
+
+## 18. Coding 当前目录增量初审
+
+当前 `tests/coding` 已增长到 440 个 `test_*.py` 文件、3959 个静态测试函数。既有
+classification catalog 登记 68 个整文件 owner：53 个 integration、14 个 platform、
+1 个 E2E；其中 66 个运行于 Ubuntu、1 个 macOS、1 个 Windows。另有
+`test_agent_session_runtime.py` 与 `arch/test_activation.py` 两个混合文件的 32 个
+integration node；未登记节点继续留在模块回归。39 个 Coding UI 文件由既有
+Harnesstui/Coding UI owner 单独执行，不再重复进入后端模块集合。
+
+策略 v5 的远程全选运行 `38563194640` 提供 8 份 Coding JUnit。模块命令显式包含
+333 个 Coding 文件和 `tests/examples/test_coding_examples.py`；报告并集为 3723 个
+实例，3703 passed、20 skipped、0 failed，testcase 时间合计 530.29 秒。8 个 job
+从开始到完成分别约 1 分 33 秒至 2 分 21 秒，顶层运行从创建到 `quality-gate`
+完成约 5 分 27 秒。每个 testcase 只出现于一个分片；当前没有固定分片重复执行。
+
+命令参数本身不等于执行证据。21 个显式路径没有产生 testcase：其中包含 Windows
+Product Worker base 文件、三类 terminal marker 文件、installed evidence、PR smoke
+和 render contract。另有 20 个 skip 分布在 9 个文件，原因为 Darwin/Windows native、
+Windows Product root 或 secure staging 条件。这些路径需要先核对现有平台 owner；
+让当前未执行场景首次阻断 PR 或 full validation 属于新增失败条件，未经审批不修改。
+
+远程文件级热点为 `test_bootstrap.py` 138.79 秒、`test_cli.py` 50.74 秒、
+`test_lmux_command.py` 48.58 秒和 `test_resume_runtime_publication.py` 33.61 秒。
+`test_bootstrap.py` 的慢例会建立隔离的 `LOUSHANG_HOME` 并进入当前默认 Product
+composition；CLI/lmux 文件含真实本地进程；恢复矩阵按撤销、提交结果、持久状态和
+恢复结果隔离。把这些用例批量改走 `legacy_coding_route`、共享可变会话或把多个故障
+模式串进一个实例，会减少当前路径或隔离证明，因此本轮不采用。
+
+一次本机全文件测量误把 `TMPDIR` 放在 `/home/dev/lsspace` 下，资源发现合法继承工作区
+`AGENTS.md`，使 9 个依赖空祖先的测试改变输入；该运行不作为失败或性能基线。改用
+mode `0700`、无仓库资源祖先的 `/var/tmp` 专用根后，三个代表失败全部通过。正式成本
+仍采用同提交的远程 JUnit，避免用环境不同的本机墙钟调整分片。
+
+对当前 440 文件再次执行忽略测试名称、保留参数/decorator/函数体的完整 AST 扫描，
+没有完全相同函数体。恢复和 publication 参数矩阵虽然共用测试主体，但每个参数验证
+不同故障阶段与最终状态，不能按代码相似删除。剩余 333 文件的逐 node 完整角色、
+21 个零报告路径和 9 个 skip 文件的目标平台归属记为 AP-06；在逐 node 审批材料完成
+并获批前，不修改 catalog、route、平台、触发或失败条件。
