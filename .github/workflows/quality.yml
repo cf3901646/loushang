@@ -181,6 +181,7 @@ jobs:
         if: ${{ github.event_name == 'pull_request' && fromJSON(needs.changes.outputs.plan).e2e }}
         with:
           name: pr-quality-evidence
+          overwrite: true
           path: pr-quality-evidence.json
           if-no-files-found: error
           retention-days: 7

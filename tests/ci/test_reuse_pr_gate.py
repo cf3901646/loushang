@@ -213,6 +213,7 @@ class EvidenceTests(unittest.TestCase):
         self.assertLess(workflow.index("--require-changes"), workflow.index("--record"))
         self.assertIn("CI_REUSED_RUN: ${{ needs.changes.outputs.reused_run }}", workflow)
         self.assertIn("if-no-files-found: error", workflow)
+        self.assertIn("name: pr-quality-evidence\n          overwrite: true", workflow)
 
     def test_expired_or_missing_artifact_is_not_reused(self):
         for key, value in (("expired", True), ("name", "unrelated")):
