@@ -601,25 +601,17 @@ def measure(
                     submitted_after = len(driver.raw_output)
                     submitted = time.perf_counter()
                     driver.write(INPUT + "\r")
-                    if resume:
-                        wait_for_frame(
-                            driver,
-                            lambda out: frame_matches(
-                                out,
-                                "Allow this action once",
-                                after=submitted_after,
-                            ),
-                            timeout=35,
-                        )
-                        metrics["approval_visible_seconds"] = (
-                            time.perf_counter() - submitted
-                        )
-                        driver.write("y")
                     wait_for_frame(
                         driver,
                         lambda out: frame_matches(out, REPLY, after=submitted_after),
                         timeout=60 if resume else 35,
                     )
+                    if resume:
+                        assert (
+                            "Allow this action once"
+                            not in driver.raw_output[submitted_after:]
+                        )
+                        metrics["resume_approval_prompted"] = False
                     metrics["first_reply_seconds"] = time.perf_counter() - submitted
                     metrics["spawn_through_reply_seconds"] = (
                         time.perf_counter() - spawn["start"]
@@ -627,7 +619,7 @@ def measure(
 
                     def settled(out):
                         if not frame_matches(
-                            out, " | idle", REPLY, after=submitted_after
+                            out, "› ", REPLY, after=submitted_after
                         ):
                             return False
                         lines = (root / "model-trace.jsonl").read_text().splitlines()

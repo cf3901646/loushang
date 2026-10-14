@@ -21,6 +21,7 @@ from loushang.harness.transcript import (
     AGENT_MESSAGE_KIND,
     write_agent_transcript_export,
 )
+from loushang.harness.transcript.jsonl_file import AgentTranscriptFileError
 from loushang.harnesstui.conversation.agent_binding import agent_session_history_records
 
 
@@ -217,7 +218,7 @@ def test_embedded_history_root_retains_cancelled_waiter_and_fences_delivery(tmp_
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("budget", [True, 0, 8 * 1024 * 1024 + 1])
+@pytest.mark.parametrize("budget", [True, 0, 64 * 1024 * 1024 + 1])
 def test_embedded_history_rejects_invalid_budget_before_discovery(tmp_path, budget):
     owner, _, _, _ = _fixture(tmp_path)
 
@@ -226,6 +227,31 @@ def test_embedded_history_rejects_invalid_budget_before_discovery(tmp_path, budg
             with pytest.raises(ValueError, match="byte budget"):
                 await owner.preview_resume_history("missing", max_bytes=budget)
             assert not owner._resume_history_reads
+        finally:
+            await owner.dispose_session_runtime()
+
+    asyncio.run(scenario())
+
+
+def test_embedded_history_default_reads_selected_transcript_above_one_mib(tmp_path):
+    owner, path, header, _ = _fixture(tmp_path)
+    records = [ConversationRecord(
+        record_id=f"record-{index}",
+        parent_id=None if index == 0 else f"record-{index - 1}",
+        kind=AGENT_MESSAGE_KIND,
+        payload_version=1,
+        created_at="2026-10-12T00:00:01Z",
+        payload=UserMessage(role="user", content="x" * 1024, timestamp=1.0),
+    ) for index in range(1800)]
+    write_agent_transcript_export(path, header, records)
+    assert 1024 * 1024 < path.stat().st_size < 8 * 1024 * 1024
+    owner.refresh_session_index()
+
+    async def scenario():
+        try:
+            history = await owner.preview_resume_history(path)
+            assert history.selected_records[-1].record_id == "record-1799"
+            assert owner.current_session is None
         finally:
             await owner.dispose_session_runtime()
 
@@ -307,6 +333,60 @@ def test_root_recent_page_handles_history_above_snapshot_budget(tmp_path, monkey
     assert path.stat().st_size == before.st_size
     assert path.stat().st_mtime_ns == before.st_mtime_ns
     assert {item.name for item in tmp_path.iterdir()} == before_names
+
+
+def test_resume_startup_fully_reads_a_transcript_above_eight_mib(
+    tmp_path,
+):
+    owner, path, header, _ = _fixture(tmp_path)
+    records = [ConversationRecord(
+        record_id=f"record-{index}",
+        parent_id=None if index == 0 else f"record-{index - 1}",
+        kind=AGENT_MESSAGE_KIND,
+        payload_version=1,
+        created_at="2026-10-12T00:00:01Z",
+        payload=UserMessage(role="user", content="x" * 1024, timestamp=1.0),
+    ) for index in range(12000)]
+    write_agent_transcript_export(path, header, records)
+    assert path.stat().st_size > 8 * 1024 * 1024
+    before = path.read_bytes()
+    owner.refresh_session_index()
+
+    async def scenario():
+        try:
+            startup = await owner.preview_resume_startup(path)
+            assert startup.status == "preview"
+            assert startup.selected_records[-1].record_id == "record-11999"
+            assert len(startup.records) == 12000
+            assert owner.current_session is None
+        finally:
+            await owner.dispose_session_runtime()
+
+    asyncio.run(scenario())
+    assert path.read_bytes() == before
+
+
+def test_resume_startup_falls_back_only_when_the_full_budget_is_exceeded(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner, path, _, _ = _fixture(tmp_path)
+
+    async def oversized(*_args, **_kwargs):
+        raise AgentTranscriptFileError(
+            "too large", path=path, code="session_file_too_large"
+        )
+
+    monkeypatch.setattr(owner, "preview_resume_history", oversized)
+
+    async def scenario() -> None:
+        try:
+            startup = await owner.preview_resume_startup(path)
+            assert startup.status == "unverified_tail_preview"
+            assert startup.records[-1].record_id == "right"
+        finally:
+            await owner.dispose_session_runtime()
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("segment_bytes", [True, 0, 1024 * 1024 + 1])

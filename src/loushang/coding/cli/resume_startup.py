@@ -14,6 +14,7 @@ from loushang.coding.embedded_resume import (
 from loushang.coding.interaction.resume_history import (
     build_coding_resume_history_screen,
 )
+from loushang.coding.resume_history import CodingResumeHistoryPreview
 from loushang.coding.ui.screen_app import ScreenCodingTuiApp
 from loushang.coding.ui.screen_surfaces import ScreenSurfaceManager
 from loushang.harnesstui.conversation.agent_application import (
@@ -78,14 +79,18 @@ async def run_embedded_resume_history_host(
         if context.args.no_builtin_tools
         else None
     )
-    coordinator = EmbeddedResumeInputCoordinator(
-        runtime=context.runtime,
-        services=context.state.services,
-        policy_evaluator=context.state.tool_policy_evaluator,
-        model=resume.model,
-        thinking_level=context.args.thinking,
-        no_tools=no_tools,
-        worker_candidate_plugin_id=context.args.worker_query_plugin,
+    coordinator = (
+        EmbeddedResumeInputCoordinator(
+            runtime=context.runtime,
+            services=context.state.services,
+            policy_evaluator=context.state.tool_policy_evaluator,
+            model=resume.model,
+            thinking_level=context.args.thinking,
+            no_tools=no_tools,
+            worker_candidate_plugin_id=context.args.worker_query_plugin,
+        )
+        if isinstance(resume.history, CodingResumeHistoryPreview)
+        else None
     )
     app.state.cwd = str(context.bootstrap.project_root)
     app.state.session_label = resume.history.header_preview.header.conversation_id
@@ -121,6 +126,8 @@ async def run_embedded_resume_history_host(
     )
 
     async def prepare_input(action: Any, observe: Any) -> Any:
+        if coordinator is None:
+            raise RuntimeError("Writable continuation requires verified history")
         return await coordinator.prepare_input(
             session_file=resume.target,
             history=resume.history,
@@ -133,7 +140,7 @@ async def run_embedded_resume_history_host(
         session_ref=resume.target,
         history=resume.history,
         app=app,
-        prepare_input=prepare_input,
+        prepare_input=prepare_input if coordinator is not None else None,
         surface=surface,
         stderr=context.bootstrap.stderr,
         approval_interaction=approval,

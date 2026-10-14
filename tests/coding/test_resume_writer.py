@@ -111,8 +111,8 @@ def test_resume_writer_retains_legacy_id_header_and_original_exclusive_owner(tmp
                 },
             })
             write_agent_transcript_export(path, header, records)
-            with pytest.raises(ValueError, match="unsupported capability profile"):
-                await SessionManager.load(path)
+            reopened = await SessionManager.load(path)
+            await reopened.dispose_runtime_profile()
         before = path.read_bytes()
         history = read_coding_resume_snapshot(path, max_bytes=1024 * 1024)
         plan = build_session_activation_plan(

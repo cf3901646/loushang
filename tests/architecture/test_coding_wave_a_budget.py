@@ -90,11 +90,12 @@ def test_coding_product_slices_stay_within_wave_a_budget() -> None:
     # these same original owners. Exact net delta from current main: catalog
     # +334, session +195 and CLI +34. The catalog delta includes the
     # lifecycle-observation proxies required by the Resume wrapper.
+    # Issue #696 correction: share the 64 MiB verified-history cap (+1).
     # See foreground-stdio-hosted-app-g14.md, R2.1 reviewability supplement.
-    assert sum(groups["g14"].values()) <= 1_300 + 205 + 8 + 3 + 334 + 195 + 34, groups["g14"]
+    assert sum(groups["g14"].values()) <= 1_300 + 205 + 8 + 3 + 334 + 195 + 34 + 1, groups["g14"]
     for path, limit in {
         "cli/hosted.py": 290,
-        "hosted_catalog.py": 1_220,
+        "hosted_catalog.py": 1_221,
         "hosted_session.py": 569,
     }.items():
         assert groups["g14"][path] <= limit, (path, groups["g14"][path], limit)

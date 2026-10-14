@@ -410,6 +410,9 @@ class ScopeTests(unittest.TestCase):
         self.assertIn("CI_PLAN: ${{ inputs.plan }}", workflow)
         self.assertIn("fromJSON(inputs.plan).e2e_interaction && 2 || 1", workflow)
         self.assertIn("uv run python scripts/ci/run_checks.py e2e_smoke", workflow)
+        self.assertIn("tests/coding/test_resume_darwin_legacy.py", workflow)
+        self.assertIn("--require-property native_platform=darwin", workflow)
+        self.assertIn("--require-property resume_route=legacy-same-id", workflow)
 
     def test_interaction_smoke_is_selected_for_control_paths_only(self):
         for path in (

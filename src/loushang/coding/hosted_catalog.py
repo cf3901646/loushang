@@ -64,6 +64,7 @@ from .composition_provenance import composition_header_metadata
 from .composition_sets import resolve_coding_composition_set
 from .product_plan import CODING_PRODUCT_ID, CODING_TRANSCRIPT_RUNTIME
 from .resume_history import (
+    MAX_CODING_RESUME_HISTORY_BYTES,
     CodingResumeHeaderPreview,
     CodingResumeHistoryPreview,
     inspect_coding_resume_header,
@@ -88,7 +89,7 @@ if TYPE_CHECKING:
 CODING_HOSTED_COMPATIBILITY_ID = "coding-hosted-v1"
 _METADATA_KEY = "coding.hosted"
 _MAX_CANDIDATES = 256
-_MAX_TRANSCRIPT_BYTES = 8 * 1024 * 1024
+_MAX_TRANSCRIPT_BYTES = MAX_CODING_RESUME_HISTORY_BYTES
 _DISCOVERY_BYTES = 32 * 1024 * 1024
 
 

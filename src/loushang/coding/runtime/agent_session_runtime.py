@@ -33,6 +33,7 @@ from loushang.harness.session.lifecycle import (
 )
 from loushang.harness.session.multiagent import compose_multiagent_before_release
 from loushang.harness.session.transcript_lifecycle import ResolvedDiscoveredSessionFile
+from loushang.harness.transcript import AgentTranscriptFileError
 from loushang.harness.transcript.session_catalog import (
     session_file_authority_fingerprint,
 )
@@ -42,6 +43,7 @@ from .._resume_cleanup import (
     retain_resume_cleanup_failure,
 )
 from ..resume_history import (
+    MAX_CODING_RESUME_HISTORY_BYTES,
     CodingResumeHistoryPreview,
     CodingResumeRecentPage,
     read_coding_resume_recent_page,
@@ -720,7 +722,10 @@ class AgentSessionRuntime(
         return self._resume_planning.current(history, current_owner_inputs=current_owner_inputs)
 
     async def preview_resume_history(
-        self, session_id: str | Path, *, max_bytes: int = 1024 * 1024,
+        self,
+        session_id: str | Path,
+        *,
+        max_bytes: int = MAX_CODING_RESUME_HISTORY_BYTES,
         selected_leaf_id: str | None = None,
     ) -> CodingResumeHistoryPreview:
         """Observe discovered history without selecting a writable Session.
@@ -729,7 +734,10 @@ class AgentSessionRuntime(
         is a data entry, not a lifecycle replacement or execution admission.
         """
 
-        if type(max_bytes) is not int or not 1 <= max_bytes <= 8 * 1024 * 1024:
+        if (
+            type(max_bytes) is not int
+            or not 1 <= max_bytes <= MAX_CODING_RESUME_HISTORY_BYTES
+        ):
             raise ValueError("invalid Coding Resume history byte budget")
 
         def read(source: ResolvedDiscoveredSessionFile) -> CodingResumeHistoryPreview:
@@ -739,6 +747,23 @@ class AgentSessionRuntime(
             )
 
         return await self._preview_resume_data(session_id, read)
+
+    async def preview_resume_startup(
+        self, session_id: str | Path,
+    ) -> CodingResumeHistoryPreview | CodingResumeRecentPage:
+        """Load verified history, falling back to a bounded read-only page.
+
+        A transcript above the selected-path budget remains viewable, but its
+        tail is not sufficient evidence for selecting ancestry or acquiring a
+        Writer. Other decode and identity failures remain errors.
+        """
+
+        try:
+            return await self.preview_resume_history(session_id)
+        except AgentTranscriptFileError as error:
+            if error.code != "session_file_too_large":
+                raise
+        return await self.preview_resume_recent_page(session_id)
 
     async def preview_resume_recent_page(
         self, session_id: str | Path, *, segment_bytes: int = 64 * 1024,
