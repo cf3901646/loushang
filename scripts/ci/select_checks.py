@@ -379,6 +379,15 @@ def select(
         for rule in rules["rules"]:
             if any(fnmatch.fnmatchcase(path, pattern) for pattern in rule["paths"]):
                 enable(rule["checks"], f"{path}: {rule['reason']}")
+                if (
+                    pr_fast
+                    and not full
+                    and rule.get("pr_test_only")
+                    and path.startswith("tests/")
+                ):
+                    # Reviewed test/support changes keep their existing owner
+                    # and module regressions without unrelated product E2E.
+                    reviewed_test_paths.add(path)
                 matched = True
         # Reuse the actual coverage inventories instead of copying hundreds of
         # support files into a second, drifting list of path filters.
