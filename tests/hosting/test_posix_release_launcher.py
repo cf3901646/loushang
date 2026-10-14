@@ -47,13 +47,11 @@ _WHEEL_BUILDER = (
 )
 
 
-@pytest.mark.requires_host_runtime
-@pytest.mark.skipif(
-    sys.platform != "linux" or platform.machine().lower() not in {"x86_64", "amd64"},
-    reason="Linux x86-64 native launcher",
-)
-def test_checked_in_launcher_build_and_native_containment(tmp_path: Path) -> None:
-    release = tmp_path / "release"
+@pytest.fixture(scope="module")
+def built_release_template(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Path:
+    release = tmp_path_factory.mktemp("posix-release") / "release"
     built = subprocess.run(
         (sys.executable, str(_BUILDER), "--output-dir", str(release)),
         stdin=subprocess.DEVNULL,
@@ -63,8 +61,28 @@ def test_checked_in_launcher_build_and_native_containment(tmp_path: Path) -> Non
         check=False,
     )
     assert built.returncode == 0, built.stderr
-    catalog = json.loads(built.stdout)
-    assert json.loads((release / "catalog.json").read_text()) == catalog
+    assert json.loads((release / "catalog.json").read_text()) == json.loads(
+        built.stdout
+    )
+    return release
+
+
+def copy_built_release(template: Path, target: Path) -> dict[str, object]:
+    shutil.copytree(template, target)
+    return json.loads((target / "catalog.json").read_text())
+
+
+@pytest.mark.requires_host_runtime
+@pytest.mark.skipif(
+    sys.platform != "linux" or platform.machine().lower() not in {"x86_64", "amd64"},
+    reason="Linux x86-64 native launcher",
+)
+def test_checked_in_launcher_build_and_native_containment(
+    tmp_path: Path,
+    built_release_template: Path,
+) -> None:
+    release = tmp_path / "release"
+    catalog = copy_built_release(built_release_template, release)
     launcher = release / "containment-launcher"
     assert sha256(launcher.read_bytes()).hexdigest() == catalog["launcherSha256"]
     repeated = subprocess.run(
@@ -274,21 +292,13 @@ def test_checked_in_launcher_build_and_native_containment(tmp_path: Path) -> Non
 )
 def test_checked_in_launcher_keeps_descendants_in_original_group(
     tmp_path: Path,
+    built_release_template: Path,
 ) -> None:
     compiler = shutil.which("cc")
     if compiler is None:
         pytest.fail("H6 native profile requires a C compiler")
     release = tmp_path / "release"
-    built = subprocess.run(
-        (sys.executable, str(_BUILDER), "--output-dir", str(release)),
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=30,
-        check=False,
-    )
-    assert built.returncode == 0, built.stderr
-    catalog = json.loads(built.stdout)
+    catalog = copy_built_release(built_release_template, release)
     source = tmp_path / "group-escape.c"
     payload = tmp_path / "group-escape"
     source.write_text(
@@ -368,18 +378,12 @@ int main(void) {
     sys.platform != "linux" or platform.machine().lower() not in {"x86_64", "amd64"},
     reason="Linux x86-64 native launcher",
 )
-def test_checked_in_launcher_gated_v2_waits_for_parent_release(tmp_path: Path) -> None:
+def test_checked_in_launcher_gated_v2_waits_for_parent_release(
+    tmp_path: Path,
+    built_release_template: Path,
+) -> None:
     release = tmp_path / "release"
-    built = subprocess.run(
-        (sys.executable, str(_BUILDER), "--output-dir", str(release)),
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=30,
-        check=False,
-    )
-    assert built.returncode == 0, built.stderr
-    catalog = json.loads(built.stdout)
+    catalog = copy_built_release(built_release_template, release)
     launcher = release / "containment-launcher"
     payload = tmp_path / "payload"
     _compile_containment_payload(payload, marker="gated-release")
@@ -454,20 +458,12 @@ def test_checked_in_launcher_gated_v2_waits_for_parent_release(tmp_path: Path) -
 )
 def test_strict_query_launcher_denies_ambient_file_and_process_authority(
     tmp_path: Path,
+    built_release_template: Path,
 ) -> None:
     import fcntl
 
     release = tmp_path / "release"
-    built = subprocess.run(
-        (sys.executable, str(_BUILDER), "--output-dir", str(release)),
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=30,
-        check=False,
-    )
-    assert built.returncode == 0, built.stderr
-    catalog = json.loads(built.stdout)
+    catalog = copy_built_release(built_release_template, release)
     secret = tmp_path / "secret"
     secret.write_bytes(b"private worker host secret")
     victim = tmp_path / "victim"
