@@ -43,12 +43,12 @@ jobs:
           --shard ${{ matrix.shard }} --shards ${{ matrix.shards }}
       - name: Verify nonempty passing module report
         run: >-
-          uv run python scripts/dev/verify_pytest_xml.py
+          uv run python scripts/ci/verify_module_report.py ${{ matrix.package }}
           .artifacts/module-${{ matrix.package }}-${{ matrix.shard }}.xml
-          --allow-skipped
+          --shards ${{ matrix.shards }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: module-${{ matrix.package }}-${{ matrix.shard }}-pytest-report
           path: .artifacts/module-${{ matrix.package }}-${{ matrix.shard }}.xml
-          if-no-files-found: warn
+          if-no-files-found: error

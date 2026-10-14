@@ -60,6 +60,15 @@ fixtures retain their normal impact union. Missing or stale file classifications
 fail validation; owned extras must also be classified and run exactly once.
 Unreviewed modules retain their existing coverage.
 
+The module workflow validates actual JUnit testcase counts and identities through
+[verify_module_report.py](../../../scripts/ci/verify_module_report.py). Reviewed
+necessary sets reject every skipped testcase; an unsharded result must include
+every registered test file. Duplicate identities, results outside the reviewed
+owner, missing reports, empty runs and failures are rejected. Unreviewed legacy
+sets retain their platform skip allowance while requiring a passing testcase.
+For sharded sets, individual reports validate their own results; complete union
+coverage still requires the planned shard collection and ownership checks.
+
 | Change | Required scope |
 | --- | --- |
 | Ordinary Markdown/RST documentation | Existing documentation invariants and changed Markdown links; no product dependency installation |

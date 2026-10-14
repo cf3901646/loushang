@@ -781,7 +781,7 @@ class ScopeTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/package-unit-quality.yml").read_text()
         self.assertIn("include: ${{ fromJSON(inputs.plan).unit_jobs }}", workflow)
         self.assertIn("--shard ${{ matrix.shard }} --shards ${{ matrix.shards }}", workflow)
-        self.assertIn("verify_pytest_xml.py", workflow)
+        self.assertIn("verify_module_report.py", workflow)
         for package in ("ai", "agent", "coding", "harness", "harnesstui", "tui"):
             with self.subTest(package=package):
                 command = runner.commands("unit_" + package)[-1]

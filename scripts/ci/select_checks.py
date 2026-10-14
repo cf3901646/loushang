@@ -27,6 +27,8 @@ PR_ROUTING_FILES = {
     "scripts/ci/derive_junit.py",
     "tests/ci/test_derive_junit.py",
     "tests/ci/test_source_imports.py",
+    "scripts/ci/verify_module_report.py",
+    "tests/ci/test_module_report.py",
     "scripts/ci/verify_gate.py",
     "tests/ci/test_change_gates.py",
     "scripts/ci/reuse_pr_gate.py",
