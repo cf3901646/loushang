@@ -18,7 +18,10 @@ their results through `quality-gate`. Local development uses the same
 | Hosted native/wheel evidence helpers, supervisors, and PTY/ConPTY fixture drivers | AppService quality plus G16/G17 native and installed matrices; native evidence changes retain full Windows coverage on the PR |
 | Edits to the CI routing table, unit inventory, selector, gate verifier, or their existing contract tests | CI routing regressions, pinned Actions syntax check, one Agent module regression, and the three-platform E2E smoke |
 | Edits to the module regression reusable workflow | CI routing and Actions syntax checks, every eligible package's complete offline regression, and the three-platform E2E smoke |
-| Shared dependencies, gate infrastructure, or unknown non-document paths | All configured checks |
+| Edits to a known product reusable workflow | CI routing and syntax checks, the complete owned workflow, and three-platform E2E; unrelated native suites are not selected |
+| Edits to the E2E reusable workflow or its explicitly owned smoke test file | CI routing and syntax checks and both smoke cases on three platforms |
+| Main merge push with matching successful PR evidence | Lightweight documentation and any applicable CI static checks, plus verification of the successful same-tree, same-plan PR run |
+| Shared dependencies, main gate infrastructure, or unknown non-document paths | All configured checks |
 
 The fast PR/main-push route is limited to known package source and exact test files in
 the [routing inventory](../../../scripts/ci/unit-tests.json). New or unclassified
@@ -45,10 +48,11 @@ then submit and render another reply before exiting. Native PTY/ConPTY checks
 remain in their platform gates; this portable smoke does not replace them.
 The model transport is synthetic and neither flow calls a live provider.
 Reports require exactly one or two passing, non-skipped cases according to the
-selection plan; selected smoke cases are excluded from concurrent module shards. Changes to the five listed routing files exercise CI static checks,
+selection plan; selected smoke cases are excluded from concurrent module shards. Changes to the explicitly listed routing files exercise CI static checks,
 the Agent module job, and E2E. Changes to the module regression workflow run
-the complete eligible unit inventory instead of unrelated native suites. Other
-gate machinery retains full validation.
+the complete eligible unit inventory instead of unrelated native suites. Known reusable workflows validate their own complete scope. The main orchestrator
+and unclassified gate machinery retain full validation. Agent module regressions
+are not scheduled a second time when the package quality gate already owns them.
 
 The existing routing rules are additive outside this fast PR route. Makefile source/test inventories retain explicitly shared
 support paths, such as the Coding product worker canary owned by Harness
@@ -57,8 +61,8 @@ shared test infrastructure. Package dependency direction does not mean every
 consumer change must rerun all of its providers' suites.
 
 The narrow routing-file exception applies to pull requests and ordinary main
-pushes. Scheduled/manual validation stays full. Other CI files and workflow
-definitions, test runners, build dependencies, and new unclassified test files
+pushes. Scheduled/manual validation stays full. The main workflow, other unclassified CI files, test runners, build dependencies,
+and new unclassified test files
 still select the complete gate.
 
 Windows jobs have a second selection within their affected scope. An ordinary
@@ -179,3 +183,26 @@ Broad Harness/AppHost/Hosting suite commands remain available for selected
 high-risk changes, unclassified paths, and scheduled/manual full validation. When changing the routing
 inventory, confirm that the path is eligible for complete offline package
 regression and that live or native tests remain behind their dedicated gates.
+
+## Reusing successful PR validation after merge
+
+A successful PR gate with E2E smoke selected uploads `pr-quality-evidence` for seven days. The evidence
+records the actual checked-out Git tree, complete compact execution plan, run ID,
+and run attempt. An ordinary main push can reuse it only for a single merge
+commit whose first parent is the push's previous main revision and whose second
+parent is the head of the associated merged PR from this repository.
+
+The lookup requires a completed successful run of this same workflow, associated
+with that exact PR head and number, and an unexpired evidence artifact from the
+same run attempt. Its tested tree and all execution-plan fields except changed
+filenames must exactly match the main checkout and selected plan. The top-level
+gate verifies that change selection succeeded and every reused workflow skipped;
+it records the source run in the job summary. Documentation invariants and
+applicable CI routing/syntax checks still execute on main.
+
+Missing artifacts, old runs without evidence, API errors, failed/cancelled runs,
+changed plans or trees, fork PRs, direct/squash/rebase/multiple-merge pushes, and
+forced pushes fall back to normal selected testing. Scheduled/manual runs and
+PRs always execute their selected tests. No test-result reuse occurs across
+different code contents. This removes post-merge repetition without changing
+which tests the PR must pass.
