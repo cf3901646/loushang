@@ -113,6 +113,11 @@ AppHost A0、A0.2、A0.3/A0.4 与 Hosted Application G11 的导入扫描统一�
 165 项对照从 537.86 秒降到 83.79 秒；旧远程 #746 报告中的同文件 testcase 时间
 合计 134.02 秒，最终远程收益仍以本次 PR 运行确认。
 
+Harness 模块报告中 `test_exec_capture.py` 的 14 个 reader failure 组合各等待测试
+请求的 3 秒预算，累计 42.70 秒。它们保留全部 task publication point、before/
+after fault 与 reader/non-reader 组合；仅把测试请求预算收紧为 1 秒。断言仍要求
+原始 reader 异常、进程退出及 stdout/stderr transport 关闭，不把超时本身作为成功。
+
 ## 6. AI 示例唯一执行
 
 旧 `check-ai` 先由 `scripts/ai/check_examples.py` 子进程执行所有离线 AI 示例，再由 `tests/examples` 重跑它们，最后 coverage 又运行 `test_ai_examples.py`；同时把 Agent/Coding/Harness examples 带入 AI gate。现在保留带文件清单、环境清理、输出和公开导入断言的 pytest owner，把 AI 与 Auth example tests 各放入 coverage 执行一次，移除重复脚本阶段及无关 examples 全目录。示例脚本本身和独立检查工具仍保留；变更只收敛 PR gate 的重复执行。
