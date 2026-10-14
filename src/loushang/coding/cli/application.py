@@ -55,10 +55,6 @@ from loushang.coding.cli.args import (
 from loushang.coding.cli.composition_choice import resolve_cli_composition_choice
 from loushang.coding.cli.lsp import extract_lsp_argv, run_coding_lsp_command
 from loushang.coding.cli.multiagent import run_coding_multiagent_command
-from loushang.coding.cli.resume_startup import (
-    configure_embedded_resume_startup,
-    run_embedded_resume_history_host,
-)
 from loushang.coding.cli.startup_route import _cli_launch_plan
 from loushang.coding.cli.workspace import (
     extract_workspace_argv,
@@ -66,7 +62,6 @@ from loushang.coding.cli.workspace import (
 )
 from loushang.coding.composition_sets import resolve_coding_composition_set
 from loushang.coding.continuity import (
-    resolve_coding_continuity_history_source,
     shutdown_coding_continuity,
 )
 from loushang.coding.continuity_bootstrap import (
@@ -86,7 +81,6 @@ from loushang.coding.domain import (
     CodingDomainPreparedTurn,
     CodingDomainRequest,
 )
-from loushang.coding.embedded_resume import EmbeddedResumeStartup
 from loushang.coding.model_selection import (
     apply_model_selection,
     persistence_warning_message,
@@ -194,6 +188,7 @@ from loushang.harness.cli.plugin_listing import (
 )
 from loushang.harness.cli.plugin_preview import format_plugin_current_preview
 from loushang.harness.config.agent import SettingsManager
+from loushang.harness.continuity import consume_prepared_activation
 from loushang.harness.diagnostics.observability_runtime import (
     session_observability_context,
     startup_observability_context,
@@ -754,24 +749,6 @@ async def run_cli(
         default_plain=run_agent_plain_mode,
         default_rpc=run_rpc_host,
     )
-    ordinary_host = host_binding.bind(host_runners)
-
-    async def configure_session(context):
-        if isinstance(context.session, EmbeddedResumeStartup):
-            configure_embedded_resume_startup(context)
-            return None
-        return await _configure_coding_cli_session(context)
-
-    async def session_operations(context):
-        if isinstance(context.session, EmbeddedResumeStartup):
-            return None
-        return await _run_coding_cli_operations(context)
-
-    async def run_host(context):
-        if isinstance(context.session, EmbeddedResumeStartup):
-            return await run_embedded_resume_history_host(context)
-        return await ordinary_host(context)
-
     binding = AgentCliApplicationBinding(
         parse_args=_parse_application_args,
         launch_plan=_cli_launch_plan,
@@ -788,9 +765,9 @@ async def run_cli(
             cwd=context.project_root,
             source_resolver=coding_diagnostic_source,
         ),
-        configure_session=configure_session,
-        session_operations=session_operations,
-        run_host=run_host,
+        configure_session=_configure_coding_cli_session,
+        session_operations=_run_coding_cli_operations,
+        run_host=host_binding.bind(host_runners),
         host_lifecycle=host_lifecycle,
         dispose_runtime=_dispose_coding_cli_runtime,
         services=services,
@@ -902,17 +879,12 @@ async def _run_coding_pre_session_bootstrap(
             )
         raise
     continuity_reference = composition.hub.reference()
+    activated = False
     try:
 
         async def activate(target):
-            reference = await resolve_coding_continuity_history_source(
-                composition,
-                target,
-            )
-            history = await context.runtime.preview_resume_startup(reference)
-            if history.status == "preview":
-                await context.runtime.start_configured_resume_planning(history)
-            return EmbeddedResumeStartup(reference, history)
+            lease = await continuity_reference.prepare(target)
+            return await consume_prepared_activation(lease)
 
         selection = await continuity_runner(
             reference=continuity_reference,
@@ -924,15 +896,21 @@ async def _run_coding_pre_session_bootstrap(
         if selection is None:
             return CliPhaseResult.exit(0)
         result = selection.activation_result
-        if not isinstance(result, EmbeddedResumeStartup):
+        session = getattr(result, "current", None)
+        if session is None:
+            getter = getattr(context.runtime, "get_current_session", None)
+            session = getter() if callable(getter) else None
+        if session is None:
             raise RuntimeError(
-                "Continuity selection did not resolve native Coding history"
+                "Continuity activation did not publish a Product session"
             )
-        return CliPhaseResult.continue_with(result)
+        activated = True
+        return CliPhaseResult.continue_with(session)
     finally:
         continuity_reference.release()
         await composition.dispose()
-        await shutdown_coding_continuity(context.runtime)
+        if not activated:
+            await shutdown_coding_continuity(context.runtime)
 
 
 def _continuity_keybindings(settings_manager: object | None) -> object | None:
