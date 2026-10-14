@@ -131,3 +131,28 @@ PR #743 的完整远程运行 `38554483283` 为 6 分 04 秒，8 个 Coding job 
 PR #744 远程全选运行 `38557834260` 绿色完成于 4 分 58 秒。Coding 8 个 job 为 2 分 04 秒至 2 分 57 秒，0/8 从 #743 的 3 分 30 秒降为 2 分 56 秒；Ubuntu/macOS/Windows 恢复冒烟为 26/40/64 秒。该结果确认重复 owner 移除和第三轮分类没有丢失顶层必需检查。
 
 完整验证覆盖补强：此前 catalog targeted 文件只在自身发生改动时执行，schedule/manual full 会从模块集合排除它们却不生成 targeted job。现在 full plan 枚举所有非 live targeted owner，并按平台、类别和稳定路径哈希合并为 19 个批次（当前 76 个平台执行），避免 76 次独立环境安装。普通 PR 仍只批处理实际改动的 targeted 文件。批处理使用 JSON 路径数组和 Python 参数列表，不经过 shell 路径拼接；JUnit 验证要求每个登记文件至少有一项通过，不能由同批其他文件掩盖全 skip。双文件实际执行 11 项通过，两个文件均通过文件级报告验证。
+
+## 8. 跨工作流实际执行去重
+
+PR #746 的运行 `38563194640` 提供了所有活动 pytest job 的 JUnit。审计按
+`classname + name` 比较实际 testcase，并区分派生报告、平台变体、skip 和独立
+pytest 进程；报告条目重复不直接计为重复执行。
+
+- G8/G9/G10 Linux 三份报告来自同一份 AppHost 主报告，分别包含 19/16/13 项，
+  不启动 pytest，因此不是 48 次额外执行。
+- AppHost Linux 主报告为 2657 项，其中 11 项平台 skip；它与 Linux 模块、
+  Harnesstui/Coding UI 报告共有 1174 个均通过的 testcase。
+- 上述 1174 项在 AppHost 进程中的 testcase 时间合计 5.65 秒，在其他 owner
+  中合计 4.76 秒。即使全部从 AppHost 删除，可直接归因的 pytest 时间上限也
+  只有 5.65 秒；不能把 1174 的数量当作尾部收益。
+- AppHost 其余 1483 个身份的 testcase 时间为 144.96 秒。主要成本是终端进程
+  死亡恢复、双 mux 交互、真实 Coding 断线恢复、native/installed canary、
+  托管进程清理和全仓架构扫描；它们不是模块 job 中已经执行的同配置复本。
+- Ubuntu、macOS、Windows 的恢复会话冒烟属于不同平台配置；相同测试身份不按
+  普通重复删除。Windows AppHost 的 G8/G9/G10/G13 也需先按平台独有断言审查，
+  不能用 Linux 报告代替。
+
+结论：删除 AppHost 与模块的廉价重合项只能减少收集与少量执行开销，不是当前
+尾部的主要手段。下一轮应逐项判断 144.96 秒独有集合中哪些是普通 PR 必需冒烟、
+哪些适合按变更触发或定时运行。任何因此新增或扩大 test route、平台、job 或失败
+条件的方案均先进入审批包；未获明确批准前只记录建议，不修改门禁。
