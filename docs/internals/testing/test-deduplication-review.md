@@ -543,6 +543,20 @@ Harnesstui/Coding UI owner 单独执行，不再重复进入后端模块集合�
 从开始到完成分别约 1 分 33 秒至 2 分 21 秒，顶层运行从创建到 `quality-gate`
 完成约 5 分 27 秒。每个 testcase 只出现于一个分片；当前没有固定分片重复执行。
 
+PR #779 的更新报告并集为 3771 个唯一 testcase，时间合计 640.406 秒。使用生产
+SHA-256 node ID 分配算法重算时，4 片为 918–975 项/片，净用例时间为
+114.221–198.444 秒；8 片最慢为 100.718 秒。4 片候选保持相同 testcase 并集与
+唯一归属，只减少四次 runner 准备、依赖同步、collection 和报告上传，等待远程
+墙钟与报告并集验收。
+
+PR #780 同提交的手动 full 运行 `38630526974` 验证四片实际为 918–975 项，净测试
+140.647–190.205 秒，job 3 分 06 秒至 4 分 11 秒。与 #779 八份报告逐身份比较，
+3771 项并集的 missing、added 和新分片交集均为零。full 运行另由既有 targeted #5
+形成尾部：92 passed、1 skipped、835.20 秒，其中
+`test_package_worker_candidate_wheel.py` 占 711.327 秒；该 skip 属于暂停的 H6
+耐久用例并被 integration 零 skip 校验拒绝。诊断运行在 15 分钟边界取消，不作为
+全量绿色证据；分类或失败语义调整继续受审批边界约束。
+
 命令参数本身不等于执行证据。21 个显式路径没有产生 testcase：其中包含 Windows
 Product Worker base 文件、三类 terminal marker 文件、installed evidence、PR smoke
 和 render contract。另有 20 个 skip 分布在 9 个文件，原因为 Darwin/Windows native、

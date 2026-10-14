@@ -240,7 +240,7 @@ runner 在完整路径执行 shared/Windows 与 ConPTY，普通路径仍只执�
 ## 平台矩阵与执行清单的后续核对
 
 - AI 安装架构、E2E 三平台、TUI 平台/后端、AppService 原生/安装矩阵、Hosting 三平台、Windows Session 四组，逐配置登记，不能在合并后漏掉某个平台。
-- units 动态模块、Coding 8 个实测选择分片及 UI 排除、例子、暂停模块替代，核对最终 collection 的并集与交集。
+- units 动态模块、Coding 4 个实测选择分片及 UI 排除、例子、暂停模块替代，核对最终 collection 的并集与交集。
 - Makefile 的 source/test 清单、run_checks、专用 runner、报告验证器、历史 evidence manifest，都是消费关系的一部分；工作流层表不是完整用例分类清单。
 - 逐项记录“保留、合并、拆分、删除重复、移入专项、继续暂停”的理由及证据，未完成项留在验收缺口中。
 - 删除历史 job 和固定 Coding 组时，所有必要断言必须已迁移；删除独立汇总时，所有失败/跳过/缺失约束必须已迁移。
