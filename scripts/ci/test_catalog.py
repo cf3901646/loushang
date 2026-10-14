@@ -1,11 +1,12 @@
 """Reviewed test roles, distinct from the historical fast-path file inventory."""
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 
 CATALOG_FILE = "scripts/ci/test-classification.json"
-CATALOG_VERSION = 4
+CATALOG_VERSION = 5
 MODULE_CATEGORIES = {"unit", "contract"}
 TARGETED_CATEGORIES = {"integration", "platform", "live", "e2e"}
 TARGETED_RUNNERS = {"ubuntu-24.04", "macos-15", "windows-2022"}
@@ -23,12 +24,18 @@ def load_catalog(root: Path) -> dict:
     path = root / CATALOG_FILE
     if not path.exists():
         # During incremental migration, absence retains the complete old route.
-        return {"version": CATALOG_VERSION, "modules": {}, "targeted_overrides": {}}
+        return {
+            "version": CATALOG_VERSION,
+            "modules": {},
+            "targeted_overrides": {},
+            "targeted_nodes": {},
+        }
     catalog = json.loads(path.read_text())
     if (not isinstance(catalog, dict)
             or catalog.get("version") != CATALOG_VERSION
             or not isinstance(catalog.get("modules"), dict)
-            or not isinstance(catalog.get("targeted_overrides", {}), dict)):
+            or not isinstance(catalog.get("targeted_overrides", {}), dict)
+            or not isinstance(catalog.get("targeted_nodes", {}), dict)):
         raise ValueError("invalid test classification catalog")
     for module, entry in catalog["modules"].items():
         if not module.isidentifier() or not isinstance(entry, dict) or entry.get("complete") is not True:
@@ -100,6 +107,39 @@ def load_catalog(root: Path) -> dict:
                     or not role["assertion"].strip()):
                 raise ValueError(f"invalid targeted override: {path}")
             _validate_platforms(path, role)
+    for module, entry in catalog.get("targeted_nodes", {}).items():
+        if not module.isidentifier() or not isinstance(entry, dict):
+            raise ValueError(f"invalid targeted node module: {module}")
+        files = entry.get("files")
+        if not isinstance(files, dict) or not files:
+            raise ValueError(f"empty targeted nodes: {module}")
+        discovered = {
+            path.relative_to(root).as_posix()
+            for path in (root / "tests" / module).rglob("test_*.py")
+        }
+        whole_files = catalog.get("targeted_overrides", {}).get(module, {}).get(
+            "files", {}
+        )
+        for path, role in files.items():
+            if path not in discovered:
+                raise ValueError(f"missing targeted node file: {path}")
+            if path in whole_files:
+                raise ValueError(f"targeted node overlaps whole-file override: {path}")
+            if (not isinstance(role, dict)
+                    or role.get("category") not in TARGETED_CATEGORIES - {"live"}
+                    or not isinstance(role.get("assertion"), str)
+                    or not role["assertion"].strip()):
+                raise ValueError(f"invalid targeted nodes: {path}")
+            _validate_platforms(path, role)
+            nodes = role.get("nodes")
+            if (not isinstance(nodes, list) or not nodes
+                    or not all(isinstance(node, str) and node for node in nodes)
+                    or len(nodes) != len(set(nodes))):
+                raise ValueError(f"invalid targeted node list: {path}")
+            available = _test_nodes(root / path)
+            unknown = set(nodes) - available
+            if unknown:
+                raise ValueError(f"missing targeted test nodes in {path}: {sorted(unknown)}")
     return catalog
 
 
@@ -132,6 +172,15 @@ def module_is_fully_classified(module: str, *, root: Path) -> bool:
     return module in load_catalog(root)["modules"]
 
 
+def module_targeted_nodeids(module: str, *, root: Path) -> list[str]:
+    entry = load_catalog(root).get("targeted_nodes", {}).get(module, {})
+    return sorted(
+        f"{path}::{node}"
+        for path, role in entry.get("files", {}).items()
+        for node in role["nodes"]
+    )
+
+
 def reviewed_unit_owner(path: str, *, catalog: dict) -> str | None:
     for module, entry in catalog["modules"].items():
         reviewed_file = entry["files"].get(path)
@@ -142,6 +191,13 @@ def reviewed_unit_owner(path: str, *, catalog: dict) -> str | None:
             path in entry.get("fixtures", {})
             and entry["fixtures"][path]["category"] in MODULE_CATEGORIES
         ):
+            return module
+    return None
+
+
+def targeted_node_owner(path: str, *, catalog: dict) -> str | None:
+    for module, entry in catalog.get("targeted_nodes", {}).items():
+        if path in entry["files"]:
             return module
     return None
 
@@ -165,6 +221,10 @@ def targeted_test_cases(path: str, *, catalog: dict) -> list[tuple[str, dict]]:
         role = entry["files"].get(path)
         if role is not None:
             cases.append((path, role))
+    for entry in catalog.get("targeted_nodes", {}).values():
+        role = entry["files"].get(path)
+        if role is not None:
+            cases.extend((f"{path}::{node}", role) for node in role["nodes"])
     return cases
 
 
@@ -179,7 +239,25 @@ def all_targeted_test_cases(*, catalog: dict) -> list[tuple[str, dict]]:
         )
     for entry in catalog.get("targeted_overrides", {}).values():
         cases.extend(entry["files"].items())
+    for entry in catalog.get("targeted_nodes", {}).values():
+        for path, role in entry["files"].items():
+            cases.extend((f"{path}::{node}", role) for node in role["nodes"])
     return sorted(cases, key=lambda case: case[0])
+
+
+def _test_nodes(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    nodes: set[str] = set()
+    for item in tree.body:
+        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if item.name.startswith("test_"):
+                nodes.add(item.name)
+        elif isinstance(item, ast.ClassDef):
+            for child in item.body:
+                if (isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and child.name.startswith("test_")):
+                    nodes.add(f"{item.name}::{child.name}")
+    return nodes
 
 
 def _validate_platforms(path: str, role: dict) -> None:

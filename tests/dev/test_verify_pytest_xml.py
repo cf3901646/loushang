@@ -126,6 +126,34 @@ def test_verifier_requires_a_passing_case_from_each_batched_file(
     assert accepted.returncode == 0
 
 
+def test_verifier_requires_each_batched_node_and_accepts_parameters(
+    tmp_path: Path,
+) -> None:
+    report = (
+        '<testsuites><testsuite tests="2" skipped="0" failures="0" errors="0">'
+        '<testcase classname="tests.demo.test_mixed" name="test_one[param]"/>'
+        '<testcase classname="tests.demo.test_mixed.TestGroup" name="test_method"/>'
+        "</testsuite></testsuites>"
+    )
+    accepted = _run_verifier(
+        tmp_path,
+        report,
+        "--required-files-json",
+        '["tests/demo/test_mixed.py::test_one", '
+        '"tests/demo/test_mixed.py::TestGroup::test_method"]',
+    )
+    assert accepted.returncode == 0
+
+    missing = _run_verifier(
+        tmp_path,
+        report,
+        "--required-files-json",
+        '["tests/demo/test_mixed.py::test_two"]',
+    )
+    assert missing.returncode == 1
+    assert "test_two" in missing.stderr
+
+
 def _run_verifier(
     tmp_path: Path, xml: str, *args: str
 ) -> subprocess.CompletedProcess[str]:

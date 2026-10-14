@@ -18,7 +18,9 @@ all_targeted_test_cases = catalog_module.all_targeted_test_cases
 target_paths = importlib.import_module("run_targeted_tests").target_paths
 load_catalog = catalog_module.load_catalog
 module_unit_paths = catalog_module.module_unit_paths
+module_targeted_nodeids = catalog_module.module_targeted_nodeids
 module_is_fully_classified = catalog_module.module_is_fully_classified
+targeted_node_owner = catalog_module.targeted_node_owner
 targeted_test_cases = catalog_module.targeted_test_cases
 CATALOG_VERSION = catalog_module.CATALOG_VERSION
 
@@ -336,6 +338,82 @@ class CatalogTests(unittest.TestCase):
              for job in plan["targeted_jobs"]],
             [([reviewed], "ubuntu-24.04", "integration")],
         )
+
+    def test_mixed_file_nodes_run_separately_without_losing_unit_nodes(self):
+        mixed = "tests/coding/arch/test_activation.py"
+        nodeids = module_targeted_nodeids("coding", root=ROOT)
+        selected = [nodeid for nodeid in nodeids if nodeid.startswith(mixed + "::")]
+        self.assertEqual(len(selected), 5)
+        self.assertIn(mixed, module_unit_paths("coding", root=ROOT))
+
+        catalog = load_catalog(ROOT)
+        self.assertEqual(targeted_node_owner(mixed, catalog=catalog), "coding")
+        self.assertEqual(
+            {nodeid for nodeid, _role in targeted_test_cases(mixed, catalog=catalog)},
+            set(selected),
+        )
+
+        command = commands("unit_coding", root=ROOT)[-1]
+        for nodeid in selected:
+            self.assertIn(f"--deselect={nodeid}", command)
+        self.assertIn(mixed, command)
+
+        plan = select([mixed], root=ROOT, pr_fast=True)
+        self.assertFalse(plan["e2e"])
+        self.assertTrue(plan["module_tests"])
+        self.assertEqual(plan["unit_packages"], ["coding"])
+        self.assertEqual(
+            {path for job in plan["targeted_jobs"] for path in job["paths"]},
+            set(selected),
+        )
+
+    def test_targeted_node_schema_rejects_missing_nodes_and_whole_file_overlap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "scripts/ci").mkdir(parents=True)
+            (root / "tests/demo").mkdir(parents=True)
+            test = "tests/demo/test_mixed.py"
+            (root / test).write_text(
+                "def test_unit(): pass\nasync def test_integration(): pass\n"
+            )
+            role = {
+                "category": "integration",
+                "assertion": "reviewed slow boundary",
+                "platforms": ["ubuntu-24.04"],
+                "nodes": ["test_integration"],
+            }
+            catalog = {
+                "version": CATALOG_VERSION,
+                "modules": {},
+                "targeted_overrides": {},
+                "targeted_nodes": {
+                    "demo": {"review": "incremental", "files": {test: role}}
+                },
+            }
+            catalog_path = root / "scripts/ci/test-classification.json"
+            catalog_path.write_text(json.dumps(catalog))
+            loaded = load_catalog(root)
+            self.assertEqual(module_targeted_nodeids("demo", root=root), [
+                f"{test}::test_integration"
+            ])
+            self.assertEqual(targeted_node_owner(test, catalog=loaded), "demo")
+
+            role["nodes"] = ["test_missing"]
+            catalog_path.write_text(json.dumps(catalog))
+            with self.assertRaisesRegex(ValueError, "missing targeted test nodes"):
+                load_catalog(root)
+
+            role["nodes"] = ["test_integration"]
+            catalog["targeted_overrides"] = {
+                "demo": {"review": "whole", "files": {test: {
+                    "category": "integration",
+                    "assertion": "whole file",
+                    "platforms": ["ubuntu-24.04"],
+                }}}
+            }
+            catalog_path.write_text(json.dumps(catalog))
+            with self.assertRaisesRegex(ValueError, "overlaps whole-file"):
+                load_catalog(root)
 
     def test_full_validation_runs_every_offline_targeted_owner(self):
         catalog = load_catalog(ROOT)
