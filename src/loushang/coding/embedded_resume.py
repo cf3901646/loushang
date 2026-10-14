@@ -32,18 +32,16 @@ from loushang.coding.resume_activation_attempt import (
     CodingResumeRecoveryRequired,
 )
 from loushang.coding.resume_activation_attempt_v2 import CodingActivationAttemptV2
-from loushang.coding.resume_history import CodingResumeHistoryPreview
-from loushang.coding.resume_input_lookup import CodingResumeInputLookupQueryV1
-from loushang.coding.resume_permission_confirmation import (
-    CodingResumePermissionConfirmation,
-    NativeResumePolicy,
-    coding_resume_permission_request,
+from loushang.coding.resume_history import (
+    CodingResumeHistoryPreview,
+    CodingResumeRecentPage,
 )
+from loushang.coding.resume_input_lookup import CodingResumeInputLookupQueryV1
+from loushang.coding.resume_permission_confirmation import NativeResumePolicy
 from loushang.coding.runtime.agent_session_runtime import (
     AgentSessionRuntime,
     CodingRuntimePreparedResume,
 )
-from loushang.coding.sandbox import coding_workspace_execution_profile
 from loushang.harness.approval import (
     ApprovalOutcome,
     ApprovalPermissionsSnapshot,
@@ -67,7 +65,7 @@ class EmbeddedResumeStartup:
     """History-first CLI state retained before an executable Session exists."""
 
     target: str | Path
-    history: CodingResumeHistoryPreview
+    history: CodingResumeHistoryPreview | CodingResumeRecentPage
     model: Model | ModelSelection | None = None
 
 
@@ -292,57 +290,14 @@ class EmbeddedResumeInputCoordinator:
             subject_digest=subject_digest,
             effect_owners=owners,
         )
-        execution_profile = coding_workspace_execution_profile(
-            workspace, writable=self.workspace_writable
-        )
-        confirmation = await approval_owner.confirm(
-            coding_resume_permission_request(
-                attempt,
-                actor_id="root",
-                expansion_codes=("authority.unknown",),
-                execution_profile=execution_profile,
-                policy_evaluator=self.policy_evaluator,
-                embedded_subject_root=self.runtime,
-            )
-        )
-        if confirmation is None:
-            raise PermissionError("Coding Resume permission was not confirmed")
-        permission = CodingResumePermissionConfirmation(
-            attempt,
-            "root",
-            ("authority.unknown",),
-            approval_owner,
-            confirmation,
-            execution_profile=execution_profile,
-            policy_evaluator=self.policy_evaluator,
-            embedded_subject_root=self.runtime,
-        )
-
-        def current_policy() -> NativeResumePolicy:
-            # Rebuild through the same settings owner so a changed profile or
-            # Tool policy cannot reuse the earlier confirmation.
-            from loushang.harness.tools.workspace.factory import (
-                workspace_tool_runtime_settings,
-            )
-
-            return cast(
-                NativeResumePolicy,
-                workspace_tool_runtime_settings(
-                    self.services.settings_manager
-                ).policy_engine,
-            )
-
         def admit(observed: CodingActivationAttemptV1) -> None:
             if type(observed) is not CodingActivationAttemptV2:
                 raise CodingResumeRecoveryRequired(
                     "input.effect_owner_set_unsupported"
                 )
-            permission.require_current(
+            self.runtime.require_current_embedded_resume_subject(
                 observed,
-                current_execution_profile=coding_workspace_execution_profile(
-                    workspace, writable=self.workspace_writable
-                ),
-                current_policy_evaluator=current_policy(),
+                approval_owner=approval_owner,
             )
 
         def settle(
@@ -382,39 +337,35 @@ class EmbeddedResumeInputCoordinator:
         created_at = self.now()
         if not isinstance(created_at, datetime) or created_at.tzinfo is None:
             raise TypeError("Embedded Resume clock must be timezone-aware")
-        try:
-            return await self.runtime.prepare_resume_continuation(
-                session_file=session_file,
-                plan=plan,
-                current_owner_inputs=plan.owner_inputs,
-                attempt=attempt,
-                input_record_id=f"resume-record:{self.id_factory()}",
-                text=action.text,
-                images=(
-                    list(
-                        agent_image_parts_from_prompt_attachments(
-                            action.attachments
-                        )
-                        or ()
+        return await self.runtime.prepare_resume_continuation(
+            session_file=session_file,
+            plan=plan,
+            current_owner_inputs=plan.owner_inputs,
+            attempt=attempt,
+            input_record_id=f"resume-record:{self.id_factory()}",
+            text=action.text,
+            images=(
+                list(
+                    agent_image_parts_from_prompt_attachments(
+                        action.attachments
                     )
-                    or None
-                ),
-                created_at=created_at,
-                require_current_admission=admit,
-                require_current_epoch_settlement=settle,
-                services=self.services,
-                model=self.model,
-                thinking_level=self.thinking_level,
-                no_tools=self.no_tools,
-                approval_resolver=approval_owner,
-                tool_policy_evaluator=self.policy_evaluator,
-                observe_input_identity=observe_input_identity,
-                worker_candidates=self.worker_candidate_plugin_id is not None,
-                worker_candidate_plugin_id=self.worker_candidate_plugin_id,
-            )
-        except BaseException:
-            approval_owner.release_confirmation(confirmation)
-            raise
+                    or ()
+                )
+                or None
+            ),
+            created_at=created_at,
+            require_current_admission=admit,
+            require_current_epoch_settlement=settle,
+            services=self.services,
+            model=self.model,
+            thinking_level=self.thinking_level,
+            no_tools=self.no_tools,
+            approval_resolver=approval_owner,
+            tool_policy_evaluator=self.policy_evaluator,
+            observe_input_identity=observe_input_identity,
+            worker_candidates=self.worker_candidate_plugin_id is not None,
+            worker_candidate_plugin_id=self.worker_candidate_plugin_id,
+        )
 
 
 __all__ = [

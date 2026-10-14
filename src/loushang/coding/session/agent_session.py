@@ -41,8 +41,8 @@ from loushang.coding.compaction.adapter import (
 )
 from loushang.coding.composition_provenance import (
     CODING_COMPOSITION_STARTUP_TYPE,
-    pinned_composition_plan,
-    startup_composition_record,
+    historical_composition_provenance,
+    historical_startup_composition_record,
 )
 from loushang.coding.composition_sets import CodingCompositionSetPlan
 from loushang.coding.lsp._plugin_opt_in import CodingLspPluginOptInAssembly
@@ -1814,69 +1814,29 @@ class AgentSession(AgentProductSession):
         plan = self._coding_composition_plan
         if plan is None or not self.session_manager.persist:
             return
-        pinned = pinned_composition_plan(self.session_manager.get_header().metadata)
-        if pinned != plan:
-            raise ValueError("Coding Session composition startup changed its pinned plan")
-        startup_data = self._build_current_coding_composition_receipt(
-            prepared_catalog_snapshot=prepared_catalog_snapshot,
+        provenance = historical_composition_provenance(
+            self.session_manager.get_header().metadata
         )
-        worker_selection = startup_data.get("workerSelection")
-        existing = startup_composition_record(self.session_manager.get_entries())
+        if provenance is None or provenance.set_id != plan.set_id:
+            raise ValueError("Coding Session composition startup changed its pinned set")
+        existing = historical_startup_composition_record(
+            self.session_manager.get_entries()
+        )
         if existing is not None:
-            original_worker = existing.get("workerSelection")
-            comparable_worker = (
-                {
-                    key: value
-                    for key, value in worker_selection.items()
-                    if key != "receiptFingerprint"
-                }
-                if isinstance(worker_selection, dict)
-                else None
-            )
-            comparable_original_worker = (
-                {
-                    key: value
-                    for key, value in original_worker.items()
-                    if key != "receiptFingerprint"
-                }
-                if isinstance(original_worker, dict)
-                else None
-            )
-            changed_fields = tuple(
-                name
-                for name, matches in (
-                    ("version", existing.get("version") == 1),
-                    ("setId", existing.get("setId") == plan.set_id),
-                    (
-                        "planFingerprint",
-                        existing.get("planFingerprint") == plan.fingerprint,
-                    ),
-                    (
-                        "productPolicyRevision",
-                        existing.get("productPolicyRevision")
-                        == startup_data["productPolicyRevision"],
-                    ),
-                    (
-                        "catalogSelectionFingerprint",
-                        existing.get("catalogSelectionFingerprint")
-                        == startup_data["catalogSelectionFingerprint"],
-                    ),
-                    (
-                        "selectedRevisions",
-                        existing.get("selectedRevisions") == startup_data["selectedRevisions"],
-                    ),
-                    ("workerSelection", comparable_original_worker == comparable_worker),
-                )
-                if not matches
-            )
-            if changed_fields:
+            if (
+                existing.get("setId") != provenance.set_id
+                or existing.get("planFingerprint")
+                != provenance.plan_fingerprint
+            ):
                 raise ValueError(
-                    "Coding Session effective composition changed since startup; "
-                    "create a new Session (" + ", ".join(changed_fields) + ")"
+                    "Coding Session composition startup differs from its header"
                 )
             if not existing_only:
                 self._coding_session_manager.mark_composition_startup_prepared()
             return
+        startup_data = self._build_current_coding_composition_receipt(
+            prepared_catalog_snapshot=prepared_catalog_snapshot,
+        )
         if self._coding_composition_had_entries_at_construction:
             raise ValueError(
                 "Coding Session has input without startup composition evidence; "
@@ -1892,17 +1852,23 @@ class AgentSession(AgentProductSession):
 
     def _get_builtin_session_info(self) -> dict[str, object]:
         info = super()._get_builtin_session_info()
-        pinned = pinned_composition_plan(self.session_manager.get_header().metadata)
-        startup = startup_composition_record(self.session_manager.get_entries())
+        provenance = historical_composition_provenance(
+            self.session_manager.get_header().metadata
+        )
+        startup = historical_startup_composition_record(
+            self.session_manager.get_entries()
+        )
         if startup is not None and (
-            pinned is None
-            or startup["setId"] != pinned.set_id
-            or startup["planFingerprint"] != pinned.fingerprint
+            provenance is None
+            or startup["setId"] != provenance.set_id
+            or startup["planFingerprint"] != provenance.plan_fingerprint
         ):
             raise ValueError("Coding Session composition startup differs from its header")
         info["coding_composition"] = {
-            "set_id": pinned.set_id if pinned else None,
-            "plan_fingerprint": pinned.fingerprint if pinned else None,
+            "set_id": provenance.set_id if provenance else None,
+            "plan_fingerprint": (
+                provenance.plan_fingerprint if provenance else None
+            ),
             "startup": startup,
         }
         return info

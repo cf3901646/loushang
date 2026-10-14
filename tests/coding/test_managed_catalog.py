@@ -376,8 +376,8 @@ def test_unsupported_runtime_is_observed_but_not_bound(tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
-def test_changed_environment_has_readonly_header_preview_without_writable_open(
-    tmp_path, monkeypatch,
+def test_changed_environment_keeps_history_preview_and_allows_writable_open(
+    tmp_path,
 ):
     async def scenario():
         owner = catalog(tmp_path)
@@ -394,11 +394,7 @@ def test_changed_environment_has_readonly_header_preview_without_writable_open(
         capability["capabilities"] = []
         write_agent_transcript_export(path, replace(header, metadata=metadata), records)
 
-        async def forbidden(*args):
-            raise AssertionError("read-only preview called runtime binder")
-
-        monkeypatch.setattr(owner._owned_factory._lifecycle, "_bind_runtime_owned", forbidden)
-        before = tree(tmp_path)
+        before = path.read_bytes()
         scope = owner.scopes[1]
         rows = await owner.list_identities((scope.discovery_scope,), limit=256)
         preview = await owner.preview_history_header(rows[0].reference)
@@ -410,9 +406,12 @@ def test_changed_environment_has_readonly_header_preview_without_writable_open(
         )
         assert history.header_preview == preview
         assert any(record.kind == "agent.message" for record in history.records)
-        with pytest.raises(CodingHostedCatalogError):
-            await owner.open_candidate(rows[0].reference)
-        assert tree(tmp_path) == before and not owner._owned_factory.pending_preparations
+        active = await owner.open_candidate(rows[0].reference)
+        try:
+            assert path.read_bytes() == before
+        finally:
+            await active.close()
+        assert not owner._owned_factory.pending_preparations
         await owner.close()
 
     asyncio.run(scenario())

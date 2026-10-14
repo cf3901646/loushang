@@ -6968,7 +6968,7 @@ def test_run_cli_bare_resume_enters_history_before_session_activation(
     async def bind_configured(_runtime, **_kwargs):
         return _Composition()
 
-    history = object()
+    history = SimpleNamespace(status="preview")
     preview_calls: list[object] = []
     planning_calls: list[object] = []
     host_startups: list[object] = []
@@ -6989,7 +6989,7 @@ def test_run_cli_bare_resume_enters_history_before_session_activation(
         host_startups.append(context.session)
         return 0
 
-    runtime.preview_resume_history = preview
+    runtime.preview_resume_startup = preview
     runtime.start_configured_resume_planning = start_planning
 
     monkeypatch.setattr(

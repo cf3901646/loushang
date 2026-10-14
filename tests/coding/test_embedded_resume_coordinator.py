@@ -140,11 +140,10 @@ def test_embedded_coordinator_prepares_exact_v2_input_from_current_root(
 
         interaction = EmbeddedResumeApprovalInteraction(approval, settings)
 
+        approval_prompts = []
+
         async def confirm(payload):
-            assert root.current_session is None
-            assert await interaction.respond(
-                payload["action_id"], outcome="allow_once"
-            )
+            approval_prompts.append(payload)
 
         presentation = interaction.bind_presenter(confirm)
         ids = iter(("a", "b", "c"))
@@ -181,6 +180,7 @@ def test_embedded_coordinator_prepares_exact_v2_input_from_current_root(
             assert captured["thinking_level"] == "high"
             assert captured["worker_candidates"] is (worker_plugin_id is not None)
             assert captured["worker_candidate_plugin_id"] == worker_plugin_id
+            assert approval_prompts == []
             state_id = hashlib.sha256(
                 b"loushang.coding-capability-plugin-state/v1\0"
                 + plan.session_id.encode()

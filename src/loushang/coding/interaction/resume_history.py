@@ -13,7 +13,10 @@ from pathlib import Path
 from typing import Literal, TextIO, cast
 
 from loushang.coding.resume_activation_attempt import CodingResumeRecoveryRequired
-from loushang.coding.resume_history import CodingResumeHistoryPreview
+from loushang.coding.resume_history import (
+    CodingResumeHistoryPreview,
+    CodingResumeRecentPage,
+)
 from loushang.coding.resume_input_lookup import CodingResumeInputLookupQueryV1
 from loushang.coding.resume_model_outcome import (
     CodingResumeModelOutcomeObservationV1,
@@ -68,8 +71,9 @@ PrepareHistoryInput = Callable[
 class _HistoryActions:
     def __init__(
         self, *, runtime: AgentSessionRuntime, target: Path,
-        history: CodingResumeHistoryPreview, app: ScreenCodingTuiApp,
-        prepare_input: PrepareHistoryInput, stderr: TextIO,
+        history: CodingResumeHistoryPreview | CodingResumeRecentPage,
+        app: ScreenCodingTuiApp,
+        prepare_input: PrepareHistoryInput | None, stderr: TextIO,
         events: RebindableEventSource,
     ) -> None:
         self._runtime = runtime
@@ -78,7 +82,12 @@ class _HistoryActions:
         self._app = app
         self._prepare_input = prepare_input
         self._events = events
-        self._records = agent_session_history_records(history.selected_records)
+        source_records = (
+            history.selected_records
+            if isinstance(history, CodingResumeHistoryPreview)
+            else history.records
+        )
+        self._records = agent_session_history_records(source_records)
         self._prepared: CodingRuntimePreparedResume | None = None
         self._query: CodingResumeInputLookupQueryV1 | None = None
         self._recovery: CodingResumeModelOutcomeObservationV1 | None = None
@@ -160,6 +169,14 @@ class _HistoryActions:
         if not isinstance(intent, PromptIntent):
             self._error("This command needs an active session.")
             return None
+        if not isinstance(self._history, CodingResumeHistoryPreview):
+            self._error(
+                "Writable continuation is unavailable until the selected "
+                "history can be fully verified."
+            )
+            return None
+        if self._prepare_input is None:
+            raise RuntimeError("Verified Resume history has no input preparer")
         self._phase = "preparing"
         self._task = asyncio.current_task()
         self._app.begin_run()
@@ -260,8 +277,9 @@ class _HistoryActions:
 
 def build_coding_resume_history_screen(
     *, runtime: AgentSessionRuntime, session_ref: str | Path,
-    history: CodingResumeHistoryPreview, app: ScreenCodingTuiApp,
-    prepare_input: PrepareHistoryInput, surface: PreparedScreenSurfacePort,
+    history: CodingResumeHistoryPreview | CodingResumeRecentPage,
+    app: ScreenCodingTuiApp,
+    prepare_input: PrepareHistoryInput | None, surface: PreparedScreenSurfacePort,
     stderr: TextIO,
     approval_interaction: SessionApprovalInteractionPort | None = None,
 ) -> PreparedScreenConversationRun:
@@ -302,7 +320,11 @@ def build_coding_resume_history_screen(
         should_exit=lambda text: isinstance(parse_conversation_intent(text), QuitIntent),
         trace=lambda name, **data: None,
         input_capabilities=ConversationInputCapabilities(steer=False, follow_up=False),
-        history_records=agent_session_history_records(history.selected_records),
+        history_records=agent_session_history_records(
+            history.selected_records
+            if isinstance(history, CodingResumeHistoryPreview)
+            else history.records
+        ),
         transcript_source_factory=lambda: MaterializedTranscriptSource(
             materialize_records=actions.materialize, active_window_state=app.state,
         ), bind_presenter=bind,

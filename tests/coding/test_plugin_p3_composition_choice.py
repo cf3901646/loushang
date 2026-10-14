@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from loushang.ai.model import Capabilities, Model
 from loushang.ai.types import TextPart, UserMessage
 from loushang.coding._capability_plugin_composition import (
     CodingCapabilityPluginCompositionError,
@@ -43,7 +44,11 @@ from loushang.coding.package_product_runtime import (
     open_coding_fenced_product_application_owner,
 )
 from loushang.coding.session_manager import SessionManager
-from loushang.harness.config.agent import ControlConfig, SettingsManager
+from loushang.harness.config.agent import (
+    ControlConfig,
+    PermissionSettings,
+    SettingsManager,
+)
 from loushang.harness.plugin_management import (
     PluginDesiredStateMutationV1,
     PluginManagementCommandV1,
@@ -235,6 +240,37 @@ def test_historical_composition_provenance_preserves_legacy_and_rejects_bad_shap
         })
 
 
+def test_fork_preserves_historical_composition_without_current_registry(
+    tmp_path,
+) -> None:
+    historical = {
+        "version": 1,
+        "setId": "retired-coding-set",
+        "planFingerprint": "a" * 64,
+    }
+
+    async def journey() -> None:
+        manager = await SessionManager.new(
+            session_dir=tmp_path,
+            cwd=str(tmp_path),
+            additional_header_metadata={CODING_COMPOSITION_HEADER_KEY: historical},
+            defer_materialization=False,
+        )
+        try:
+            leaf = await manager.append_custom_entry("test.marker", {"value": 1})
+            forked = await manager.fork(leaf)
+            try:
+                assert forked.get_header().metadata[CODING_COMPOSITION_HEADER_KEY] == (
+                    historical
+                )
+            finally:
+                await forked.dispose_runtime_profile()
+        finally:
+            await manager.dispose_runtime_profile()
+
+    asyncio.run(journey())
+
+
 def test_new_session_persists_choice_and_resume_refuses_an_explicit_switch(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -321,6 +357,92 @@ def test_new_session_persists_choice_and_resume_refuses_an_explicit_switch(
                 await switched_runtime.restore_session(session_file)
         finally:
             await switched_runtime.dispose_session_runtime()
+
+    asyncio.run(journey())
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="fenced Product route")
+def test_resume_uses_current_model_permissions_and_resources_after_workspace_change(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    agents = workspace / "AGENTS.md"
+    agents.write_text("Initial workspace instructions.\n", encoding="utf-8")
+    skill = workspace / "skills" / "review" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "---\nname: review\ndescription: Review code\n---\nReview carefully.\n",
+        encoding="utf-8",
+    )
+    assert cutover_cli_main(["--workspace", str(workspace)]) == 0
+    capsys.readouterr()
+    session_dir = tmp_path / "session-domain" / "sessions"
+
+    def model(model_id: str) -> Model:
+        return Model(
+            id=model_id,
+            name=model_id,
+            provider="test",
+            endpoint="test",
+            capabilities=Capabilities(context_window=128_000, max_tokens=4_096),
+        )
+
+    async def journey() -> None:
+        initial_settings = SettingsManager(
+            ControlConfig(permissions=PermissionSettings(profile="standard"))
+        )
+        initial = create_agent_session_runtime(
+            session_dir=session_dir,
+            model=model("model-before"),
+            services=create_services(settings_manager=initial_settings),
+        )
+        try:
+            session = await initial.create_session(cwd=str(workspace))
+            await session.prepare_model_call_runtime()
+            await session.session_manager.append_message(
+                UserMessage(role="user", content="before", timestamp=0.0)
+            )
+            session_file = session.get_session_file()
+            assert session_file is not None
+        finally:
+            await initial.dispose_session_runtime()
+
+        agents.write_text("Updated workspace instructions.\n", encoding="utf-8")
+        skill.write_text(
+            "---\nname: review\ndescription: Updated review\n---\nUse new rules.\n",
+            encoding="utf-8",
+        )
+        changed_settings = SettingsManager(
+            ControlConfig(
+                permissions=PermissionSettings(profile="cautious"),
+                disabled_skills=("review",),
+            )
+        )
+        resumed_runtime = create_agent_session_runtime(
+            session_dir=session_dir,
+            model=model("model-after"),
+            services=create_services(settings_manager=changed_settings),
+        )
+        try:
+            resumed = await resumed_runtime.restore_session(session_file)
+            before_prepare = session_file.read_bytes()
+            assert resumed.agent.model.id == "model-after"
+            assert changed_settings.get_permission_profile_id() == "cautious"
+            await resumed.prepare_model_call_runtime()
+            assert session_file.read_bytes() == before_prepare
+            skills = resumed._skill_catalog_consumer
+            assert skills is not None
+            assert "review" not in {
+                item.name for item in skills.list_effective_skills()
+            }
+            await resumed.session_manager.append_message(
+                UserMessage(role="user", content="after", timestamp=1.0)
+            )
+            assert resumed.session_manager.get_leaf_entry().payload.content == "after"
+        finally:
+            await resumed_runtime.dispose_session_runtime()
 
     asyncio.run(journey())
 
@@ -712,14 +834,24 @@ def test_fenced_product_startup_records_effective_selection(
                 services=create_services(
                     settings_manager=SettingsManager(
                         ControlConfig(
-                            capabilities=capabilities, disabled_skills=("review",)
+                            capabilities={"coding.lsp": "disabled"},
+                            disabled_skills=("review",),
                         )
                     )
                 ),
             )
             try:
-                with pytest.raises(ValueError, match="effective composition changed"):
-                    await changed_session.prepare_model_call_runtime()
+                before = session_file.read_bytes()
+                await changed_session.prepare_model_call_runtime()
+                assert session_file.read_bytes() == before
+                assert (
+                    historical_startup_composition_record(changed.get_entries())
+                    == record
+                )
+                assert not (
+                    set(CODING_LSP_EXACT_OWNER_TOOL_NAMES)
+                    & {item.name for item in changed_session.get_all_tools()}
+                )
             finally:
                 await changed_session.dispose()
 
