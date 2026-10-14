@@ -5,9 +5,10 @@ import json
 from pathlib import Path
 
 CATALOG_FILE = "scripts/ci/test-classification.json"
-CATALOG_VERSION = 2
+CATALOG_VERSION = 3
 MODULE_CATEGORIES = {"unit", "contract"}
 TARGETED_CATEGORIES = {"integration", "platform", "live", "e2e"}
+TARGETED_RUNNERS = {"ubuntu-24.04", "macos-15", "windows-2022"}
 MODULE_EXTRA_TESTS = {
     "ai": ["tests/protocols", "tests/examples/test_ai_examples.py",
            "tests/examples/test_auth_examples.py"],
@@ -55,6 +56,7 @@ def load_catalog(root: Path) -> dict:
                     or not isinstance(role.get("assertion"), str)
                     or not role["assertion"].strip()):
                 raise ValueError(f"invalid reviewed test role: {file}")
+            _validate_platforms(file, role)
         if not any(role["category"] in MODULE_CATEGORIES for role in files.values()):
             raise ValueError(f"classified module has no unit or contract tests: {module}")
         fixtures = entry.get("fixtures", {})
@@ -69,6 +71,7 @@ def load_catalog(root: Path) -> dict:
                     or role.get("category") not in MODULE_CATEGORIES | TARGETED_CATEGORIES
                     or not isinstance(role.get("assertion"), str) or not role["assertion"].strip()):
                 raise ValueError(f"invalid dedicated fixture role: {fixture}")
+            _validate_platforms(fixture, role)
             consumers = role.get("consumers")
             if (not isinstance(consumers, list) or not consumers
                     or not all(isinstance(consumer, str) for consumer in consumers)
@@ -98,3 +101,34 @@ def reviewed_unit_owner(path: str, *, catalog: dict) -> str | None:
         ):
             return module
     return None
+
+
+def targeted_test_cases(path: str, *, catalog: dict) -> list[tuple[str, dict]]:
+    """Return directly runnable reviewed tests affected by a targeted change."""
+    cases: list[tuple[str, dict]] = []
+    for entry in catalog["modules"].values():
+        role = entry["files"].get(path)
+        if role is not None and role["category"] in TARGETED_CATEGORIES - {"live"}:
+            cases.append((path, role))
+        fixture = entry.get("fixtures", {}).get(path)
+        if fixture is None or fixture["category"] not in TARGETED_CATEGORIES - {"live"}:
+            continue
+        for consumer in fixture["consumers"]:
+            consumer_role = entry["files"][consumer]
+            if consumer_role["category"] not in TARGETED_CATEGORIES - {"live"}:
+                raise ValueError(f"targeted fixture has non-targeted consumer: {path}")
+            cases.append((consumer, consumer_role))
+    return cases
+
+
+def _validate_platforms(path: str, role: dict) -> None:
+    category = role["category"]
+    platforms = role.get("platforms")
+    if category in TARGETED_CATEGORIES - {"live"}:
+        if (not isinstance(platforms, list) or not platforms
+                or not all(isinstance(platform, str) for platform in platforms)
+                or len(platforms) != len(set(platforms))
+                or set(platforms) - TARGETED_RUNNERS):
+            raise ValueError(f"invalid targeted test platforms: {path}")
+    elif platforms is not None:
+        raise ValueError(f"non-targeted test declares platforms: {path}")

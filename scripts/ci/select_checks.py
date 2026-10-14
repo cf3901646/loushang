@@ -14,7 +14,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from test_catalog import load_catalog, reviewed_unit_owner
+from test_catalog import load_catalog, reviewed_unit_owner, targeted_test_cases
 
 ROOT = Path(__file__).resolve().parents[2]
 PR_ROUTING_FILES = {
@@ -198,7 +198,12 @@ def select(
         enable(list(checks), "explicit full validation")
     variables = make_paths(root)
     reviewed_test_paths: set[str] = set()
+    targeted_cases: set[tuple[str, str, str]] = set()
     for path in sorted(set(paths)):
+        if pr_fast and not full:
+            for test, role in targeted_test_cases(path, catalog=catalog):
+                for platform in role["platforms"]:
+                    targeted_cases.add((test, platform, role["category"]))
         if (
             path.startswith(WINDOWS_WORKER_FULL_TEST_PREFIXES)
             or path in WINDOWS_WORKER_FULL_BOUNDARIES
@@ -467,7 +472,12 @@ def select(
         for package in sorted(unit_packages)
         for shard in range(MODULE_SHARD_COUNTS.get(package, 1))
     ]
-    workflows["units"] = bool(unit_packages)
+    targeted_jobs = [
+        {"id": index, "path": path, "os": platform, "category": category,
+         "allow_skipped": category == "platform"}
+        for index, (path, platform, category) in enumerate(sorted(targeted_cases))
+    ]
+    workflows["units"] = bool(unit_jobs or targeted_jobs)
     for workflow in PAUSED_WORKFLOWS:
         workflows[workflow] = False
         reasons.setdefault("ci", []).append(f"{workflow}: temporarily paused by user request")
@@ -479,6 +489,9 @@ def select(
         "workflows": workflows,
         "unit_packages": sorted(unit_packages),
         "unit_jobs": unit_jobs,
+        "module_tests": bool(unit_jobs),
+        "targeted_jobs": targeted_jobs,
+        "targeted_tests": bool(targeted_jobs),
         "e2e": e2e,
         "e2e_interaction": e2e and (full or gate_infra or all(checks.values())
             or ".github/workflows/e2e-smoke-quality.yml" in paths or any(
@@ -521,7 +534,7 @@ def workflow_plan(plan: dict) -> dict:
     """
     return {
         key: plan[key]
-        for key in ("version", "test_policy_version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "e2e_interaction", "windows", "host_runtime_smoke", "hosting_worker_pr_smoke")
+        for key in ("version", "test_policy_version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "module_tests", "targeted_jobs", "targeted_tests", "e2e", "e2e_interaction", "windows", "host_runtime_smoke", "hosting_worker_pr_smoke")
     }
 
 

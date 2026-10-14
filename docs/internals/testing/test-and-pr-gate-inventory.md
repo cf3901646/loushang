@@ -54,6 +54,8 @@
 
 离线目录现已进一步按行为拆分：AppServer 22 个测试文件中 17 个 unit/contract 归统一模块 runner，3 个真实 loopback/stdio/子进程文件归 integration，2 个原生文件归 platform；AppService 16 个文件中 14 个 unit/contract 归模块 runner，真实 loopback 部署归 integration，跨进程 continuity 存储归 platform。分类清单要求目录完整，新增文件未登记会失败；integration/platform 文件及其专用夹具不会被 test-only 短路径误认为单元测试。Linux 本地证据为两个模块短路径分别 825 项/13.18 秒、224 项/4.77 秒，专项集合 75 项通过、10 项 Windows 条件跳过/6.47 秒。
 
+被修改的 integration/platform 文件现在由 module workflow 的独立 targeted matrix 直接执行，而不是假设暂停的能力 workflow 会覆盖它。目录为每个 targeted owner 声明受限 runner；夹具变更解析到登记消费者；空矩阵由显式 plan boolean 跳过。报告必须非空、无失败/错误，integration 不允许 skip，platform 允许条件 skip 但至少有一项通过。live 类别保留显式外部验证，不进入 PR 自动调用。
+
 ### architecture-quality.yml
 
 工作流来源：[architecture-quality.yml](../../../.github/workflows/architecture-quality.yml)。

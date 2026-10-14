@@ -525,13 +525,15 @@ class ScopeTests(unittest.TestCase):
         compact = selector.workflow_plan(plan)
 
         self.assertEqual(
-            set(compact), {"version", "test_policy_version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "e2e_interaction", "windows", "host_runtime_smoke", "hosting_worker_pr_smoke"}
+            set(compact), {"version", "test_policy_version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "module_tests", "targeted_jobs", "targeted_tests", "e2e", "e2e_interaction", "windows", "host_runtime_smoke", "hosting_worker_pr_smoke"}
         )
         self.assertEqual(compact["paths"], plan["paths"])
         self.assertEqual(compact["checks"], plan["checks"])
         self.assertEqual(compact["workflows"], plan["workflows"])
         self.assertEqual(compact["unit_packages"], plan["unit_packages"])
         self.assertEqual(compact["unit_jobs"], plan["unit_jobs"])
+        self.assertEqual(compact["targeted_jobs"], plan["targeted_jobs"])
+        self.assertEqual(compact["targeted_tests"], plan["targeted_tests"])
         self.assertEqual(compact["windows"], plan["windows"])
         self.assertEqual(compact["e2e"], plan["e2e"])
         self.assertEqual(compact["host_runtime_smoke"], plan["host_runtime_smoke"])
@@ -789,6 +791,10 @@ class ScopeTests(unittest.TestCase):
         self.assertIn("include: ${{ fromJSON(inputs.plan).unit_jobs }}", workflow)
         self.assertIn("--shard ${{ matrix.shard }} --shards ${{ matrix.shards }}", workflow)
         self.assertIn("verify_module_report.py", workflow)
+        self.assertIn("include: ${{ fromJSON(inputs.plan).targeted_jobs }}", workflow)
+        self.assertIn('uv run python scripts/dev/run_pytest.py "$TARGET_TEST_PATH"', workflow)
+        self.assertIn("verify_pytest_xml.py", workflow)
+        self.assertIn("--allow-skipped", workflow)
         for package in ("ai", "agent", "coding", "harness", "harnesstui", "tui"):
             with self.subTest(package=package):
                 command = runner.commands("unit_" + package)[-1]

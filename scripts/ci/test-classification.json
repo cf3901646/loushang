@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "modules": {
     "channel": {
       "complete": true,
@@ -375,7 +375,8 @@
         },
         "tests/appserver/test_execution_local.py": {
           "category": "integration",
-          "assertion": "real authenticated loopback server/client joins AppServer transport to AppService execution recovery"
+          "assertion": "real authenticated loopback server/client joins AppServer transport to AppService execution recovery",
+          "platforms": ["ubuntu-24.04"]
         },
         "tests/appserver/test_execution_protocol.py": {
           "category": "contract",
@@ -387,7 +388,8 @@
         },
         "tests/appserver/test_local.py": {
           "category": "integration",
-          "assertion": "real loopback sockets, server lifecycle, authentication, stale records and crashed writer subprocess"
+          "assertion": "real loopback sockets, server lifecycle, authentication, stale records and crashed writer subprocess",
+          "platforms": ["ubuntu-24.04"]
         },
         "tests/appserver/test_local_auth.py": {
           "category": "contract",
@@ -407,11 +409,13 @@
         },
         "tests/appserver/test_local_record_native.py": {
           "category": "platform",
-          "assertion": "POSIX native permissions, links, descriptor inheritance, races and cross-process lock behavior"
+          "assertion": "POSIX native permissions, links, descriptor inheritance, races and cross-process lock behavior",
+          "platforms": ["ubuntu-24.04"]
         },
         "tests/appserver/test_local_record_windows.py": {
           "category": "platform",
-          "assertion": "Windows native ABI, ACL, junction and handle ownership behavior"
+          "assertion": "Windows native ABI, ACL, junction and handle ownership behavior",
+          "platforms": ["windows-2022"]
         },
         "tests/appserver/test_managed_mux_close_values.py": {
           "category": "unit",
@@ -443,13 +447,15 @@
         },
         "tests/appserver/test_stdio_subprocess.py": {
           "category": "integration",
-          "assertion": "real child process stdio negotiation, prompt, interrupt, EOF and parked-read exit"
+          "assertion": "real child process stdio negotiation, prompt, interrupt, EOF and parked-read exit",
+          "platforms": ["ubuntu-24.04"]
         }
       },
       "fixtures": {
         "tests/appserver/_stdio_child.py": {
           "category": "integration",
           "assertion": "real child server used only by the stdio process boundary test",
+          "platforms": ["ubuntu-24.04"],
           "consumers": [
             "tests/appserver/test_stdio_subprocess.py"
           ]
@@ -480,7 +486,8 @@
         },
         "tests/appservice/test_continuity.py": {
           "category": "platform",
-          "assertion": "real filesystem permissions, symlinks and subprocess lease fencing for durable continuity records"
+          "assertion": "real filesystem permissions, symlinks and subprocess lease fencing for durable continuity records",
+          "platforms": ["ubuntu-24.04", "windows-2022"]
         },
         "tests/appservice/test_continuity_runtime.py": {
           "category": "unit",
@@ -508,7 +515,8 @@
         },
         "tests/appservice/test_local_deployment.py": {
           "category": "integration",
-          "assertion": "real authenticated loopback deployment joins AppServer connections to native AppService mux lifecycle"
+          "assertion": "real authenticated loopback deployment joins AppServer connections to native AppService mux lifecycle",
+          "platforms": ["ubuntu-24.04"]
         },
         "tests/appservice/test_managed_mux.py": {
           "category": "contract",

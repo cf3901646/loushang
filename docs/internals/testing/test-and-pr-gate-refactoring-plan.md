@@ -330,6 +330,8 @@ AI gate 的示例执行已收敛：删除先跑脚本、再跑整个 `tests/exam
 
 AppServer/AppService 完成整目录行为分类。AppServer 的 17 个受控 unit/contract 文件进入模块短路径；真实 loopback/stdio/崩溃写入者三个 integration 文件及 POSIX、Windows 两个 platform 文件保留风险路由。AppService 的 14 个受控状态机/合同文件进入模块短路径；真实 loopback 部署为 integration，跨进程 lease、权限及 symlink 的 continuity 文件为 platform。三个 AppServer 专用夹具也登记分类和唯一消费者；targeted 夹具本身不会取得 unit-only 豁免。AppServer 短路径 825 项通过，13.18 秒；AppService 短路径 224 项通过，4.77 秒；拆出的专项集合在 Linux 为 75 项通过、10 项 Windows 条件跳过，6.47 秒。以上是本地执行时间，平台工作流及 PR 墙钟仍须远程证明。
 
-分类策略版本随 targeted 类别和 AppServer/AppService 目录加入从 v1 升至 v2。执行计划携带该版本；合并证据复用要求计划字段完全一致，因此旧分类策略生成的成功结果不能被新策略接受。
+分类策略版本随 targeted 类别和 AppServer/AppService 目录加入从 v1 升至 v2，并在 targeted 直接执行进入计划后升至 v3。执行计划携带该版本；合并证据复用要求计划字段完全一致，因此旧分类策略生成的成功结果不能被新策略接受。
+
+Targeted 文件不再只靠“扩大路由”间接覆盖：integration/platform 文件或其登记夹具被修改时，模块 workflow 按分类中受限的 runner 清单直接执行消费测试。当前 loopback/stdio/POSIX 测试在 Ubuntu 执行，Windows record 在 Windows 执行，continuity 同时覆盖 Ubuntu 与 Windows；integration 报告零 skip，platform 报告允许不适用用例但至少一项必须通过。路径通过环境变量加引号传递，artifact 使用内部数字 ID，不把变更文件名拼入 shell 或产物名。unit/contract 修改仍不会触发 targeted job，live 类别也不会自动访问外部服务。
 
 远程基线运行 `38523545906`（旧 16 个 Coding shard）从创建到完成为 9 分 53 秒。该次全选路径中 AppHost 最慢 job 4 分 13 秒、Harnesstui 3 分、AI 1 分 3 秒、TUI 1 分 12 秒、LSP 57 秒，均并行且未形成 15 分钟尾部；Coding shard 最长约 5 分 5 秒，并受 runner 排队影响形成最终尾部。因此暂不扩大六类暂停清单，优先以本分支的 8 个实测均衡 Coding shard 做远程验收。运行 `38528465735` 的普通 UI PR 为 5 分 59 秒，其中旧 16 shard 最晚结束；这些结果只证明旧基线和瓶颈位置，不证明新配置已达标。

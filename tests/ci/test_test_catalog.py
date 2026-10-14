@@ -16,6 +16,7 @@ select = importlib.import_module("select_checks").select
 catalog_module = importlib.import_module("test_catalog")
 load_catalog = catalog_module.load_catalog
 module_unit_paths = catalog_module.module_unit_paths
+targeted_test_cases = catalog_module.targeted_test_cases
 CATALOG_VERSION = catalog_module.CATALOG_VERSION
 
 
@@ -55,6 +56,7 @@ class CatalogTests(unittest.TestCase):
                 self.assertFalse(plan["e2e"])
                 self.assertEqual([k for k, enabled in plan["checks"].items() if enabled], ["docs"])
                 self.assertEqual([k for k, enabled in plan["workflows"].items() if enabled], ["units"])
+                self.assertFalse(plan["targeted_tests"])
 
     def test_mixed_source_test_and_shared_fixture_changes_keep_necessary_coverage(self):
         test = "tests/resource/test_frontmatter.py"
@@ -72,7 +74,11 @@ class CatalogTests(unittest.TestCase):
             "tests/appservice/test_local_deployment.py",
         ):
             with self.subTest(targeted=targeted):
-                self.assertTrue(select([targeted], root=ROOT, pr_fast=True)["e2e"])
+                plan = select([targeted], root=ROOT, pr_fast=True)
+                self.assertTrue(plan["e2e"])
+                self.assertTrue(plan["targeted_tests"])
+                self.assertTrue(plan["targeted_jobs"])
+                self.assertTrue(plan["workflows"]["units"])
         fixture = "tests/harnesswork/fixtures/legacy_coding_plan.jsonl"
         self.assertTrue(select([fixture, "src/loushang/harnesswork/runtime.py"], root=ROOT, pr_fast=True)["e2e"])
         self.assertTrue(select([fixture, "tests/conftest.py"], root=ROOT, pr_fast=True)["e2e"])
@@ -202,7 +208,8 @@ class CatalogTests(unittest.TestCase):
                 "complete": True,
                 "files": {
                     unit: {"category": "unit", "assertion": "isolated behavior"},
-                    integration: {"category": "integration", "assertion": "service boundary"},
+                    integration: {"category": "integration", "assertion": "service boundary",
+                                  "platforms": ["ubuntu-24.04"]},
                 },
             }}}
             (root / "scripts/ci/test-classification.json").write_text(
@@ -216,12 +223,17 @@ class CatalogTests(unittest.TestCase):
             self.assertIsNone(catalog_module.reviewed_unit_owner(
                 integration, catalog=loaded
             ))
+            self.assertEqual(
+                targeted_test_cases(integration, catalog=loaded),
+                [(integration, catalog["modules"]["demo"]["files"][integration])],
+            )
 
             helper = "tests/demo/integration_child.py"
             (root / helper).write_text("pass\n")
             catalog["modules"]["demo"]["fixtures"] = {helper: {
                 "category": "integration",
                 "assertion": "subprocess fixture",
+                "platforms": ["ubuntu-24.04"],
                 "consumers": [integration],
             }}
             (root / "scripts/ci/test-classification.json").write_text(
@@ -231,6 +243,24 @@ class CatalogTests(unittest.TestCase):
             self.assertIsNone(catalog_module.reviewed_unit_owner(
                 helper, catalog=loaded
             ))
+            self.assertEqual(
+                targeted_test_cases(helper, catalog=loaded)[0][0], integration
+            )
+            for invalid in (
+                {"category": "integration", "assertion": "missing runners"},
+                {"category": "platform", "assertion": "unknown runner",
+                 "platforms": ["unknown-os"]},
+                {"category": "unit", "assertion": "unit cannot select runners",
+                 "platforms": ["ubuntu-24.04"]},
+            ):
+                catalog["modules"]["demo"]["files"][integration] = invalid
+                (root / "scripts/ci/test-classification.json").write_text(
+                    json.dumps(catalog)
+                )
+                with self.subTest(invalid=invalid), self.assertRaisesRegex(
+                    ValueError, "platforms"
+                ):
+                    load_catalog(root)
 
 
 if __name__ == "__main__":
