@@ -209,7 +209,6 @@ def test_windows_worker_preparation_rechecks_before_staged_publication() -> None
     with (
         patch.object(preparation, "os", SimpleNamespace(name="nt")),
         patch.object(preparation, "WindowsLocalWheelProductSessionOwner", FakeProduct),
-        patch.object(preparation, "require_windows_worker_legacy_history_writable"),
         patch.object(preparation, "read_windows_private_receipt", read_receipt),
         patch.object(
             preparation,

@@ -29,9 +29,6 @@ from .package_product_worker_receipt import (
     CodingWorkerReceiptRecordV1,
     _decode_coding_worker_receipt_history,
 )
-from .package_product_worker_windows_history_write_fence import (
-    require_windows_worker_legacy_history_writable,
-)
 
 _NAME = "worker-activation-receipts.jsonl"
 _MAX_RECEIPTS = 4096
@@ -107,7 +104,6 @@ class CodingWindowsWorkerReceiptJournal:
         with WindowsPrivateDirectoryAcl() as acl:
             acl.validate(directory_fd)
             self._assert_visible_root(directory_fd)
-            require_windows_worker_legacy_history_writable(directory_fd)
             self._prepare_lock(directory_fd, acl)
             with journal_file_lock_at(
                 directory_fd, _NAME + ".lock", "exclusive"

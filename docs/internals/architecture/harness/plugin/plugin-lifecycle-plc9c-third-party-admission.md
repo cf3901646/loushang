@@ -2145,7 +2145,7 @@ Windows case remains pending.
 
 The later Windows candidate adds a source-bound preparation, six typed
 semantic bases, Desired/Package/backup reference review, a durable checkpoint,
-persisted base files, a strict marker reader, and fences on old writers. The
+persisted base files, and a strict marker reader. The
 candidate marker is inert: no Product path publishes it, switches readers or
 writers to the bases, or retires old source files. The Product preflight only
 rechecks a candidate against the current old authority. Windows authority

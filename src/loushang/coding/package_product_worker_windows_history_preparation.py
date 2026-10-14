@@ -29,9 +29,6 @@ from .package_product_worker_windows_history_sources import (
     _capture_coding_windows_worker_desired_history_under_gc_guard,
     _capture_coding_windows_worker_history_sources_under_gc_guard,
 )
-from .package_product_worker_windows_history_write_fence import (
-    require_windows_worker_legacy_history_writable,
-)
 from .package_product_worker_windows_recovery_inventory import (
     _inspect_coding_windows_product_worker_offline_recovery_under_gc_guard,
 )
@@ -190,8 +187,6 @@ def prepare_coding_windows_worker_history(
             raise ValueError("Windows Worker history runtime remains active")
         product.assert_root_gc_authority_current()
         with product.gc_gate.guard(require_write=True):
-            with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
-                require_windows_worker_legacy_history_writable(root)
             gc_snapshot = product.gc_gate.snapshot()
             if gc_snapshot.active:
                 raise ValueError("Windows Worker history GC reservation remains")

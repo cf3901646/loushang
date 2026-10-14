@@ -16,8 +16,8 @@ from loushang.harness.resources.packages.plugin_lifecycle.records import (
     canonical_json_bytes,
 )
 
-from .package_product_worker_windows_base_files import WINDOWS_WORKER_BASE_FILES
-from .package_product_worker_windows_history_write_fence import (
+from .package_product_worker_windows_base_files import (
+    WINDOWS_WORKER_BASE_FILES,
     WINDOWS_WORKER_HISTORY_CUTOVER_NAME,
 )
 from .package_product_worker_windows_persisted_bases import (

@@ -46,9 +46,6 @@ from loushang.harness.worker.product_activation import (
 )
 
 from .package_product_worker_receipt import CodingWorkerReceiptError
-from .package_product_worker_windows_history_write_fence import (
-    require_windows_worker_legacy_history_writable,
-)
 from .package_product_worker_windows_installed_backend import (
     CodingWindowsWorkerInstalledBackendError,
 )
@@ -237,7 +234,6 @@ def materialize_coding_windows_product_worker_payload(
             with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
                 acl.validate(root)
                 _require_root(product.state_root, root)
-                require_windows_worker_legacy_history_writable(root)
                 inventory = inspect_windows_worker_payload_stages(
                     product.state_root, directory_fd=root
                 )

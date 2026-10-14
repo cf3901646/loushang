@@ -25,6 +25,7 @@ from .package_legacy_windows_receipt import (
 )
 from .package_product_worker_windows_base_files import (
     WINDOWS_WORKER_BASE_FILES,
+    WINDOWS_WORKER_HISTORY_CUTOVER_NAME,
 )
 from .package_product_worker_windows_c5_base import (
     CodingWindowsWorkerC5SemanticBaseV1,
@@ -38,9 +39,6 @@ from .package_product_worker_windows_checkpoint import (
 )
 from .package_product_worker_windows_gc_history import (
     _require_known_windows_worker_state_names,
-)
-from .package_product_worker_windows_history_write_fence import (
-    WINDOWS_WORKER_HISTORY_CUTOVER_NAME,
 )
 from .package_product_worker_windows_launch_intent_base import (
     CodingWindowsWorkerLaunchIntentSemanticBaseV1,

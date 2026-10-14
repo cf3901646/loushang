@@ -36,9 +36,6 @@ from .package_legacy_windows_receipt import (
     read_windows_private_receipt,
     write_windows_private_receipt,
 )
-from .package_product_worker_windows_history_write_fence import (
-    require_windows_worker_legacy_history_writable,
-)
 from .package_product_worker_windows_launch_intent import (
     CodingWindowsWorkerLaunchIntentV1,
     _read_intent_under_gc_guard,
@@ -189,7 +186,6 @@ def retire_coding_windows_product_worker_complete_stage(
         with product.gc_gate.guard(require_write=True):
             product.assert_root_gc_authority_current()
             with product.epoch_runtime.borrow_product_state_root_descriptor() as root:
-                require_windows_worker_legacy_history_writable(root)
                 with WindowsPrivateDirectoryAcl() as acl:
                     _require_direct(root, acl, directory=True)
                     if not os.path.samestat(os.fstat(root), product.state_root.lstat()):

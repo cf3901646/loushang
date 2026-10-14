@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+WINDOWS_WORKER_HISTORY_CUTOVER_NAME = "worker-history-cutover-v1.json"
+
 WINDOWS_WORKER_BASE_FILES = (
     ("optIn", "worker-history-base-opt-in-v1.json"),
     ("receipt", "worker-history-base-receipt-v1.json"),

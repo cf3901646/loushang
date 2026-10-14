@@ -36,10 +36,6 @@ from loushang.harness.worker.journal import (
     _validate_history,
 )
 
-from .package_product_worker_windows_history_write_fence import (
-    require_windows_worker_legacy_history_writable,
-)
-
 _NAME = "worker-supervisor.jsonl"
 _LOCK = _NAME + ".lock"
 _MAX_RECORDS = 4096
@@ -75,7 +71,6 @@ class CodingWindowsProductWorkerSupervisorJournal(WorkerSupervisorJournal):
                 self._product.epoch_runtime.borrow_product_state_root_descriptor() as root,
             ):
                 self._require_root(root, acl)
-                require_windows_worker_legacy_history_writable(root)
                 self._prepare_lock(root, acl)
                 with journal_file_lock_at(root, _LOCK, "exclusive") as lock:
                     self._active_root = root
