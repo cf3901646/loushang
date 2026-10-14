@@ -453,3 +453,10 @@ material、C5.3 与 C5.5b 四个文件也先生成并验证专项 evidence，随
 `test_platform_selection.py`，合计 44 个实例。其余 410 个实例在 Hosting workflow
 暂停期间没有直接 test-only owner；为它们建立 unit/targeted/node owner 或恢复
 workflow 都会增加 PR 失败条件，已作为 AP-03 记录，未经审批不实施。
+
+本批首次远程运行还显示，单独修改暂停的 `hosting-quality.yml` 会按通用 scoped
+workflow 规则附加 Agent、Hosting 模块和三平台 Resume E2E。它们均不执行或验证该
+YAML 的独有编排；Hosting workflow 本身随后又被暂停规则关闭。该文件现与已处理的
+`apphost-quality.yml` 一样走现有 CI 合同短路径，由 139 项路由/聚合合同、文档检查
+和 `actionlint` 验证，只删除无关模块及 E2E 选择。恢复 Hosting workflow 前须重新
+审查这条短路径；本次没有增加 check、route、平台、触发或失败条件。
