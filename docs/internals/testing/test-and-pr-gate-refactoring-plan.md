@@ -1,6 +1,6 @@
 # 重构与优化测试与 PR 门禁
 
-- 文档修订：R14，2026-10-14。
+- 文档修订：R15，2026-10-14。
 - 状态：实施进行中；用户已建立新 goal。六类长门禁仍保持暂停。
 - 范围：现有全部工作流、源 job、平台矩阵、测试清单、执行器及汇总检查的分类、去重、有效合并与迁移。
 - 全量盘点：[16 个工作流、71 个源 job 的分析与去向](test-and-pr-gate-inventory.md)。
@@ -542,6 +542,14 @@ route、不扩大平台矩阵，也不恢复任何暂停门禁。
 `test_package_worker_candidate_wheel.py` 占 711.327 秒；skip 是明确标记为专属 H6
 耐久门禁的用例。优化重复 wheel 准备可以在不改门禁语义下继续；把该 node 移出
 integration、允许 skip 或恢复 H6 都会改变 route/失败条件，必须经审批。
+
+`test_explicit_worker_public_coding_session_reaches_installed_product` 内部原先分别以
+`print`、`text` 参数构造两套 runtime，并对两套 runtime 执行完全相同的 Worker
+选择、真实工具回合、启动 composition 和 tool result 断言。产品的
+`default_runtime_builder` 对这两个值没有执行分叉，只共同检查 mode 属于
+`{"print", "text"}`；text 的 mode adapter 行为已有独立合同测试。现保留 print
+真实回合并删除第二套等价 runtime，本地原生单例 1 项通过、437.52 秒。该本地机器
+明显慢于远程 runner，不能与 #780 的 204.969 秒直接计算加速比例。
 
 ### 待审批门禁变更 AP-07：Harness 完整角色与平台归属
 
