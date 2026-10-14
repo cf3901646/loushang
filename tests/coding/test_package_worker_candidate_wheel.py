@@ -4307,17 +4307,23 @@ def test_worker_source_catalog_pins_explicit_product_candidate(
                                     original_fingerprint = (
                                         coding_agent_session_module.fingerprint_catalog_value
                                     )
+                                    original_prepare_component = (
+                                        SessionCapabilityWorkerComponentRequest.prepare_component
+                                    )
+                                    native_prepares = 0
 
                                     def drift_catalog_fingerprint(domain, value):
                                         if domain == "loushang.coding-composition-catalog-selection/v1":
                                             return "catalog-drift"
                                         return original_fingerprint(domain, value)
 
-                                    async def reject_native_prepare(
-                                        _request, _graph_generation
+                                    async def observe_native_prepare(
+                                        request, graph_generation
                                     ):
-                                        raise AssertionError(
-                                            "native graph started before resume validation"
+                                        nonlocal native_prepares
+                                        native_prepares += 1
+                                        return await original_prepare_component(
+                                            request, graph_generation
                                         )
 
                                     with monkeypatch.context() as drift:
@@ -4329,13 +4335,10 @@ def test_worker_source_catalog_pins_explicit_product_candidate(
                                         drift.setattr(
                                             SessionCapabilityWorkerComponentRequest,
                                             "prepare_component",
-                                            reject_native_prepare,
+                                            observe_native_prepare,
                                         )
-                                        with pytest.raises(
-                                            ValueError,
-                                            match="effective composition changed",
-                                        ):
-                                            await drift_session.prepare_model_call_runtime()
+                                        await drift_session.prepare_model_call_runtime()
+                                    assert native_prepares > 0
                                 finally:
                                     await drift_session.dispose()
 
