@@ -24,6 +24,8 @@ PR_ROUTING_FILES = {
     "scripts/ci/test-classification.json",
     "scripts/ci/test_catalog.py",
     "tests/ci/test_test_catalog.py",
+    "scripts/ci/derive_junit.py",
+    "tests/ci/test_derive_junit.py",
     "scripts/ci/verify_gate.py",
     "tests/ci/test_change_gates.py",
     "scripts/ci/reuse_pr_gate.py",

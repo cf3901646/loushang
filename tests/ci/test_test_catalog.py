@@ -20,7 +20,7 @@ module_unit_paths = catalog_module.module_unit_paths
 class CatalogTests(unittest.TestCase):
     def test_reviewed_modules_cover_their_complete_current_test_directories(self):
         catalog = load_catalog(ROOT)
-        self.assertEqual(set(catalog["modules"]), {"channel", "resource"})
+        self.assertEqual(set(catalog["modules"]), {"channel", "resource", "work"})
         for module, entry in catalog["modules"].items():
             self.assertEqual(set(entry["files"]), {
                 p.relative_to(ROOT).as_posix()
@@ -29,7 +29,8 @@ class CatalogTests(unittest.TestCase):
 
     def test_pure_test_changes_do_not_schedule_product_integration_or_e2e(self):
         for path in ("tests/resource/test_frontmatter.py", "tests/channel/test_host.py",
-                     "tests/channel/test_session_work_adapter.py"):
+                     "tests/channel/test_session_work_adapter.py", "tests/work/test_runtime.py",
+                     "tests/work/test_event_log.py"):
             with self.subTest(path=path):
                 plan = select([path], root=ROOT, pr_fast=True)
                 self.assertFalse(plan["e2e"])
@@ -46,7 +47,7 @@ class CatalogTests(unittest.TestCase):
         self.assertTrue(unknown["e2e"])
 
     def test_classified_module_runner_has_static_checks_and_full_reviewed_set(self):
-        for module in ("channel", "resource"):
+        for module in ("channel", "resource", "work"):
             planned = commands(f"unit_{module}", root=ROOT)
             self.assertEqual(len(planned), 2)
             self.assertIn("ruff", planned[0])

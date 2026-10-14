@@ -44,6 +44,40 @@
           "assertion": "source-info and diagnostic facade preserve canonical ownership"
         }
       }
+    },
+    "work": {
+      "complete": true,
+      "review": "reviewed full directory and fixtures; controlled execution and isolated backend contracts, no Product session/CLI/service/native process",
+      "files": {
+        "tests/work/test_artifact_ref.py": {
+          "category": "unit",
+          "assertion": "immutable artifact metadata and planned/failed references; no materialization"
+        },
+        "tests/work/test_work_types.py": {
+          "category": "unit",
+          "assertion": "operation, run, step, deviation and event metadata/defaults/immutability"
+        },
+        "tests/work/test_public_api.py": {
+          "category": "contract",
+          "assertion": "public export surface, split capability ports and canonical projection ownership"
+        },
+        "tests/work/test_package_boundaries.py": {
+          "category": "contract",
+          "assertion": "static dependency/ownership inspection and product-neutral adapter delegation"
+        },
+        "tests/work/test_runtime.py": {
+          "category": "unit",
+          "assertion": "controlled executors and in-memory event log: lifecycle ordering, cancellation failure/timeout/idempotence, duplicate operations and ownership rejection"
+        },
+        "tests/work/test_event_log.py": {
+          "category": "contract",
+          "assertion": "isolated in-memory and temporary JSONL backend: serialization, immutable snapshots, invalid schema rejection, subscription and checkpoint/index contracts"
+        },
+        "tests/work/test_run_projection.py": {
+          "category": "contract",
+          "assertion": "controlled executors and isolated event logs: fresh runtime replay, strict event ordering, post-terminal rejection and orphan recovery"
+        }
+      }
     }
   }
 }
