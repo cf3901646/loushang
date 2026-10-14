@@ -7,7 +7,7 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from test_catalog import module_unit_paths
+from test_catalog import module_is_fully_classified, module_unit_paths
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts/dev"))
@@ -26,6 +26,7 @@ def verify(module: str, report: Path, *, root: Path = ROOT, shards: int = 1) -> 
     if module not in inventory:
         raise ValueError(f"unknown module: {module}")
     paths = module_unit_paths(module, root=root)
+    fully_classified = module_is_fully_classified(module, root=root)
     xml = ET.parse(report).getroot()
     suites = _suites(xml)
     counts = dict.fromkeys(("tests", "skipped", "failures", "errors"), 0)
@@ -55,13 +56,14 @@ def verify(module: str, report: Path, *, root: Path = ROOT, shards: int = 1) -> 
         _verify_aggregate_counts(xml, counts)
     if not counts["tests"] or counts["failures"] or counts["errors"]:
         raise ValueError(f"empty or failing module report: {counts}")
-    if paths is not None:
+    if paths is not None and fully_classified:
         if counts["skipped"]:
             raise ValueError("reviewed necessary module cases must not skip")
         if shards == 1 and seen_files != owners:
             raise ValueError(f"reviewed files are missing: {sorted(owners - seen_files)}")
     elif counts["tests"] == counts["skipped"]:
-        # Unreviewed legacy suites retain their platform skip allowance.
+        # Legacy and partially classified suites retain their platform skip
+        # allowance until every remaining file has been reviewed.
         raise ValueError("legacy module report has no passing tests")
     return ", ".join(f"{key}={value}" for key, value in counts.items())
 
