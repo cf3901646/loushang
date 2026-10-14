@@ -1317,15 +1317,23 @@ class WorkflowContractTests(unittest.TestCase):
             all_jobs = set(
                 re.findall(r"^  ([\w-]+):", text.split("\njobs:\n")[1], re.M)
             )
-            single_owner = {
+            root_aggregated = {
                 "architecture-quality.yml": "source-facts",
                 "package-unit-quality.yml": "package",
                 "e2e-smoke-quality.yml": "resume-turn",
+                "appservice-quality.yml": {"native-service", "installed-service"},
             }.get(path.name)
-            if single_owner is not None:
+            if root_aggregated is not None:
                 # The required top-level gate already checks this reusable
                 # workflow's result; a second runner adds only queue latency.
-                self.assertEqual(all_jobs, {single_owner}, path.name)
+                expected = (
+                    {root_aggregated}
+                    if isinstance(root_aggregated, str)
+                    else root_aggregated
+                )
+                self.assertEqual(all_jobs, expected, path.name)
+                if path.name == "appservice-quality.yml":
+                    self.assertEqual(set(jobs), expected, path.name)
                 self.assertNotIn("selected-checks:", text)
                 continue
             mapping = json.loads(re.search(r"--jobs '(.*)'", text)[1])
@@ -1344,22 +1352,24 @@ class WorkflowContractTests(unittest.TestCase):
             self.assertEqual(set(needs.split(", ")), set(mapping), path.name)
             self.assertIn("    if: always()", text)
 
-    def test_appservice_summary_rejects_each_failed_or_cancelled_g17_family(self):
+    def test_appservice_historical_jobs_are_grouped_by_capability(self):
         text = (ROOT / ".github/workflows/appservice-quality.yml").read_text()
-        mapping = json.loads(re.search(r"--jobs '(.*)'", text)[1])
-        expected = {"g17-darwin-native", "g17-darwin-primitives",
-                    "g17-wheel-evidence", "g17-windows-native"}
-        self.assertTrue(expected <= set(mapping))
-        for failed in expected:
-            for result in ("failure", "cancelled", "skipped"):
-                needs = {job: {"result": "success"} for job in mapping}
-                needs[failed]["result"] = result
-                with self.subTest(job=failed, result=result), self.assertRaises(ValueError):
-                    guard.verify(
-                        {"version": 1, "checks": {"appservice": True},
-                         "windows": {"appservice_full": True}},
-                        needs, mapping,
-                    )
+        jobs = set(re.findall(r"^  ([\w-]+):", text.split("\njobs:\n")[1], re.M))
+        self.assertEqual(jobs, {"native-service", "installed-service"})
+        for historical in (
+            "  g16-native-evidence:", "  g16-wheel-evidence:",
+            "  g17-darwin-native:", "  g17-darwin-primitives:",
+            "  g17-wheel-evidence:", "  g17-windows-native:",
+            "  appservice-quality:", "  selected-checks:",
+        ):
+            self.assertNotIn(historical, text)
+        self.assertEqual(text.count("build --wheel"), 1)
+        self.assertIn("run_g16_installed_evidence.py", text)
+        self.assertIn("run_g17_installed_evidence.py", text)
+        self.assertIn("--require-tests-count 2", text)
+        self.assertNotIn("make check-appservice", text)
+        self.assertEqual(text.count("timeout-minutes: 15"), 2)
+        self.assertEqual(text.count("if-no-files-found: error"), 2)
 
     def test_documentation_runs_in_selector_before_the_unified_gate(self):
         text = (ROOT / ".github/workflows/quality.yml").read_text()

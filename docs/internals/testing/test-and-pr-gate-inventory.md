@@ -2,7 +2,7 @@
 - 盘点日期：2026-10-14。
 - 源码基线：远端已合并 `1f1fcaf1ac4cc240b5d32170a1fa7e2f67c3dd30` 的内容；当前控制工作区保留本地合并历史。
 - 基线范围：16 个工作流、71 个源 job 定义，包含顶层调用与子汇总；不是某次运行的任务数。平台矩阵、动态模块/分片会展开，不能将源定义数当运行数。
-- 当前实现：删除重复的 `package-quality` 及顶层 `packages` 调用后为 15 个工作流、66 个源 job 定义；Agent/Coding/Foundation 离线回归由统一模块工作流唯一执行。
+- 当前实现：删除重复的 `package-quality` 及顶层 `packages` 调用，并把 AppService 八个历史阶段 job 重组为两个能力 job 后，为 15 个工作流、60 个源 job 定义；Agent/Coding/Foundation/AppService/AppServer 离线回归由统一模块工作流唯一执行。
 - 状态：全量 job 层分析与拟议去向。全部单元的语义去重及具体 collected node ID、夹具依赖、唯一断言和实际配置尚待分类验收；不宣称已完成逐用例去重。
 - 综合方案：[重构与优化测试与 PR 门禁](test-and-pr-gate-refactoring-plan.md)。实施 goal 已启动；表格保留基线职责并在已迁移项上标明当前处置。
 ## 审查规则
@@ -47,6 +47,8 @@
 | `g16-native-evidence` | 三平台真实 mux/终端故障场景 | 历史分组与 G17 有能力交叉，不等于全同 | 删除旧 job；按断言归终端/服务/故障 | 原生与故障专项 |
 | `g16-wheel-evidence` | 三平台安装后 mux/终端链路 | 安装构建与 G17 wheel 可共享，状态不可共用 | 删除旧 job；复用产物后选必要用例 | 安装及原生专项 |
 | `selected-checks` | 所有阶段与矩阵完整性校验 | 旧阶段映射必须迁移 | 删除历史聚合；新结果校验覆盖矩阵缺失 | 防误绿汇总 |
+
+当前实现以 `native-service` 和 `installed-service` 取代上述八个 job。Native 三平台各只安装依赖一次，macOS 在同一 runner 完成 mux、observation 与 primitives；Windows 普通路径只跑两项短冒烟，风险路径保留完整 native manifests。Installed 每个平台只构建一次 wheel，再在隔离环境分别消费现有 mux 与 hosted manifests。复用工作流的两个 job 与 caller 使用相同 `checks.appservice` 条件，结果由唯一顶层 `quality-gate` 聚合；工作流仍在暂停清单中，installed 全族尚未证明 15 分钟预算前不恢复。
 
 ### architecture-quality.yml
 
