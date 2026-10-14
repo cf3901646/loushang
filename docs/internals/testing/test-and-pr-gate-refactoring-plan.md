@@ -366,6 +366,8 @@ PR #745 的远程全选运行 `38559343364` 为 5 分 04 秒，Coding 8 个 job 
 
 普通 test-only 路由随后收敛到已有 owner。PR #756 只修改 Harness 测试与测试说明，却因未分类测试路径继续触发 Hosting 模块和三平台 E2E；新规则令已知 `tests/<package>/` 下的 Python 测试实现与助手只运行该包现有模块回归，已登记 integration/platform 文件仍运行原 targeted owner，核心 smoke 文件仍运行 E2E。根级 `tests/conftest.py`、CI runner、未知非 Python fixture 及无 owner 路径继续保守取并集。以 #756 路径重算只选择 4 个 Harness 分片，移除 1 个 Hosting job 和 3 个 E2E job；不新增 job、route、平台、触发或失败条件。139 项 CI 路由合同、Ruff 和文档检查通过后仍需 PR 远程验收。
 
+PR #757 验证普通 test-only 收敛时又暴露一处重复：已登记的 selector、catalog、JUnit/module report verifier 及其 CI 合同测试虽只选择 `ci` check，后处理仍无条件附加 Agent 模块与三平台产品 E2E。两者不验证路由文件的独有断言；现有 CI 合同已覆盖选择、聚合、Actions 语法、报告身份和 fail-closed 行为。因此 reviewed routing 文件改为只运行现有 CI 合同，不附加 Agent 或产品 E2E；未知 CI 脚本、主工作流、共享测试执行器及 scoped reusable workflow 保留完整或显式 owner。该变化只缩减既有选择，不新增门禁。
+
 ### 待审批门禁变更 AP-01：第二批混合文件 node 路由
 
 状态：仅完成只读审计，未实现、未提交、未推送。曾在本地草稿工作树开始修改，
