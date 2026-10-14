@@ -460,3 +460,35 @@ YAML 的独有编排；Hosting workflow 本身随后又被暂停规则关闭。�
 `apphost-quality.yml` 一样走现有 CI 合同短路径，由 139 项路由/聚合合同、文档检查
 和 `actionlint` 验证，只删除无关模块及 E2E 选择。恢复 Hosting workflow 前须重新
 审查这条短路径；本次没有增加 check、route、平台、触发或失败条件。
+
+## 16. AI 目录完整初审
+
+`tests/ai` 的 56 个文件包含 540 个静态测试函数，参数化后收集 719 个实例。49 个
+非 live 文件主要使用 fake SDK module、合成 provider stream、内存 registry、临时
+credential/model 文件和受控 async signal；URL 字符串本身不代表网络访问。
+
+其中只有两个非 live 节点越过纯单元边界：
+`test_auth_api.py::test_login_returns_session_without_opening_browser` 启动本机 OAuth
+callback listener 并以受控 client 完成回调；
+`test_auth_oauth_lifecycle.py::test_real_authlib_login_store_resolve_refresh_lifecycle` 使用
+本机 `ThreadingHTTPServer`、真实 Authlib/httpx loopback 交换和临时 credential store。
+它们不访问公网，但属于 integration。其余 710 个非 live 实例为受控单元/合同。
+
+`tests/ai/vendors` 下 7 个文件各有一个显式 `live`/`vendor_verification` 实例，分别
+验证 DashScope 与 Moonshot/Kimi 的 OpenAI Responses 或 Anthropic wire 行为；默认
+由 marker 和凭据条件排除，不能并入普通离线 PR。忽略函数名称后的完整 AST 扫描仍
+得到两组 wrapper：五个 provider/protocol scenario wrapper，以及 Kimi OpenAI 的
+stream/complete wrapper。它们的局部函数体都只是调用模块级 scenario，但被调用的
+scenario、wire 模式和生命周期不同，因此保留；这与此前初步重复记录一致。
+
+完整非 live 目录实测 712 项通过、7 项 live deselect，7.55 秒；最慢的真实 OAuth
+loopback 生命周期为 0.58 秒，其余单项不超过 0.40 秒。当前没有执行热点值得通过共享
+可变状态、减少错误矩阵或缩短确定性超时来优化。此前已删除 `test_api_streaming.py`
+中两项实际只重复调用 register 的用例；本轮未发现新的可证明语义复本，没有删除节点。
+
+活动 AI 模块短路径当前只登记 `test_errors.py`、`test_json_codec.py`、
+`test_model_domain.py`、`test_model_registry.py`、`test_options.py`、
+`test_tool_validation.py` 和 `test_usage.py`，共 148 个实例。直接修改其他 AI 测试文件
+时，选择器会运行这 148 项，但不会执行被修改文件自身；其余 564 个非 live 实例的
+完整 owner 和两个 loopback 节点的分类执行已记为 AP-04。补齐它们会新增 PR 失败条件，
+未经审批不修改清单、catalog 或 workflow。
