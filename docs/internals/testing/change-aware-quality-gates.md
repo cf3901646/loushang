@@ -12,8 +12,9 @@ consolidates test classification, minimal capability coverage, duplicate removal
 and replacement of historical phase jobs with module/capability gates. Its
 [three-view review](test-and-pr-gate-refactoring-review.md) records findings and
 revisions. Its [complete current gate inventory](test-and-pr-gate-inventory.md)
-accounts for all workflows and source job definitions. This remains a proposal while implementation is paused; the current
-selection rules and pause policy below remain in effect.
+accounts for all workflows and source job definitions. Implementation is in
+progress; the current selection rules and pause policy below remain in effect
+except for the reviewed test roles described below.
 
 ## Temporary long-running gate pause
 
@@ -49,6 +50,13 @@ unique assertion, owner paths, runtime and duplicate coverage before restoring
 it. Long campaigns must not silently return to ordinary PR gates.
 
 ## Selection policy
+
+The reviewed [test classification catalog](../../../scripts/ci/test-classification.json)
+currently covers the complete Channel and Resource test directories. Changes
+limited to these unit/contract files run the owner's complete reviewed set and
+Ruff without selecting global integration/E2E. Mixed source changes and shared
+fixtures retain their normal impact union. Missing or stale file classifications
+fail validation; unreviewed modules retain their existing coverage.
 
 | Change | Required scope |
 | --- | --- |

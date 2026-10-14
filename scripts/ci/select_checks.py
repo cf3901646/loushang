@@ -14,11 +14,16 @@ import re
 import subprocess
 from pathlib import Path
 
+from test_catalog import load_catalog, reviewed_unit_owner
+
 ROOT = Path(__file__).resolve().parents[2]
 PR_ROUTING_FILES = {
     "scripts/ci/check-scopes.json",
     "scripts/ci/select_checks.py",
     "scripts/ci/unit-tests.json",
+    "scripts/ci/test-classification.json",
+    "scripts/ci/test_catalog.py",
+    "tests/ci/test_test_catalog.py",
     "scripts/ci/verify_gate.py",
     "tests/ci/test_change_gates.py",
     "scripts/ci/reuse_pr_gate.py",
@@ -160,6 +165,7 @@ def select(
     paths: list[str], *, full: bool = False, pr_fast: bool = False, root: Path = ROOT
 ) -> dict:
     rules = json.loads((root / "scripts/ci/check-scopes.json").read_text())
+    catalog = load_catalog(root)
     unit_inventory = json.loads((root / "scripts/ci/unit-tests.json").read_text())
     checks = {name: False for name in rules["checks"]}
     reasons: dict[str, list[str]] = {name: [] for name in checks}
@@ -178,6 +184,7 @@ def select(
     if full:
         enable(list(checks), "explicit full validation")
     variables = make_paths(root)
+    reviewed_test_paths: set[str] = set()
     for path in sorted(set(paths)):
         if (
             path.startswith(WINDOWS_WORKER_FULL_TEST_PREFIXES)
@@ -202,6 +209,10 @@ def select(
             "document_files"
         ]:
             enable(["docs"], f"{path}: documentation")
+            continue
+        if pr_fast and not full and (owner := reviewed_unit_owner(path, catalog=catalog)):
+            unit_packages.add(owner)
+            reviewed_test_paths.add(path)
             continue
         if pr_fast and not full and path == MODULE_REGRESSION_WORKFLOW:
             # This reusable workflow only runs offline module regressions. Gate
@@ -313,6 +324,7 @@ def select(
         e2e = True
     if pr_fast and not full and any(
         path.startswith(("src/", "tests/")) and not path.endswith((".md", ".rst"))
+        and path not in reviewed_test_paths
         for path in paths
     ):
         e2e = True
@@ -438,6 +450,7 @@ def select(
         reasons.setdefault("ci", []).append(f"{workflow}: temporarily paused by user request")
     return {
         "version": 1,
+        "test_policy_version": catalog["version"],
         "paths": sorted(set(paths)),
         "checks": checks,
         "workflows": workflows,
@@ -485,7 +498,7 @@ def workflow_plan(plan: dict) -> dict:
     """
     return {
         key: plan[key]
-        for key in ("version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "e2e_interaction", "windows", "host_runtime_smoke", "hosting_worker_pr_smoke")
+        for key in ("version", "test_policy_version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "e2e_interaction", "windows", "host_runtime_smoke", "hosting_worker_pr_smoke")
     }
 
 

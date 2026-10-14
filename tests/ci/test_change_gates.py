@@ -14,6 +14,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts/ci"))
 
 
 def load_script(name: str):
@@ -524,7 +525,7 @@ class ScopeTests(unittest.TestCase):
         compact = selector.workflow_plan(plan)
 
         self.assertEqual(
-            set(compact), {"version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "e2e_interaction", "windows", "host_runtime_smoke", "hosting_worker_pr_smoke"}
+            set(compact), {"version", "test_policy_version", "paths", "checks", "workflows", "unit_packages", "unit_jobs", "e2e", "e2e_interaction", "windows", "host_runtime_smoke", "hosting_worker_pr_smoke"}
         )
         self.assertEqual(compact["paths"], plan["paths"])
         self.assertEqual(compact["checks"], plan["checks"])

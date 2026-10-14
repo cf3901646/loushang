@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "modules": {
+    "channel": {
+      "complete": true,
+      "review": "reviewed current full directory; controlled unit/contract boundaries, no Product install/native session",
+      "files": {
+        "tests/channel/test_channel_types.py": {
+          "category": "unit",
+          "assertion": "envelope invariants, immutable public types and operation identity"
+        },
+        "tests/channel/test_json_codec.py": {
+          "category": "contract",
+          "assertion": "wire round trips, invalid envelope fields and error payloads"
+        },
+        "tests/channel/test_host.py": {
+          "category": "unit",
+          "assertion": "host request/cancel/delivery behavior with FakePort and StringIO; subscription release"
+        },
+        "tests/channel/test_rpc_jsonl.py": {
+          "category": "contract",
+          "assertion": "JSONL frame encoding, acknowledgements, correlation and invalid frames"
+        },
+        "tests/channel/test_session_work_adapter.py": {
+          "category": "contract",
+          "assertion": "adapter forwarding, accepted operation/event mapping with controlled session and in-memory event log"
+        },
+        "tests/channel/test_package_boundaries.py": {
+          "category": "contract",
+          "assertion": "isolated Python import/dependency boundary; no product launch or native process containment"
+        }
+      }
+    },
+    "resource": {
+      "complete": true,
+      "review": "reviewed current full directory; controlled unit/contract boundaries, no Product install/native session",
+      "files": {
+        "tests/resource/test_frontmatter.py": {
+          "category": "contract",
+          "assertion": "frontmatter facade behavior and canonical Harness owner identity"
+        },
+        "tests/resource/test_provenance.py": {
+          "category": "contract",
+          "assertion": "source-info and diagnostic facade preserve canonical ownership"
+        }
+      }
+    }
+  }
+}

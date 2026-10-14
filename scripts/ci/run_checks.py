@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from select_checks import ROOT, make_paths
+from test_catalog import module_unit_paths
 
 OFFLINE_MARKERS = (
     "not live and not requires_host_runtime and not tui_render_contract "
@@ -66,6 +67,9 @@ def commands(
             raise ValueError(f"unknown unit package {package!r}")
         package_dir = root / "tests" / package
         paths = [f"tests/{package}"] if package_dir.is_dir() else unit_paths[package]
+        classified = module_unit_paths(package, root=root)
+        if classified is not None:
+            paths = classified
         extras = MODULE_EXTRA_TESTS.get(package, [])
         for path in extras:
             if not (root / path).exists():
@@ -80,13 +84,16 @@ def commands(
         markers = OFFLINE_MARKERS
         if scope.startswith("unit_") or (plan is not None and plan.get("e2e")):
             markers += " and not e2e_smoke"
-        return [
+        result = [
             pytest
             + (coding_ignores if package == "coding" else [])
             + paths + extras
             + ["-m", markers,
                "--skip-host-runtime", "--strict-markers", "-q", *shard_args]
         ]
+        if classified is not None:
+            result.insert(0, [python, "-m", "ruff", "check", f"src/loushang/{package}", *paths])
+        return result
     if scope == "e2e_smoke":
         cases = [
             "tests/coding/test_pr_smoke.py::test_real_session_tool_persistence_resume_and_close"
