@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -30,6 +31,12 @@ def _parser() -> argparse.ArgumentParser:
         metavar="N",
         help="require exactly N collected tests in the report",
     )
+    parser.add_argument(
+        "--required-files-json",
+        default="[]",
+        metavar="JSON",
+        help="require at least one passing testcase from every listed test file",
+    )
     return parser
 
 
@@ -39,6 +46,7 @@ def verify_report(
     *,
     allow_skipped: bool = False,
     required_tests_count: int | None = None,
+    required_files: tuple[str, ...] = (),
 ) -> str:
     try:
         root = ET.parse(report).getroot()
@@ -70,6 +78,22 @@ def verify_report(
         problems.append(f"skipped must be zero, got {counts['skipped']}")
     if allow_skipped and counts["tests"] - counts["skipped"] <= 0:
         problems.append("at least one test must pass when skipped tests are allowed")
+
+    passed_classes = {
+        case.get("classname", "")
+        for suite in suites
+        for case in suite.findall("testcase")
+        if case.find("skipped") is None
+        and case.find("failure") is None
+        and case.find("error") is None
+    }
+    for file in required_files:
+        owner = Path(file.split("::", 1)[0]).with_suffix("").as_posix().replace("/", ".")
+        if not any(
+            classname == owner or classname.startswith(owner + ".")
+            for classname in passed_classes
+        ):
+            problems.append(f"required test file has no passing case: {file}")
 
     properties = {
         (item.get("name") or ""): item.get("value") or ""
@@ -107,11 +131,18 @@ def _integer_attribute(suite: ET.Element, name: str, report: Path) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        required_files = json.loads(args.required_files_json)
+        if (
+            not isinstance(required_files, list)
+            or not all(isinstance(path, str) and path for path in required_files)
+        ):
+            raise ValueError("required files must be a JSON string list")
         summary = verify_report(
             args.report,
             tuple(args.require_property),
             allow_skipped=args.allow_skipped,
             required_tests_count=args.require_tests_count,
+            required_files=tuple(required_files),
         )
     except ValueError as error:
         print(error, file=sys.stderr)

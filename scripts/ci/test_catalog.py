@@ -168,6 +168,20 @@ def targeted_test_cases(path: str, *, catalog: dict) -> list[tuple[str, dict]]:
     return cases
 
 
+def all_targeted_test_cases(*, catalog: dict) -> list[tuple[str, dict]]:
+    """Return every offline targeted owner for explicit full validation."""
+    cases: list[tuple[str, dict]] = []
+    for entry in catalog["modules"].values():
+        cases.extend(
+            (path, role)
+            for path, role in entry["files"].items()
+            if role["category"] in TARGETED_CATEGORIES - {"live"}
+        )
+    for entry in catalog.get("targeted_overrides", {}).values():
+        cases.extend(entry["files"].items())
+    return sorted(cases, key=lambda case: case[0])
+
+
 def _validate_platforms(path: str, role: dict) -> None:
     category = role["category"]
     platforms = role.get("platforms")

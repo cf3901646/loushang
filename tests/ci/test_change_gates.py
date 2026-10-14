@@ -792,7 +792,8 @@ class ScopeTests(unittest.TestCase):
         self.assertIn("--shard ${{ matrix.shard }} --shards ${{ matrix.shards }}", workflow)
         self.assertIn("verify_module_report.py", workflow)
         self.assertIn("include: ${{ fromJSON(inputs.plan).targeted_jobs }}", workflow)
-        self.assertIn('uv run python scripts/dev/run_pytest.py "$TARGET_TEST_PATH"', workflow)
+        self.assertIn("TARGET_TEST_PATHS_JSON: ${{ toJSON(matrix.paths) }}", workflow)
+        self.assertIn("uv run python scripts/ci/run_targeted_tests.py", workflow)
         self.assertIn("verify_pytest_xml.py", workflow)
         self.assertIn("--allow-skipped", workflow)
         for package in ("ai", "agent", "coding", "harness", "harnesstui", "tui"):
