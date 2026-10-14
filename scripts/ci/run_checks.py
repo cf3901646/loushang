@@ -10,20 +10,12 @@ import sys
 from pathlib import Path
 
 from select_checks import ROOT, make_paths
-from test_catalog import module_unit_paths
+from test_catalog import MODULE_EXTRA_TESTS, module_unit_paths
 
 OFFLINE_MARKERS = (
     "not live and not requires_host_runtime and not tui_render_contract "
     "and not tui_terminal_backend and not tui_terminal_contract and not tui_tmux_integration"
 )
-MODULE_EXTRA_TESTS = {
-    "ai": ["tests/protocols", "tests/examples/test_ai_examples.py",
-           "tests/examples/test_auth_examples.py"],
-    "agent": ["tests/examples/test_agent_examples.py"],
-    "coding": ["tests/examples/test_coding_examples.py"],
-    "harness": ["tests/examples/test_harness_tool_authoring_example.py",
-                "tests/examples/test_harness_document_product_example.py"],
-}
 HOST_RUNTIME_PR_CASES = {
     "coding": (
         "tests/coding/test_plugin_author_smoke.py::"
@@ -70,7 +62,9 @@ def commands(
         classified = module_unit_paths(package, root=root)
         if classified is not None:
             paths = classified
-        extras = MODULE_EXTRA_TESTS.get(package, [])
+        # A complete catalog already expands every extra directory into files.
+        # Appending the directory would collect those cases a second time.
+        extras = [] if classified is not None else MODULE_EXTRA_TESTS.get(package, [])
         for path in extras:
             if not (root / path).exists():
                 raise ValueError(f"missing module regression path {path!r}")

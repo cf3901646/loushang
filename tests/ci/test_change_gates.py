@@ -784,8 +784,13 @@ class ScopeTests(unittest.TestCase):
         self.assertIn("verify_pytest_xml.py", workflow)
         for package in ("ai", "agent", "coding", "harness", "harnesstui", "tui"):
             with self.subTest(package=package):
-                (command,) = runner.commands("unit_" + package)
-                self.assertIn("tests/" + package, command)
+                command = runner.commands("unit_" + package)[-1]
+                classified = runner.module_unit_paths(package, root=ROOT)
+                if classified is None:
+                    self.assertIn("tests/" + package, command)
+                else:
+                    for path in classified:
+                        self.assertIn(path, command)
                 self.assertIn("not e2e_smoke", command[command.index("-m") + 1])
                 self.assertIn("--skip-host-runtime", command)
         (coding_shard,) = runner.commands("unit_coding", shard=0, shards=16)

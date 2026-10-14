@@ -78,6 +78,44 @@
           "assertion": "controlled executors and isolated event logs: fresh runtime replay, strict event ordering, post-terminal rejection and orphan recovery"
         }
       }
+    },
+    "agent": {
+      "complete": true,
+      "review": "reviewed complete directory and owned examples contracts; synthetic streams/tools/executors, injected proxy client and controlled adapter, no live provider or Product/native session",
+      "files": {
+        "tests/agent/test_agent_loop.py": {
+          "category": "unit",
+          "assertion": "controlled stream/tools and commit callbacks: sampling/commit ordering, projection rejection, mailbox/queue boundaries, hooks, sequential/parallel termination, cancellation and event snapshots"
+        },
+        "tests/agent/test_agent_loop_scenarios.py": {
+          "category": "unit",
+          "assertion": "checkpoint-driven synthetic model and tool queues: abort, steering, follow-up consumption and clean next prompt after settlement"
+        },
+        "tests/agent/test_agent_runtime.py": {
+          "category": "unit",
+          "assertion": "controlled stream or registered standalone synthetic adapter: state folding, subscriber settlement, auth forwarding, abort/terminalization and queue semantics"
+        },
+        "tests/agent/test_json_codec.py": {
+          "category": "contract",
+          "assertion": "AI/custom message round trips, registration and role rejection, explicit tool projection and exact boolean termination"
+        },
+        "tests/agent/test_proxy.py": {
+          "category": "contract",
+          "assertion": "injected fake HTTP/SSE client: event reconstruction, transport/error handling, blocked read cancellation and listener cleanup; no real network"
+        },
+        "tests/agent/test_public_api.py": {
+          "category": "contract",
+          "assertion": "public exports and dataclass fields, omitted/null details and deepcopy/pickle/replace semantics, exact booleans and removed transport options"
+        },
+        "tests/agent/test_tool_output.py": {
+          "category": "unit",
+          "assertion": "projection snapshot/immutability and distinct boundary views, bounded diagnostics, strict content/metadata/termination validation"
+        },
+        "tests/examples/test_agent_examples.py": {
+          "category": "contract",
+          "assertion": "load existing guarded examples and build public model descriptors only; no main invocation or live calls"
+        }
+      }
     }
   }
 }

@@ -52,11 +52,13 @@ it. Long campaigns must not silently return to ordinary PR gates.
 ## Selection policy
 
 The reviewed [test classification catalog](../../../scripts/ci/test-classification.json)
-currently covers the complete Channel, Resource and Work test directories. Changes
+currently covers the complete Agent, Channel, Resource and Work test directories,
+including Agent's owned examples contracts. Changes
 limited to these unit/contract files run the owner's complete reviewed set and
 Ruff without selecting global integration/E2E. Mixed source changes and shared
 fixtures retain their normal impact union. Missing or stale file classifications
-fail validation; unreviewed modules retain their existing coverage.
+fail validation; owned extras must also be classified and run exactly once.
+Unreviewed modules retain their existing coverage.
 
 | Change | Required scope |
 | --- | --- |
