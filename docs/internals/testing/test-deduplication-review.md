@@ -86,3 +86,9 @@ AppHost A0、A0.2、A0.3/A0.4 与 Hosted Application G11 的导入扫描统一�
 旧完整 AppHost 报告中这四个文件的 testcase 时间累计 148.515 秒；新聚焦执行墙钟 20.83 秒。前者为用例时间总和、后者包括聚焦执行准备，且运行时负载不同，因此只作为初步改善证据，不能宣称严格对照倍数或远程总耗时达标。四个消费者覆盖保持，其他消费者与完整远程流程仍待验证。
 
 新增缓存合同验证覆盖绝对/相对/别名/条件导入、两种成员模式、相同输入单次解析、返回集合隔离、同大小同时间戳内容变更、非法相对导入与语法错误；CI 合同增至 121 项通过。
+
+## 6. AI 示例唯一执行
+
+旧 `check-ai` 先由 `scripts/ai/check_examples.py` 子进程执行所有离线 AI 示例，再由 `tests/examples` 重跑它们，最后 coverage 又运行 `test_ai_examples.py`；同时把 Agent/Coding/Harness examples 带入 AI gate。现在保留带文件清单、环境清理、输出和公开导入断言的 pytest owner，把 AI 与 Auth example tests 各放入 coverage 执行一次，移除重复脚本阶段及无关 examples 全目录。示例脚本本身和独立检查工具仍保留；变更只收敛 PR gate 的重复执行。
+
+完整新配置实测 858 项通过、7 项 marker deselect，45.18 秒；总覆盖率 90.65%，三个细分 coverage target 均通过。Ruff、76 个 AI 源文件 mypy、catalog 和 import boundary 同时通过。该数据是本地执行时间，不包含远程 runner 安装和排队。

@@ -1085,6 +1085,15 @@ class SuiteSelectionTests(unittest.TestCase):
         self.assertIn("tests/examples/test_coding_examples.py", full)
         self.assertNotIn("not e2e_smoke", full[full.index("-m") + 1])
 
+    def test_ai_quality_executes_each_owned_example_test_once(self):
+        makefile = (ROOT / "Makefile").read_text()
+        check_ai = makefile.split("check-ai:", 1)[1].split("\ncheck-harness:", 1)[0]
+        self.assertNotIn("check-ai-examples", check_ai)
+        coverage = check_ai.split("check-ai-coverage:", 1)[1]
+        self.assertEqual(coverage.count("tests/examples/test_ai_examples.py"), 1)
+        self.assertEqual(coverage.count("tests/examples/test_auth_examples.py"), 1)
+        self.assertNotIn("tests/examples -q", coverage)
+
     def test_full_host_runtime_keeps_the_original_repository_wide_collection(self):
         (command,) = runner.commands(
             "host_runtime", plan=selector.select([], full=True)

@@ -323,3 +323,7 @@ Ontology 的 21 个文件完成角色初审：schema/action/fact/query/source/pr
 AppService 历史门禁重组：删除 `appservice-quality`、`g16-*`、`g17-*` 和 `selected-checks` 八个阶段 job，改为 `native-service` 与 `installed-service` 两个能力矩阵。离线 AppService/AppServer 回归继续由统一模块 runner 执行；native 按平台共享一次依赖准备，installed 按平台共享一次 wheel build，原 manifest 验证及 Windows 两项短冒烟保留。两个能力 job 与 caller 绑定同一 AppService 选择条件，最终结果进入唯一顶层汇总。该 workflow 继续暂停；installed 两个隔离环境仍可能超过 15 分钟，须进一步缩成必要场景并经真实平台计时后才能恢复。
 
 统一汇总：删除其余十个 reusable workflow 内部的 `selected-checks` runner，只保留顶层 `quality-gate`。每个 reusable job 的 guard 必须是选择计划中的实际 owner boolean，静态 CI 合同要求 job 清单与 scope 一致；matrix/job failure 或 cancellation 由 reusable caller 传播，顶层 verifier 对所有 caller 执行 success/skipped 的 fail-closed 比对。动态模块矩阵、E2E 报告和测试身份继续由各自报告验证器证明，不以删除汇总 runner 代替用例完整性校验。
+
+AI gate 的示例执行已收敛：删除先跑脚本、再跑整个 `tests/examples`、coverage 又跑 AI example 的三重路径；AI/Auth example tests 现与 AI/protocol tests 在 coverage 配置中各执行一次，不再把 Agent/Coding/Harness examples 纳入 AI gate。静态合同锁定两个 owned example 文件各出现一次。
+
+新 AI 配置完整本地验证 858 项通过、7 项 deselect，45.18 秒；总覆盖率 90.65%，runtime core、provider adapters、production adapter modules 三个细分阈值通过，Ruff/mypy/catalog/import boundary 通过。该结果证明唯一执行未损失当前覆盖门槛，远程准备与排队仍待 PR 计时。
