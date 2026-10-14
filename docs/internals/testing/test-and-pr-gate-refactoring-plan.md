@@ -286,7 +286,7 @@ PR 因此多执行任务或多出失败条件，也不能自行实施。未获�
 | apphost | 64 | 693 | 待逐项审查 |
 | appserver | 22 | 168 | 完整初审；17 个 unit/contract，3 个 integration，2 个 platform |
 | appservice | 16 | 187 | 完整初审；14 个 unit/contract，1 个 integration，1 个 platform |
-| architecture | 62 | 654 | 部分初审；1 个全仓导入库存热点已优化，Makefile 已有 owner 的 test-only 路径不再附加通用 E2E |
+| architecture | 62 | 654 | 角色与完全重复初审完成；654 项静态/内存合同 8 分 23 秒全绿，历史 owner 重叠与未归属路由仍待审批重组 |
 | channel | 6 | 39 | 完整初审 |
 | ci | 6 | 139 | 完整初审；选择、归属、证据、聚合及复用合同 |
 | coding | 429 | 3933 | 待逐项审查 |

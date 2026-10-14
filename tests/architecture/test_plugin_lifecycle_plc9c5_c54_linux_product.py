@@ -4,6 +4,8 @@ import ast
 import json
 from pathlib import Path
 
+from tests.architecture._source_imports import imported_modules
+
 CANARY = Path("src/loushang/coding/_product_worker_canary.py")
 APPHOST_PRODUCT = Path("src/loushang/coding/apphost_product.py")
 APPHOST_CANARY = Path("src/loushang/coding/apphost_canary.py")
@@ -36,6 +38,9 @@ PRODUCT_WORKER_BOUNDED_IMPORTS = {
         "loushang.harness.worker.product_activation",
     },
     CODING_ROOT / "package_product_worker_windows_activation_state_journal.py": {
+        "loushang.harness.worker.activation_state_journal",
+    },
+    CODING_ROOT / "package_product_worker_windows_c5_base.py": {
         "loushang.harness.worker.activation_state_journal",
     },
     CODING_ROOT / "package_product_worker_windows_cleanup_evidence.py": {
@@ -86,6 +91,9 @@ PRODUCT_WORKER_BOUNDED_IMPORTS = {
         "loushang.harness.worker.journal",
     },
     CODING_ROOT / "package_product_worker_supervisor_base_v2.py": {
+        "loushang.harness.worker.journal",
+    },
+    CODING_ROOT / "package_product_worker_windows_supervisor_base.py": {
         "loushang.harness.worker.journal",
     },
     CODING_ROOT / "package_product_worker_start_gate_recovery.py": {
@@ -176,6 +184,7 @@ PRODUCT_WORKER_BOUNDED_IMPORTS = {
         "loushang.harness.worker.product_activation",
     },
     CODING_ROOT / "package_product_worker_windows_recovery_inventory.py": {
+        "loushang.harness.worker.activation_state_journal",
         "loushang.harness.worker.journal",
     },
     CODING_ROOT / "package_product_worker_windows_supervisor_journal.py": {
@@ -251,13 +260,7 @@ def _read(path: Path) -> str:
 
 
 def _imports(path: Path) -> set[str]:
-    imports: set[str] = set()
-    for node in ast.walk(ast.parse(_read(path), filename=str(path))):
-        if isinstance(node, ast.Import):
-            imports.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            imports.add(node.module)
-    return imports
+    return imported_modules(path)
 
 
 def _literal_collection(path: Path, name: str) -> tuple[str, ...]:
