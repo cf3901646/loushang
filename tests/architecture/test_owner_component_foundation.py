@@ -24,10 +24,13 @@ INTENTIONAL_FOUNDATION_CONSUMERS = {
 
 
 def _imports_foundation(path: Path) -> bool:
+    source = path.read_text(encoding="utf-8")
+    if "loushang.harness.capabilities.component_" not in source:
+        return False
     return any(
         module.startswith("loushang.harness.capabilities.component_")
         and module not in {"loushang.harness.capabilities.component_host"}
-        for module in imported_modules(path)
+        for module in imported_modules(path, source)
     )
 
 

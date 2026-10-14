@@ -10,6 +10,7 @@ from loushang.harness.resources._catalog_records import (
     ResourceSourceGenerationRef,
     ResourceSourceSnapshot,
 )
+from tests.architecture._source_imports import imported_modules
 
 RESOURCE_ROOT = Path("src/loushang/harness/resources")
 ORCHESTRATION_ROOT = Path("src/loushang/harness/resource_catalog")
@@ -57,19 +58,10 @@ PRIVATE_CATALOG_MODULES = (
 
 def _imports_catalog_module(path: Path) -> bool:
     source = path.read_text(encoding="utf-8")
-    for node in ast.walk(ast.parse(source, filename=str(path))):
-        if (
-            isinstance(node, ast.ImportFrom)
-            and node.module is not None
-            and node.module.startswith("loushang.harness.resources._catalog_")
-        ):
-            return True
-        if isinstance(node, ast.Import) and any(
-            alias.name.startswith("loushang.harness.resources._catalog_")
-            for alias in node.names
-        ):
-            return True
-    return False
+    prefix = "loushang.harness.resources._catalog_"
+    if prefix not in source:
+        return False
+    return any(module.startswith(prefix) for module in imported_modules(path, source))
 
 
 def test_rcp1_records_match_the_frozen_field_contracts() -> None:
