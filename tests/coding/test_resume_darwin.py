@@ -24,9 +24,9 @@ class _TTY(StringIO):
 
 @pytest.mark.skipif(
     sys.platform != "darwin",
-    reason="native macOS legacy same-ID Resume evidence",
+    reason="native macOS same-ID Resume evidence",
 )
-def test_darwin_legacy_resume_uses_current_resources_without_rewriting_history(
+def test_darwin_resume_uses_current_resources_without_rewriting_history(
     tmp_path,
     monkeypatch,
     record_testsuite_property,
@@ -44,7 +44,7 @@ def test_darwin_legacy_resume_uses_current_resources_without_rewriting_history(
     )
     session_dir = tmp_path / "home/data/sessions"
     record_testsuite_property("native_platform", sys.platform)
-    record_testsuite_property("resume_route", "legacy-same-id")
+    record_testsuite_property("resume_route", "session-lifecycle")
 
     async def scenario():
         original_runtime = create_agent_session_runtime(
@@ -115,7 +115,7 @@ def test_darwin_legacy_resume_uses_current_resources_without_rewriting_history(
     sys.platform != "darwin",
     reason="native macOS command-line Resume evidence",
 )
-def test_darwin_command_line_resume_uses_legacy_same_id_route(
+def test_darwin_command_line_resume_uses_session_lifecycle(
     tmp_path,
     monkeypatch,
     record_testsuite_property,
@@ -134,7 +134,7 @@ def test_darwin_command_line_resume_uses_legacy_same_id_route(
     agents.write_text("Initial workspace instructions.\n", encoding="utf-8")
     session_dir = tmp_path / "home/data/sessions"
     record_testsuite_property("native_platform", sys.platform)
-    record_testsuite_property("resume_route", "legacy-same-id")
+    record_testsuite_property("resume_route", "session-lifecycle")
 
     async def scenario():
         original_runtime = create_agent_session_runtime(
@@ -161,9 +161,10 @@ def test_darwin_command_line_resume_uses_legacy_same_id_route(
             restore_calls.append(result.current)
             return result
 
-        async def forbid_native_preview(self, session_ref):
+        async def forbid_separate_history_protocol(self, session_ref):
             raise AssertionError(
-                f"macOS command-line Resume selected native history for {session_ref}"
+                "macOS command-line Resume selected a separate history protocol "
+                f"for {session_ref}"
             )
 
         @contextmanager
@@ -191,7 +192,9 @@ def test_darwin_command_line_resume_uses_legacy_same_id_route(
             AgentSessionRuntime, "restore_session_operation", observe_restore
         )
         monkeypatch.setattr(
-            AgentSessionRuntime, "preview_resume_startup", forbid_native_preview
+            AgentSessionRuntime,
+            "preview_resume_startup",
+            forbid_separate_history_protocol,
         )
         monkeypatch.setattr(ScreenConversationStartup, "run", exit_screen)
         monkeypatch.setattr(sys, "stdin", stdin)

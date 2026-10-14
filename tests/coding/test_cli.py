@@ -6930,13 +6930,15 @@ def test_run_cli_bare_resume_retries_partial_continuity_cleanup_on_bind_failure(
     assert runtime.restore_session_calls == []
 
 
-def test_run_cli_bare_resume_enters_history_before_session_activation(
+def test_run_cli_bare_resume_activates_selection_before_starting_main_tui(
     tmp_path,
     monkeypatch,
 ) -> None:
     from loushang.coding.cli import application as cli_main
-    from loushang.coding.embedded_resume import EmbeddedResumeStartup
-    from loushang.harness.continuity import ContinuityTarget
+    from loushang.harness.continuity import (
+        CallbackPreparedActivationLease,
+        ContinuityTarget,
+    )
     from loushang.harnesstui.continuity import ContinuityPickerSelection
 
     runtime = FakeRuntime(FakeSession("selected"))
@@ -6948,120 +6950,20 @@ def test_run_cli_bare_resume_enters_history_before_session_activation(
     )
 
     class _Hub:
+        async def prepare(self, selected_target):
+            assert selected_target == target
+            return CallbackPreparedActivationLease(
+                target=target,
+                disposition="in_place",
+                consume=lambda: runtime.restore_session_operation("picked-session"),
+            )
+
         def reference(self):
+            hub = self
+
             class _Reference:
-                def release(self) -> None:
-                    return None
-
-            return _Reference()
-
-    class _Composition:
-        hub = _Hub()
-
-        async def dispose(self) -> None:
-            return None
-
-    async def select_and_activate(**kwargs):
-        result = await kwargs["activate"](target)
-        return ContinuityPickerSelection(target=target, activation_result=result)
-
-    async def bind_configured(_runtime, **_kwargs):
-        return _Composition()
-
-    history = SimpleNamespace(status="preview")
-    preview_calls: list[object] = []
-    planning_calls: list[object] = []
-    host_startups: list[object] = []
-
-    async def resolve_history_source(composition, selected_target):
-        assert isinstance(composition, _Composition)
-        assert selected_target == target
-        return "picked-session"
-
-    async def preview(reference):
-        preview_calls.append(reference)
-        return history
-
-    async def start_planning(selected_history):
-        planning_calls.append(selected_history)
-
-    async def run_history_host(context):
-        host_startups.append(context.session)
-        return 0
-
-    runtime.preview_resume_startup = preview
-    runtime.start_configured_resume_planning = start_planning
-
-    monkeypatch.setattr(
-        cli_main,
-        "bind_coding_configured_continuity",
-        bind_configured,
-    )
-    monkeypatch.setattr(
-        cli_main,
-        "resolve_coding_continuity_history_source",
-        resolve_history_source,
-    )
-    monkeypatch.setattr(
-        cli_main,
-        "run_embedded_resume_history_host",
-        run_history_host,
-    )
-
-    exit_code = asyncio.run(
-        cli_main.run_cli(
-            ["--resume"],
-            stdin=TtyStringIO(),
-            stdout=TtyStringIO(),
-            stderr=StringIO(),
-            cwd=tmp_path,
-            services=_fake_services(),
-            runtime_builder=lambda **kwargs: runtime,
-            tui_runner=tui_runner,
-            continuity_runner=select_and_activate,
-        )
-    )
-
-    assert exit_code == 0
-    assert runtime.restore_session_calls == []
-    assert preview_calls == ["picked-session"]
-    assert planning_calls == [history]
-    assert len(host_startups) == 1
-    startup = host_startups[0]
-    assert isinstance(startup, EmbeddedResumeStartup)
-    assert startup.target == "picked-session"
-    assert startup.history is history
-    assert tui_runner.calls == []
-
-
-@pytest.mark.parametrize("platform", ["darwin", "win32"])
-def test_run_cli_bare_resume_uses_legacy_activation_without_history_first_route(
-    tmp_path,
-    monkeypatch,
-    platform,
-) -> None:
-    from loushang.coding.cli import application as cli_main
-    from loushang.harness.continuity import ContinuityTarget
-    from loushang.harnesstui.continuity import ContinuityPickerSelection
-
-    session = FakeSession("selected")
-    runtime = FakeRuntime(session)
-    tui_runner = FakeRunner()
-    target = ContinuityTarget(
-        provider_id="coding.sessions",
-        opaque_id="picked-session",
-        revision="7",
-    )
-    prepared_targets = []
-    shutdown_calls = []
-    lease = object()
-
-    class _Hub:
-        def reference(self):
-            class _Reference:
-                async def prepare(self, selected):
-                    prepared_targets.append(selected)
-                    return lease
+                async def prepare(self, selected_target):
+                    return await hub.prepare(selected_target)
 
                 def release(self) -> None:
                     return None
@@ -7081,29 +6983,11 @@ def test_run_cli_bare_resume_uses_legacy_activation_without_history_first_route(
     async def bind_configured(_runtime, **_kwargs):
         return _Composition()
 
-    async def consume(selected_lease):
-        assert selected_lease is lease
-        return SimpleNamespace(current=session)
-
-    async def shutdown(selected_runtime):
-        shutdown_calls.append(selected_runtime)
-
-    async def forbid_history(*_args, **_kwargs):
-        raise AssertionError(f"{platform} selected native history-first Resume")
-
-    monkeypatch.setattr(cli_main.sys, "platform", platform)
     monkeypatch.setattr(
         cli_main,
         "bind_coding_configured_continuity",
         bind_configured,
     )
-    monkeypatch.setattr(cli_main, "consume_prepared_activation", consume)
-    monkeypatch.setattr(
-        cli_main,
-        "resolve_coding_continuity_history_source",
-        forbid_history,
-    )
-    monkeypatch.setattr(cli_main, "shutdown_coding_continuity", shutdown)
 
     exit_code = asyncio.run(
         cli_main.run_cli(
@@ -7120,10 +7004,9 @@ def test_run_cli_bare_resume_uses_legacy_activation_without_history_first_route(
     )
 
     assert exit_code == 0
-    assert prepared_targets == [target]
-    assert shutdown_calls == []
+    assert runtime.restore_session_calls == ["picked-session"]
     assert len(tui_runner.calls) == 1
-    assert tui_runner.calls[0]["session"] is session
+    assert tui_runner.calls[0]["session"] is runtime.get_current_session()
 
 
 def test_run_cli_bare_resume_rejects_noninteractive_channel_before_resolution(

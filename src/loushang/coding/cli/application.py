@@ -55,11 +55,6 @@ from loushang.coding.cli.args import (
 from loushang.coding.cli.composition_choice import resolve_cli_composition_choice
 from loushang.coding.cli.lsp import extract_lsp_argv, run_coding_lsp_command
 from loushang.coding.cli.multiagent import run_coding_multiagent_command
-from loushang.coding.cli.resume_startup import (
-    configure_embedded_resume_startup,
-    embedded_resume_history_route_admitted,
-    run_embedded_resume_history_host,
-)
 from loushang.coding.cli.startup_route import _cli_launch_plan
 from loushang.coding.cli.workspace import (
     extract_workspace_argv,
@@ -67,7 +62,6 @@ from loushang.coding.cli.workspace import (
 )
 from loushang.coding.composition_sets import resolve_coding_composition_set
 from loushang.coding.continuity import (
-    resolve_coding_continuity_history_source,
     shutdown_coding_continuity,
 )
 from loushang.coding.continuity_bootstrap import (
@@ -87,7 +81,6 @@ from loushang.coding.domain import (
     CodingDomainPreparedTurn,
     CodingDomainRequest,
 )
-from loushang.coding.embedded_resume import EmbeddedResumeStartup
 from loushang.coding.model_selection import (
     apply_model_selection,
     persistence_warning_message,
@@ -407,7 +400,6 @@ def default_runtime_builder(
         "capabilities",
         {},
     )
-    selected_composition_set: str | None = None
     if invocation_product_profile is None:
         selected_composition_set = resolve_cli_composition_choice(
             getattr(args, "composition_set", None), configured_capabilities
@@ -437,26 +429,6 @@ def default_runtime_builder(
         runtime_options["worker_candidate_plugin_id"] = worker_query_plugin
         runtime_options["worker_query_turn_tool"] = True
     runtime = runtime_factory(**runtime_options)
-    if invocation_product_profile is None and type(approval_resolver) is InteractiveApprovalResolver:
-        from loushang.coding.runtime.agent_session_runtime import AgentSessionRuntime
-
-        if type(runtime) is AgentSessionRuntime:
-            runtime._bind_embedded_resume_approval_owner(approval_resolver)
-            policy_fingerprint = getattr(
-                tool_policy_evaluator, "configuration_fingerprint", None
-            )
-            if callable(policy_fingerprint):
-                if selected_composition_set is None:
-                    raise RuntimeError("Coding Resume composition is unavailable")
-                runtime.configure_resume_planning(
-                    current_composition=resolve_coding_composition_set(
-                        selected_composition_set
-                    ),
-                    workspace_root=cwd.resolve(strict=True),
-                    resource_loader=services.resource_loader,
-                    subject_digest=runtime._current_embedded_resume_subject_digest,
-                    policy_digest=policy_fingerprint,
-                )
     resource_layout = resolve_machine_resource_layout(cwd=cwd)
     platform_sessions = resource_layout.sessions
     if session_dir.expanduser().resolve(strict=False) == platform_sessions:
@@ -756,24 +728,6 @@ async def run_cli(
         default_plain=run_agent_plain_mode,
         default_rpc=run_rpc_host,
     )
-    ordinary_host = host_binding.bind(host_runners)
-
-    async def configure_session(context):
-        if isinstance(context.session, EmbeddedResumeStartup):
-            configure_embedded_resume_startup(context)
-            return None
-        return await _configure_coding_cli_session(context)
-
-    async def session_operations(context):
-        if isinstance(context.session, EmbeddedResumeStartup):
-            return None
-        return await _run_coding_cli_operations(context)
-
-    async def run_host(context):
-        if isinstance(context.session, EmbeddedResumeStartup):
-            return await run_embedded_resume_history_host(context)
-        return await ordinary_host(context)
-
     binding = AgentCliApplicationBinding(
         parse_args=_parse_application_args,
         launch_plan=_cli_launch_plan,
@@ -790,9 +744,9 @@ async def run_cli(
             cwd=context.project_root,
             source_resolver=coding_diagnostic_source,
         ),
-        configure_session=configure_session,
-        session_operations=session_operations,
-        run_host=run_host,
+        configure_session=_configure_coding_cli_session,
+        session_operations=_run_coding_cli_operations,
+        run_host=host_binding.bind(host_runners),
         host_lifecycle=host_lifecycle,
         dispose_runtime=_dispose_coding_cli_runtime,
         services=services,
@@ -904,22 +858,12 @@ async def _run_coding_pre_session_bootstrap(
             )
         raise
     continuity_reference = composition.hub.reference()
-    history_first = embedded_resume_history_route_admitted()
     activated = False
     try:
 
         async def activate(target):
-            if not history_first:
-                lease = await continuity_reference.prepare(target)
-                return await consume_prepared_activation(lease)
-            reference = await resolve_coding_continuity_history_source(
-                composition,
-                target,
-            )
-            history = await context.runtime.preview_resume_startup(reference)
-            if history.status == "preview":
-                await context.runtime.start_configured_resume_planning(history)
-            return EmbeddedResumeStartup(reference, history)
+            lease = await continuity_reference.prepare(target)
+            return await consume_prepared_activation(lease)
 
         selection = await continuity_runner(
             reference=continuity_reference,
@@ -931,12 +875,6 @@ async def _run_coding_pre_session_bootstrap(
         if selection is None:
             return CliPhaseResult.exit(0)
         result = selection.activation_result
-        if history_first:
-            if not isinstance(result, EmbeddedResumeStartup):
-                raise RuntimeError(
-                    "Continuity selection did not resolve native Coding history"
-                )
-            return CliPhaseResult.continue_with(result)
         session = getattr(result, "current", None)
         if session is None:
             getter = getattr(context.runtime, "get_current_session", None)
@@ -950,7 +888,7 @@ async def _run_coding_pre_session_bootstrap(
     finally:
         continuity_reference.release()
         await composition.dispose()
-        if history_first or not activated:
+        if not activated:
             await shutdown_coding_continuity(context.runtime)
 
 

@@ -2,6 +2,12 @@
 
 ## Status
 
+- 2026-10-14 command-line follow-up implemented by #738: startup
+  `--resume <session>`, the bare `--resume` picker and the in-session `/resume`
+  surface converge on the same Session lifecycle restore operation. Screen-first
+  startup owns presentation only. Platform-specific continuation details remain
+  below that lifecycle boundary, and no CLI entry selects a different Resume
+  protocol by operating system.
 - 2026-10-14 correction completed by #735: restore admission treats historical
   Runtime/Capability profiles, composition fingerprints, Plugin/Resource/Skill
   selections, workspace instructions, permission settings and model selection
@@ -3500,11 +3506,12 @@ passed locally in 58.47 seconds. The protocol, execution-codec, request and
 controller regression set passed 85 tests in 40.95 seconds; scoped Ruff, mypy
 and the affected architecture budgets also passed.
 
-The history-first writable wrapper remains Linux-only with the admitted native
-Writer. Windows and macOS keep the pre-existing cross-platform legacy same-ID
-Hosted recovery path, including process-death history recovery and a fresh
-ordinary turn. They do not substitute a read-only Resume wrapper for that
-existing G16 contract.
+The CLI uses one Session lifecycle activation path for startup flags, the
+startup picker and the in-session picker. The bounded history-first components
+remain available below Product-owned activation paths, but screen-first startup
+does not introduce a second continuation protocol. This keeps process-death
+history recovery, same-ID continuation and a fresh ordinary turn on the same
+contract for Linux, macOS and Windows.
 
 #### 2026-10-14 field correction: current environment cannot veto history
 
@@ -3530,14 +3537,15 @@ The corrected contract is:
 4. The full history and Writer revalidation paths share a 64 MiB limit. Larger
    Sessions remain available through the bounded recent-history view until a
    streaming or indexed full-verification path is delivered.
-5. Linux uses the native history-first Writer. macOS and Windows retain the
-   legacy same-ID continuation path; native macOS CI must prove that a changed
-   current Resource environment can append a fresh ordinary turn without
-   rewriting the original Header.
+5. Startup `--resume <session>`, the bare startup picker and in-session
+   `/resume` all consume the same prepared Session lifecycle activation. Native
+   macOS CI proves the real command-line entry after a current Resource change;
+   platform-specific Writer implementation is not part of CLI routing.
 
 Regression evidence covers changed Runtime/Capability profiles, AGENTS and
 Skill content, current model, permission profile, Plugin catalog fingerprint,
 12,000-record history above 8 MiB, headless continuation without a Resume
-approval prompt, and native macOS legacy same-ID continuation. Final CI run
-`38507720597` completed with 90 successful checks, one expected skip and no
-failures.
+approval prompt, native macOS same-ID continuation, and the real macOS
+command-line `--resume <session>` entry. The #735 CI run `38507720597`
+completed with 90 successful checks, one expected skip and no failures; #738
+adds the unified-entry regression.

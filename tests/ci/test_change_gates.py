@@ -408,10 +408,10 @@ class ScopeTests(unittest.TestCase):
         self.assertIn("os: [ubuntu-24.04, macos-15, windows-2022]", workflow)
         self.assertIn("--require-tests-count 1", workflow)
         self.assertIn("uv run python scripts/ci/run_checks.py e2e_smoke", workflow)
-        self.assertIn("tests/coding/test_resume_darwin_legacy.py", workflow)
+        self.assertIn("tests/coding/test_resume_darwin.py", workflow)
         self.assertIn("--require-tests-count 2", workflow)
         self.assertIn("--require-property native_platform=darwin", workflow)
-        self.assertIn("--require-property resume_route=legacy-same-id", workflow)
+        self.assertIn("--require-property resume_route=session-lifecycle", workflow)
 
     def test_sustained_worker_query_runs_for_its_test_and_full_validation(self):
         ordinary = selector.select(

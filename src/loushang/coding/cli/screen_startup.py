@@ -110,14 +110,7 @@ async def run_screen_first_cli(
     async def run_prepared_binding(
         binding: Any, host_binding: Any, host_runners: Any
     ) -> int:
-        from loushang.coding.cli.resume_startup import (
-            configure_embedded_resume_startup,
-            embedded_resume_history_route_admitted,
-            run_embedded_resume_history_host,
-        )
-        from loushang.coding.embedded_resume import EmbeddedResumeStartup
         from loushang.harness.cli.application import (
-            CliPhaseResult,
             invoke_agent_cli_runtime_builder,
             run_agent_cli_application,
         )
@@ -128,91 +121,16 @@ async def run_screen_first_cli(
             owned_runtime = await result if inspect.isawaitable(result) else result
             return owned_runtime
 
-        supports_resume_history = all(
-            hasattr(binding, name)
-            for name in (
-                "pre_session_bootstrap",
-                "configure_session",
-                "session_operations",
-            )
-        )
-        original_pre_session = getattr(binding, "pre_session_bootstrap", None)
-        original_configure = getattr(
-            binding, "configure_session", lambda _context: None
-        )
-        original_operations = getattr(
-            binding, "session_operations", lambda _context: None
-        )
-        ordinary_host = host_binding.bind(replace(host_runners, tui=run_tui))
-
-        async def pre_session(context: Any) -> Any:
-            resume = context.state.args.resume
-            if (
-                isinstance(resume, str)
-                and embedded_resume_history_route_admitted()
-            ):
-                from loushang.coding.runtime.agent_session_runtime import (
-                    AgentSessionRuntime,
-                )
-
-                if type(context.runtime) is not AgentSessionRuntime:
-                    raise RuntimeError(
-                        "Embedded Resume requires the native Coding Root"
-                    )
-                history = await context.runtime.preview_resume_startup(resume)
-                if history.status == "preview":
-                    await context.runtime.start_configured_resume_planning(history)
-                return CliPhaseResult.continue_with(
-                    EmbeddedResumeStartup(resume, history)
-                )
-            if original_pre_session is None:
-                return None
-            result = original_pre_session(context)
-            return await result if inspect.isawaitable(result) else result
-
-        async def configure(context: Any) -> int | None:
-            if not isinstance(context.session, EmbeddedResumeStartup):
-                result = original_configure(context)
-                return await result if inspect.isawaitable(result) else result
-            configure_embedded_resume_startup(context)
-            return None
-
-        async def session_operations(context: Any) -> int | None:
-            if isinstance(context.session, EmbeddedResumeStartup):
-                return None
-            result = original_operations(context)
-            return await result if inspect.isawaitable(result) else result
-
-        async def run_host(context: Any) -> int:
-            if not isinstance(context.session, EmbeddedResumeStartup):
-                return await ordinary_host(context)
-            return await run_embedded_resume_history_host(
-                context,
-                app=app,
-                screen_runner=startup.attach,
-                before_product_ui=(
-                    threaded_startup.before_product_ui
-                    if threaded_startup is not None
-                    else None
-                ),
-            )
-
-        updates = {
-            "runtime_builder": build_runtime,
-            "host_lifecycle": ProductHostLifecycle.resolve(
+        prepared_binding = replace(
+            binding,
+            runtime_builder=build_runtime,
+            host_lifecycle=ProductHostLifecycle.resolve(
                 stdin=streams.stdin,
                 stdout=cast(TextIO, output),
                 stderr=cast(TextIO, errors),
             ),
-            "run_host": run_host if supports_resume_history else ordinary_host,
-        }
-        if supports_resume_history:
-            updates.update(
-                pre_session_bootstrap=pre_session,
-                configure_session=configure,
-                session_operations=session_operations,
-            )
-        prepared_binding = replace(binding, **updates)
+            run_host=host_binding.bind(replace(host_runners, tui=run_tui)),
+        )
         return await run_agent_cli_application(
             raw_argv, binding=prepared_binding, cwd=cwd
         )
