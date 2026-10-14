@@ -190,3 +190,19 @@ node 级混合文件同时执行原模块剩余节点与既有精确节点。源
 矩阵，其中 candidate wheel 过去还会选择持续查询。对应源码平台边界、三个未分类
 Windows Worker 测试和 schedule/manual full 仍保留原完整矩阵；被修改的四个测试
 继续在 catalog 声明的平台执行自身场景。
+
+## 9. Protocols 测试支撑代码合并
+
+`tests/protocols` 的 4 个测试文件包含 101 个静态测试函数，参数化后收集 109 个
+实例。逐项按协议入口、输入分区和断言复核后，没有可删除的行为复本：相似的
+max-token、reasoning、auth、tool-call 和资源关闭用例分别约束 Anthropic Messages、
+OpenAI Chat Completions、OpenAI Responses 的不同 wire payload 或生命周期。所有
+SDK 调用由 fake module、内存 adapter 或合成事件驱动，不访问真实网络。
+
+三个真实协议文件此前各自复制同一套 context normalization、request mode 转换和
+stream 启动代码，只替换 API 名称。该驱动已合并到 `_runtime.py`，协议文件通过
+绑定 API 名称复用；测试 node、参数、fake SDK、输入与断言均未改变。改动净减少
+75 行测试支撑代码，完整目录仍为 109 项通过、1.36 秒。所属 AI 完整离线回归
+858 项通过、7 项 live deselect，31.28 秒；总覆盖率 90.65% 及三个细分阈值、
+Ruff、mypy、catalog 和 import boundary 均通过。本批减少维护重复，不改变门禁、
+route、平台、触发或失败条件。
