@@ -290,7 +290,7 @@ PR 因此多执行任务或多出失败条件，也不能自行实施。未获�
 | channel | 6 | 39 | 完整初审 |
 | ci | 6 | 139 | 完整初审；选择、归属、证据、聚合及复用合同 |
 | coding | 429 | 3933 | 待逐项审查 |
-| dev | 45 | 404 | 待逐项审查 |
+| dev | 45 | 406 | 部分初审；19 个遗漏的 G18/lmux 测试路径已收敛到既有 owner |
 | examples | 6 | 49 | 角色完整初审；61 个模块所属示例合同实例 |
 | foundation | 11 | 87 | Ubuntu 模块角色完整初审 |
 | harness | 475 | 4107 | 待逐项审查 |
@@ -320,6 +320,22 @@ Git diff 范围和工作流结构。全部使用临时 Git 仓库、合成 XML�
 真实性和 fail-closed 汇总，不能互相替代。本地 139 项全部通过，2.493 秒，因此
 保留现有节点及文件内隔离夹具，不为减少少量测试代码引入跨文件共享状态。本批只
 完成审计记录，不增加或扩大任何门禁。
+
+Dev 目录启动分组审查。45 个文件包含 406 个静态测试函数，参数化后收集 1674 个
+实例；完整 Linux 离线集合 1669 项通过、5 项平台条件跳过，耗时 243.10 秒。它并非
+一个可直接归为快速单元的模块：既有纯比较/收据合同，也有真实子进程监督、进程树
+回收、临时 Git/wheel、POSIX 行为和跨平台 observer 合同。完整 AST 扫描未发现
+完全重复函数，后续仍须按执行边界和参数矩阵继续语义审查。
+
+路由检查发现 18 个 `test_lmux_*` 文件和
+`test_screen_first_probe_readiness.py` 直接复用 `test_measure_g18_native.py` 的 runner、
+G18 comparison 或 Coding probe，却遗漏在现有 G18/AppService owner 清单之外。单独
+修改任一文件都会落入未知路径全量回退，误选 Architecture、AI、TUI、AppHost、
+LSP、E2E 和多个模块。现将这 19 个路径加入既有 G18/AppService 规则；它们原本已
+由全量回退包含该 owner，本次只删除无关选择，不新增 check、workflow、job、route、
+平台或失败条件。静态验证 19 个路径均从八类 workflow 收敛为既有 `units`/`e2e`
+计划。AppService 当前仍暂停，且这些文件尚无直接 targeted 执行；新增直接执行会
+形成新的 PR 失败条件，须另行审批，本批不实施。
 
 第二批本地实现：Work 全目录受控单元/日志合同已分类；5 个已确认冗余单元用例已有替代映射；AppHost Linux 的 join、composition、canary 从主回归派生报告，保留独有 Worker close 和 installed 验证。完整主集合离线验证 2646 项通过、11 项 Windows 条件跳过，518.16 秒；从完整报告派生后原 manifest 均通过。详见[测试去重实施记录](test-deduplication-review.md)。后续仍需优化实测缓慢的全仓静态扫描与原生执行分组，不把局部结果作为全仓验收。
 
