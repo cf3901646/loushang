@@ -204,4 +204,5 @@ Harnesstui 双选联合执行复核：覆盖视角以现有 core/Coding UI 清�
 单选仍走原 scope。性能视角删除第二次 Ruff、mypy、pytest 启动与重复 import/collection，
 并否决了会触发 mypy cache 竞态和 CPU/IO 争用的直接并发方案。维护视角复用一个
 plan-aware runner scope，顶层 job、guard、平台和 fail-closed 汇总不变；本项没有新增
-门禁或失败条件。
+门禁或失败条件。PR #779 首轮联合报告 1516 项全通过、64 项 marker deselect、零
+skip/failure，job 由 2 分 24 秒降至 1 分 32 秒，完整 PR 为 4 分 04 秒。
