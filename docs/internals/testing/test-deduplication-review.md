@@ -603,3 +603,19 @@ POSIX 与 Windows epoch cutover 的 concurrent exact request 收敛用例。它�
 平台 owner、布局和安全语义，继续分别保留。4 份 JUnit 的 testcase 身份没有分片重叠。
 其余完整单元/合同、本地进程/存储与平台 node 归属记录为 AP-07；未获逐项审批前不
 修改 catalog、route、平台、触发或失败条件，现有完整离线 4 分片保持不变。
+
+## 20. HarnessTUI 共享消费者文件的条件去重
+
+`tests/harnesstui` 当前包含 98 个测试文件、625 个静态测试函数；忽略名称后的完整
+AST 函数体扫描没有完全重复簇。远程基线 #755 的 HarnessTUI core 为 1020 passed、
+零 skip、30.89 testcase 秒，合并 job 墙钟约 60 秒；Coding UI 为独立文件集合。
+
+core 清单还包含 8 个完整 `tests/tui` 文件和 5 个完整 `tests/harness` 文件。它们是
+HarnessTUI 的必要消费者合同，因此 HarnessTUI-only 候选继续执行全部 16 个入口。
+当已有选择计划同时安排 TUI unit 或 Harness unit owner 时，同一文件原先会在相同
+Ubuntu 源码环境执行两次。执行器现按计划分别剔除 8 个或 5 个重复入口；TUI 候选
+保留 8 个 core 入口，Harness 候选保留 11 个，独有 HarnessTUI 与 Architecture 合同
+均保留。CI 合同覆盖三个计划分支和 workflow 的计划传递。
+
+该改动只缩减现有执行，没有新增门禁、平台、触发、测试 route 或失败条件。其余
+逐 node 分类及任何覆盖扩张列为 AP-08，必须经门禁增加审批后才可实施。

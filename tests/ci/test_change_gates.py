@@ -1232,6 +1232,36 @@ class SuiteSelectionTests(unittest.TestCase):
         self.assertFalse(core & coding)
         self.assertEqual(core | coding, original)
 
+    def test_harnesstui_reuses_selected_tui_and_harness_package_owners(self):
+        tui_plan = selector.select(["src/loushang/tui/input.py"], pr_fast=True)
+        tui_command = runner.commands("harnesstui", plan=tui_plan)[-1]
+        self.assertTrue(tui_plan["checks"]["tui_unit"])
+        self.assertFalse(any(path.startswith("tests/tui/") for path in tui_command))
+        self.assertIn("tests/harness/session/test_footer.py", tui_command)
+
+        harness_plan = selector.select(
+            ["src/loushang/harness/session/footer.py"], pr_fast=True
+        )
+        harness_command = runner.commands("harnesstui", plan=harness_plan)[-1]
+        self.assertIn("harness", harness_plan["unit_packages"])
+        self.assertFalse(
+            any(path.startswith("tests/harness/") for path in harness_command)
+        )
+
+    def test_harnesstui_only_route_keeps_shared_consumer_contracts(self):
+        plan = selector.select(
+            ["src/loushang/harnesstui/surface/transcript.py"], pr_fast=True
+        )
+        command = runner.commands("harnesstui", plan=plan)[-1]
+        self.assertFalse(plan["checks"]["tui_unit"])
+        self.assertNotIn("harness", plan["unit_packages"])
+        self.assertIn("tests/tui/test_launch.py", command)
+        self.assertIn("tests/harness/session/test_footer.py", command)
+
+    def test_harnesstui_workflow_passes_the_selection_plan_to_runner(self):
+        workflow = (ROOT / ".github/workflows/harnesstui-quality.yml").read_text()
+        self.assertIn("CI_PLAN: ${{ inputs.plan }}", workflow)
+
     def test_offline_suites_keep_provider_and_native_tests_out(self):
         for scope in ("agent", "coding", "foundation", "tui_unit"):
             (command,) = runner.commands(scope)
