@@ -677,11 +677,6 @@
       "ai",
       "install"
     ],
-    "packages": [
-      "agent",
-      "coding",
-      "foundation"
-    ],
     "harness": [
       "harness",
       "harness_native"

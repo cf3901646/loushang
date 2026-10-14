@@ -1,0 +1,96 @@
+# 测试去重实施记录
+
+本记录是[测试与 PR 门禁重构方案](test-and-pr-gate-refactoring-plan.md)的实施证据，不能替代全量语义审查或远程性能验收。当前接受范围为下述已确认重复项与 AppHost Linux 同配置重复执行；其他项仍待审查。
+
+## 1. 全仓候选扫描
+
+2026-10-14 扫描当前任务工作树的 1475 个 `test_*.py` 文件、13755 个静态 `test_` 函数定义。比较忽略位置和函数自身名称的完整 AST，保留参数、装饰器和函数体，发现 10 组候选。参数化实际运行数量、全局配置、共享夹具和被包含但不完全相同的断言不在这项扫描的证明范围内。
+
+完成映射删除后以相同算法复扫，剩余 3 组：POSIX/Windows epoch 收敛各一项、五个 vendor live wrapper、两个 Kimi OpenAI stream/complete wrapper，均为下表已审查且保留的平台或 provider 变体。当前树不再有未处置的完整 AST 重复簇；这不代表近似 AST 或语义包含关系已经全仓审完。
+
+| 候选 | 上下文核对 | 处置 |
+| --- | --- | --- |
+| AI `test_api_streaming.py` 的 register/get 两个 legacy signature 用例 | 同文件、同 provider、同 registry，实际都只调用 register 并检查相同异常 | 合并到 register owner |
+| AI 同文件 optional legacy signature 两个用例 | 同一 `_LegacyProviderWithOptionalDebug`、相同调用与异常 | 合并到 register owner |
+| 五个 vendor live 测试 wrapper | 各模块的 main、模型/协议和工具配置不同 | 保留；wrapper 相同不代表网络行为相同，不执行 live 验证 |
+| 两个 Kimi OpenAI live wrapper | 分别调用 stream/complete 示例流程 | 保留；全局函数不同 |
+| Coding 两个 UI 文件的 non-interactive 用例 | 两个函数体相同，均 patch 同一 mode 入口；两套 helper 对被断言的 runtime/current session/prompt 行为相同 | 删除 Screen 复本，保留聚焦的 UI mode owner |
+| Coding session codec 的 native/read-only v3 rejection | 同文件、同 tmp_path 隔离、同 `load_session_repository`，并未调用不同入口 | 合并为原 native 用例 |
+| Harness events/host 的 subscribe/unsubscribe | 相同 canonical 导入、无局部夹具、同父级 conftest | 仅 events owner 保留 |
+| Harness events/host 的 scheduled listener serialization | 同上，相同事件栅栏、调度顺序与 drain 断言 | 仅 events owner 保留 |
+| Harness events/host 的 no-loop rejection | 同上，相同定制错误与拒绝断言 | 仅 events owner 保留 |
+| POSIX/Windows epoch concurrent convergence | owner、平台跳过条件、布局/ACL 配置不同 | 保留对应平台覆盖 |
+
+## 2. 已实施的旧用例到保留集合映射
+
+以下旧 node ID 可在基线提交 `1f1fcaf1` 中核对。已删除项均不携带独有参数、失败分支、平台或生命周期差异。
+
+| 旧用例 | 保留用例 | 等价或包含依据 |
+| --- | --- | --- |
+| `tests/resource/test_frontmatter.py::test_harness_frontmatter_entrypoint_is_canonical` | 同文件 `test_legacy_resource_frontmatter_path_preserves_harness_owner_identity` | 同一 parse 函数身份断言被包含，其他导出/错误类型身份仍保留 |
+| `tests/coding/test_session_file_codec.py::test_read_only_repository_rejects_session_v3_without_rewriting_source` | 同文件 `test_native_repository_rejects_session_v3_without_rewriting` | 完整函数体等价，均检验 v3 拒绝、错误码与原文件字节不变 |
+| `tests/harness/host/test_events.py::test_ordered_event_bus_subscribes_and_unsubscribes` | `tests/harness/events/test_bus.py::test_ordered_event_bus_subscribes_and_unsubscribes` | 相同 canonical 类型、订阅/退订和监听状态断言 |
+| `tests/harness/host/test_events.py::test_ordered_event_bus_serializes_scheduled_async_listeners` | `tests/harness/events/test_bus.py::test_ordered_event_bus_serializes_scheduled_async_listeners` | 相同受控 async listener，串行与 drain 行为完整保留 |
+| `tests/harness/host/test_events.py::test_ordered_event_bus_no_loop_rejects_async_listener_with_configured_error` | `tests/harness/events/test_bus.py::test_ordered_event_bus_no_loop_rejects_async_listener_with_configured_error` | 相同无事件循环拒绝及定制异常信息 |
+| `tests/ai/test_api_streaming.py::test_get_api_adapter_stream_rejects_legacy_provider_signature` | 同文件 `test_register_api_adapter_rejects_legacy_provider_signature` | 两者构造同一 `_LegacyProvider` 和空 registry，均只调用 `register_api_adapter` 并断言相同 TypeError；旧名称未经过 get/call 路径 |
+| `tests/ai/test_api_streaming.py::test_get_api_adapter_stream_rejects_legacy_optional_arg_signature` | 同文件 `test_register_api_adapter_rejects_optional_legacy_argument_signature` | 两者构造同一 optional-debug provider，调用与异常断言完全相同；无独有 get/call 行为 |
+| `tests/coding/test_screen_coding_tui_mode.py::test_run_coding_tui_non_interactive_keeps_plain_prompt_loop` | `tests/coding/test_ui_mode.py::test_run_coding_tui_non_interactive_keeps_plain_prompt_loop` | 两个函数体完全相同，均 patch 同一 mode 入口并断言非交互分支、prompt 与参数集合；保留 fixture 更小且职责更聚焦的 UI mode owner |
+| `tests/coding/test_file_mutation_queue.py::{test_mutation_queue_serializes_same_file_operations,test_mutation_queue_uses_canonical_same_file_identity}` | `tests/harness/workspace/test_mutation_queue.py::test_mutation_queue_serializes_canonical_same_path` | canonical Harness owner 同时覆盖相同路径串行与不同拼写归一化，包含基本同路径场景 |
+| `tests/coding/test_file_mutation_queue.py::test_mutation_queue_allows_different_files_to_progress_independently` | `tests/harness/workspace/test_mutation_queue.py::test_mutation_queue_allows_different_paths_to_progress` | 都用受控 event 栅栏证明不同绝对路径不会共享锁；Harness 用例无脆弱的 0.1 秒完成超时 |
+| `tests/coding/test_file_mutation_queue.py::test_mutation_queue_rejects_relative_paths` | `tests/harness/workspace/test_mutation_queue.py::test_mutation_queue_rejects_relative_paths` | 同一 canonical API、相同异常类型和消息 |
+| `tests/coding/test_file_mutation_queue.py::test_mutation_queue_cleans_up_lock_entries_after_use` | `tests/harness/workspace/test_mutation_queue.py::test_mutation_queue_context_tracks_and_releases_active_path` | 独有的持锁期间可见与退出清理断言迁入 canonical owner |
+| `tests/coding/test_file_mutation_queue.py::test_run_with_file_mutation_queue_serializes_callback_operations` | `tests/harness/workspace/test_mutation_queue.py::test_mutation_queue_runner_serializes_callbacks_and_returns_results` | 独有的 callback 串行、顺序及返回值断言迁入 canonical owner |
+| `tests/coding/test_file_mutation_queue.py::{test_run_with_file_mutation_queue_accepts_sync_callback,test_mutation_queue_uses_its_direct_harness_owner}` | `tests/harness/workspace/test_mutation_queue.py::test_mutation_queue_runner_accepts_sync_results_and_cleans_up` | 统一保留同步 callback 返回与锁清理；从同一模块重复导入后比较对象身份没有额外消费者边界 |
+| `tests/coding/test_file_mutation_queue.py::test_run_with_file_mutation_queue_cleans_up_after_callback_error` | `tests/harness/workspace/test_mutation_queue.py::test_mutation_queue_cleans_up_after_callback_failure` | 同一 canonical runner、异步异常传播与锁表清理 |
+| `tests/ontology/test_action_schema.py::test_schema_v3_documents_are_not_loaded_as_v4` | `tests/ontology/test_schema.py::test_schema_v3_documents_are_not_loaded_as_v4` | `load_json` 在解析内容前按同一 format 字段拒绝 v3；换用包含 action 的合法 v4 草稿不会形成新的版本边界 |
+| `tests/coding/test_frontmatter.py::{test_parse_frontmatter_normalizes_crlf_and_block_scalars,test_parse_frontmatter_supports_simple_lists_and_maps,test_parse_frontmatter_supports_nested_maps}` | `tests/harness/resources/test_frontmatter.py::{test_parse_frontmatter_normalizes_newlines_and_block_scalars,test_parse_frontmatter_supports_lists_and_nested_maps}` | Coding 文件直接导入 canonical Harness parser，没有 Coding adapter；Harness owner 覆盖 CRLF/block scalar、list 和 nested map 的相同解析边界 |
+| `tests/coding/test_frontmatter.py::test_parse_frontmatter_keeps_original_body_without_complete_frontmatter` | `tests/harness/resources/test_frontmatter.py::{test_parse_frontmatter_returns_plain_content_unchanged,test_parse_frontmatter_preserves_unterminated_document}` | Harness owner 分别保留普通正文与未闭合 frontmatter 的原文保持，并额外校验完整结果值 |
+| `tests/coding/test_frontmatter.py::test_parse_frontmatter_reports_invalid_yaml_location` | `tests/harness/resources/test_frontmatter.py::test_parse_frontmatter_reports_source_location` | 同一 canonical 异常、输入及 line/field 断言 |
+| `tests/coding/test_prompt_assembly.py::test_prompt_template_args_do_not_recursively_substitute_argument_values` | `tests/harness/capabilities/test_prompt.py::test_template_expansion_does_not_reprocess_argument_values` | 完整调用、恶意占位符参数和输出断言相同；Coding 文件直接调用 canonical Harness helper，没有 Coding adapter |
+| `tests/ai/test_provider_contract_matrix.py::test_builtin_registration_is_frozen_to_core_adapter_matrix` | `tests/ai/contracts/test_core_provider_contracts.py::test_builtin_registration_matches_core_contracts` | 两份矩阵包含同一三个 core adapter，均对 builtin registry 的排序 API 集合做相同断言；文档矩阵文件保留文档一致性职责 |
+| `tests/ai/test_provider_contract_matrix.py::test_core_production_adapters_implement_api_adapter_contract` | `tests/ai/contracts/test_core_provider_contracts.py::test_core_adapters_implement_invoke_raw_contract` | canonical contract 对同一三个具体 adapter 保留全部旧断言，并额外验证 PreparedRequest adapter、prepare 与 invoke_prepared 签名 |
+| `tests/coding/test_workspace_path_mutation_compatibility.py::test_workspace_mutation_queue_preserves_owner_identity` | `tests/harness/workspace/test_mutation_queue.py` 的 canonical runner/context 行为集合 | 两种导入写法都解析为同一个 Harness 模块，没有 legacy Coding facade；同模块对象自等不构成消费者合同 |
+| `tests/coding/test_screen_coding_tui_mode.py::test_run_coding_tui_non_interactive_keeps_plain_prompt_loop` | `tests/coding/test_ui_mode.py::test_run_coding_tui_non_interactive_keeps_plain_prompt_loop` | 两个函数体完全相同，均 patch 同一 mode 入口并断言非交互分支、prompt 与参数集合；保留 fixture 更小且职责更聚焦的 UI mode owner |
+
+Harness host 测试文件只包含这三个重复项，且也直接导入 canonical events 类型，没有独有 facade 合同，因此删除整个重复文件。canonical events 的失败传播且不阻塞后续事件用例继续保留。
+
+## 3. AppHost Linux 一次执行与报告派生
+
+主回归一次执行原集合，并补入原 G8 独有的 `test_product_normal_close_retires_exact_attempt_without_global_rollback`。G8/G9/G10 后续步骤从主 JUnit 派生报告，不再重复执行 pytest。
+
+- join：完整 `tests.coding.test_apphost_product` 与上述 Worker close node。
+- composition/rollback：完整 `tests.coding.test_apphost_composition`。
+- canary：原四个文件中带 G10 标识的用例；其他架构约束也在主回归执行。
+- 原 manifest 精确 case ID、最少数量、零跳过/失败/错误校验继续执行。
+- installed canary 的真实安装验证仍单独执行，它与源码回归的运行配置不同。
+- Windows 验证未因 Linux 派生报告被删除，跨平台去重需另行证明。
+
+[报告派生器](../../../scripts/ci/derive_junit.py)拒绝来源失败/错误、重复身份、声明与实际数量不符、选择缺失、所选用例跳过以及覆盖来源文件。保留测试结果和 suite properties，不执行 Product、不共享可变状态。来源中合法平台 skip 可以不进入派生报告；所选必需用例必须真实通过。
+
+## 4. 当前验证与剩余工作
+
+- 合并执行的重点集合：62 项通过，27.74 秒；派生 join/composition/canary 报告分别为 19/16/13 项，原 manifest 均通过。
+- 去重后的完整事件总线与 session codec 文件：15 项通过，1.58 秒。
+- Resource 去重后：4 项通过，1.28 秒；Work 完整初审集合：45 项通过，3.71 秒。
+- CI 合同：117 项通过，包含报告派生的缺失、跳过、失败、重复与数量矛盾负例；Ruff、Actions 语法和 diff 检查通过。
+- 完整 AppHost 主集合离线验证：2646 项通过、11 项跳过，518.16 秒；跳过项均为明确的 Windows native 条件，不作为 Linux 通过的原生证据。三个报告从这份完整结果再次派生，原 manifest 全部通过。已验证同次执行没有导致该集合的夹具或顺序失败；本地附加 `not live and not requires_host_runtime`、`--skip-host-runtime`，因此仍不是所有执行配置的验收。
+- 完整报告显示反复扫描全仓的静态依赖检查单项耗时 60.804/42.307/21.760 秒；两个终端进程死亡恢复用例分别为 38.180/31.081 秒。这些是后续共享扫描和能力拆分的实测依据，不以增加超时解决。
+- 上述数字为本地执行，不证明 PR 排队和总耗时达标；真实 installed 与 Windows 运行仍待交付验证。
+
+仍需完成其他非相同 AST 的语义重复、全部目录角色与夹具影响、其余跨工作流唯一执行、历史 job 重组、必要原生场景和真实多次 PR/main 验收。当前共删除 27 个旧 node ID，其中 mutation queue 的 2 个独有合同迁入 canonical Harness owner；数量变化本身不代表全部单元测试去重完成。
+
+## 5. 共享全仓源码扫描准备
+
+AppHost A0、A0.2、A0.3/A0.4 与 Hosted Application G11 的导入扫描统一采用[共享导入事实](../../../tests/architecture/_source_imports.py)。同一进程、同文件内容只解析一次 AST，返回新的结果集合；源文本变更立即失配，缓存只保留不可变导入元组，不缓存可变 AST、Product 状态或会话资源。
+
+保留各消费者原有解析模式：是否包含 from-import 的成员、是否显式拒绝越界相对导入。所有 32 个测试函数的完整 AST 与改动前相同，参数化收集的 32 个用例身份也与完整基线报告一致，32 项全部通过。
+
+旧完整 AppHost 报告中这四个文件的 testcase 时间累计 148.515 秒；新聚焦执行墙钟 20.83 秒。前者为用例时间总和、后者包括聚焦执行准备，且运行时负载不同，因此只作为初步改善证据，不能宣称严格对照倍数或远程总耗时达标。四个消费者覆盖保持，其他消费者与完整远程流程仍待验证。
+
+新增缓存合同验证覆盖绝对/相对/别名/条件导入、两种成员模式、相同输入单次解析、返回集合隔离、同大小同时间戳内容变更、非法相对导入与语法错误；CI 合同增至 121 项通过。
+
+## 6. AI 示例唯一执行
+
+旧 `check-ai` 先由 `scripts/ai/check_examples.py` 子进程执行所有离线 AI 示例，再由 `tests/examples` 重跑它们，最后 coverage 又运行 `test_ai_examples.py`；同时把 Agent/Coding/Harness examples 带入 AI gate。现在保留带文件清单、环境清理、输出和公开导入断言的 pytest owner，把 AI 与 Auth example tests 各放入 coverage 执行一次，移除重复脚本阶段及无关 examples 全目录。示例脚本本身和独立检查工具仍保留；变更只收敛 PR gate 的重复执行。
+
+完整新配置实测 858 项通过、7 项 marker deselect，45.18 秒；总覆盖率 90.65%，三个细分 coverage target 均通过。Ruff、76 个 AI 源文件 mypy、catalog 和 import boundary 同时通过。该数据是本地执行时间，不包含远程 runner 安装和排队。

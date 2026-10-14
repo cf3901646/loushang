@@ -993,22 +993,6 @@ def test_call_api_adapter_stream_requires_normalized_context() -> None:
         )
 
 
-def test_get_api_adapter_stream_rejects_legacy_provider_signature() -> None:
-    provider = _LegacyProvider()
-    registry = _empty_test_registry()
-
-    with pytest.raises(TypeError, match="exactly one ProviderRequest"):
-        registry.register_api_adapter(provider)
-
-
-def test_get_api_adapter_stream_rejects_legacy_optional_arg_signature() -> None:
-    provider = _LegacyProviderWithOptionalDebug()
-    registry = _empty_test_registry()
-
-    with pytest.raises(TypeError, match="exactly one ProviderRequest"):
-        registry.register_api_adapter(provider)
-
-
 def test_call_api_adapter_stream_rejects_mismatched_resolved_request() -> None:
     provider = _Provider()
     registry = _empty_test_registry()

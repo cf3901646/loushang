@@ -28,18 +28,3 @@ jobs:
           name: registered-worker-real-reboot-evidence
           path: .artifacts/registered-reboot-vm/
           if-no-files-found: warn
-
-  selected-checks:
-    name: Selected checks
-    if: always()
-    needs: [isolated-linux-reboot]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Verify selected jobs
-        env:
-          CI_PLAN: ${{ inputs.plan }}
-          CI_NEEDS: ${{ toJSON(needs) }}
-        run: >-
-          python scripts/ci/verify_gate.py
-          --jobs '{"isolated-linux-reboot":"registered_reboot"}'

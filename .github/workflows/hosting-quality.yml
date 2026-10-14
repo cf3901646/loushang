@@ -201,7 +201,6 @@ jobs:
           name: h6-posix-native-pytest-report
           path: .artifacts/h6-posix-native.xml
           if-no-files-found: error
-
       - name: Create H6.3 native report directory
         if: matrix.os == 'windows-2022'
         run: uv run python -c "from pathlib import Path; Path('.artifacts').mkdir(exist_ok=True)"
@@ -443,18 +442,3 @@ jobs:
           name: worker-sustained-pytest-report
           path: .artifacts/worker-sustained.xml
           if-no-files-found: error
-
-  selected-checks:
-    name: Selected checks
-    if: always()
-    needs: [hosting-quality, worker-p4-ordinary, worker-sustained]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Verify selected jobs
-        env:
-          CI_PLAN: ${{ inputs.plan }}
-          CI_NEEDS: ${{ toJSON(needs) }}
-        run: >-
-          python scripts/ci/verify_gate.py
-          --jobs '{"hosting-quality":"hosting","worker-p4-ordinary":"hosting","worker-sustained":"hosting_sustained"}'

@@ -6,6 +6,8 @@ import sys
 import tomllib
 from pathlib import Path
 
+from tests.architecture._source_imports import resolved_imports
+
 APPSERVER = Path("src/loushang/appserver")
 APPSERVICE = Path("src/loushang/appservice")
 CODING_ADAPTER = Path("src/loushang/coding/appservice_adapter.py")
@@ -21,22 +23,7 @@ def _read(path: Path) -> str:
 
 
 def _imports(path: Path) -> set[str]:
-    imported: set[str] = set()
-    package = path.parent.relative_to("src").parts
-    for node in ast.walk(ast.parse(_read(path), filename=str(path))):
-        if isinstance(node, ast.Import):
-            imported.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            retained = len(package) - (node.level - 1) if node.level else 0
-            base = (
-                (*package[:retained], *(node.module or "").split("."))
-                if node.level
-                else tuple((node.module or "").split("."))
-            )
-            normalized = tuple(part for part in base if part)
-            if normalized:
-                imported.add(".".join(normalized))
-    return imported
+    return resolved_imports(path, include_members=False, reject_invalid_relative=False)
 
 
 def _package_imports(root: Path) -> set[str]:
