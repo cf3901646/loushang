@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 verify = importlib.import_module("verify_module_report").verify
+CATALOG_VERSION = importlib.import_module("test_catalog").CATALOG_VERSION
 
 
 class ModuleReportTests(unittest.TestCase):
@@ -22,7 +23,7 @@ class ModuleReportTests(unittest.TestCase):
         files = ["tests/demo/test_one.py", "tests/demo/test_two.py"]
         for file in files:
             (self.root / file).write_text("def test_case(): pass\n")
-        catalog = {"version": 1, "modules": {"demo": {
+        catalog = {"version": CATALOG_VERSION, "modules": {"demo": {
             "complete": True, "files": {file: {
                 "category": "unit", "assertion": "necessary behavior"} for file in files}}}}
         (self.root / "scripts/ci/test-classification.json").write_text(json.dumps(catalog))

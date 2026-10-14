@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 CATALOG_FILE = "scripts/ci/test-classification.json"
+CATALOG_VERSION = 2
 MODULE_CATEGORIES = {"unit", "contract"}
 TARGETED_CATEGORIES = {"integration", "platform", "live", "e2e"}
 MODULE_EXTRA_TESTS = {
@@ -21,9 +22,11 @@ def load_catalog(root: Path) -> dict:
     path = root / CATALOG_FILE
     if not path.exists():
         # During incremental migration, absence retains the complete old route.
-        return {"version": 1, "modules": {}}
+        return {"version": CATALOG_VERSION, "modules": {}}
     catalog = json.loads(path.read_text())
-    if not isinstance(catalog, dict) or catalog.get("version") != 1 or not isinstance(catalog.get("modules"), dict):
+    if (not isinstance(catalog, dict)
+            or catalog.get("version") != CATALOG_VERSION
+            or not isinstance(catalog.get("modules"), dict)):
         raise ValueError("invalid test classification catalog")
     for module, entry in catalog["modules"].items():
         if not module.isidentifier() or not isinstance(entry, dict) or entry.get("complete") is not True:

@@ -6,6 +6,8 @@
 
 2026-10-14 扫描当前任务工作树的 1475 个 `test_*.py` 文件、13755 个静态 `test_` 函数定义。比较忽略位置和函数自身名称的完整 AST，保留参数、装饰器和函数体，发现 10 组候选。参数化实际运行数量、全局配置、共享夹具和被包含但不完全相同的断言不在这项扫描的证明范围内。
 
+完成映射删除后以相同算法复扫，剩余 3 组：POSIX/Windows epoch 收敛各一项、五个 vendor live wrapper、两个 Kimi OpenAI stream/complete wrapper，均为下表已审查且保留的平台或 provider 变体。当前树不再有未处置的完整 AST 重复簇；这不代表近似 AST 或语义包含关系已经全仓审完。
+
 | 候选 | 上下文核对 | 处置 |
 | --- | --- | --- |
 | AI `test_api_streaming.py` 的 register/get 两个 legacy signature 用例 | 同文件、同 provider、同 registry，实际都只调用 register 并检查相同异常 | 合并到 register owner |

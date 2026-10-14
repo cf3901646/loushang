@@ -161,3 +161,5 @@ AppServer/AppService 目录分类追加复核：覆盖视角逐文件区分受�
 AI 示例执行追加复核：覆盖视角保留 pytest 中的离线执行、固定文件清单、输出、公开导入及 Auth 行为断言，并将两份 owned example tests 纳入 coverage；性能视角删除独立脚本重复执行和 `tests/examples` 全目录重跑。维护视角不删除示例或工具，仅让 AI gate 有一个 pytest owner，CI 合同拒绝 owned example 路径重复或缺失。
 
 AI 完整验证追加证据：858 项通过、7 项 deselect、45.18 秒，总覆盖率 90.65%，三个细分 coverage target、Ruff、mypy、catalog 与 import boundary 均通过。覆盖视角接受本次执行收敛；性能视角只记录本地测试墙钟，不外推远程总耗时。
+
+远程时长复核：运行 `38523545906` 的创建到完成墙钟为 9 分 53 秒；仍启用的 AppHost、Harnesstui、AI、TUI、LSP 最慢 job 分别约 4 分 13 秒、3 分、1 分 3 秒、1 分 12 秒、57 秒，彼此并行，没有证据支持继续扩大暂停范围。旧 16 个 Coding shard 最长约 5 分 5 秒且最后结束，结合 `38528465735` 的普通 UI PR 仍由 Coding shard 收尾，性能视角接受“先验收 8 shard”方向；维护视角保留当前六类暂停清单，避免把短且独有的平台/LSP 覆盖无依据地移除。

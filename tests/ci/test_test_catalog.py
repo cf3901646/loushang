@@ -16,11 +16,13 @@ select = importlib.import_module("select_checks").select
 catalog_module = importlib.import_module("test_catalog")
 load_catalog = catalog_module.load_catalog
 module_unit_paths = catalog_module.module_unit_paths
+CATALOG_VERSION = catalog_module.CATALOG_VERSION
 
 
 class CatalogTests(unittest.TestCase):
     def test_reviewed_modules_cover_their_complete_current_test_directories(self):
         catalog = load_catalog(ROOT)
+        self.assertEqual(catalog["version"], CATALOG_VERSION)
         self.assertEqual(set(catalog["modules"]), {
             "channel", "resource", "work", "agent", "harnesswork", "method",
             "foundation", "ontology", "appserver", "appservice",
@@ -98,7 +100,7 @@ class CatalogTests(unittest.TestCase):
             (root / "tests/demo").mkdir(parents=True)
             file = root / "tests/demo/test_one.py"
             file.write_text("def test_one(): pass\n")
-            catalog = {"version": 1, "modules": {"demo": {
+            catalog = {"version": CATALOG_VERSION, "modules": {"demo": {
                 "complete": True, "files": {"tests/demo/test_one.py": {
                     "category": "unit", "assertion": "one behavior"}}}}}
             (root / "scripts/ci/test-classification.json").write_text(json.dumps(catalog))
@@ -124,11 +126,11 @@ class CatalogTests(unittest.TestCase):
             entry = {"complete": True, "files": {
                 file: {"category": "contract", "assertion": "reviewed behavior"} for file in files}}
             path = root / "scripts/ci/test-classification.json"
-            path.write_text(json.dumps({"version": 1, "modules": {"demo": entry}}))
+            path.write_text(json.dumps({"version": CATALOG_VERSION, "modules": {"demo": entry}}))
             with patch.dict(catalog_module.MODULE_EXTRA_TESTS, {"demo": ["tests/contracts"]}):
                 self.assertEqual(module_unit_paths("demo", root=root), sorted(files))
                 entry["files"].pop(files[1])
-                path.write_text(json.dumps({"version": 1, "modules": {"demo": entry}}))
+                path.write_text(json.dumps({"version": CATALOG_VERSION, "modules": {"demo": entry}}))
                 with self.assertRaisesRegex(ValueError, "missing=.*test_extra"):
                     load_catalog(root)
             with patch.dict(catalog_module.MODULE_EXTRA_TESTS, {"demo": ["tests/absent.py"]}):
@@ -158,7 +160,7 @@ class CatalogTests(unittest.TestCase):
                 "category": "unit", "assertion": "one behavior"}}, "fixtures": {fixture: role}}
             path = root / "scripts/ci/test-classification.json"
             def write():
-                path.write_text(json.dumps({"version": 1, "modules": {"demo": entry}}))
+                path.write_text(json.dumps({"version": CATALOG_VERSION, "modules": {"demo": entry}}))
             write()
             self.assertEqual(catalog_module.reviewed_unit_owner(fixture, catalog=load_catalog(root)), "demo")
             self.assertEqual(module_unit_paths("demo", root=root), [test])
@@ -178,10 +180,10 @@ class CatalogTests(unittest.TestCase):
             root = Path(tmp)
             (root / "scripts/ci").mkdir(parents=True)
             path = root / "scripts/ci/test-classification.json"
-            for catalog in ([], {"version": 2, "modules": {}},
-                            {"version": 1, "modules": {"demo": []}},
-                            {"version": 1, "modules": {"demo": {"complete": False}}},
-                            {"version": 1, "modules": {"demo": {"complete": True, "files": {}}}}):
+            for catalog in ([], {"version": CATALOG_VERSION + 1, "modules": {}},
+                            {"version": CATALOG_VERSION, "modules": {"demo": []}},
+                            {"version": CATALOG_VERSION, "modules": {"demo": {"complete": False}}},
+                            {"version": CATALOG_VERSION, "modules": {"demo": {"complete": True, "files": {}}}}):
                 with self.subTest(catalog=catalog):
                     path.write_text(json.dumps(catalog))
                     with self.assertRaises(ValueError):
@@ -196,7 +198,7 @@ class CatalogTests(unittest.TestCase):
             integration = "tests/demo/test_integration.py"
             (root / unit).write_text("def test_unit(): pass\n")
             (root / integration).write_text("def test_integration(): pass\n")
-            catalog = {"version": 1, "modules": {"demo": {
+            catalog = {"version": CATALOG_VERSION, "modules": {"demo": {
                 "complete": True,
                 "files": {
                     unit: {"category": "unit", "assertion": "isolated behavior"},
