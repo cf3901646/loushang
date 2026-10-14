@@ -640,3 +640,22 @@ Windows full 仍执行 shared/Windows platform 与 ConPTY，普通 Windows 路�
 结构，workflow 自身运行其完整 checks 与平台分支。原先额外启动的 Agent module 与
 产品 E2E 不消费该 workflow 的结果，也不验证其独有编排，现已删除。未知 workflow、
 共享执行器和其他未分类 gate infrastructure 仍保留原 Agent/E2E 保守回退。
+
+## 22. Dev 完整初审与恢复 seed 候选否决
+
+`tests/dev` 共 45 个测试文件、406 个静态测试函数。完整 AST 扫描在忽略函数名称、
+保留参数、decorator 与函数体后没有完全重复簇。使用当前工作树源码和独立私有临时
+根执行 `not live and not requires_host_runtime` 集合，1669 项通过、5 项平台条件
+跳过，耗时 155.51 秒。最慢项集中在真实恢复 seed、安装证据 selector、Windows
+observer 收集和真实子进程监督，和纯单元断言不是同一种执行角色。
+
+现有 12 个恢复故障参数继续复用同路径 seed 快照，保留原 12 个 node 和逐故障隔离。
+对其余正向恢复场景进一步合并 seed 的候选在聚焦验证中得到 4 failed、12 passed；
+Store head 将 journal 的 device、inode、size、mtime 和 ctime 纳入身份，复制目录后
+不能保持该证据。通过测试辅助代码重写 head 会让恢复验证自行制造预期值，因此候选
+被撤销，生产代码和测试节点均未改变。
+
+18 个 lmux 文件及 screen-first readiness 文件虽然已经归到既有 AppService 选择
+owner，但暂停状态使其当前没有活动直接执行 owner。补齐执行会新增 PR 失败条件，
+已列为 AP-10；未经指定审批方批准，不修改 catalog、workflow、平台或失败条件。
+本节只记录审计与否决证据。

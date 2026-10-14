@@ -290,7 +290,7 @@ PR 因此多执行任务或多出失败条件，也不能自行实施。未获�
 | channel | 6 | 39 | 完整初审 |
 | ci | 6 | 139 | 完整初审；选择、归属、证据、聚合及复用合同 |
 | coding | 440 | 3959 | 增量角色与完整重复初审完成；68 个整文件 targeted owner、2 个混合文件的 32 个 node 已登记，333 个 Coding 文件与 1 个示例文件仍走保守模块集合；完整分类缺口未经审批不改路由 |
-| dev | 45 | 406 | 部分初审；19 个遗漏的 G18/lmux 测试路径已收敛到既有 owner |
+| dev | 45 | 406 | 角色、重复与成本初审完成；完整离线集合 1669 passed、5 skipped，19 个 G18/lmux 路径仍缺少活动执行 owner，列为 AP-10，未经审批不补齐 |
 | examples | 6 | 49 | 角色完整初审；61 个模块所属示例合同实例 |
 | foundation | 11 | 87 | Ubuntu 模块角色完整初审 |
 | harness | 474 | 4106 | 增量角色、重复和远程成本初审完成；当前统一模块仍执行完整离线目录，5386 passed、121 个 Windows/native 条件 skip；完整 node 归属为 AP-07，未经审批不迁移 |
@@ -611,6 +611,31 @@ Windows platform 与 12 个 ConPTY 合同；普通路径的 ConPTY 短冒烟保�
 触发、测试或失败条件。deterministic render 的 Windows 配置及剩余逐 node 角色记录为
 AP-09；若拟缩减跨平台证据，须先证明平台输出等价。任何反向扩张仍须按工作区规则
 提交触发、独有断言、平台、墙钟、重复关系与回退方案并获得审批。
+
+## Dev 完整初审与 AP-10
+
+`tests/dev` 的 45 个文件、406 个静态测试函数已完成角色、完全重复与成本初审。
+该目录混合纯比较/证据合同、真实子进程监督、进程树回收、临时 Git/wheel、POSIX
+行为、Windows observer 静态合同和 G17/G18 恢复验收，不能整体归为快速单元测试。
+使用当前工作树源码和私有临时根执行完整 Linux 离线集合，结果为 1669 passed、
+5 skipped，155.51 秒；5 项均为平台条件跳过。忽略测试名称并保留参数、decorator
+和完整函数体的 AST 扫描没有完全重复簇。
+
+现有 12 个恢复故障参数已经共享一份与原路径绑定的 seed，保留每个故障的独立恢复、
+注入和拒绝断言。进一步尝试让正向恢复、shape 和 opaque 场景共享复制快照时，聚焦
+验证出现 4 个 Store head 失败。原因是持久化 head 明确绑定 journal 的 device、inode、
+mtime 和 ctime；复制后重写 head 会绕过这些场景需要验证的真实恢复证据。因此拒绝该
+候选，不删除 node、不重写持久化证据，也不以共享可变 seed 换取数秒收益。
+
+18 个 `test_lmux_*` 文件和 `test_screen_first_probe_readiness.py` 已收敛到既有
+AppService 选择 owner，并去除无关 E2E，但 AppService workflow 仍处于暂停状态，
+这些文件没有活动的直接执行 owner。让它们首次进入阻塞 PR、恢复暂停 workflow，
+或增加新的 targeted job、平台矩阵和失败条件，均属于门禁增加。它们统一记为
+AP-10：审批材料须逐文件列出独有断言、目标平台、现有与目标 owner、远程墙钟、
+重复关系和回退方案；指定审批方明确批准前不实施。
+
+本轮只形成审计和本地证据，没有新增或扩大 required check、workflow、job、test
+route、平台/矩阵、触发条件或失败条件。
 
 同轮复核 scoped reusable workflow 的变更路由：每个已登记 workflow 修改都会运行
 现有 CI 合同及自己的完整 owner，包括既有 full platform 分支；原选择器还统一附加
