@@ -7508,7 +7508,6 @@ def test_explicit_worker_public_coding_session_disable_fences_pinned_product(
         monkeypatch,
         direct_entry_only=True,
         disable_while_direct_session_open=True,
-        author_with_public_cli=True,
     )
 
 
@@ -7523,7 +7522,6 @@ def test_explicit_worker_public_coding_session_update_fences_pinned_product(
         monkeypatch,
         direct_entry_only=True,
         update_while_direct_session_open=True,
-        author_with_public_cli=True,
     )
 
 
@@ -7537,7 +7535,6 @@ def test_explicit_worker_hosted_first_session_reaches_installed_product(
         "installed-protocol",
         monkeypatch,
         hosted_entry_only=True,
-        author_with_public_cli=True,
     )
 
 

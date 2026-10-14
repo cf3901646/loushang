@@ -551,6 +551,13 @@ integration、允许 skip 或恢复 H6 都会改变 route/失败条件，必须�
 真实回合并删除第二套等价 runtime，本地原生单例 1 项通过、437.52 秒。该本地机器
 明显慢于远程 runner，不能与 #780 的 204.969 秒直接计算加速比例。
 
+同一 helper 的 disable、update、hosted 三个会话场景原先也重复执行公共
+`build-coding-worker-candidate` CLI authoring。该 CLI 的产物字段、哈希与公开示例
+路径已由保留的主 public-session 场景及专用 native CLI/author smoke 合同覆盖；两份
+C Worker 源除注释外相同。三个场景现使用内部 candidate builder，把执行预算留给
+各自独有的在线 Session fence、更新和 revoke 断言，公共 CLI 真实链路保留一次。
+代表性的 disable 场景在改用内部 builder 后本地 1 项通过、163.30 秒。
+
 ### 待审批门禁变更 AP-07：Harness 完整角色与平台归属
 
 状态：完成当前目录规模、统一模块执行、平台 skip、完全重复和热点初审；尚未形成

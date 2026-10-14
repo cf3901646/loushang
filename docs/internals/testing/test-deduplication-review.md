@@ -564,6 +564,13 @@ turn、startup composition 和 tool-result 断言。`default_runtime_builder` �
 因此保留 print 集成路径、删除第二套等价 text runtime。本地真实 Worker 单例
 1 passed / 437.52 秒；远程加速仍待可合并路径验证。
 
+disable、update、hosted 三个 wrapper 还重复开启 `author_with_public_cli`，但其独有
+断言位于候选安装完成后的 Session 生命周期阶段，不检查 author CLI 输出。公共 CLI
+构建、产物字段和真实安装由主 public-session 场景及 native CLI/author smoke 测试
+覆盖；fixture 与 example 的 C Worker 只有注释差异。三个 wrapper 改用内部 builder，
+保留各自 Session fence/update/revoke 行为，公共 author CLI 从四次收敛为一次。
+代表性的 disable 场景本地 1 passed / 163.30 秒。
+
 命令参数本身不等于执行证据。21 个显式路径没有产生 testcase：其中包含 Windows
 Product Worker base 文件、三类 terminal marker 文件、installed evidence、PR smoke
 和 render contract。另有 20 个 skip 分布在 9 个文件，原因为 Darwin/Windows native、
