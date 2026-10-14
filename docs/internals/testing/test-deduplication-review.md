@@ -379,3 +379,36 @@ Owner、RCP1 和 Contribution 三个独立热点由 19.23、18.55、11.23 秒降
 0.91、0.29、0.14 秒；完整 RCP0 文件 9 项为 10.50 秒。相同 107 项最终为 81.19 秒，
 比第二轮 156.22 秒再减少 75.03 秒（48.0%），比最初 402.46 秒共减少 321.27 秒
 （79.8%）。107 个测试节点和预期库存保持不变；本轮仍未实现 AP-02 或任何新增门禁。
+
+## 14. Architecture 目录完整初审
+
+62 个文件、654 个收集实例已完成角色、执行边界、历史 owner 和完全重复扫描。忽略测试
+函数名称后对 AST 函数体做全目录精确比较，没有完全重复实现。全部文件属于源码依赖、
+架构库存、文档状态、生成物 freshness 或纯内存对象合同；平台命名文件读取各平台源码、
+manifest 和既有证据，不直接调用 Windows/macOS 原生机制。只有 4 个文件启动子进程，
+目标是仓库内文档生成器或隔离 Python import 检查，不启动 Product 会话、网络服务或
+真实平台进程。
+
+历史 Makefile 清单为 49 个文件提供 owner，其中 12 个重复归属：7 个同时属于
+AppHost/AppService，1 个属于 AppHost/Hosting，4 个属于 Harness/Hosting。其余 13 个
+文件中，文档合同和 Coding budget 已有独立执行 owner；11 个文件仍属于 AP-02 的
+未归属合同。重复清单当前不等于重复活动执行，因为 Harness、Hosting、AppService
+workflow 仍暂停；恢复前必须审批并确定唯一 owner，不能同时恢复两侧历史副本。
+
+基于合并后的远程主干首次完整复跑在 701.71 秒结束，652 项通过、2 项失败。两个失败
+都来自提交 `efcf40f7` 新增的 Windows Worker C5/Supervisor semantic base 已进入主干，
+但堆叠分支中已有的 Architecture allowlist 更新没有随产品文件合入。当前基线补入这
+两个消费者及 recovery inventory 的实际 `activation_state_journal` 导入；这只是让
+既有精确库存追上已接受源码，不增加断言或测试节点。
+
+同批继续消除测试实现重复：C5.0/C5.4 和 RCP5 复用按文件内容缓存的不可变 import
+facts，C5.0/C5.2 只对含目标 import token 的候选源码解析 AST。Import 语义、相对导入
+展开、成员 allowlist 和星号排除保持原合同。C5.0 热点从 44.24 秒降至 2.18 秒，C5.2
+从 61.86 秒降至 0.68 秒，RCP5 两个 30 秒热点合计降至 0.48 秒。四个受影响文件 30 项
+完整回归通过；Architecture 全目录最终 654 项通过、无 skip，503.68 秒（8 分 23 秒），
+比本轮初测减少 198.03 秒（28.2%）。Ruff 通过。
+
+这证明完整 Architecture 合同本身可在单个 Ubuntu runner 的 15 分钟预算内完成，
+但不授权把它加入普通 PR。把 62 个文件收敛到 Architecture canonical owner、恢复暂停
+范围，或让 AP-02 的 11 个文件首次阻断合并，都会新增/迁移 route 与失败条件，仍须按
+门禁增加审批规则提交触发范围、唯一 owner、墙钟、重复关系和回退方案后实施。
