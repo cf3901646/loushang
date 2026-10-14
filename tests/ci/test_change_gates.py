@@ -430,7 +430,7 @@ class ScopeTests(unittest.TestCase):
                     ["agent", "ai", "channel", "coding", "harness", "harnesstui",
                      "harnesswork", "method", "ontology", "resource", "tui", "work"],
                 )
-                self.assertEqual(len(plan["unit_jobs"]), 24)
+                self.assertEqual(len(plan["unit_jobs"]), 20)
                 self.assertEqual(
                     {name for name, enabled in plan["checks"].items() if enabled},
                     {"docs", "ci"},
@@ -732,8 +732,8 @@ class ScopeTests(unittest.TestCase):
         )
         self.assertTrue(plan["checks"]["coding"])
         self.assertIn("coding", plan["unit_packages"])
-        self.assertEqual(sum(job["package"] == "coding" for job in plan["unit_jobs"]), 8)
-        self.assertEqual(len(plan["unit_jobs"]), 8)
+        self.assertEqual(sum(job["package"] == "coding" for job in plan["unit_jobs"]), 4)
+        self.assertEqual(len(plan["unit_jobs"]), 4)
 
     def test_pr_session_change_adds_resume_turn_e2e(self):
         plan = selector.select(["src/loushang/harness/session/queue.py"], pr_fast=True)
@@ -823,7 +823,7 @@ class ScopeTests(unittest.TestCase):
                             self.assertIn(path, command)
                 self.assertIn("not e2e_smoke", command[command.index("-m") + 1])
                 self.assertIn("--skip-host-runtime", command)
-        (coding_shard,) = runner.commands("unit_coding", shard=0, shards=8)
+        (coding_shard,) = runner.commands("unit_coding", shard=0, shards=4)
         self.assertIn("--ci-shard-count", coding_shard)
         self.assertIn("--ignore=tests/coding/test_screen_coding_tui_app.py", coding_shard)
         (plugin,) = runner.commands("unit_plugin")
@@ -1067,34 +1067,34 @@ class SuiteSelectionTests(unittest.TestCase):
 
     def test_coding_module_matrix_partitions_the_complete_offline_suite(self):
         self.assertFalse((ROOT / ".github/workflows/package-quality.yml").exists())
-        self.assertEqual(selector.MODULE_SHARD_COUNTS["coding"], 8)
+        self.assertEqual(selector.MODULE_SHARD_COUNTS["coding"], 4)
         plan = selector.select(["src/loushang/coding/lsp/client.py"], pr_fast=True)
         self.assertEqual(plan["unit_packages"], ["coding"])
         self.assertEqual(
             plan["unit_jobs"],
-            [{"package": "coding", "shard": index, "shards": 8}
-             for index in range(8)],
+            [{"package": "coding", "shard": index, "shards": 4}
+             for index in range(4)],
         )
         original, = runner.commands("coding")
-        for index in range(8):
+        for index in range(4):
             with self.subTest(shard=index):
-                sharded, = runner.commands("coding", shard=index, shards=8)
+                sharded, = runner.commands("coding", shard=index, shards=4)
                 self.assertEqual(
                     sharded[:-6], original
                 )
                 self.assertEqual(
                     sharded[-6:],
                     ["-p", "pytest_shard", "--ci-shard-index", str(index),
-                     "--ci-shard-count", "8"],
+                     "--ci-shard-count", "4"],
                 )
         with self.assertRaises(ValueError):
-            runner.commands("coding", shard=8, shards=8)
+            runner.commands("coding", shard=4, shards=4)
         with self.assertRaises(ValueError):
-            runner.commands("agent", shard=0, shards=8)
+            runner.commands("agent", shard=0, shards=4)
         nodeids = [f"tests/coding/test_example.py::test_case[{index}]" for index in range(100)]
         groups = [
-            {nodeid for nodeid in nodeids if shard_hash.shard_for_nodeid(nodeid, 8) == index}
-            for index in range(8)
+            {nodeid for nodeid in nodeids if shard_hash.shard_for_nodeid(nodeid, 4) == index}
+            for index in range(4)
         ]
         self.assertEqual(set().union(*groups), set(nodeids))
         self.assertEqual(sum(map(len, groups)), len(nodeids))
@@ -1104,10 +1104,10 @@ class SuiteSelectionTests(unittest.TestCase):
             "src/loushang/coding/package_product_worker_windows_crash_cleanup_review.py"
         ], pr_fast=True)
         self.assertIn("coding", plan["unit_packages"])
-        self.assertEqual(sum(job["package"] == "coding" for job in plan["unit_jobs"]), 8)
+        self.assertEqual(sum(job["package"] == "coding" for job in plan["unit_jobs"]), 4)
         self.assertNotIn("packages", plan["workflows"])
-        ordinary, = runner.commands("unit_coding", shard=0, shards=8)
-        risk, = runner.commands("coding", plan=plan, shard=0, shards=8)
+        ordinary, = runner.commands("unit_coding", shard=0, shards=4)
+        risk, = runner.commands("coding", plan=plan, shard=0, shards=4)
         self.assertEqual(risk, ordinary)
         self.assertIn("tests/examples/test_coding_examples.py", risk)
         full, = runner.commands("coding")

@@ -86,9 +86,10 @@ FAST_RISK_CHECKS = {
 E2E_PATH_PARTS = ("/session/", "/conversation/", "/transcript/")
 FAST_RISK_RULE_REASONS = {"AI consumer contracts"}
 # Counts are based on observed report durations, not historical gate names.  The
-# Coding value uses PR #740's 4,798-case report: eight hash shards had a 399 s
-# slowest shard, leaving setup margin inside the ten-minute PR target.
-MODULE_SHARD_COUNTS = {"coding": 8, "harness": 4, "harnesstui": 2, "tui": 2}
+# Coding value uses PR #779's 3,771-case report after owner classification and
+# deduplication: four hash shards have a 198.444 s slowest measured case sum,
+# leaving setup margin inside the ten-minute PR target while halving runners.
+MODULE_SHARD_COUNTS = {"coding": 4, "harness": 4, "harnesstui": 2, "tui": 2}
 FULL_TARGETED_SHARDS = {
     "ubuntu-24.04": 8,
     "windows-2022": 2,
