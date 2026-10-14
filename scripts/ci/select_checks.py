@@ -21,6 +21,8 @@ PR_ROUTING_FILES = {
     "scripts/ci/unit-tests.json",
     "scripts/ci/verify_gate.py",
     "tests/ci/test_change_gates.py",
+    "scripts/ci/reuse_pr_gate.py",
+    "tests/ci/test_reuse_pr_gate.py",
 }
 # Temporarily paused by user request while native Worker execution is optimized.
 # Remove this entry to restore the original routing and complete case inventory.
@@ -32,6 +34,24 @@ PAUSED_MODULES = {
     "appservice": ("appservice", "appserver"),
 }
 MODULE_REGRESSION_WORKFLOW = ".github/workflows/package-unit-quality.yml"
+SCOPED_WORKFLOWS = {
+    ".github/workflows/e2e-smoke-quality.yml": (),
+    **{
+        f".github/workflows/{filename}.yml": (scope,)
+        for filename, scope in (
+            ("architecture-quality", "architecture"), ("ai-quality", "ai"),
+            ("package-quality", "packages"), ("harness-quality", "harness"),
+            ("harnesstui-quality", "harnesstui"), ("tui-render-contract", "tui"),
+            ("hosting-quality", "hosting"), ("apphost-quality", "apphost"),
+            ("appservice-quality", "appservice"),
+            ("host-runtime-quality", "host-runtime"),
+            ("windows-shell-compatibility", "windows-shell"),
+            ("worker-registered-reboot-drill", "worker-reboot"),
+            ("coding-lsp-compatibility", "lsp"),
+        )
+    },
+}
+SMOKE_TEST = "tests/coding/test_pr_smoke.py"
 FAST_EXCLUDED_PACKAGES = {
     "plugin", "hosting", "apphost", "appservice", "appserver", "foundation",
 }
@@ -190,6 +210,15 @@ def select(
             unit_packages.update(set(unit_inventory) - FAST_EXCLUDED_PACKAGES)
             e2e = True
             continue
+        if pr_fast and not full and path == SMOKE_TEST:
+            e2e = True
+            continue
+        if pr_fast and not full and path in SCOPED_WORKFLOWS:
+            owned = [check for scope in SCOPED_WORKFLOWS[path]
+                     for check in rules["workflows"][scope]]
+            enable(["ci", *owned], f"{path}: validate the changed reusable workflow")
+            e2e = True
+            continue
         if pr_fast and not full and path in PR_ROUTING_FILES:
             enable(["ci"], f"{path}: PR gate routing regression and Actions syntax")
             continue
@@ -274,11 +303,13 @@ def select(
         }
     gate_infra = any(
         path.startswith((".github/workflows/", "scripts/ci/"))
+        and path != ".github/workflows/e2e-smoke-quality.yml"
         for path in paths
     )
     if pr_fast and not full and gate_infra:
-        # Gate changes retain full checks and exercise both new workflows.
-        unit_packages.add("agent")
+        # Gate changes exercise Agent regression and E2E alongside their owned checks.
+        if not checks["agent"]:
+            unit_packages.add("agent")
         e2e = True
     if pr_fast and not full and any(
         path.startswith(("src/", "tests/")) and not path.endswith((".md", ".rst"))
@@ -314,10 +345,18 @@ def select(
                 for entries in variables.values() for entry in entries
             )
             broad = (
-                path.startswith(WINDOWS_GATE_INFRA[:3])
+                (path.startswith(WINDOWS_GATE_INFRA[:3])
+                 and path not in SCOPED_WORKFLOWS and path not in PR_ROUTING_FILES)
                 or path in WINDOWS_GATE_INFRA[3:]
                 or (not known and not path.endswith((".md", ".rst")))
             )
+            workflow_scopes = SCOPED_WORKFLOWS.get(path, ())
+            if "windows-shell" in workflow_scopes:
+                windows["worker_full"] = windows["shell_full"] = True
+            if "appservice" in workflow_scopes:
+                windows["appservice_full"] = True
+            if "tui" in workflow_scopes:
+                windows["tui_full"] = True
             if broad:
                 windows.update({
                     "worker_full": checks["windows_shell"],
@@ -405,7 +444,8 @@ def select(
         "unit_packages": sorted(unit_packages),
         "unit_jobs": unit_jobs,
         "e2e": e2e,
-        "e2e_interaction": e2e and (full or gate_infra or all(checks.values()) or any(
+        "e2e_interaction": e2e and (full or gate_infra or all(checks.values())
+            or ".github/workflows/e2e-smoke-quality.yml" in paths or any(
             path.startswith((
                 "src/loushang/agent/", "tests/agent/",
                 "src/loushang/tui/", "tests/tui/",

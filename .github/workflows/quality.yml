@@ -10,6 +10,8 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  pull-requests: read
 
 concurrency:
   group: quality-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
@@ -20,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       plan: ${{ steps.select.outputs.plan }}
+      reused_run: ${{ steps.reuse.outputs.reused_run }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,6 +30,12 @@ jobs:
       - name: Select checks and explain scope
         id: select
         run: python scripts/ci/select_checks.py --event
+      - name: Reuse successful PR evidence on an identical merge push
+        id: reuse
+        env:
+          CI_PLAN: ${{ steps.select.outputs.plan }}
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/ci/reuse_pr_gate.py
       - name: Lightweight documentation invariants and changed links
         env:
           CI_PLAN: ${{ steps.select.outputs.plan }}
@@ -45,105 +54,105 @@ jobs:
 
   architecture:
     needs: changes
-    if: ${{ fromJSON(needs.changes.outputs.plan).workflows['architecture'] }}
+    if: ${{ needs.changes.outputs.reused_run == '' && fromJSON(needs.changes.outputs.plan).workflows['architecture'] }}
     uses: ./.github/workflows/architecture-quality.yml
     with:
       plan: ${{ needs.changes.outputs.plan }}
 
   units:
     needs: changes
-    if: ${{ fromJSON(needs.changes.outputs.plan).workflows['units'] }}
+    if: ${{ needs.changes.outputs.reused_run == '' && fromJSON(needs.changes.outputs.plan).workflows['units'] }}
     uses: ./.github/workflows/package-unit-quality.yml
     with:
       plan: ${{ needs.changes.outputs.plan }}
 
   e2e:
     needs: changes
-    if: ${{ fromJSON(needs.changes.outputs.plan).workflows['e2e'] }}
+    if: ${{ needs.changes.outputs.reused_run == '' && fromJSON(needs.changes.outputs.plan).workflows['e2e'] }}
     uses: ./.github/workflows/e2e-smoke-quality.yml
     with:
       plan: ${{ needs.changes.outputs.plan }}
 
   ai:
     needs: changes
-    if: ${{ fromJSON(needs.changes.outputs.plan).workflows['ai'] }}
+    if: ${{ needs.changes.outputs.reused_run == '' && fromJSON(needs.changes.outputs.plan).workflows['ai'] }}
     uses: ./.github/workflows/ai-quality.yml
     with:
       plan: ${{ needs.changes.outputs.plan }}
 
   packages:
     needs: changes
-    if: ${{ fromJSON(needs.changes.outputs.plan).workflows['packages'] }}
+    if: ${{ needs.changes.outputs.reused_run == '' && fromJSON(needs.changes.outputs.plan).workflows['packages'] }}
     uses: ./.github/workflows/package-quality.yml
     with:
       plan: ${{ needs.changes.outputs.plan }}
 
   harness:
     needs: changes
-    if: ${{ fromJSON(needs.changes.outputs.plan).workflows['harness'] }}
+    if: ${{ needs.changes.outputs.reused_run == '' && fromJSON(needs.changes.outputs.plan).workflows['harness'] }}
     uses: ./.github/workflows/harness-quality.yml
     with:
       plan: ${{ needs.changes.outputs.plan }}
 
   harnesstui:
     needs: changes
-    if: ${{ fromJSON(needs.changes.outputs.plan).workflows['harnesstui'] }}
+    if: ${{ needs.changes.outputs.reused_run == '' && fromJSON(needs.changes.outputs.plan).workflows['harnesstui'] }}
     uses: ./.github/workflows/harnesstui-quality.yml
     with:
       plan: ${{ needs.changes.outputs.plan }}
 
   tui:
     needs: changes
-    if: ${{ fromJSON(needs.changes.outputs.plan).workflows['tui'] }}
+    if: ${{ needs.changes.outputs.reused_run == '' && fromJSON(needs.changes.outputs.plan).workflows['tui'] }}
     uses: ./.github/workflows/tui-render-contract.yml
     with:
       plan: ${{ needs.changes.outputs.plan }}
 
   hosting:
     needs: changes
-    if: ${{ fromJSON(needs.changes.outputs.plan).workflows['hosting'] }}
+    if: ${{ needs.changes.outputs.reused_run == '' && fromJSON(needs.changes.outputs.plan).workflows['hosting'] }}
     uses: ./.github/workflows/hosting-quality.yml
     with:
       plan: ${{ needs.changes.outputs.plan }}
 
   apphost:
     needs: changes
-    if: ${{ fromJSON(needs.changes.outputs.plan).workflows['apphost'] }}
+    if: ${{ needs.changes.outputs.reused_run == '' && fromJSON(needs.changes.outputs.plan).workflows['apphost'] }}
     uses: ./.github/workflows/apphost-quality.yml
     with:
       plan: ${{ needs.changes.outputs.plan }}
 
   appservice:
     needs: changes
-    if: ${{ fromJSON(needs.changes.outputs.plan).workflows['appservice'] }}
+    if: ${{ needs.changes.outputs.reused_run == '' && fromJSON(needs.changes.outputs.plan).workflows['appservice'] }}
     uses: ./.github/workflows/appservice-quality.yml
     with:
       plan: ${{ needs.changes.outputs.plan }}
 
   host-runtime:
     needs: changes
-    if: ${{ fromJSON(needs.changes.outputs.plan).workflows['host-runtime'] }}
+    if: ${{ needs.changes.outputs.reused_run == '' && fromJSON(needs.changes.outputs.plan).workflows['host-runtime'] }}
     uses: ./.github/workflows/host-runtime-quality.yml
     with:
       plan: ${{ needs.changes.outputs.plan }}
 
   windows-shell:
     needs: changes
-    if: ${{ fromJSON(needs.changes.outputs.plan).workflows['windows-shell'] }}
+    if: ${{ needs.changes.outputs.reused_run == '' && fromJSON(needs.changes.outputs.plan).workflows['windows-shell'] }}
     uses: ./.github/workflows/windows-shell-compatibility.yml
     with:
       plan: ${{ needs.changes.outputs.plan }}
 
   worker-reboot:
     needs: changes
-    if: ${{ fromJSON(needs.changes.outputs.plan).workflows['worker-reboot'] }}
+    if: ${{ needs.changes.outputs.reused_run == '' && fromJSON(needs.changes.outputs.plan).workflows['worker-reboot'] }}
     uses: ./.github/workflows/worker-registered-reboot-drill.yml
     with:
       plan: ${{ needs.changes.outputs.plan }}
 
   lsp:
     needs: changes
-    if: ${{ fromJSON(needs.changes.outputs.plan).workflows['lsp'] }}
+    if: ${{ needs.changes.outputs.reused_run == '' && fromJSON(needs.changes.outputs.plan).workflows['lsp'] }}
     uses: ./.github/workflows/coding-lsp-compatibility.yml
     with:
       plan: ${{ needs.changes.outputs.plan }}
@@ -159,6 +168,20 @@ jobs:
         env:
           CI_PLAN: ${{ needs.changes.outputs.plan }}
           CI_NEEDS: ${{ toJSON(needs) }}
+          CI_REUSED_RUN: ${{ needs.changes.outputs.reused_run }}
         run: >-
           python scripts/ci/verify_gate.py --section workflows --require-changes
           --jobs '{"architecture":"architecture","units":"units","e2e":"e2e","ai":"ai","packages":"packages","harness":"harness","harnesstui":"harnesstui","tui":"tui","hosting":"hosting","apphost":"apphost","appservice":"appservice","host-runtime":"host-runtime","windows-shell":"windows-shell","worker-reboot":"worker-reboot","lsp":"lsp"}'
+      - name: Record actual tested tree and execution plan
+        if: ${{ github.event_name == 'pull_request' && fromJSON(needs.changes.outputs.plan).e2e }}
+        env:
+          CI_PLAN: ${{ needs.changes.outputs.plan }}
+        run: python scripts/ci/reuse_pr_gate.py --record
+      - uses: actions/upload-artifact@v4
+        if: ${{ github.event_name == 'pull_request' && fromJSON(needs.changes.outputs.plan).e2e }}
+        with:
+          name: pr-quality-evidence
+          overwrite: true
+          path: pr-quality-evidence.json
+          if-no-files-found: error
+          retention-days: 7
