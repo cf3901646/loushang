@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "targeted_overrides": {
     "coding": {
       "review": "incremental review of measured real-process, installed-wheel, terminal, package migration and end-to-end plugin files; all unlisted Coding tests remain in the conservative module regression",
@@ -72,6 +72,59 @@
         "tests/coding/test_shared_store_bootstrap.py": {"category": "integration", "assertion": "real sibling workspace bootstrap and shared store family", "platforms": ["ubuntu-24.04"]},
         "tests/coding/test_scoped_hosted_session.py": {"category": "integration", "assertion": "real hosted approval broker disconnect and controller boundary", "platforms": ["ubuntu-24.04"]},
         "tests/coding/test_startup_route.py": {"category": "integration", "assertion": "startup routing through isolated process entry", "platforms": ["ubuntu-24.04"]}
+      }
+    }
+  },
+  "targeted_nodes": {
+    "coding": {
+      "review": "measured session lifecycle and real product-composition nodes extracted from otherwise mixed unit files",
+      "files": {
+        "tests/coding/arch/test_activation.py": {
+          "category": "integration",
+          "assertion": "real Coding product composition, session creation, capability providers and tool execution",
+          "platforms": ["ubuntu-24.04"],
+          "nodes": [
+            "test_coding_config_controls_default_arch_tool_activation",
+            "test_arch_pack_remains_available_without_builtin_tools",
+            "test_production_allowlist_filters_arch_tool_without_bypassing_provider",
+            "test_arch_and_lsp_share_one_product_composition_and_session_graph",
+            "test_arch_provider_and_tool_work_when_lsp_is_disabled"
+          ]
+        },
+        "tests/coding/test_agent_session_runtime.py": {
+          "category": "integration",
+          "assertion": "persistent AgentSessionRuntime lifecycle, replacement, indexing, restore and fork behavior",
+          "platforms": ["ubuntu-24.04"],
+          "nodes": [
+            "test_session_publishes_receipt_backed_events_for_every_new_commit",
+            "test_session_uses_one_runtime_stream_with_product_projection",
+            "test_session_emits_auditable_permission_profile_changes",
+            "test_runtime_create_switch_and_list_sessions",
+            "test_runtime_clone_session_forks_current_leaf",
+            "test_runtime_finds_session_summaries",
+            "test_runtime_renames_and_deletes_sessions_by_resolved_reference",
+            "test_runtime_delete_session_refuses_current_session",
+            "test_runtime_lists_all_session_summaries_across_session_dirs",
+            "test_runtime_finds_all_session_summaries_across_session_dirs",
+            "test_runtime_exposes_indexed_session_summary_facades",
+            "test_runtime_auto_refreshes_session_index_after_replacement",
+            "test_runtime_dispose_publishes_latest_session_summary",
+            "test_runtime_fork_session_switches_to_selected_branch",
+            "test_runtime_fork_session_before_user_message_returns_selected_text",
+            "test_runtime_fork_before_requires_user_message",
+            "test_runtime_exposes_standard_lifecycle_operations",
+            "test_runtime_new_session_operation_runs_setup_and_with_session",
+            "test_runtime_restore_and_fork_operations_run_with_session",
+            "test_runtime_replacement_callbacks_require_async_callables",
+            "test_runtime_exposes_current_session_diagnostics",
+            "test_builtin_new_command_replaces_current_session_without_materializing_empty_files",
+            "test_runtime_session_replacement_keeps_shared_approval_presenter",
+            "test_runtime_direct_replacement_reactivates_shared_approval_presenter",
+            "test_runtime_exposes_current_session_and_cwd_properties",
+            "test_runtime_restore_session_accepts_session_id",
+            "test_runtime_restore_session_accepts_session_id_prefix"
+          ]
+        }
       }
     }
   },
