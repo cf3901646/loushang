@@ -165,3 +165,16 @@ pytest 进程；报告条目重复不直接计为重复执行。
 `tests/apphost` 全包、架构合同、G8/G9 组合、G10 native/installed canary、Windows
 G8/G9/G10/G13 及独立三平台核心冒烟。本批只删除旧 PR 清单归属，不新增 job、
 test route、平台、触发或失败条件。
+
+随后对 catalog 的 77 个 targeted 文件逐一生成 test-only 计划。旧选择器在选中精确
+targeted job 后仍继续套用目录和 Makefile 清单，使 20 个整文件 owner 额外选择
+AppHost，另一个 node 级混合文件额外选择 architecture。选择器现在以 catalog 作为
+已审查 test-only 路径的完整 owner：整文件和专用夹具只执行既有 targeted job；
+node 级混合文件同时执行原模块剩余节点与既有精确节点。源码、未知测试、共享夹具
+和 CI 编排仍走原影响规则。该变化删除旧规则误触发，不新增 job、route、平台、
+触发或失败条件。
+
+同一提前收敛也移除了四个已分类 Worker test-only 文件附带的完整 Windows native
+矩阵，其中 candidate wheel 过去还会选择持续查询。对应源码平台边界、三个未分类
+Windows Worker 测试和 schedule/manual full 仍保留原完整矩阵；被修改的四个测试
+继续在 catalog 声明的平台执行自身场景。

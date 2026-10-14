@@ -263,6 +263,10 @@ def select(
                 # A mixed file keeps its unlisted unit/contract nodes in the
                 # module regression while its reviewed slow nodes run exactly.
                 unit_packages.add(node_owner)
+            # The catalog is the complete owner for a reviewed test-only path.
+            # Do not let older directory or Makefile inventories add product
+            # workflows after the exact file/node jobs have been selected.
+            continue
         if (
             path.startswith(WINDOWS_WORKER_FULL_TEST_PREFIXES)
             or path in WINDOWS_WORKER_FULL_BOUNDARIES
