@@ -2143,6 +2143,16 @@ preserves the ordinary recovery reader. This input has no durable checkpoint
 record, high-water publication, cutover, or deletion authority; its native
 Windows case remains pending.
 
+The later Windows candidate adds a source-bound preparation, six typed
+semantic bases, Desired/Package/backup reference review, a durable checkpoint,
+persisted base files, and a strict marker reader. The
+candidate marker is inert: no Product path publishes it, switches readers or
+writers to the bases, or retires old source files. The Product preflight only
+rechecks a candidate against the current old authority. Windows authority
+cutover, repeated checkpoint advancement, deletion debt, and native acceptance
+remain tracked by #732. A settled attempt can still be present in the final
+C5 state; its identity is retained alongside tombstones for removed attempts.
+
 1. **Author artifact.** A versioned author recipe packages one Worker
    declaration document, a platform-specific executable, and a manifest whose
    v3 reservation exactly matches the v3 declaration. The recipe validates

@@ -89,9 +89,7 @@ class CodingWindowsWorkerOptInJournal:
                 raise CodingWorkerOptInJournalError(
                     "coding_worker_opt_in_lock_missing"
                 ) from None
-            with journal_file_lock_at(
-                directory_fd, lock_name, "shared"
-            ) as lock_handle:
+            with journal_file_lock_at(directory_fd, lock_name, "shared") as lock_handle:
                 initialized = self._validate_lock(
                     directory_fd, acl, locked_handle=lock_handle
                 )
@@ -284,10 +282,9 @@ class CodingWindowsWorkerOptInJournal:
             self._require_plain_stream(descriptor)
             metadata = os.fstat(descriptor)
             visible = windows_stat_at(directory_fd, _NAME + ".lock")
-            if (
-                metadata.st_size != 1
-                or (metadata.st_dev, metadata.st_ino)
-                != (visible.st_dev, visible.st_ino)
+            if metadata.st_size != 1 or (metadata.st_dev, metadata.st_ino) != (
+                visible.st_dev,
+                visible.st_ino,
             ):
                 raise CodingWorkerOptInJournalError("coding_worker_opt_in_lock_corrupt")
             if locked_handle is None:

@@ -230,9 +230,7 @@ class CodingWindowsProductWorkerProvisioningStateStore:
                 worker_request=self._worker_request,
             )
             self._product.assert_session_runtime_current(self._runtime)
-            self._require_store_current(
-                desired_phase=document.get("phase"), write=True
-            )
+            self._require_store_current(desired_phase=document.get("phase"), write=True)
             with (
                 self._product.epoch_runtime.borrow_product_state_root_descriptor() as root
             ):

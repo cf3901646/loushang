@@ -6,6 +6,7 @@ import os
 from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -16,9 +17,40 @@ from loushang.coding.package_product_worker_windows_gc_history import (
     _require_c5_gc_history,
     _require_known_windows_worker_state_names,
 )
+from loushang.coding.package_product_worker_windows_history_sources import (
+    CodingWindowsWorkerHistorySourceFileV1,
+    CodingWindowsWorkerHistorySourceSnapshotV1,
+)
 from loushang.coding.package_product_worker_windows_recovery_inventory import (
     CodingWindowsWorkerRecoveryAttemptV1,
 )
+
+
+def test_windows_worker_history_source_identity_round_trips_strictly() -> None:
+    source = CodingWindowsWorkerHistorySourceFileV1(
+        name="worker-opt-in.jsonl", size=3, sha256_digest=sha256(b"abc").hexdigest()
+    )
+    snapshot = CodingWindowsWorkerHistorySourceSnapshotV1.create(
+        scope_id="scope-a", store_id="store-a", lease_owner_revision=2, files=(source,)
+    )
+    assert (
+        CodingWindowsWorkerHistorySourceSnapshotV1.from_dict(snapshot.to_dict())
+        == snapshot
+    )
+    changed = snapshot.to_dict()
+    changed["snapshotDigest"] = sha256(b"changed").hexdigest()
+    with pytest.raises(ValueError, match="source snapshot is invalid"):
+        CodingWindowsWorkerHistorySourceSnapshotV1.from_dict(changed)
+    changed = snapshot.to_dict()
+    changed["files"] = [{**source.to_dict(), "size": True}]
+    with pytest.raises(ValueError, match="source file is invalid"):
+        CodingWindowsWorkerHistorySourceSnapshotV1.from_dict(changed)
+    with pytest.raises(ValueError, match="source file is invalid"):
+        CodingWindowsWorkerHistorySourceFileV1(
+            name="worker-history-base-opt-in-v1.json",
+            size=3,
+            sha256_digest=sha256(b"abc").hexdigest(),
+        )
 
 
 def test_windows_worker_gc_accepts_current_owned_state_names() -> None:
@@ -30,6 +62,17 @@ def test_windows_worker_gc_accepts_current_owned_state_names() -> None:
             "worker-native-release-approvals.jsonl",
             "worker-native-release-approvals.jsonl.lock",
             "worker-native-backend-release-v1.whl",
+            "worker-history-preparation-v1.json",
+            "worker-history-preparation-v1.json.stage",
+            "worker-history-checkpoint-v1.json",
+            "worker-history-checkpoint-v1.json.stage",
+            "worker-history-base-opt-in-v1.json",
+            "worker-history-base-opt-in-v1.json.stage",
+            "worker-history-base-receipt-v1.json",
+            "worker-history-base-supervisor-v1.json",
+            "worker-history-base-c5-v1.json",
+            "worker-history-base-launch-intent-v1.json",
+            "worker-history-base-native-provisioning-v1.json",
             "worker-activation-receipts.jsonl",
             "worker-activation-receipts.jsonl.lock",
             "worker-activation-state.jsonl",
@@ -58,6 +101,12 @@ def test_windows_worker_history_source_capture_is_private_and_fail_closed(
     )
     from loushang.coding.package_product_runtime import (
         open_coding_fenced_product_application_owner,
+    )
+    from loushang.coding.package_product_worker_windows_checkpoint import (
+        publish_coding_windows_worker_history_checkpoint,
+    )
+    from loushang.coding.package_product_worker_windows_history_preparation import (
+        prepare_coding_windows_worker_history,
     )
     from loushang.coding.package_product_worker_windows_history_sources import (
         CodingWindowsWorkerHistorySemanticReadV1,
@@ -111,6 +160,31 @@ def test_windows_worker_history_source_capture_is_private_and_fail_closed(
         assert semantic.source_snapshot == before
         assert semantic.offline_recovery.store_id == before.store_id
         assert semantic.offline_recovery.gc_revision_refs == frozenset()
+        with patch(
+            "loushang.coding.package_legacy_windows_receipt.windows_rename_at",
+            side_effect=RuntimeError("injected preparation publication interruption"),
+        ):
+            with pytest.raises(RuntimeError, match="publication interruption"):
+                prepare_coding_windows_worker_history(product)
+        with pytest.raises(ValueError, match="stage remains"):
+            capture_coding_windows_worker_history_sources(product)
+        prepared = prepare_coding_windows_worker_history(product)
+        assert prepared.source_snapshot == before
+        assert prepare_coding_windows_worker_history(product) == prepared
+        assert capture_coding_windows_worker_history_sources(product) == before
+        assert read_coding_windows_worker_history_semantics(product) == semantic
+        with patch(
+            "loushang.coding.package_legacy_windows_receipt.windows_rename_at",
+            side_effect=RuntimeError("injected checkpoint publication interruption"),
+        ):
+            with pytest.raises(RuntimeError, match="publication interruption"):
+                publish_coding_windows_worker_history_checkpoint(product)
+        with pytest.raises(ValueError, match="stage remains"):
+            capture_coding_windows_worker_history_sources(product)
+        checkpoint = publish_coding_windows_worker_history_checkpoint(product)
+        assert checkpoint.source_snapshot == before
+        assert publish_coding_windows_worker_history_checkpoint(product) == checkpoint
+        assert capture_coding_windows_worker_history_sources(product) == before
         with pytest.raises(ValueError, match="semantic read is invalid"):
             CodingWindowsWorkerHistorySemanticReadV1(
                 source_snapshot=before,
