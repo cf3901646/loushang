@@ -261,27 +261,17 @@ def test_G16_PRODUCT_TERMINAL_process_death_recovers_history_not_execution(
             assert "*1~" not in strip_control_sequences(recovered.raw_output)
             checkpoint = len(recovered.raw_output)
             recovered.write("fresh-after-restart\r")
-            if sys.platform == "linux":
-                _see(recovered, "*1!", after=checkpoint)
-                recovered.write("/question\r")
-                _see(recovered, "Approval details", after=checkpoint)
-                details_checkpoint = len(recovered.raw_output)
-                recovered.write("\x1b")
-                _see(
-                    recovered,
-                    "> persisted-before-process-death",
-                    after=details_checkpoint,
-                )
-                execution_checkpoint = len(recovered.raw_output)
-                recovered.write("/approve\r")
-            else:
-                execution_checkpoint = checkpoint
             recovered.read_until(
                 lambda output: _completed_reply_seen(
-                    output[execution_checkpoint:], "真实跨进程恢复回复"
+                    output[checkpoint:], "真实跨进程恢复回复"
                 ),
                 timeout=30,
             )
+            resumed_output = strip_control_sequences(
+                recovered.raw_output[checkpoint:]
+            )
+            assert "Approval details" not in resumed_output
+            assert "*1!" not in resumed_output
             recovered.write("\x02d")
             assert recovered.wait(timeout=15) == 0, recovered.diagnostics
         _command(root, environment, "stop")
