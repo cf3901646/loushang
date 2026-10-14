@@ -327,3 +327,29 @@ Resume E2E 为 29/41/63 秒，总墙钟同口径 84 秒。新运行 `38589276148
 满足该条件，已审查 test-only 改动只保留普通回归。`apphost-quality.yml` 自身的修改
 归入已有 CI 契约短路径，由路由/聚合合同与 actionlint 验证，不再为了验证 YAML
 条件而执行产品和 Windows native 场景。这同样只收窄现有门禁。
+
+继续按实际执行命令复核后，62 个文件中有 12 个同时列入两个历史 Makefile owner：
+7 个属于 AppHost/AppService，1 个属于 AppHost/Hosting，4 个属于 Harness/Hosting。
+这些清单重叠不等于当前重复执行：AppService、Hosting 和 Harness workflow 仍处于暂停
+状态。恢复任何一个暂停 workflow 前，必须先为重叠文件确定唯一执行 owner；不得只从
+一侧删除后让另一侧独有源码变更失去合同覆盖。
+
+另有 13 个文件未被上述历史 owner 清单覆盖。其中
+`test_architecture_documentation.py` 已由顶层轻量文档检查直接执行 9 个纯函数合同，
+生成依赖事实由既有 Architecture source-facts job 校验；
+`test_coding_wave_a_budget.py` 已由 Harnesstui 清单执行。两者过去仍附加不读取这些文件
+的产品 E2E，现分别复用既有 reviewed-test 语义，计划收敛为 Architecture 与
+Harnesstui 原 owner，E2E 关闭。
+
+剩余 11 个文件共 107 项静态架构合同。逐文件路由显示，它们因未知路径回退而选择
+几乎全部活动 workflow 和 7 个模块回归，但这些 workflow 都没有执行被修改的 11 个
+文件本身。这是“高成本且无直接覆盖”的路由缺口。为它们建立精确执行 owner 会增加
+test route 和失败条件，已单列为方案中的待审批 AP-02；本批不实现该路由。
+
+这 11 个文件的相同本地命令基线为 107 项通过、402.46 秒。四个文件各自重复解析
+同一批全仓 Python 源码，现统一复用按“文件名 + 实际源码内容”缓存的不可变 import
+facts；Unified Plugin 的多种只读 AST 派生检查也在同模块内复用同一语法树，并在模块
+结束时清缓存。没有删除或增加测试节点，也没有改变相对导入处理、成员展开或断言。
+相同 107 项优化后为 213.69 秒，减少 188.77 秒（46.9%）；原 RCP2 最慢项从
+49.16 秒降至 0.23 秒。当前剩余热点仍是私有 graph mutation、live binding 和资源
+目录的独立全仓语义分析，后续只能在保持各自断言的前提下继续共享派生事实。

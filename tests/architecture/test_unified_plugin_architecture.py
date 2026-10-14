@@ -16,6 +16,7 @@ import loushang.harness.capabilities as public_capabilities
 import loushang.harness.resources.plugins as public_plugins
 import loushang.harness.runtime as public_runtime
 from loushang.harness.runtime import RuntimeCapabilityScope
+from tests.architecture._source_imports import imported_modules
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -24,6 +25,7 @@ def _release_source_cache() -> Iterator[None]:
     try:
         yield
     finally:
+        _source_tree.cache_clear()
         _source_texts.cache_clear()
 
 
@@ -1283,6 +1285,11 @@ def _source_texts() -> dict[Path, str]:
     }
 
 
+@cache
+def _source_tree(filename: Path, source: str) -> ast.Module:
+    return ast.parse(source, filename=str(filename))
+
+
 def _static_string_value(
     node: ast.AST,
     bindings: Mapping[str, str],
@@ -1326,7 +1333,7 @@ def _static_string_sites(sources: Mapping[Path, str], value: str) -> set[Path]:
     for path, source in sources.items():
         if any(fragment not in source for fragment in fragments):
             continue
-        tree = ast.parse(source, filename=str(path))
+        tree = _source_tree(path, source)
         bindings = _static_string_bindings(tree)
         if any(
             _static_string_value(node, bindings) == value for node in ast.walk(tree)
@@ -1368,7 +1375,7 @@ def _qualified_functions(
     filename: Path,
 ) -> tuple[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef], ...]:
     visitor = _QualifiedFunctionVisitor()
-    visitor.visit(ast.parse(source, filename=str(filename)))
+    visitor.visit(_source_tree(filename, source))
     return tuple(visitor.functions)
 
 
@@ -1482,7 +1489,7 @@ def _plugin_package_boundary_sink_sites(
     for path, source in sources.items():
         if not any(path.is_relative_to(root) for root in PLUGIN_PACKAGE_BOUNDARY_ROOTS):
             continue
-        tree = ast.parse(source, filename=str(path))
+        tree = _source_tree(path, source)
         json_modules, json_decoders = _import_aliases(tree)
         if _is_plugin_package_boundary_sink(
             _code_unit_nodes(tree.body),
@@ -1592,7 +1599,7 @@ def _plugin_package_boundary_sink_call_counts(
     for path, source in sources.items():
         if not any(path.is_relative_to(root) for root in PLUGIN_PACKAGE_BOUNDARY_ROOTS):
             continue
-        tree = ast.parse(source, filename=str(path))
+        tree = _source_tree(path, source)
         json_modules, json_decoders = _import_aliases(tree)
         json_decoder_classes = _json_decoder_class_aliases(tree)
         json_decoder_instances = _json_decoder_instance_aliases(
@@ -2069,7 +2076,7 @@ def _graph_private_mutation_sites(
         if not any(attribute in source for attribute in attributes):
             continue
         allow_self = "harness/capabilities/graph_" in path.as_posix()
-        tree = ast.parse(source, filename=str(path))
+        tree = _source_tree(path, source)
         if _function_mutates_private_graph_state(
             tree,
             attributes,
@@ -2153,7 +2160,7 @@ def _live_binding_sink_inventory(
             continue
         if not any(token in source for token in tokens):
             continue
-        tree = ast.parse(source, filename=str(path))
+        tree = _source_tree(path, source)
         for token in _live_sink_tokens(_code_unit_nodes(tree.body), tokens):
             inventory.add((path, "<module>", token))
         for qualified, function in _qualified_functions(source, filename=path):
@@ -2172,7 +2179,7 @@ def _class_sites(sources: Mapping[Path, str], class_name: str) -> tuple[Path, ..
         if f"class {class_name}" in source
         if any(
             isinstance(node, ast.ClassDef) and node.name == class_name
-            for node in ast.walk(ast.parse(source, filename=str(path)))
+            for node in ast.walk(_source_tree(path, source))
         )
     )
 
@@ -2185,7 +2192,7 @@ def _call_sites(
     for path, source in sources.items():
         if callable_name not in source:
             continue
-        tree = ast.parse(source, filename=str(path))
+        tree = _source_tree(path, source)
         module_nodes = _code_unit_nodes(tree.body)
         if _nodes_call_name(module_nodes, callable_name):
             sites.add((path, "<module>"))
@@ -2210,13 +2217,7 @@ def _nodes_call_name(nodes: tuple[ast.AST, ...], callable_name: str) -> bool:
 
 
 def _imported_modules(source: str, *, filename: Path) -> set[str]:
-    modules: set[str] = set()
-    for node in ast.walk(ast.parse(source, filename=str(filename))):
-        if isinstance(node, ast.Import):
-            modules.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module is not None:
-            modules.add(node.module)
-    return modules
+    return imported_modules(filename, source)
 
 
 def _executable_loading_sites(
@@ -2234,7 +2235,7 @@ def _executable_loading_sites(
     for path, source in sources.items():
         if not any(token in source for token in tokens):
             continue
-        tree = ast.parse(source, filename=str(path))
+        tree = _source_tree(path, source)
         if _nodes_call_any_name(_code_unit_nodes(tree.body), tokens):
             sites.add((path, "<module>"))
         for qualified, function in _qualified_functions(source, filename=path):

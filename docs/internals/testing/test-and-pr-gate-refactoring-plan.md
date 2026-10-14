@@ -437,3 +437,22 @@ PR #757 验证普通 test-only 收敛时又暴露一处重复：已登记的 sel
 | 回退 | 删除这 5 个 node 登记，模块 runner 自动恢复整文件收集；分类策略版本随回退更新，旧证据不可复用 |
 
 审批方未明确批准 AP-01 前，不实施该批或以其他名称拆分实施。
+
+### 待审批门禁变更 AP-02：未归属 Architecture 合同精确执行
+
+状态：完成路由、断言与本地成本审计；未修改 catalog、workflow、job 或执行路由。
+
+| 项目 | 审批材料 |
+| --- | --- |
+| 目的 | 让 11 个目前只触发全量回退、却未被任何工作流执行的 Architecture 测试文件，在直接修改和 schedule/manual full 时由一个精确 Ubuntu contract 批次执行 |
+| 触发变化 | 直接修改任一文件时，从“几乎全部活动 workflow + 7 个模块回归，但不执行改动文件”改为“轻量文档检查 + 一个 targeted contract job”；schedule/manual full 新增这 11 个文件的真实执行 |
+| 文件/节点数 | continuity mutation 5D/5E、continuity provider 5C、current runtime ownership、owner component foundation、plugin contribution type system、PLC8、RCP0/RCP1/RCP2、unified plugin；合计 11 文件、107 个 collected node |
+| 平台 | 仅 `ubuntu-24.04`；合同读取仓库源码与文档，不需要 Windows 或 macOS runtime |
+| 唯一断言 | 连续性 owner/恢复顺序、当前 runtime 依赖方向、owner component 私有边界、plugin contribution/lifecycle、resource catalog 输入与发布边界、统一 plugin 架构库存 |
+| 本地成本证据 | 同命令优化前 107 项通过、402.46 秒；共享 import facts 与只读 AST 后 107 项通过、213.69 秒。依赖安装另计，单 job 预计仍在 15 分钟预算内，需 PR runner 实测确认 |
+| 重复关系 | 当前没有 workflow 执行这些文件；全量回退启动的其他任务只产生无关覆盖。AP-02 会替换这次无效回退，不与现有测试 owner 重复 |
+| 新增门禁面 | schedule/manual full 首次真实执行这 11 个文件；直接 test-only PR 首次让对应断言可阻断合并。属于新 route 与新失败条件，必须审批 |
+| 失败语义 | 计划复用既有 targeted JUnit 验证：零 failure/error/skip，并要求每个登记文件至少一个通过项；不增加测试节点 |
+| 回退 | 删除 11 个 catalog 登记并回退策略版本，恢复未知路径全量回退；旧策略产生的 PR 证据不可复用 |
+
+审批方未明确批准 AP-02 前，只允许继续优化这些测试自身的执行成本，不实施精确路由。

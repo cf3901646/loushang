@@ -5,6 +5,8 @@ from collections.abc import Mapping
 from functools import cache
 from pathlib import Path
 
+from tests.architecture._source_imports import imported_modules
+
 BASELINE_PATH = Path(
     "docs/internals/architecture/harness/plugin/resource-catalog-rcp0-baseline.md"
 )
@@ -548,13 +550,7 @@ def _legacy_loader_import_edges(
 
 
 def _imported_modules(source: str, *, filename: Path) -> set[str]:
-    modules: set[str] = set()
-    for node in ast.walk(ast.parse(source, filename=str(filename))):
-        if isinstance(node, ast.ImportFrom) and node.module is not None:
-            modules.add(node.module)
-        elif isinstance(node, ast.Import):
-            modules.update(alias.name for alias in node.names)
-    return modules
+    return imported_modules(filename, source)
 
 
 def _text_record_fields(document: str, heading: str) -> tuple[str, ...]:

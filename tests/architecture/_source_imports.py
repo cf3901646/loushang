@@ -45,3 +45,22 @@ def resolved_imports(path: Path, source: str | None = None, *,
         if include_members:
             result.update(".".join((*base, name)) for name in names)
     return result
+
+
+def imported_modules(path: Path, source: str | None = None) -> set[str]:
+    """Return the raw module names declared by import statements.
+
+    Unlike ``resolved_imports``, this preserves the historical behavior of
+    source inventory tests: relative import levels are ignored and imported
+    members are not expanded.  The shared immutable parse facts still avoid
+    reparsing the same source in every architecture contract.
+    """
+    if source is None:
+        source = path.read_text(encoding="utf-8")
+    modules: set[str] = set()
+    for level, module, names in _import_facts(str(path), source):
+        if level is None:
+            modules.update(names)
+        elif module:
+            modules.add(module)
+    return modules

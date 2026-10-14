@@ -424,6 +424,13 @@ def select(
                     "coding_ui" if covered.startswith("tests/coding/") else "harnesstui"
                 )
                 enable([scope], f"{path}: HARNESSTUI_TEST_PATHS")
+                if (
+                    pr_fast
+                    and not full
+                    and path.startswith("tests/")
+                    and path.endswith(".py")
+                ):
+                    reviewed_test_paths.add(path)
                 matched = True
         if not matched:
             enable(list(checks), f"{path}: unclassified path (full validation)")
