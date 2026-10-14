@@ -1,6 +1,6 @@
 # 重构与优化测试与 PR 门禁
 
-- 文档修订：R8，2026-10-14。
+- 文档修订：R9，2026-10-14。
 - 状态：实施进行中；用户已建立新 goal。六类长门禁仍保持暂停。
 - 范围：现有全部工作流、源 job、平台矩阵、测试清单、执行器及汇总检查的分类、去重、有效合并与迁移。
 - 全量盘点：[16 个工作流、71 个源 job 的分析与去向](test-and-pr-gate-inventory.md)。
@@ -293,7 +293,7 @@ PR 因此多执行任务或多出失败条件，也不能自行实施。未获�
 | dev | 45 | 406 | 部分初审；19 个遗漏的 G18/lmux 测试路径已收敛到既有 owner |
 | examples | 6 | 49 | 角色完整初审；61 个模块所属示例合同实例 |
 | foundation | 11 | 87 | Ubuntu 模块角色完整初审 |
-| harness | 475 | 4107 | 待逐项审查 |
+| harness | 474 | 4106 | 增量角色、重复和远程成本初审完成；当前统一模块仍执行完整离线目录，5386 passed、121 个 Windows/native 条件 skip；完整 node 归属为 AP-07，未经审批不迁移 |
 | harnesstui | 98 | 624 | 待逐项审查 |
 | harnesswork | 7 | 32 | 角色完整初审；两份专用 golden 夹具登记 |
 | hosting | 28 | 309 | 角色与完全重复初审完成；454 个实例按受控合同、混合文件、POSIX/Windows 原生边界分类，恢复或补齐执行 owner 仍须审批 |
@@ -534,3 +534,25 @@ route、不扩大平台矩阵，也不恢复任何暂停门禁。
 
 审批方未明确批准 AP-06 的具体 node 清单前，不完成 Coding catalog、不移动剩余节点、
 不启用当前未执行路径，也不扩大平台矩阵。现有 8 分片保持不变。
+
+### 待审批门禁变更 AP-07：Harness 完整角色与平台归属
+
+状态：完成当前目录规模、统一模块执行、平台 skip、完全重复和热点初审；尚未形成
+474 文件逐 node 的最终审批清单，未修改 classification catalog、模块清单、workflow、
+job、平台、触发或失败条件。
+
+| 项目 | 审批材料 |
+| --- | --- |
+| 目的 | 将 Harness 完整离线集合区分为受控单元/合同、本地进程/存储集成和平台原生 owner；保留所有必要断言并消除无效平台收集 |
+| 当前规模 | 474 个文件、4106 个静态测试函数；Harness 尚无 whole-file 或 node targeted classification，也未声明 complete module catalog |
+| 当前执行 | 统一 `unit_harness` 直接执行整个 `tests/harness` 和两个 Harness example 文件，再以 4 个稳定哈希分片运行；历史 `unit-tests.json` 的 13 文件清单不截断这条路径 |
+| 当前远程证据 | PR #756 的 4 份 JUnit 共 5507 个实例：5386 passed、121 skipped、0 failed，testcase 时间 119.19 秒；分片 job 约 57–104 秒，PR 创建到汇总约 2 分 10 秒 |
+| 平台缺口 | 121 个 skip 分布在 13 个文件，117 个为 Windows Product/Worker/epoch/lease/stream 合同，4 个要求 native Windows host；当前 Ubuntu 模块报告不能证明这些场景通过 |
+| 热点 | `test_plc9b_adversarial.py` 52.69 秒，其中 checked-in wheel/Product composition 单例 27.95 秒；`test_exec_capture.py` 优化后 14.64 秒。前者本机隔离复核 55.75 秒通过，是真实重型集成，不按普通单元处理 |
+| 重复关系 | 完整 AST 扫描只发现 POSIX/Windows epoch 并发收敛一组相同函数体；两者验证不同平台实现与布局，保留。4 个分片的 testcase 身份无重叠 |
+| 已有优化 | reader fault 的 14 个 publication-point 组合保持原异常、进程退出和 transport 关闭断言，只把测试请求预算从 3 秒收紧到 1 秒；远程文件时间 42.57 秒降到 14.64 秒 |
+| 新增门禁面 | 建立 targeted owner、启用当前只 skip 的 Windows 场景、恢复暂停 Harness workflow 或改变平台均可能增加 route/失败条件，必须逐 node 审批；本批不实施 |
+| 审批前置 | 列出每个拟迁移 node、唯一断言、当前执行配置、目标平台、现有替代、实测成本和回退；确认与 Windows Shell、Hosting 和 Product Worker owner 不重复 |
+
+审批方未明确批准 AP-07 的具体清单前，不完成 Harness catalog、不迁移本地进程或
+Windows 节点、不恢复暂停 Harness workflow。现有 4 分片完整离线路径保持不变。

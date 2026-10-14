@@ -566,3 +566,40 @@ mode `0700`、无仓库资源祖先的 `/var/tmp` 专用根后，三个代表失
 不同故障阶段与最终状态，不能按代码相似删除。剩余 333 文件的逐 node 完整角色、
 21 个零报告路径和 9 个 skip 文件的目标平台归属记为 AP-06；在逐 node 审批材料完成
 并获批前，不修改 catalog、route、平台、触发或失败条件。
+
+## 19. Harness 当前目录增量初审
+
+当前 `tests/harness` 有 474 个 `test_*.py` 文件、4106 个静态测试函数。Harness 尚未
+进入 complete module catalog，也没有 whole-file 或 node targeted override；因此统一
+`unit_harness` 仍直接执行完整 `tests/harness`，并包含两个 Harness example 文件。
+`unit-tests.json` 中历史 13 文件清单只保留配置身份，不会把当前模块执行缩成 13 文件。
+旧独立 Harness workflow 保持暂停，不能与统一模块路径混为一项额外执行。
+
+PR #756 的运行 `38577076277` 位于 exec-capture 优化提交 `da76388f`，提供当前有效的
+4 份 Harness JUnit：5507 个实例中 5386 passed、121 skipped、0 failed，testcase
+时间合计 119.19 秒。4 个分片 job 为约 57、71、62 和 104 秒；该 PR 从创建到
+`quality-gate` 完成约 2 分 10 秒。此前运行 `38563194640` 的同一集合为 155.99 秒，
+其中 `test_exec_capture.py` 为 42.57 秒；优化后该文件为 14.64 秒。
+
+这项优化保留 14 个 reader failure 的全部 publication point、before/after fault、原始
+reader 异常、子进程退出及 stdout/stderr transport 关闭断言，只把测试请求 timeout
+从 3 秒收紧为 1 秒。当前树本地聚焦复核 14 passed、47 deselected、14.54 秒，各实例
+约 1.02 秒；没有用 timeout 本身代替成功断言。
+
+121 个 skip 分布在 13 个文件：117 个为 Windows Product Worker、materialization、
+epoch、lease、rooted handle、data stream 等 Windows 合同，另 4 个要求 native Windows
+host。Ubuntu 报告只能证明这些条件被正确跳过，不能证明 Windows 行为通过。把它们
+接入新的 Windows owner、恢复暂停 workflow 或首次形成失败条件均须审批。
+
+文件级主要成本为 `test_plc9b_adversarial.py` 52.69 秒，其中
+`test_posix_local_wheel_product_composition_uses_live_epoch_and_owners[session-False]`
+远程 27.95 秒。该节点构建 checked-in Coding base wheel 并验证真实 Product
+composition、epoch 与 owner；当前树在私有 `/var/tmp` 根复核 55.75 秒通过。本机明显
+慢于远程，但两边均证明它是真实重型集成，不能用共享可变 Product 状态或删减验证来
+伪装成快速单元。
+
+忽略测试名称并保留参数、decorator 与完整函数体的 AST 扫描只发现一组相同函数体：
+POSIX 与 Windows epoch cutover 的 concurrent exact request 收敛用例。它们使用不同
+平台 owner、布局和安全语义，继续分别保留。4 份 JUnit 的 testcase 身份没有分片重叠。
+其余完整单元/合同、本地进程/存储与平台 node 归属记录为 AP-07；未获逐项审批前不
+修改 catalog、route、平台、触发或失败条件，现有完整离线 4 分片保持不变。
