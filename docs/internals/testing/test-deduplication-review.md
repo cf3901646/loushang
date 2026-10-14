@@ -12,7 +12,7 @@
 | AI 同文件 optional legacy signature 两个用例 | 同一 `_LegacyProviderWithOptionalDebug`、相同调用与异常 | 合并到 register owner |
 | 五个 vendor live 测试 wrapper | 各模块的 main、模型/协议和工具配置不同 | 保留；wrapper 相同不代表网络行为相同，不执行 live 验证 |
 | 两个 Kimi OpenAI live wrapper | 分别调用 stream/complete 示例流程 | 保留；全局函数不同 |
-| Coding 两个 UI 文件的 non-interactive 用例 | 使用各文件的 `_Session` 和 `_runtime_for`，尚未完成上下文等价证明 | 暂保留，后续核对后归唯一 owner |
+| Coding 两个 UI 文件的 non-interactive 用例 | 两个函数体相同，均 patch 同一 mode 入口；两套 helper 对被断言的 runtime/current session/prompt 行为相同 | 删除 Screen 复本，保留聚焦的 UI mode owner |
 | Coding session codec 的 native/read-only v3 rejection | 同文件、同 tmp_path 隔离、同 `load_session_repository`，并未调用不同入口 | 合并为原 native 用例 |
 | Harness events/host 的 subscribe/unsubscribe | 相同 canonical 导入、无局部夹具、同父级 conftest | 仅 events owner 保留 |
 | Harness events/host 的 scheduled listener serialization | 同上，相同事件栅栏、调度顺序与 drain 断言 | 仅 events owner 保留 |
@@ -32,6 +32,16 @@
 | `tests/harness/host/test_events.py::test_ordered_event_bus_no_loop_rejects_async_listener_with_configured_error` | `tests/harness/events/test_bus.py::test_ordered_event_bus_no_loop_rejects_async_listener_with_configured_error` | 相同无事件循环拒绝及定制异常信息 |
 | `tests/ai/test_api_streaming.py::test_get_api_adapter_stream_rejects_legacy_provider_signature` | 同文件 `test_register_api_adapter_rejects_legacy_provider_signature` | 两者构造同一 `_LegacyProvider` 和空 registry，均只调用 `register_api_adapter` 并断言相同 TypeError；旧名称未经过 get/call 路径 |
 | `tests/ai/test_api_streaming.py::test_get_api_adapter_stream_rejects_legacy_optional_arg_signature` | 同文件 `test_register_api_adapter_rejects_optional_legacy_argument_signature` | 两者构造同一 optional-debug provider，调用与异常断言完全相同；无独有 get/call 行为 |
+| `tests/coding/test_screen_coding_tui_mode.py::test_run_coding_tui_non_interactive_keeps_plain_prompt_loop` | `tests/coding/test_ui_mode.py::test_run_coding_tui_non_interactive_keeps_plain_prompt_loop` | 两个函数体完全相同，均 patch 同一 mode 入口并断言非交互分支、prompt 与参数集合；保留 fixture 更小且职责更聚焦的 UI mode owner |
+| `tests/coding/test_file_mutation_queue.py::{test_mutation_queue_serializes_same_file_operations,test_mutation_queue_uses_canonical_same_file_identity}` | `tests/harness/workspace/test_mutation_queue.py::test_mutation_queue_serializes_canonical_same_path` | canonical Harness owner 同时覆盖相同路径串行与不同拼写归一化，包含基本同路径场景 |
+| `tests/coding/test_file_mutation_queue.py::test_mutation_queue_allows_different_files_to_progress_independently` | `tests/harness/workspace/test_mutation_queue.py::test_mutation_queue_allows_different_paths_to_progress` | 都用受控 event 栅栏证明不同绝对路径不会共享锁；Harness 用例无脆弱的 0.1 秒完成超时 |
+| `tests/coding/test_file_mutation_queue.py::test_mutation_queue_rejects_relative_paths` | `tests/harness/workspace/test_mutation_queue.py::test_mutation_queue_rejects_relative_paths` | 同一 canonical API、相同异常类型和消息 |
+| `tests/coding/test_file_mutation_queue.py::test_mutation_queue_cleans_up_lock_entries_after_use` | `tests/harness/workspace/test_mutation_queue.py::test_mutation_queue_context_tracks_and_releases_active_path` | 独有的持锁期间可见与退出清理断言迁入 canonical owner |
+| `tests/coding/test_file_mutation_queue.py::test_run_with_file_mutation_queue_serializes_callback_operations` | `tests/harness/workspace/test_mutation_queue.py::test_mutation_queue_runner_serializes_callbacks_and_returns_results` | 独有的 callback 串行、顺序及返回值断言迁入 canonical owner |
+| `tests/coding/test_file_mutation_queue.py::{test_run_with_file_mutation_queue_accepts_sync_callback,test_mutation_queue_uses_its_direct_harness_owner}` | `tests/harness/workspace/test_mutation_queue.py::test_mutation_queue_runner_accepts_sync_results_and_cleans_up` | 统一保留同步 callback 返回与锁清理；从同一模块重复导入后比较对象身份没有额外消费者边界 |
+| `tests/coding/test_file_mutation_queue.py::test_run_with_file_mutation_queue_cleans_up_after_callback_error` | `tests/harness/workspace/test_mutation_queue.py::test_mutation_queue_cleans_up_after_callback_failure` | 同一 canonical runner、异步异常传播与锁表清理 |
+| `tests/ontology/test_action_schema.py::test_schema_v3_documents_are_not_loaded_as_v4` | `tests/ontology/test_schema.py::test_schema_v3_documents_are_not_loaded_as_v4` | `load_json` 在解析内容前按同一 format 字段拒绝 v3；换用包含 action 的合法 v4 草稿不会形成新的版本边界 |
+| `tests/coding/test_screen_coding_tui_mode.py::test_run_coding_tui_non_interactive_keeps_plain_prompt_loop` | `tests/coding/test_ui_mode.py::test_run_coding_tui_non_interactive_keeps_plain_prompt_loop` | 两个函数体完全相同，均 patch 同一 mode 入口并断言非交互分支、prompt 与参数集合；保留 fixture 更小且职责更聚焦的 UI mode owner |
 
 Harness host 测试文件只包含这三个重复项，且也直接导入 canonical events 类型，没有独有 facade 合同，因此删除整个重复文件。canonical events 的失败传播且不阻塞后续事件用例继续保留。
 
@@ -58,7 +68,7 @@ Harness host 测试文件只包含这三个重复项，且也直接导入 canoni
 - 完整报告显示反复扫描全仓的静态依赖检查单项耗时 60.804/42.307/21.760 秒；两个终端进程死亡恢复用例分别为 38.180/31.081 秒。这些是后续共享扫描和能力拆分的实测依据，不以增加超时解决。
 - 上述数字为本地执行，不证明 PR 排队和总耗时达标；真实 installed 与 Windows 运行仍待交付验证。
 
-仍需完成非相同 AST 的语义重复、全部目录角色与夹具影响、跨工作流唯一执行、历史 job 重组、必要原生场景和真实多次 PR/main 验收。当前 7 个冗余用例的删除不代表全部单元测试去重完成。
+仍需完成其他非相同 AST 的语义重复、全部目录角色与夹具影响、其余跨工作流唯一执行、历史 job 重组、必要原生场景和真实多次 PR/main 验收。当前共删除 18 个旧 node ID，其中 mutation queue 的 2 个独有合同迁入 canonical Harness owner；数量变化本身不代表全部单元测试去重完成。
 
 ## 5. 共享全仓源码扫描准备
 

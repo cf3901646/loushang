@@ -101,15 +101,6 @@ def test_action_definition_compiles_round_trips_and_is_package_content() -> None
     )
 
 
-def test_schema_v3_documents_are_not_loaded_as_v4() -> None:
-    compiler = OntologyCompiler()
-    payload = json.loads(compiler.compile(_draft()).to_json())
-    payload["format"] = "loushang.ontology.schema/v3"
-
-    with pytest.raises(SchemaCompilationError, match="schema/v4"):
-        compiler.load_json(json.dumps(payload))
-
-
 @pytest.mark.parametrize(
     ("action", "expected_code"),
     [
