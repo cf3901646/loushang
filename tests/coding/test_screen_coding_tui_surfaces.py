@@ -1350,7 +1350,7 @@ def test_screen_surface_manager_applies_settings_page_statusline_change() -> Non
         for line in app.render(RenderConstraints(width=100, max_height=12)).lines
     )
     assert not any(
-        "moonshot:test-endpoint:kimi-for-coding | repo | main | abcd | idle" in line
+        "kimi-for-coding | repo | main | abcd | idle" in line
         for line in rendered
     )
 

@@ -209,7 +209,7 @@ def test_screen_coding_tui_exit_cleanup_clears_bottom_frame_status() -> None:
     runtime.render_now()
 
     before = tuple(strip_control_sequences(line).rstrip() for line in port.screen.visible_lines)
-    assert "kimi | repo | main | abcd | idle | perm=standard" in before
+    assert "kimi | repo | main | abcd | idle | standard" in before
 
     exit_code = finish_tui_exit(runtime=runtime, stdout=StringIO(), exit_code=0)
 
@@ -343,8 +343,8 @@ def test_screen_coding_tui_completion_close_reclaims_rows_and_keeps_cursor_synce
         recalled.diagnostics.hardware_cursor_row
         - recalled.diagnostics.viewport_top
     )
-    assert visible.count("kimi | repo | main | abcd | idle | perm=standard") == 1
-    assert visible[-1] == "kimi | repo | main | abcd | idle | perm=standard"
+    assert visible.count("kimi | repo | main | abcd | idle | standard") == 1
+    assert visible[-1] == "kimi | repo | main | abcd | idle | standard"
 
 
 def test_screen_coding_tui_active_window_trim_rewrites_viewport_without_clearing_screen() -> None:
