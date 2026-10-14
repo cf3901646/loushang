@@ -100,7 +100,10 @@ module job runs every test in its package directory with offline selectors;
 the routing inventory identifies eligible paths, not a smaller test subset.
 Coding excludes its separately owned UI suite, and existing AI, Agent, Coding,
 and Harness example tests retain their package owner. Coding, Harness,
-HarnessTUI, and TUI module jobs use deterministic shards. A change touching
+HarnessTUI, and TUI module jobs use deterministic shards. Coding uses eight
+shards, selected from the 4,798-case PR #740 report: the slowest recomputed
+hash shard carried 399 seconds of testcase time, leaving setup margin inside
+the ten-minute target. A change touching
 two packages runs both complete module regressions. Package source that selects
 a platform, Worker, installation, LSP, or other high-risk gate also keeps the
 existing route. The core E2E smoke creates a real hosted Coding session, executes the product's
@@ -121,8 +124,9 @@ Reports require exactly one or two passing, non-skipped cases according to the
 selection plan; selected smoke cases are excluded from concurrent module shards. Changes to the explicitly listed routing files exercise CI static checks,
 the Agent module job, and E2E. Changes to the module regression workflow run
 the complete eligible unit inventory instead of unrelated native suites. Known reusable workflows validate their own complete scope. The main orchestrator
-and unclassified gate machinery retain full validation. Agent module regressions
-are not scheduled a second time when the package quality gate already owns them.
+and unclassified gate machinery retain full validation. Agent, Coding and
+Foundation offline regressions have one execution owner in the module workflow;
+risk selection adds platform or integration gates without rerunning those suites.
 
 The existing routing rules are additive outside this fast PR route. Makefile source/test inventories retain explicitly shared
 support paths, such as the Coding product worker canary owned by Harness

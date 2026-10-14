@@ -24,7 +24,10 @@ def resolved_imports(path: Path, source: str | None = None, *,
     # Cache only immutable facts, never a mutable AST or Product/runtime state.
     if source is None:
         source = path.read_text(encoding="utf-8")
-    package = path.parent.relative_to("src").parts
+    try:
+        package = path.parent.relative_to("src").parts
+    except ValueError:
+        package = path.parent.resolve().relative_to(Path("src").resolve()).parts
     result = set()
     for level, module, names in _import_facts(str(path), source):
         if level is None:

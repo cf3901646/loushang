@@ -371,13 +371,13 @@ class ScopeTests(unittest.TestCase):
                 plan = selector.select([path], pr_fast=True)
                 expected = {"docs", "ci"} | {c for scope in scopes
                                                     for c in rules["workflows"][scope]}
-                if set(scopes) & {"packages", "harness", "hosting", "apphost", "appservice"}:
+                if set(scopes) & {"harness", "hosting", "apphost", "appservice"}:
                     expected.add("host_runtime")
                 self.assertEqual({k for k, v in plan["checks"].items() if v}, expected)
                 expected_workflows = set(scopes) | {"e2e"}
                 if "host_runtime" in expected:
                     expected_workflows.add("host-runtime")
-                if scopes and "packages" not in scopes:
+                if scopes:
                     expected_workflows.add("units")
                 self.assertEqual({k for k, v in plan["workflows"].items() if v}, expected_workflows)
         plan = selector.select([".github/workflows/windows-shell-compatibility.yml"], pr_fast=True)
@@ -413,7 +413,7 @@ class ScopeTests(unittest.TestCase):
                     ["agent", "ai", "channel", "coding", "harness", "harnesstui",
                      "harnesswork", "method", "ontology", "resource", "tui", "work"],
                 )
-                self.assertEqual(len(plan["unit_jobs"]), 32)
+                self.assertEqual(len(plan["unit_jobs"]), 24)
                 self.assertEqual(
                     {name for name, enabled in plan["checks"].items() if enabled},
                     {"docs", "ci"},
@@ -704,7 +704,7 @@ class ScopeTests(unittest.TestCase):
                 self.assertEqual(plan["unit_packages"], [package])
                 self.assertEqual(
                     len(plan["unit_jobs"]),
-                    selector.UNIT_SHARD_COUNTS.get(package, 1),
+                    selector.MODULE_SHARD_COUNTS.get(package, 1),
                 )
                 self.assertFalse(plan["checks"]["coding"])
                 self.assertFalse(plan["checks"]["host_runtime"])
@@ -723,8 +723,9 @@ class ScopeTests(unittest.TestCase):
             pr_fast=True,
         )
         self.assertTrue(plan["checks"]["coding"])
-        self.assertEqual(plan["unit_packages"], [])
-        self.assertEqual(plan["unit_jobs"], [])
+        self.assertIn("coding", plan["unit_packages"])
+        self.assertEqual(sum(job["package"] == "coding" for job in plan["unit_jobs"]), 8)
+        self.assertEqual(len(plan["unit_jobs"]), 8)
 
     def test_pr_session_change_adds_resume_turn_e2e(self):
         plan = selector.select(["src/loushang/harness/session/queue.py"], pr_fast=True)
@@ -745,8 +746,12 @@ class ScopeTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 plan = selector.select([path], pr_fast=True)
-                self.assertEqual(plan["unit_packages"], [])
                 self.assertEqual(plan["checks"], selector.select([path])["checks"])
+                self.assertTrue({
+                    module
+                    for check, module in selector.CHECK_MODULE_REGRESSIONS.items()
+                    if plan["checks"][check]
+                } <= set(plan["unit_packages"]))
 
     def test_pr_gate_change_exercises_new_reusable_workflows(self):
         for path in (
@@ -755,14 +760,16 @@ class ScopeTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 plan = selector.select([path], pr_fast=True)
-                self.assertEqual(plan["unit_packages"], [])
-                self.assertEqual(plan["unit_jobs"], [])
+                self.assertTrue({"agent", "coding", "foundation"}
+                                <= set(plan["unit_packages"]))
+                self.assertTrue(plan["unit_jobs"])
                 self.assertTrue(plan["e2e"])
                 self.assertTrue(all(plan["checks"].values()))
 
     def test_full_validation_disables_fast_route(self):
         plan = selector.select(["src/loushang/ai/pricing.py"], full=True, pr_fast=True)
-        self.assertEqual(plan["unit_packages"], [])
+        self.assertTrue({"agent", "coding", "foundation"}
+                        <= set(plan["unit_packages"]))
         self.assertTrue(all(plan["checks"].values()))
 
     def test_unit_inventory_is_explicit_existing_and_unique(self):
@@ -793,7 +800,7 @@ class ScopeTests(unittest.TestCase):
                         self.assertIn(path, command)
                 self.assertIn("not e2e_smoke", command[command.index("-m") + 1])
                 self.assertIn("--skip-host-runtime", command)
-        (coding_shard,) = runner.commands("unit_coding", shard=0, shards=16)
+        (coding_shard,) = runner.commands("unit_coding", shard=0, shards=8)
         self.assertIn("--ci-shard-count", coding_shard)
         self.assertIn("--ignore=tests/coding/test_screen_coding_tui_app.py", coding_shard)
         (plugin,) = runner.commands("unit_plugin")
@@ -871,7 +878,8 @@ class PauseTests(unittest.TestCase):
                 self.assertTrue(plan["workflows"]["units"])
                 self.assertTrue(plan["e2e"])
                 self.assertTrue(plan["workflows"]["apphost"])
-                self.assertTrue(plan["workflows"]["packages"])
+                self.assertTrue({"agent", "coding", "foundation"}
+                                <= set(plan["unit_packages"]))
 
 
 
@@ -1028,49 +1036,49 @@ class SuiteSelectionTests(unittest.TestCase):
             "--ignore=tests/coding/test_screen_coding_tui_app.py", host_command
         )
 
-    def test_coding_matrix_partitions_the_complete_existing_offline_suite(self):
-        workflow = (ROOT / ".github/workflows/package-quality.yml").read_text()
-        coding_job = workflow.split("  coding:\n", 1)[1].split("  foundation:\n", 1)[0]
-        self.assertIn(
-            "shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]",
-            coding_job,
+    def test_coding_module_matrix_partitions_the_complete_offline_suite(self):
+        self.assertFalse((ROOT / ".github/workflows/package-quality.yml").exists())
+        self.assertEqual(selector.MODULE_SHARD_COUNTS["coding"], 8)
+        plan = selector.select(["src/loushang/coding/lsp/client.py"], pr_fast=True)
+        self.assertEqual(plan["unit_packages"], ["coding"])
+        self.assertEqual(
+            plan["unit_jobs"],
+            [{"package": "coding", "shard": index, "shards": 8}
+             for index in range(8)],
         )
-        self.assertIn("--shard ${{ matrix.shard }} --shards 16", coding_job)
-        self.assertIn("verify_pytest_xml.py", coding_job)
-        self.assertIn("--allow-skipped", coding_job)
         original, = runner.commands("coding")
-        for index in range(16):
+        for index in range(8):
             with self.subTest(shard=index):
-                sharded, = runner.commands("coding", shard=index, shards=16)
+                sharded, = runner.commands("coding", shard=index, shards=8)
                 self.assertEqual(
                     sharded[:-6], original
                 )
                 self.assertEqual(
                     sharded[-6:],
                     ["-p", "pytest_shard", "--ci-shard-index", str(index),
-                     "--ci-shard-count", "16"],
+                     "--ci-shard-count", "8"],
                 )
         with self.assertRaises(ValueError):
-            runner.commands("coding", shard=16, shards=16)
+            runner.commands("coding", shard=8, shards=8)
         with self.assertRaises(ValueError):
-            runner.commands("agent", shard=0, shards=16)
+            runner.commands("agent", shard=0, shards=8)
         nodeids = [f"tests/coding/test_example.py::test_case[{index}]" for index in range(100)]
         groups = [
-            {nodeid for nodeid in nodeids if shard_hash.shard_for_nodeid(nodeid, 16) == index}
-            for index in range(16)
+            {nodeid for nodeid in nodeids if shard_hash.shard_for_nodeid(nodeid, 8) == index}
+            for index in range(8)
         ]
         self.assertEqual(set().union(*groups), set(nodeids))
         self.assertEqual(sum(map(len, groups)), len(nodeids))
 
     def test_coding_risk_and_ordinary_prs_use_the_same_offline_inventory(self):
-        workflow = (ROOT / ".github/workflows/package-quality.yml").read_text()
-        coding_job = workflow.split("  coding:\n", 1)[1].split("  foundation:\n", 1)[0]
-        self.assertIn("CI_PLAN: ${{ inputs.plan }}", coding_job)
         plan = selector.select([
             "src/loushang/coding/package_product_worker_windows_crash_cleanup_review.py"
         ], pr_fast=True)
-        ordinary, = runner.commands("unit_coding", shard=0, shards=16)
-        risk, = runner.commands("coding", plan=plan, shard=0, shards=16)
+        self.assertIn("coding", plan["unit_packages"])
+        self.assertEqual(sum(job["package"] == "coding" for job in plan["unit_jobs"]), 8)
+        self.assertNotIn("packages", plan["workflows"])
+        ordinary, = runner.commands("unit_coding", shard=0, shards=8)
+        risk, = runner.commands("coding", plan=plan, shard=0, shards=8)
         self.assertEqual(risk, ordinary)
         self.assertIn("tests/examples/test_coding_examples.py", risk)
         full, = runner.commands("coding")

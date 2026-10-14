@@ -50,7 +50,7 @@ SCOPED_WORKFLOWS = {
         f".github/workflows/{filename}.yml": (scope,)
         for filename, scope in (
             ("architecture-quality", "architecture"), ("ai-quality", "ai"),
-            ("package-quality", "packages"), ("harness-quality", "harness"),
+            ("harness-quality", "harness"),
             ("harnesstui-quality", "harnesstui"), ("tui-render-contract", "tui"),
             ("hosting-quality", "hosting"), ("apphost-quality", "apphost"),
             ("appservice-quality", "appservice"),
@@ -71,7 +71,15 @@ FAST_RISK_CHECKS = {
 }
 E2E_PATH_PARTS = ("/session/", "/conversation/", "/transcript/")
 FAST_RISK_RULE_REASONS = {"AI consumer contracts"}
-UNIT_SHARD_COUNTS = {"coding": 16, "harness": 4, "harnesstui": 2, "tui": 2}
+# Counts are based on observed report durations, not historical gate names.  The
+# Coding value uses PR #740's 4,798-case report: eight hash shards had a 399 s
+# slowest shard, leaving setup margin inside the ten-minute PR target.
+MODULE_SHARD_COUNTS = {"coding": 8, "harness": 4, "harnesstui": 2, "tui": 2}
+CHECK_MODULE_REGRESSIONS = {
+    "agent": "agent",
+    "coding": "coding",
+    "foundation": "foundation",
+}
 WINDOWS_GATE_INFRA = (
     ".github/", "scripts/ci/", "tests/ci/", "Makefile", "pyproject.toml",
     "uv.lock", "tests/conftest.py", "scripts/dev/run_pytest.py",
@@ -306,6 +314,13 @@ def select(
                 enable(dependencies, f"required by {check}")
         if before == checks:
             break
+    # These historical package jobs ran the same offline pytest inventories as
+    # the module runner.  Give their selected checks to the one module runner so
+    # ordinary, risk and full plans cannot execute the same suite twice.
+    unit_packages.update(
+        module for check, module in CHECK_MODULE_REGRESSIONS.items()
+        if checks[check]
+    )
     workflows = {
         name: any(checks[check] for check in scopes)
         for name, scopes in rules["workflows"].items()
@@ -315,7 +330,10 @@ def select(
         # offline tests; mixed PRs must not launch that module twice.
         unit_packages = {
             package for package in unit_packages
-            if not checks.get("tui_unit" if package == "tui" else package, False)
+            if (
+                package in CHECK_MODULE_REGRESSIONS.values()
+                or not checks.get("tui_unit" if package == "tui" else package, False)
+            )
         }
     gate_infra = any(
         path.startswith((".github/workflows/", "scripts/ci/"))
@@ -445,9 +463,9 @@ def select(
             unit_packages.update(packages)
     unit_jobs = [
         {"package": package, "shard": shard,
-         "shards": UNIT_SHARD_COUNTS.get(package, 1)}
+         "shards": MODULE_SHARD_COUNTS.get(package, 1)}
         for package in sorted(unit_packages)
-        for shard in range(UNIT_SHARD_COUNTS.get(package, 1))
+        for shard in range(MODULE_SHARD_COUNTS.get(package, 1))
     ]
     workflows["units"] = bool(unit_packages)
     for workflow in PAUSED_WORKFLOWS:
