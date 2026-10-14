@@ -520,7 +520,6 @@ def _spec(
     )
 
 
-@pytest.mark.e2e_smoke
 @_async_test
 async def test_G12_VERTICAL_CANARY_crosses_real_composition_create_turn_resume_close() -> None:
     environment = await _environment()

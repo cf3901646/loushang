@@ -30,8 +30,22 @@ and Harness example tests retain their package owner. Coding, Harness,
 HarnessTUI, and TUI module jobs use deterministic shards. A change touching
 two packages runs both complete module regressions. Package source that selects
 a platform, Worker, installation, LSP, or other high-risk gate also keeps the
-existing route. The E2E smoke reopens a real hosted session and sends a second
-message. Changes to the five listed routing files exercise CI static checks,
+existing route. The core E2E smoke creates a real hosted Coding session, executes the product's
+read tool on a private UTF-8 fixture, closes its owners, reconstructs the catalog
+and factory from the saved transcript, verifies restored messages and tool
+results, and sends another message. It runs once on Linux, macOS and Windows
+for code PRs. The composition canary with test session ports remains in the
+Coding offline regression rather than being advertised as persistence evidence.
+
+Agent, session, tool, approval and terminal control changes additionally select
+one terminal cancellation smoke in the same platform job. This drives the real
+screen input/render loop and AgentSession with scripted terminal IO: start a
+controlled tool, press Escape, observe actual cancellation and task settlement,
+then submit and render another reply before exiting. Native PTY/ConPTY checks
+remain in their platform gates; this portable smoke does not replace them.
+The model transport is synthetic and neither flow calls a live provider.
+Reports require exactly one or two passing, non-skipped cases according to the
+selection plan; selected smoke cases are excluded from concurrent module shards. Changes to the five listed routing files exercise CI static checks,
 the Agent module job, and E2E. Changes to the module regression workflow run
 the complete eligible unit inventory instead of unrelated native suites. Other
 gate machinery retains full validation.
