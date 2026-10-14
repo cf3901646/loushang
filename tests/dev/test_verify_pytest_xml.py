@@ -97,6 +97,35 @@ def test_verifier_requires_exact_test_count(tmp_path: Path) -> None:
     assert "tests must be 5, got 4" in incomplete.stderr
 
 
+def test_verifier_requires_a_passing_case_from_each_batched_file(
+    tmp_path: Path,
+) -> None:
+    report = (
+        '<testsuites><testsuite tests="2" skipped="1" failures="0" errors="0">'
+        '<testcase classname="tests.demo.test_one" name="test_pass"/>'
+        '<testcase classname="tests.demo.test_two" name="test_skip"><skipped/></testcase>'
+        "</testsuite></testsuites>"
+    )
+    missing = _run_verifier(
+        tmp_path,
+        report,
+        "--allow-skipped",
+        "--required-files-json",
+        '["tests/demo/test_one.py", "tests/demo/test_two.py"]',
+    )
+    assert missing.returncode == 1
+    assert "tests/demo/test_two.py" in missing.stderr
+
+    accepted = _run_verifier(
+        tmp_path,
+        report.replace("<skipped/>", ""),
+        "--allow-skipped",
+        "--required-files-json",
+        '["tests/demo/test_one.py", "tests/demo/test_two.py"]',
+    )
+    assert accepted.returncode == 0
+
+
 def _run_verifier(
     tmp_path: Path, xml: str, *args: str
 ) -> subprocess.CompletedProcess[str]:
