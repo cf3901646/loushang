@@ -352,6 +352,193 @@
           "assertion": "temporary debug/trace sinks: routing, scope filters, exact safe wire/text shapes, latest links and failure containment"
         }
       }
+    },
+    "appserver": {
+      "complete": true,
+      "review": "reviewed complete directory and dedicated fixtures; protocol/state tests use controlled peers, while real loopback servers, subprocesses and native filesystem mechanics remain explicitly targeted",
+      "files": {
+        "tests/appserver/test_connection.py": {
+          "category": "contract",
+          "assertion": "controlled transports prove wire dispatch, correlation, cancellation, backpressure and bounded failure"
+        },
+        "tests/appserver/test_connection_profiles.py": {
+          "category": "contract",
+          "assertion": "controlled negotiation proves closed profile compatibility and handshake budgets"
+        },
+        "tests/appserver/test_connection_protocol.py": {
+          "category": "contract",
+          "assertion": "poll wire round trips, strict limits and bounded malformed input"
+        },
+        "tests/appserver/test_execution_connection.py": {
+          "category": "contract",
+          "assertion": "mock connection dispatch for execution submission, lookup, snapshots and interrupts"
+        },
+        "tests/appserver/test_execution_local.py": {
+          "category": "integration",
+          "assertion": "real authenticated loopback server/client joins AppServer transport to AppService execution recovery"
+        },
+        "tests/appserver/test_execution_protocol.py": {
+          "category": "contract",
+          "assertion": "execution records, calls, snapshots, status and checked-in wire goldens"
+        },
+        "tests/appserver/test_execution_recovery.py": {
+          "category": "unit",
+          "assertion": "controlled lookup and submit ports prove replay-safe recovery state transitions"
+        },
+        "tests/appserver/test_local.py": {
+          "category": "integration",
+          "assertion": "real loopback sockets, server lifecycle, authentication, stale records and crashed writer subprocess"
+        },
+        "tests/appserver/test_local_auth.py": {
+          "category": "contract",
+          "assertion": "controlled local transports prove mutual authentication, transcript vectors and strict frame bounds"
+        },
+        "tests/appserver/test_local_discovery.py": {
+          "category": "contract",
+          "assertion": "controlled discovery scopes prove authenticated capability selection and cleanup"
+        },
+        "tests/appserver/test_local_discovery_record.py": {
+          "category": "contract",
+          "assertion": "closed local discovery record codec and frozen G16 compatibility fixture"
+        },
+        "tests/appserver/test_local_record.py": {
+          "category": "contract",
+          "assertion": "isolated temporary record directory proves strict encoding, publication, locking and rotation"
+        },
+        "tests/appserver/test_local_record_native.py": {
+          "category": "platform",
+          "assertion": "POSIX native permissions, links, descriptor inheritance, races and cross-process lock behavior"
+        },
+        "tests/appserver/test_local_record_windows.py": {
+          "category": "platform",
+          "assertion": "Windows native ABI, ACL, junction and handle ownership behavior"
+        },
+        "tests/appserver/test_managed_mux_close_values.py": {
+          "category": "unit",
+          "assertion": "managed close value identity, phase and authority invariants"
+        },
+        "tests/appserver/test_managed_mux_close_wire.py": {
+          "category": "contract",
+          "assertion": "controlled close wire calls prove strict frames, capacity, correlation and scope cleanup"
+        },
+        "tests/appserver/test_managed_mux_wire.py": {
+          "category": "contract",
+          "assertion": "controlled managed mux wire codec, receipt identity, authentication and cancellation semantics"
+        },
+        "tests/appserver/test_protocol.py": {
+          "category": "contract",
+          "assertion": "public request, response, event and identity schema round trips and strict rejection"
+        },
+        "tests/appserver/test_session_discovery_connection.py": {
+          "category": "contract",
+          "assertion": "controlled connection negotiation proves discovery capability, authority and legacy compatibility"
+        },
+        "tests/appserver/test_session_discovery_protocol.py": {
+          "category": "contract",
+          "assertion": "discovery requests, bounded pages, cursors and strict codec behavior"
+        },
+        "tests/appserver/test_session_discovery_service.py": {
+          "category": "contract",
+          "assertion": "controlled service failure maps to the exact redacted wire error"
+        },
+        "tests/appserver/test_stdio_subprocess.py": {
+          "category": "integration",
+          "assertion": "real child process stdio negotiation, prompt, interrupt, EOF and parked-read exit"
+        }
+      },
+      "fixtures": {
+        "tests/appserver/_stdio_child.py": {
+          "category": "integration",
+          "assertion": "real child server used only by the stdio process boundary test",
+          "consumers": [
+            "tests/appserver/test_stdio_subprocess.py"
+          ]
+        },
+        "tests/appserver/fixtures/execution_v1.json": {
+          "category": "contract",
+          "assertion": "checked-in native client execution wire vectors",
+          "consumers": [
+            "tests/appserver/test_execution_protocol.py"
+          ]
+        },
+        "tests/appserver/fixtures/g16_local_record_values.py.txt": {
+          "category": "contract",
+          "assertion": "frozen G16 decoder used to prove backward-compatible record bytes",
+          "consumers": [
+            "tests/appserver/test_local_discovery_record.py"
+          ]
+        }
+      }
+    },
+    "appservice": {
+      "complete": true,
+      "review": "reviewed complete directory; controlled service state machines remain module regression, while cross-process storage and real loopback deployment stay targeted",
+      "files": {
+        "tests/appservice/test_client_scope.py": {
+          "category": "unit",
+          "assertion": "controlled scope ports prove controller authority, accepted work, bounds, lookup and stop behavior"
+        },
+        "tests/appservice/test_continuity.py": {
+          "category": "platform",
+          "assertion": "real filesystem permissions, symlinks and subprocess lease fencing for durable continuity records"
+        },
+        "tests/appservice/test_continuity_runtime.py": {
+          "category": "unit",
+          "assertion": "controlled continuity store and owners prove all-or-nothing recovery and cleanup ownership"
+        },
+        "tests/appservice/test_execution_guard.py": {
+          "category": "unit",
+          "assertion": "controlled product execution proves interrupt, cleanup, reservation and terminal ordering"
+        },
+        "tests/appservice/test_execution_port_conformance.py": {
+          "category": "contract",
+          "assertion": "optional product execution port lifecycle and composite projection conformance"
+        },
+        "tests/appservice/test_execution_registry.py": {
+          "category": "unit",
+          "assertion": "in-memory execution registry capacity, conflict, settlement, cleanup and rollback"
+        },
+        "tests/appservice/test_execution_service.py": {
+          "category": "contract",
+          "assertion": "controlled product and client scopes prove execution authority, recovery, snapshots and legacy behavior"
+        },
+        "tests/appservice/test_execution_snapshot.py": {
+          "category": "unit",
+          "assertion": "controlled event streams prove consistent execution snapshot cuts and gap recovery"
+        },
+        "tests/appservice/test_local_deployment.py": {
+          "category": "integration",
+          "assertion": "real authenticated loopback deployment joins AppServer connections to native AppService mux lifecycle"
+        },
+        "tests/appservice/test_managed_mux.py": {
+          "category": "contract",
+          "assertion": "isolated durable store and controlled owners prove managed creation, replay and recovery receipts"
+        },
+        "tests/appservice/test_managed_mux_close_continuity.py": {
+          "category": "contract",
+          "assertion": "managed close continuity codec, bounded history and isolated durable store reopening"
+        },
+        "tests/appservice/test_managed_mux_close_recovery.py": {
+          "category": "unit",
+          "assertion": "controlled close store and owners prove settlement ordering, retries and cleanup debt"
+        },
+        "tests/appservice/test_managed_mux_close_runtime.py": {
+          "category": "unit",
+          "assertion": "controlled runtime close admission, publication, cancellation, retries and permissions"
+        },
+        "tests/appservice/test_owned_operations.py": {
+          "category": "unit",
+          "assertion": "owned task capacity, cancellation, cleanup, stop and task construction failure"
+        },
+        "tests/appservice/test_runtime.py": {
+          "category": "unit",
+          "assertion": "in-memory mux registry, attachments, events, concurrency, lifecycle and cleanup"
+        },
+        "tests/appservice/test_session_discovery.py": {
+          "category": "unit",
+          "assertion": "controlled discovery port paging, cursor generations, scope authority and retained work"
+        }
+      }
     }
   }
 }

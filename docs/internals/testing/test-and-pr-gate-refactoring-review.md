@@ -154,6 +154,8 @@ Ontology 与跨 owner 去重追加复核：覆盖视角逐文件核对 21 个 On
 
 AppService 能力重组追加复核：覆盖视角保留 G16/G17 原 native manifest、installed runner 和 Windows 两项短冒烟，只改变 job owner 与共享准备；离线模块回归已有独立唯一 owner。性能视角把每个平台的多次 dependency setup、两次 wheel build 合并为各一次，两个能力 job 都设 15 分钟上限，但 installed 全族未有新实测，因此 workflow 继续暂停。维护视角移除历史阶段 job 和子汇总，两个 job 与 caller 使用同一选择条件，Actions 语法和 CI 合同静态验证其完整 job 集；真实矩阵与墙钟仍是恢复前验收项。
 
+AppServer/AppService 目录分类追加复核：覆盖视角逐文件区分受控协议/状态机与真实 loopback、stdio、跨进程 lease、POSIX/Windows 原生机制；17+14 个 unit/contract 文件进入模块回归，3+1 个 integration 和 2+1 个 platform 文件保留专项路由，三个 AppServer 专用夹具绑定消费者且继承其类别。性能视角实测模块集合分别为 825 项/13.18 秒和 224 项/4.77 秒，拆出的 Linux 专项为 75 项通过、10 项 Windows 条件跳过/6.47 秒，分类未抽样单元集合。维护视角要求完整目录登记并对新增、删除、类别、夹具消费者 fail closed；路由正例证明 unit/contract 测试修改不触发 E2E，负例证明 integration/platform 文件和 targeted 夹具仍走保守风险路径。内部接受本批分类；Windows 专项和真实 PR 墙钟仍待远程证据。
+
 单一顶层汇总追加复核：覆盖视角确认所有普通 reusable job 都直接使用已登记的 check/windows owner，动态 module/E2E 保留专用选择与报告合同；任一实际 job 或 matrix failure/cancellation 会使 caller 非 success，再由顶层 verifier 拒绝。性能视角删除十个仅 checkout 并读取 `needs` 的汇总 runner，减少排队与启动，不减少测试执行。维护视角用一个静态合同核对全部 workflow job/guard/scope，并保留顶层对 missing、failed、cancelled、unexpected skip 的负例；Actions 语法验证通过后接受该结构变更。
 
 AI 示例执行追加复核：覆盖视角保留 pytest 中的离线执行、固定文件清单、输出、公开导入及 Auth 行为断言，并将两份 owned example tests 纳入 coverage；性能视角删除独立脚本重复执行和 `tests/examples` 全目录重跑。维护视角不删除示例或工具，仅让 AI gate 有一个 pytest owner，CI 合同拒绝 owned example 路径重复或缺失。

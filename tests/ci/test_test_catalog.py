@@ -23,7 +23,7 @@ class CatalogTests(unittest.TestCase):
         catalog = load_catalog(ROOT)
         self.assertEqual(set(catalog["modules"]), {
             "channel", "resource", "work", "agent", "harnesswork", "method",
-            "foundation", "ontology",
+            "foundation", "ontology", "appserver", "appservice",
         })
         for module, entry in catalog["modules"].items():
             discovered = {
@@ -44,7 +44,10 @@ class CatalogTests(unittest.TestCase):
                      "tests/harnesswork/fixtures/legacy_coding_plan_projection.json",
                      "tests/method/test_method_loader.py", "tests/method/test_runtime.py",
                      "tests/foundation/test_json_contract.py",
-                     "tests/foundation/observability/test_sinks.py"):
+                     "tests/foundation/observability/test_sinks.py",
+                     "tests/appserver/test_connection_protocol.py",
+                     "tests/appserver/fixtures/execution_v1.json",
+                     "tests/appservice/test_execution_guard.py"):
             with self.subTest(path=path):
                 plan = select([path], root=ROOT, pr_fast=True)
                 self.assertFalse(plan["e2e"])
@@ -59,13 +62,25 @@ class CatalogTests(unittest.TestCase):
                 self.assertTrue(select([test, change], root=ROOT, pr_fast=True)["e2e"])
         unknown = select(["tests/coding/test_new_integration.py"], root=ROOT, pr_fast=True)
         self.assertTrue(unknown["e2e"])
+        for targeted in (
+            "tests/appserver/test_local.py",
+            "tests/appserver/_stdio_child.py",
+            "tests/appserver/test_local_record_windows.py",
+            "tests/appservice/test_continuity.py",
+            "tests/appservice/test_local_deployment.py",
+        ):
+            with self.subTest(targeted=targeted):
+                self.assertTrue(select([targeted], root=ROOT, pr_fast=True)["e2e"])
         fixture = "tests/harnesswork/fixtures/legacy_coding_plan.jsonl"
         self.assertTrue(select([fixture, "src/loushang/harnesswork/runtime.py"], root=ROOT, pr_fast=True)["e2e"])
         self.assertTrue(select([fixture, "tests/conftest.py"], root=ROOT, pr_fast=True)["e2e"])
         self.assertTrue(select(["tests/harnesswork/fixtures/new_shared.json"], root=ROOT, pr_fast=True)["e2e"])
 
     def test_classified_module_runner_has_static_checks_and_full_reviewed_set(self):
-        for module in ("channel", "resource", "work", "agent", "harnesswork", "method", "foundation"):
+        for module in (
+            "channel", "resource", "work", "agent", "harnesswork", "method",
+            "foundation", "appserver", "appservice",
+        ):
             planned = commands(f"unit_{module}", root=ROOT)
             self.assertEqual(len(planned), 2)
             self.assertIn("ruff", planned[0])
@@ -171,6 +186,49 @@ class CatalogTests(unittest.TestCase):
                     path.write_text(json.dumps(catalog))
                     with self.assertRaises(ValueError):
                         load_catalog(root)
+
+    def test_targeted_files_complete_inventory_without_entering_module_regression(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "scripts/ci").mkdir(parents=True)
+            (root / "tests/demo").mkdir(parents=True)
+            unit = "tests/demo/test_unit.py"
+            integration = "tests/demo/test_integration.py"
+            (root / unit).write_text("def test_unit(): pass\n")
+            (root / integration).write_text("def test_integration(): pass\n")
+            catalog = {"version": 1, "modules": {"demo": {
+                "complete": True,
+                "files": {
+                    unit: {"category": "unit", "assertion": "isolated behavior"},
+                    integration: {"category": "integration", "assertion": "service boundary"},
+                },
+            }}}
+            (root / "scripts/ci/test-classification.json").write_text(
+                json.dumps(catalog)
+            )
+            loaded = load_catalog(root)
+            self.assertEqual(module_unit_paths("demo", root=root), [unit])
+            self.assertEqual(catalog_module.reviewed_unit_owner(
+                unit, catalog=loaded
+            ), "demo")
+            self.assertIsNone(catalog_module.reviewed_unit_owner(
+                integration, catalog=loaded
+            ))
+
+            helper = "tests/demo/integration_child.py"
+            (root / helper).write_text("pass\n")
+            catalog["modules"]["demo"]["fixtures"] = {helper: {
+                "category": "integration",
+                "assertion": "subprocess fixture",
+                "consumers": [integration],
+            }}
+            (root / "scripts/ci/test-classification.json").write_text(
+                json.dumps(catalog)
+            )
+            loaded = load_catalog(root)
+            self.assertIsNone(catalog_module.reviewed_unit_owner(
+                helper, catalog=loaded
+            ))
 
 
 if __name__ == "__main__":

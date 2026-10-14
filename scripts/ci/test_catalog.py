@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 
 CATALOG_FILE = "scripts/ci/test-classification.json"
+MODULE_CATEGORIES = {"unit", "contract"}
+TARGETED_CATEGORIES = {"integration", "platform", "live", "e2e"}
 MODULE_EXTRA_TESTS = {
     "ai": ["tests/protocols", "tests/examples/test_ai_examples.py",
            "tests/examples/test_auth_examples.py"],
@@ -45,8 +47,13 @@ def load_catalog(root: Path) -> dict:
                              f"missing={sorted(discovered - set(files))}, "
                              f"stale={sorted(set(files) - discovered)}")
         for file, role in files.items():
-            if not isinstance(role, dict) or role.get("category") not in {"unit", "contract"} or not isinstance(role.get("assertion"), str) or not role["assertion"].strip():
+            if (not isinstance(role, dict)
+                    or role.get("category") not in MODULE_CATEGORIES | TARGETED_CATEGORIES
+                    or not isinstance(role.get("assertion"), str)
+                    or not role["assertion"].strip()):
                 raise ValueError(f"invalid reviewed test role: {file}")
+        if not any(role["category"] in MODULE_CATEGORIES for role in files.values()):
+            raise ValueError(f"classified module has no unit or contract tests: {module}")
         fixtures = entry.get("fixtures", {})
         if not isinstance(fixtures, dict):
             raise ValueError(f"invalid fixture inventory: {module}")
@@ -55,7 +62,8 @@ def load_catalog(root: Path) -> dict:
                     or ".." in Path(fixture).parts or fixture in files
                     or not (root / fixture).is_file()):
                 raise ValueError(f"invalid or missing dedicated fixture: {fixture}")
-            if (not isinstance(role, dict) or role.get("category") not in {"unit", "contract"}
+            if (not isinstance(role, dict)
+                    or role.get("category") not in MODULE_CATEGORIES | TARGETED_CATEGORIES
                     or not isinstance(role.get("assertion"), str) or not role["assertion"].strip()):
                 raise ValueError(f"invalid dedicated fixture role: {fixture}")
             consumers = role.get("consumers")
@@ -69,11 +77,21 @@ def load_catalog(root: Path) -> dict:
 
 def module_unit_paths(module: str, *, root: Path) -> list[str] | None:
     entry = load_catalog(root)["modules"].get(module)
-    return sorted(entry["files"]) if entry else None
+    return sorted(
+        path for path, role in entry["files"].items()
+        if role["category"] in MODULE_CATEGORIES
+    ) if entry else None
 
 
 def reviewed_unit_owner(path: str, *, catalog: dict) -> str | None:
     for module, entry in catalog["modules"].items():
-        if path in entry["files"] or path in entry.get("fixtures", {}):
+        reviewed_file = entry["files"].get(path)
+        if (
+            reviewed_file is not None
+            and reviewed_file["category"] in MODULE_CATEGORIES
+        ) or (
+            path in entry.get("fixtures", {})
+            and entry["fixtures"][path]["category"] in MODULE_CATEGORIES
+        ):
             return module
     return None

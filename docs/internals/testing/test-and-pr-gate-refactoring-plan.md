@@ -276,8 +276,8 @@ R4 将全部单元测试的语义去重纳入范围，允许减少冗余用例�
 | agent | 7 | 126 | 角色完整初审；附属 examples 合同也纳入 |
 | ai | 56 | 540 | 待逐项审查 |
 | apphost | 64 | 693 | 待逐项审查 |
-| appserver | 22 | 168 | 待逐项审查 |
-| appservice | 16 | 187 | 待逐项审查 |
+| appserver | 22 | 168 | 完整初审；17 个 unit/contract，3 个 integration，2 个 platform |
+| appservice | 16 | 187 | 完整初审；14 个 unit/contract，1 个 integration，1 个 platform |
 | architecture | 62 | 654 | 待逐项审查 |
 | channel | 6 | 39 | 完整初审 |
 | ci | 3 | 112 | 待逐项审查 |
@@ -327,3 +327,5 @@ AppService 历史门禁重组：删除 `appservice-quality`、`g16-*`、`g17-*` 
 AI gate 的示例执行已收敛：删除先跑脚本、再跑整个 `tests/examples`、coverage 又跑 AI example 的三重路径；AI/Auth example tests 现与 AI/protocol tests 在 coverage 配置中各执行一次，不再把 Agent/Coding/Harness examples 纳入 AI gate。静态合同锁定两个 owned example 文件各出现一次。
 
 新 AI 配置完整本地验证 858 项通过、7 项 deselect，45.18 秒；总覆盖率 90.65%，runtime core、provider adapters、production adapter modules 三个细分阈值通过，Ruff/mypy/catalog/import boundary 通过。该结果证明唯一执行未损失当前覆盖门槛，远程准备与排队仍待 PR 计时。
+
+AppServer/AppService 完成整目录行为分类。AppServer 的 17 个受控 unit/contract 文件进入模块短路径；真实 loopback/stdio/崩溃写入者三个 integration 文件及 POSIX、Windows 两个 platform 文件保留风险路由。AppService 的 14 个受控状态机/合同文件进入模块短路径；真实 loopback 部署为 integration，跨进程 lease、权限及 symlink 的 continuity 文件为 platform。三个 AppServer 专用夹具也登记分类和唯一消费者；targeted 夹具本身不会取得 unit-only 豁免。AppServer 短路径 825 项通过，13.18 秒；AppService 短路径 224 项通过，4.77 秒；拆出的专项集合在 Linux 为 75 项通过、10 项 Windows 条件跳过，6.47 秒。以上是本地执行时间，平台工作流及 PR 墙钟仍须远程证明。

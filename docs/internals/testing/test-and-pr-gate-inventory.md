@@ -3,7 +3,7 @@
 - 源码基线：远端已合并 `1f1fcaf1ac4cc240b5d32170a1fa7e2f67c3dd30` 的内容；当前控制工作区保留本地合并历史。
 - 基线范围：16 个工作流、71 个源 job 定义，包含顶层调用与子汇总；不是某次运行的任务数。平台矩阵、动态模块/分片会展开，不能将源定义数当运行数。
 - 当前实现：删除重复的 `package-quality` 及顶层 `packages` 调用，把 AppService 八个历史阶段 job 重组为两个能力 job，并删除十个 reusable 内部 `selected-checks` runner 后，为 15 个工作流、50 个源 job 定义；Agent/Coding/Foundation/AppService/AppServer 离线回归由统一模块工作流唯一执行。
-- 状态：全量 job 层分析与拟议去向。全部单元的语义去重及具体 collected node ID、夹具依赖、唯一断言和实际配置尚待分类验收；不宣称已完成逐用例去重。
+- 状态：全量 job 层分析与拟议去向。十个模块已完成整目录角色登记，其中 AppServer/AppService 已显式分离 unit/contract 与 integration/platform；其他目录的语义去重及具体 collected node ID、夹具依赖、唯一断言和实际配置仍待分类验收，不宣称已完成全仓逐用例去重。
 - 综合方案：[重构与优化测试与 PR 门禁](test-and-pr-gate-refactoring-plan.md)。实施 goal 已启动；表格保留基线职责并在已迁移项上标明当前处置。
 ## 审查规则
 
@@ -51,6 +51,8 @@
 | `selected-checks` | 所有阶段与矩阵完整性校验 | 旧阶段映射必须迁移 | 删除历史聚合；新结果校验覆盖矩阵缺失 | 防误绿汇总 |
 
 当前实现以 `native-service` 和 `installed-service` 取代上述八个 job。Native 三平台各只安装依赖一次，macOS 在同一 runner 完成 mux、observation 与 primitives；Windows 普通路径只跑两项短冒烟，风险路径保留完整 native manifests。Installed 每个平台只构建一次 wheel，再在隔离环境分别消费现有 mux 与 hosted manifests。复用工作流的两个 job 与 caller 使用相同 `checks.appservice` 条件，结果由唯一顶层 `quality-gate` 聚合；工作流仍在暂停清单中，installed 全族尚未证明 15 分钟预算前不恢复。
+
+离线目录现已进一步按行为拆分：AppServer 22 个测试文件中 17 个 unit/contract 归统一模块 runner，3 个真实 loopback/stdio/子进程文件归 integration，2 个原生文件归 platform；AppService 16 个文件中 14 个 unit/contract 归模块 runner，真实 loopback 部署归 integration，跨进程 continuity 存储归 platform。分类清单要求目录完整，新增文件未登记会失败；integration/platform 文件及其专用夹具不会被 test-only 短路径误认为单元测试。Linux 本地证据为两个模块短路径分别 825 项/13.18 秒、224 项/4.77 秒，专项集合 75 项通过、10 项 Windows 条件跳过/6.47 秒。
 
 ### architecture-quality.yml
 
