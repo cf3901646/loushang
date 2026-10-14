@@ -412,3 +412,51 @@ facts，C5.0/C5.2 只对含目标 import token 的候选源码解析 AST。Impor
 但不授权把它加入普通 PR。把 62 个文件收敛到 Architecture canonical owner、恢复暂停
 范围，或让 AP-02 的 11 个文件首次阻断合并，都会新增/迁移 route 与失败条件，仍须按
 门禁增加审批规则提交触发范围、唯一 owner、墙钟、重复关系和回退方案后实施。
+
+## 15. Hosting 目录完整初审与暂停 workflow 内部去重
+
+`tests/hosting` 的 28 个文件包含 309 个静态测试函数，参数化后收集为 454 个实例。
+逐文件执行边界如下；分类依据实际依赖与副作用，不依据 Windows/POSIX 文件名：
+
+| 类别 | 文件 | Linux 收集实例 | 角色 |
+| --- | --- | ---: | --- |
+| 受控单元/合同 | `test_contracts.py`、`test_endpoint_host.py`、`test_process_host.py`、`test_platform_selection.py`、`test_windows_handle_probe.py`、`test_windows_launch_preparation.py`、`test_windows_lpac_preparation.py` | 137 | 不启动真实 Product 进程；使用内存 fake backend/Win32 seam、合成 PE/ACL 与状态机验证合同、错误和资源所有权 |
+| 混合合同与 native | `test_child_session_host.py`、`test_windows_endpoint.py`、`test_win32_process.py`、`test_windows_process.py` | 113 | 大部分为 fake/状态机合同，但分别含真实 POSIX round trip 或 Windows pipe、Job、进程/crash 节点，不能整文件归为单元 |
+| POSIX/真实进程边界 | `test_machine_identity.py`、`test_native_conformance.py`、`test_posix_process.py`、`test_service_process.py`、`test_posix_endpoint.py`、`test_service_group.py`、`test_linux_service_observer.py`、`test_service_handoff.py`、`test_posix_release_launcher.py`、`test_posix_launch_preparation.py` | 160 | 使用真实文件描述符、socketpair、pidfd、进程组、编译产物、wheel、进程 crash/回收或完整 Host/Session 组合 |
+| 平台选择合同 | `test_posix_launch_preparation_platform.py`、`test_windows_launch_preparation_platform.py` | 2 | 在当前平台证明选择精确 backend，其他平台证明 fail closed；不启动子进程 |
+| Windows 专项 | `test_plc9c5_c53_windows_mechanics.py`、`test_plc9c5_c55b_windows_lpac_native.py`、`test_windows_launch_preparation_native.py`、`test_windows_lpac_preparation_native.py`、`test_windows_backend_material_native.py` | 42 | 真实 Windows token、LPAC、Job、image identity 与 containment evidence；Linux 全部跳过 |
+
+忽略测试函数名称后的完整 AST 函数体扫描没有完全重复簇。相似的资源关闭、拒绝和
+故障矩阵分别覆盖不同获取阶段、所有权转移点、平台 API 或未知结果语义，当前没有证据
+可删除其断言。Linux 初始全目录为 401 项通过、53 项平台跳过，46.10 秒；其中
+`test_posix_release_launcher.py` 四项占 18.65 秒，每项都重新调用会进行两次可重复性
+编译的 release builder。现在模块级构建一次只读模板，每项复制到独立 `tmp_path`
+后继续执行原有重复构建拒绝、wheel reproducibility/install/tamper、进程组、start
+gate 和权限隔离断言。该文件 4 项全部通过，降至 13.97 秒；共享的是不可变构建输入，
+每项会修改的 release、catalog、wheel、payload 和进程资源仍独立。
+
+暂停的 Hosting workflow 还存在同一次候选、同一平台的确定重复：Ubuntu 的
+`test_posix_launch_preparation.py` 与 `test_posix_release_launcher.py` 先由 H6.2 专项
+执行，随后又随 `tests/hosting` 全目录执行；Windows 的 launch-native、backend
+material、C5.3 与 C5.5b 四个文件也先生成并验证专项 evidence，随后全目录重跑。
+合同阶段现按 matrix 平台使用 `--ignore` 排除已经由前序专项成功执行的文件；macOS
+没有对应前序专项，仍执行完整适用目录。没有删除测试、job、平台、报告校验或失败
+传播，也没有增加 route、触发或失败条件。
+
+去重后的 Linux 执行并集仍精确覆盖 454 个实例：H6.2 两文件 31 项通过、30.74 秒；
+其余目录 370 项通过、53 项平台跳过、9.29 秒。两份报告 node 总数为 31 + 423，交集
+为空，等于原全目录收集数。仅这两段顺序执行由原全目录基线及重复专项约 76.84 秒
+降至 40.03 秒；真实 workflow 还包含 H6.2 的 Coding/native wheel 用例和依赖准备，
+因此该数字不冒充完整远程墙钟。
+
+当前活动模块短路径只登记 `test_contracts.py`、`test_machine_identity.py` 和
+`test_platform_selection.py`，合计 44 个实例。其余 410 个实例在 Hosting workflow
+暂停期间没有直接 test-only owner；为它们建立 unit/targeted/node owner 或恢复
+workflow 都会增加 PR 失败条件，已作为 AP-03 记录，未经审批不实施。
+
+本批首次远程运行还显示，单独修改暂停的 `hosting-quality.yml` 会按通用 scoped
+workflow 规则附加 Agent、Hosting 模块和三平台 Resume E2E。它们均不执行或验证该
+YAML 的独有编排；Hosting workflow 本身随后又被暂停规则关闭。该文件现与已处理的
+`apphost-quality.yml` 一样走现有 CI 合同短路径，由 139 项路由/聚合合同、文档检查
+和 `actionlint` 验证，只删除无关模块及 E2E 选择。恢复 Hosting workflow 前须重新
+审查这条短路径；本次没有增加 check、route、平台、触发或失败条件。

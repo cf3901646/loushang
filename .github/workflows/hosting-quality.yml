@@ -315,6 +315,7 @@ jobs:
           LOUSHANG_HOSTING_EXPECTED_ENDPOINT: ${{ matrix.endpoint }}
         run: >-
           uv run --extra dev python scripts/dev/run_pytest.py
+          ${{ matrix.os == 'ubuntu-24.04' && '--ignore=tests/hosting/test_posix_launch_preparation.py --ignore=tests/hosting/test_posix_release_launcher.py' || matrix.os == 'windows-2022' && '--ignore=tests/hosting/test_windows_launch_preparation_native.py --ignore=tests/hosting/test_windows_backend_material_native.py --ignore=tests/hosting/test_plc9c5_c53_windows_mechanics.py --ignore=tests/hosting/test_plc9c5_c55b_windows_lpac_native.py' || '' }}
           tests/hosting
           tests/harness/workspace/process/test_hosting_compat.py
           tests/harness/worker/test_hosting_adapter.py

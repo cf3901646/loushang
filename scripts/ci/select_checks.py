@@ -27,6 +27,7 @@ from test_catalog import (
 ROOT = Path(__file__).resolve().parents[2]
 PR_ROUTING_FILES = {
     ".github/workflows/apphost-quality.yml",
+    ".github/workflows/hosting-quality.yml",
     ".github/workflows/quality.yml",
     "scripts/ci/check-scopes.json",
     "scripts/ci/select_checks.py",
