@@ -489,8 +489,11 @@ loopback 生命周期为 0.58 秒，其余单项不超过 0.40 秒。当前没�
 后续复核确认 #711 已把 package runner 改为：包测试目录存在时直接运行完整目录。
 因此上述 7 文件只是历史 JSON inventory，并没有限制当前 `unit_ai` 的 pytest 参数；
 普通 AI test-only PR 已执行完整 `tests/ai`、`tests/protocols` 和 AI/auth examples 合同，
-原记录的 564 项覆盖缺口实际不存在。AP-04 现只保留两个 OAuth loopback 节点的显式
-integration owner 提案；该路由会改变失败条件，获得针对精确变更的明确审批前不实施。
+原记录的 564 项覆盖缺口实际不存在。指定审批方于 2026-10-15 明确允许 AP-04：两个
+OAuth loopback 节点登记为 Ubuntu targeted integration；其余 710 项继续由 AI 模块
+任务执行。AI 源码 PR 和对应 test-only PR 选择精确 loopback job，普通 AI 模块命令
+deselect 两节点。全量 AI coverage 若同时排除两节点实测为 89.68%，低于既有 90%
+门槛，因此 coverage 采集保留两节点作为明确例外；7 项 live vendor 场景仍不进入普通 PR。
 
 ## 17. AppHost 目录完整初审与测试准备提速
 

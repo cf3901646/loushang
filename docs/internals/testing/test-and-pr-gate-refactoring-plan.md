@@ -478,10 +478,11 @@ PR #757 验证普通 test-only 收敛时又暴露一处重复：已登记的 sel
 审批方未明确批准 AP-03 前，不把现有 Ubuntu owner 拆到新的 targeted 平台，不恢复暂停的
 Hosting workflow，也不扩大平台矩阵。
 
-### 待审批门禁变更 AP-04：AI loopback 节点显式归类
+### 已批准门禁变更 AP-04：AI loopback 节点显式归类
 
-状态：完整目录执行缺口经复核已不存在；两个 loopback 节点的 targeted owner 仍待明确
-审批，未修改 `unit-tests.json`、分类 catalog、workflow 或执行路由。
+状态：完整目录执行缺口经复核已不存在；指定审批方于 2026-10-15 明确允许两个
+loopback 节点登记为 Ubuntu targeted integration。实现不修改 `unit-tests.json`、
+workflow、job、平台矩阵或 live/provider 执行范围。
 
 | 项目 | 审批材料 |
 | --- | --- |
@@ -490,11 +491,10 @@ Hosting workflow，也不扩大平台矩阵。
 | 类别 | 710 个受控 fake/in-memory/temp-file 单元与合同；`test_auth_api.py::test_login_returns_session_without_opening_browser` 和 `test_auth_oauth_lifecycle.py::test_real_authlib_login_store_resolve_refresh_lifecycle` 为本机 loopback HTTP 集成；7 个 vendor wrapper 为 live |
 | 本地成本证据 | `tests/ai -m 'not live'` 为 712 passed、7 deselected，7.55 秒；最慢 loopback 生命周期 0.58 秒。完整现有 AI gate 还包含 protocols/examples、覆盖率、Ruff、mypy 与 catalog/import 检查 |
 | 重复关系 | 忽略函数名称后的 AST 扫描只得到两组 live wrapper；每个 wrapper 调用不同 provider/protocol scenario，保留。此前两个错误命名但实际重复的 API register 用例已删除并有替代映射 |
-| 待审批门禁面 | 建立两个 loopback targeted owner 会改变相应 test-only PR 的 job/失败条件，必须获得针对该精确变更的明确审批；live 场景不得自动启用 |
-| 回退 | 若未来获批，回退 targeted-node 分类和策略版本即可恢复两个 loopback 节点随完整目录执行；live 环境变量与授权保持独立 |
+| 已批准门禁面 | 两个 loopback 节点建立 Ubuntu targeted integration owner；AI 源码 PR 和相应 test-only PR 执行精确 loopback job，普通 AI 模块命令 deselect 两节点；全量 AI coverage 仍采集两节点，否则实测覆盖率为 89.68%、低于既有 90% 门槛；live 场景不自动启用 |
+| 回退 | 回退 targeted-node 分类和策略版本即可恢复两个 loopback 节点随完整目录执行；live 环境变量与授权保持独立 |
 
-审批方未明确批准两个 loopback 节点的 Ubuntu targeted integration owner 前，不修改
-分类 catalog 或执行路由，也不让普通 PR 访问真实 provider。
+本项只执行本机 loopback HTTP，不让普通 PR 访问真实 provider。
 
 ### 待审批门禁变更 AP-05：AppHost 目录必要集合完整执行
 

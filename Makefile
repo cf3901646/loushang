@@ -16,6 +16,9 @@ endif
 BINARY_NAME := loushang$(EXE_EXT)
 DIST_BINARY := dist/$(BINARY_NAME)
 AI_OFFLINE_ENV := env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_OAUTH_TOKEN -u ANTHROPIC_BASE_URL -u ARK_API_KEY -u BAIDU_QIANFAN_API_KEY -u COPILOT_GITHUB_TOKEN -u DASHSCOPE_API_KEY -u DEEPSEEK_API_KEY -u GH_TOKEN -u GITHUB_TOKEN -u HUNYUAN_API_KEY -u MINIMAX_API_KEY -u MOONSHOT_API_KEY -u OPENAI_API_KEY -u QIANFAN_API_KEY -u STEPFUN_API_KEY -u STEP_API_KEY -u ZAI_API_KEY
+AI_TARGETED_DESELECTS := \
+	--deselect=tests/ai/test_auth_api.py::test_login_returns_session_without_opening_browser \
+	--deselect=tests/ai/test_auth_oauth_lifecycle.py::test_real_authlib_login_store_resolve_refresh_lifecycle
 PYTEST_RUNNER := python scripts/dev/run_pytest.py
 
 HARNESSTUI_SHARED_SOURCES := \
@@ -437,7 +440,7 @@ test-host-runtime:
 	. .venv/bin/activate && uv run $(PYTEST_RUNNER) tests -m requires_host_runtime -q
 
 test-ai:
-	. .venv/bin/activate && $(AI_OFFLINE_ENV) uv run $(PYTEST_RUNNER) tests/ai tests/protocols tests/examples/test_ai_examples.py tests/examples/test_auth_examples.py -m "not live" -q
+	. .venv/bin/activate && $(AI_OFFLINE_ENV) uv run $(PYTEST_RUNNER) tests/ai tests/protocols tests/examples/test_ai_examples.py tests/examples/test_auth_examples.py $(AI_TARGETED_DESELECTS) -m "not live" -q
 
 check-ai: lint-ai typecheck-ai check-ai-catalog check-ai-imports check-ai-coverage
 

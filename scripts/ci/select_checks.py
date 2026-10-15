@@ -446,6 +446,21 @@ def select(
                 enable(dependencies, f"required by {check}")
         if before == checks:
             break
+    ai_source_changed = any(
+        path.startswith("src/loushang/ai/") and path.endswith(".py")
+        for path in paths
+    )
+    if pr_fast and not full and ai_source_changed:
+        # AI's two local HTTP lifecycle nodes have a separate integration
+        # owner. Source changes must retain them after the module and coverage
+        # commands deselect them; direct test changes were collected above.
+        ai_targeted = catalog.get("targeted_nodes", {}).get("ai", {})
+        for path, role in ai_targeted.get("files", {}).items():
+            for node in role["nodes"]:
+                for platform in role["platforms"]:
+                    targeted_cases.add(
+                        (f"{path}::{node}", platform, role["category"])
+                    )
     # These historical package jobs ran the same offline pytest inventories as
     # the module runner.  Give their selected checks to the one module runner so
     # ordinary, risk and full plans cannot execute the same suite twice.

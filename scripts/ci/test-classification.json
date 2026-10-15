@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "targeted_overrides": {
     "coding": {
       "review": "incremental review of measured real-process, installed-wheel, terminal, package migration and end-to-end plugin files; all unlisted Coding tests remain in the conservative module regression",
@@ -76,6 +76,27 @@
     }
   },
   "targeted_nodes": {
+    "ai": {
+      "review": "complete AI directory review identified two local OAuth HTTP lifecycle nodes; all other offline AI tests remain in the module regression and vendor verification remains live-only",
+      "files": {
+        "tests/ai/test_auth_api.py": {
+          "category": "integration",
+          "assertion": "local OAuth callback listener lifecycle returns an authorization session without opening a browser",
+          "platforms": ["ubuntu-24.04"],
+          "nodes": [
+            "test_login_returns_session_without_opening_browser"
+          ]
+        },
+        "tests/ai/test_auth_oauth_lifecycle.py": {
+          "category": "integration",
+          "assertion": "real Authlib and httpx OAuth exchange over local loopback persists and refreshes credentials",
+          "platforms": ["ubuntu-24.04"],
+          "nodes": [
+            "test_real_authlib_login_store_resolve_refresh_lifecycle"
+          ]
+        }
+      }
+    },
     "coding": {
       "review": "measured session lifecycle and real product-composition nodes extracted from otherwise mixed unit files",
       "files": {
