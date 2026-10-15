@@ -378,6 +378,45 @@ class CatalogTests(unittest.TestCase):
             set(selected),
         )
 
+    def test_ai_loopback_nodes_have_exact_ubuntu_integration_owners(self):
+        auth_api = (
+            "tests/ai/test_auth_api.py::"
+            "test_login_returns_session_without_opening_browser"
+        )
+        lifecycle = (
+            "tests/ai/test_auth_oauth_lifecycle.py::"
+            "test_real_authlib_login_store_resolve_refresh_lifecycle"
+        )
+        expected = {auth_api, lifecycle}
+        self.assertEqual(set(module_targeted_nodeids("ai", root=ROOT)), expected)
+
+        command = commands("unit_ai", root=ROOT)[-1]
+        for nodeid in expected:
+            self.assertIn(f"--deselect={nodeid}", command)
+
+        plan = select(
+            ["tests/ai/test_auth_api.py"], root=ROOT, pr_fast=True
+        )
+        self.assertEqual(plan["unit_packages"], ["ai"])
+        self.assertFalse(plan["e2e"])
+        self.assertEqual(
+            [(job["paths"], job["os"], job["category"])
+             for job in plan["targeted_jobs"]],
+            [([auth_api], "ubuntu-24.04", "integration")],
+        )
+
+        source_plan = select(
+            ["src/loushang/ai/pricing.py"], root=ROOT, pr_fast=True
+        )
+        self.assertEqual(
+            {path for job in source_plan["targeted_jobs"] for path in job["paths"]},
+            expected,
+        )
+        self.assertEqual(
+            {(job["os"], job["category"]) for job in source_plan["targeted_jobs"]},
+            {("ubuntu-24.04", "integration")},
+        )
+
     def test_targeted_node_schema_rejects_missing_nodes_and_whole_file_overlap(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

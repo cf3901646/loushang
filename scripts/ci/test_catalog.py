@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 CATALOG_FILE = "scripts/ci/test-classification.json"
-CATALOG_VERSION = 5
+CATALOG_VERSION = 6
 MODULE_CATEGORIES = {"unit", "contract"}
 TARGETED_CATEGORIES = {"integration", "platform", "live", "e2e"}
 TARGETED_RUNNERS = {"ubuntu-24.04", "macos-15", "windows-2022"}

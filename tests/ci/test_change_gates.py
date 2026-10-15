@@ -1124,6 +1124,13 @@ class SuiteSelectionTests(unittest.TestCase):
         self.assertEqual(coverage.count("tests/examples/test_ai_examples.py"), 1)
         self.assertEqual(coverage.count("tests/examples/test_auth_examples.py"), 1)
         self.assertNotIn("tests/examples -q", coverage)
+        for nodeid in (
+            "tests/ai/test_auth_api.py::test_login_returns_session_without_opening_browser",
+            "tests/ai/test_auth_oauth_lifecycle.py::test_real_authlib_login_store_resolve_refresh_lifecycle",
+        ):
+            self.assertEqual(makefile.count(f"--deselect={nodeid}"), 1)
+        self.assertEqual(makefile.count("$(AI_TARGETED_DESELECTS)"), 1)
+        self.assertNotIn("$(AI_TARGETED_DESELECTS)", coverage)
 
     def test_full_host_runtime_keeps_the_original_repository_wide_collection(self):
         (command,) = runner.commands(
