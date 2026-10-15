@@ -78,15 +78,7 @@ jobs:
           PYTEST_ADDOPTS: --junitxml=.artifacts/targeted-${{ matrix.id }}.xml
         run: >-
           uv run python scripts/ci/run_targeted_tests.py
-      - name: Verify integration report
-        if: ${{ !matrix.allow_skipped }}
-        shell: bash
-        run: >-
-          uv run python scripts/dev/verify_pytest_xml.py
-          .artifacts/targeted-${{ matrix.id }}.xml
-          --required-files-json "$TARGET_TEST_PATHS_JSON"
-      - name: Verify platform report
-        if: ${{ matrix.allow_skipped }}
+      - name: Verify targeted report
         shell: bash
         run: >-
           uv run python scripts/dev/verify_pytest_xml.py
