@@ -486,12 +486,11 @@ loopback 生命周期为 0.58 秒，其余单项不超过 0.40 秒。当前没�
 可变状态、减少错误矩阵或缩短确定性超时来优化。此前已删除 `test_api_streaming.py`
 中两项实际只重复调用 register 的用例；本轮未发现新的可证明语义复本，没有删除节点。
 
-活动 AI 模块短路径当前只登记 `test_errors.py`、`test_json_codec.py`、
-`test_model_domain.py`、`test_model_registry.py`、`test_options.py`、
-`test_tool_validation.py` 和 `test_usage.py`，共 148 个实例。直接修改其他 AI 测试文件
-时，选择器会运行这 148 项，但不会执行被修改文件自身；其余 564 个非 live 实例的
-完整 owner 和两个 loopback 节点的分类执行已记为 AP-04。补齐它们会新增 PR 失败条件，
-未经审批不修改清单、catalog 或 workflow。
+后续复核确认 #711 已把 package runner 改为：包测试目录存在时直接运行完整目录。
+因此上述 7 文件只是历史 JSON inventory，并没有限制当前 `unit_ai` 的 pytest 参数；
+普通 AI test-only PR 已执行完整 `tests/ai`、`tests/protocols` 和 AI/auth examples 合同，
+原记录的 564 项覆盖缺口实际不存在。AP-04 现只保留两个 OAuth loopback 节点的显式
+integration owner 提案；该路由会改变失败条件，获得针对精确变更的明确审批前不实施。
 
 ## 17. AppHost 目录完整初审与测试准备提速
 
