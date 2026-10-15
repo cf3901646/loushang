@@ -1,6 +1,6 @@
 # 重构与优化测试与 PR 门禁
 
-- 文档修订：R17，2026-10-15。
+- 文档修订：R18，2026-10-15。
 - 状态：实施进行中；用户已建立新 goal。六类长门禁仍保持暂停。
 - 范围：现有全部工作流、源 job、平台矩阵、测试清单、执行器及汇总检查的分类、去重、有效合并与迁移。
 - 全量盘点：[16 个工作流、71 个源 job 的分析与去向](test-and-pr-gate-inventory.md)。
@@ -714,7 +714,9 @@ admission 变化拒绝、清理历史，以及 selected ordinary Worker 的查�
 `len(receipt_gates) > 1` 处失败，已据此收窄条件并重跑通过。最终本地证据为 disable
 从 163.30 秒降至 120.80 秒，update 129.22 秒通过，hosted 聚焦路径通过，完整
 public-session 511.00 秒通过。该批不改变测试 node、route、workflow、job、平台、
-矩阵、触发或失败条件；远程 49 项 owner 报告负责最终同环境计时。
+矩阵、触发或失败条件。PR #782 的远程 owner 为 49 passed、零 skip，pytest 净耗时
+466.865 秒，targeted job 8 分 05 秒；相对 PR #781 的 574.865 秒和 9 分 52 秒，
+分别缩短 108 秒（18.8%）和 1 分 47 秒（18.1%）。
 
 同轮复核 scoped reusable workflow 的变更路由：每个已登记 workflow 修改都会运行
 现有 CI 合同及自己的完整 owner，包括既有 full platform 分支；原选择器还统一附加

@@ -723,6 +723,12 @@ Worker 场景；两者没有返回值，其成功、拒绝、清理、查询、p
 Session 状态转换。disable 本地由原 163.30 秒降至 120.80 秒，update 为 129.22 秒，
 hosted 在组合验证中通过。
 
+PR #782 的同 runner JUnit 为 49 tests、零 failure/error/skip、466.865 秒，较 PR #781
+基线 574.865 秒减少 108 秒（18.8%）；targeted job 由 9 分 52 秒降到 8 分 05 秒。
+四个关键节点分别为完整 public-session 138.516 秒、disable 33.180 秒、update
+31.744 秒、hosted 28.686 秒；后三项旧基线为 54.266、53.455、49.726 秒。最终
+quality gate 通过，其他模块、E2E、Windows 与专项 workflow 均未被误选。
+
 完整 public-session 的首次候选也跳过公共场景时，后置 GC 检查只得到一条同 receipt
 start gate，`len(receipt_gates) > 1` 失败。这证明它实际消费公共场景的历史，不属于
 可删除重复；条件已收窄为只优化三个不使用该历史的聚焦变体，完整节点重跑
