@@ -482,6 +482,17 @@ class CatalogTests(unittest.TestCase):
         self.assertLess(len(plan["targeted_jobs"]), len(expected))
         self.assertTrue(plan["targeted_tests"])
         self.assertTrue(plan["workflows"]["units"])
+        for heavy in (
+            "tests/coding/test_package_cutover_cli.py",
+            "tests/coding/test_package_external_data_wheel.py",
+            "tests/coding/test_package_worker_candidate_wheel.py",
+        ):
+            with self.subTest(heavy=heavy):
+                self.assertEqual(
+                    [job["paths"] for job in plan["targeted_jobs"]
+                     if heavy in job["paths"]],
+                    [[heavy]],
+                )
 
     def test_targeted_batch_paths_are_json_and_repository_owned(self):
         with tempfile.TemporaryDirectory() as tmp:

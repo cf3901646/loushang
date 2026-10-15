@@ -750,3 +750,18 @@ PR #786 删除 category 专用的双分支和 `allow_skipped` 矩阵字段，统
 合并后 full validation 38671220972 的 60 个 job 全绿，总墙钟 10 分 31 秒；最长
 三个 targeted integration 批次为 9 分 28 秒、8 分 44 秒、8 分 19 秒，满足 15 分钟
 完整计划目标。
+
+## 22. Full targeted 重型文件隔离
+
+AP-04 合并前的 full validation 38673724755 因与 PR 全量任务并发排队，总墙钟为
+16 分 29 秒。最后完成的 Ubuntu integration 分片 targeted-5 共 92 项、760.73 秒；
+其中 `test_package_worker_candidate_wheel.py` 49 项占 630.66 秒，同分片其他测试合计
+约 130 秒。另两个批次中，`test_package_external_data_wheel.py` 占 427.51 秒，
+`test_package_cutover_cli.py` 占 374.38 秒；原分片总量分别为 649.85 秒和 441.30 秒。
+
+full 计划现把这三个已测量重型文件各自放入原有 8 个 Ubuntu integration 槽位，只有
+哈希落入保留槽的普通路径才稳定改派至其余 5 槽。用该次全部 8 份 JUnit 重算后，
+重型槽的 testcase 总量分别为 630.66、427.51、374.38 秒，其余槽最高 300.36 秒；
+旧关键槽减少 130.07 秒。分片上限、测试并集、PR test-only 路由、平台及失败条件均
+未改变。targeted job 名称同时改为 YAML quoted scalar，使 `#<id>` 不再被解析为注释，
+便于从 Actions 页面直接定位分片。
