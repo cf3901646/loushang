@@ -705,3 +705,11 @@ owner，但暂停状态使其当前没有活动直接执行 owner。补齐执行
 根夹具中，`contained_query_worker.c` 的两个消费者都在 Coding package worker 测试，
 不存在跨 owner 重复；`resume_overflow_with_thinking.jsonl` 没有当前消费者，也不被
 任何门禁读取，因此不会贡献运行时间。本轮不删除测试、夹具或节点，只补齐库存边界。
+
+## 24. Worker candidate 专用场景归属
+
+Worker candidate targeted 路径曾收集 H6 sustained 专用节点，然后因环境变量未开启
+产生 guaranteed skip，最终被既有零 skip verifier 拒绝。指定审批方于 2026-10-15
+批准将该节点标记为 `live`：普通 `-m not live` 路径在收集阶段排除它，既有
+`worker-sustained` 精确节点路径仍执行它。该批准只校正现有归属，不增加测试节点、
+工作流、job、平台或矩阵。

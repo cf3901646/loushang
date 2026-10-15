@@ -154,7 +154,7 @@ Coding 分片再次合并复核：覆盖视角以 PR #779 的 8 份 JUnit 重建
 
 Coding 四分片远程复核：覆盖视角比较 #779 八份与 #780 四份 JUnit，3771 项身份的 missing/added/新分片交集均为零；性能视角确认四个 job 为 3 分 06 秒至 4 分 11 秒，runner 数减半且仍低于单任务 5 分钟目标；维护视角确认无需修改 workflow、报告验证器或汇总依赖。手动 full 的 targeted #5 另耗时 835.20 秒并因一个 H6 专属 skip 被既有零 skip 校验拒绝，不能用四分片成功掩盖；测试准备优化可继续，分类、允许 skip 或恢复 H6 必须另行审批。
 
-Worker candidate 巨型用例去重复核：覆盖视角确认删除的 text runtime 与保留的 print runtime 都调用同一 builder 分支并执行同一组 Worker 工具回合断言，text mode adapter 的独有行为保留在专用合同测试；性能视角删除一次完整 runtime/session 准备，但本地 437.52 秒与远程基线环境不同，只作为通过证据；维护视角减少同一测试内部的复制流程，不复用 mutable Product state、会话或授权。修改该文件的现行 targeted route 会同时收集一个专属 H6 sustained skip 并被零 skip verifier 拒绝，路由修复须单独审批后才能远程验收和交付。
+Worker candidate 巨型用例去重复核：覆盖视角确认删除的 text runtime 与保留的 print runtime 都调用同一 builder 分支并执行同一组 Worker 工具回合断言，text mode adapter 的独有行为保留在专用合同测试；性能视角删除一次完整 runtime/session 准备，但本地 437.52 秒与远程基线环境不同，只作为通过证据；维护视角减少同一测试内部的复制流程，不复用 mutable Product state、会话或授权。修改该文件的现行 targeted route 曾同时收集一个专属 H6 sustained skip 并被零 skip verifier 拒绝；指定审批方于 2026-10-15 批准标记为 `live`，普通 `-m not live` 路径据此 deselect，既有专用精确节点路径继续执行。
 
 Worker candidate 公共 author CLI 去重复核：覆盖视角保留主 public-session 的真实 CLI author、产物字段、安装和工具回合，并确认 disable/update/hosted 只断言安装后的不同 Session 状态变化；性能视角把相同 CLI author 从四次降为一次，代表 disable 场景本地 1 passed / 163.30 秒；维护视角让三个状态场景使用已有内部 builder，fixture/example Worker 源除注释外相同，不共享 mutable Product state。专用 native CLI 与 author smoke 合同继续覆盖命令失败和产物边界。
 

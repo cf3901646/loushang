@@ -7540,6 +7540,7 @@ def test_explicit_worker_hosted_first_session_reaches_installed_product(
 
 @pytest.mark.requires_host_runtime
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux H6 release")
+@pytest.mark.live
 def test_worker_source_catalog_sustained_product_queries(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
