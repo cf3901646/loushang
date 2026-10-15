@@ -1020,6 +1020,7 @@ class AgentTranscriptSessionCatalog:
                 # Directory-wide staleness must not replace an unchanged exact
                 # projection with a partial head/tail replay. A name patch may
                 # be in the omitted middle of a long conversation.
+                self._layout.bind_path(cached.locator.key, candidate.path)
                 projected.append(cached)
                 continue
             result = _project_bounded_session_summary(

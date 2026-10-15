@@ -559,6 +559,7 @@ def test_bounded_catalog_reuses_only_unchanged_summary_metadata(
     catalog = AgentTranscriptSessionCatalog(tmp_path)
     catalog.refresh_index()
     write_named(changed, "changed", name)
+    catalog = AgentTranscriptSessionCatalog(tmp_path)
     stale = catalog.try_query_index_snapshot()
     assert stale.index_state == "stale"
     reads = []
@@ -578,6 +579,13 @@ def test_bounded_catalog_reuses_only_unchanged_summary_metadata(
     }
     assert reads == [changed]
     assert snapshot.bytes_read <= 2 * 64 * 1024
+    with monkeypatch.context() as scoped:
+        def fail_scan(_namespace):
+            raise AssertionError("selected cached rows must retain their path binding")
+
+        scoped.setattr(catalog._layout, "scan_paths", fail_scan)
+        for item in snapshot.items:
+            assert catalog.load_authoritative_revision(item.locator) == 2
     published = catalog.refresh_bounded_index()
     assert {item.session_id: item.name for item in published} == {
         "stable": "Keep this name",

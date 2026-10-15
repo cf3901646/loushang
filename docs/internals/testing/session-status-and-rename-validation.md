@@ -38,7 +38,8 @@ is reused only when its provider, namespace, logical identity, direct-child path
 and authority fingerprint match the current candidate. A second stat rejects a
 changed candidate. Changed files still use bounded previews; a directory-wide
 stale flag cannot downgrade unchanged summaries. Background bounded refresh uses
-the same rule, retaining names across restart.
+the same rule, retaining names across restart. Reused rows retain their known
+locator-to-file binding, so selecting them does not trigger a directory rescan.
 
 Candidate limits, transcript byte budgets, current-session exclusion and cursor
 semantics remain in place. Missing or unusable caches retain existing partial
@@ -59,3 +60,9 @@ this workspace. These changes use shared presentation and transcript logic;
 this evidence does not claim native validation on those platforms.
 
 Broader offline checks and static validation are recorded at delivery.
+
+The initial broad regression encountered `ENOSPC` on the environment's 164 MiB
+`/run/user/1001` tmpfs. Affected checks are rerun with the existing
+`LOUSHANG_RUNTIME_DIR` setting pointing at task-private disk-backed scratch.
+The 64 MiB capacity preflight, offline markers and assertions remain enabled.
+The project virtual environment is reused directly for render contracts.
