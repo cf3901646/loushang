@@ -449,10 +449,10 @@ material、C5.3 与 C5.5b 四个文件也先生成并验证专项 evidence，随
 降至 40.03 秒；真实 workflow 还包含 H6.2 的 Coding/native wheel 用例和依赖准备，
 因此该数字不冒充完整远程墙钟。
 
-当前活动模块短路径只登记 `test_contracts.py`、`test_machine_identity.py` 和
-`test_platform_selection.py`，合计 44 个实例。其余 410 个实例在 Hosting workflow
-暂停期间没有直接 test-only owner；为它们建立 unit/targeted/node owner 或恢复
-workflow 都会增加 PR 失败条件，已作为 AP-03 记录，未经审批不实施。
+后续复核确认 #711 已让 `unit_hosting` 直接执行 `tests/hosting` 完整目录；历史
+`unit-tests.json` 的 3 文件、44 项只是配置清单，不限制当前 pytest 参数。因此其余
+410 项并不存在 test-only 覆盖缺口。AP-03 现只保留 unit/contract、混合 node、POSIX
+进程与 Windows platform 的精确归属提案；新增平台 owner 或恢复 workflow 仍须审批。
 
 本批首次远程运行还显示，单独修改暂停的 `hosting-quality.yml` 会按通用 scoped
 workflow 规则附加 Agent、Hosting 模块和三平台 Resume E2E。它们均不执行或验证该
@@ -503,12 +503,11 @@ integration owner 提案；该路由会改变失败条件，获得针对精确�
 因此本地审计使用 mode `0700` 的独立临时根，不能把普通 repo-local 临时目录失败解释
 成 Product 死锁或回归。
 
-现有 AppHost 模块短路径只登记 `test_catalog.py`、`test_contracts.py`、
-`test_managed_admission_record.py`、`test_managed_contracts.py`、
-`test_managed_paths.py`、`test_managed_trace_buffer.py` 和 `test_router.py`，分别收集
-12/27/34/47/21/10/14 项，共 165 项。修改其余 57 个测试文件时，选择器仍只运行这个
-既有模块集合；不会运行被修改文件自身，也不会附加 E2E。其余 1052 个实例的完整
-owner 记为 AP-05，未经审批不修改 inventory、catalog、workflow、平台或失败条件。
+后续复核确认 #711 已让 `unit_apphost` 直接执行 `tests/apphost` 完整目录；历史
+`unit-tests.json` 的 7 文件、165 项不限制当前 pytest 参数。修改其余 57 个测试文件时，
+现有 test-only 路径会运行被修改文件及完整 1217 项离线集合，并且不会附加全局 E2E。
+AP-05 现只保留 unit/contract、真实进程及平台节点的精确归属提案；新增 targeted 或
+平台失败条件仍须审批。
 
 本轮没有删除测试节点。忽略函数名称后的完整 AST 扫描未发现完全重复函数；managed
 故障矩阵虽然结构相近，但覆盖不同事务阶段、持久状态和恢复结果，不能仅凭相似代码

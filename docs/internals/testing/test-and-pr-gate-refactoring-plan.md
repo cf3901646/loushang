@@ -282,8 +282,8 @@ PR 因此多执行任务或多出失败条件，也不能自行实施。未获�
 | 测试目录 | test_ 文件数 | test_ 函数定义数 | 状态 |
 | --- | --- | --- | --- |
 | agent | 7 | 126 | 角色完整初审；附属 examples 合同也纳入 |
-| ai | 56 | 540 | 角色与完全重复初审完成；719 个实例分为 710 个受控合同、2 个 loopback 集成节点和 7 个显式 live vendor 场景，短路径覆盖缺口待审批 |
-| apphost | 64 | 693 | 角色、重复和成本初审完成；1217 个实例中现有短路径覆盖 165 个，其余执行归属为 AP-05，未经审批不补齐 |
+| ai | 56 | 540 | 角色与完全重复初审完成；完整目录已执行 710 个受控合同与 2 个 loopback 集成节点，7 个 live vendor 场景显式排除；loopback 精确归类为 AP-04 |
+| apphost | 64 | 693 | 角色、重复和成本初审完成；现有模块 runner 已执行完整 1217 项离线集合，unit/integration/platform 精确归属为 AP-05 |
 | appserver | 22 | 168 | 完整初审；17 个 unit/contract，3 个 integration，2 个 platform |
 | appservice | 16 | 187 | 完整初审；14 个 unit/contract，1 个 integration，1 个 platform |
 | architecture | 62 | 654 | 角色与完全重复初审完成；654 项静态/内存合同 8 分 23 秒全绿，历史 owner 重叠与未归属路由仍待审批重组 |
@@ -466,16 +466,16 @@ PR #757 验证普通 test-only 收敛时又暴露一处重复：已登记的 sel
 
 | 项目 | 审批材料 |
 | --- | --- |
-| 目的 | 为 Hosting 目录中当前未被模块短路径执行的 410 个实例确定唯一 owner；受控合同进入 Hosting 模块回归，真实进程、平台和 native 节点进入相应既有能力 owner |
-| 当前缺口 | 28 个文件共 454 个实例；`unit-tests.json` 仅登记 3 文件、44 个实例。直接修改其余测试文件时，当前 PR 计划只执行这 44 项，不执行被修改测试自身 |
+| 目的 | 将当前由 Ubuntu 完整目录统一执行的 Hosting 集合按真实边界分为 unit/contract、混合 node、POSIX/真实进程和 Windows platform owner，减少无关重跑并保持唯一归属 |
+| 现状更正 | 28 个文件共 454 个实例；#711 后 `unit_hosting` 实际传入 `tests/hosting` 完整目录。历史 `unit-tests.json` 的 3 文件、44 项不限制 pytest 参数，普通 Hosting test-only PR 已执行被修改文件及整个目录 |
 | 类别 | 137 个受控合同实例、113 个混合文件实例、160 个 POSIX/真实进程实例、2 个平台选择合同、42 个 Windows 专项实例；混合文件需 node 级 owner，不能整文件伪装成单元 |
-| 平台 | 受控合同优先 Ubuntu；POSIX 边界按 Linux/macOS 适用性；Windows native/LPAC/Job/pipe 仅 Windows。具体平台最小集合须在审批包中逐节点确认 |
+| 平台 | 当前普通模块 owner 为 Ubuntu；POSIX 边界按 Linux/macOS 适用性；Windows native/LPAC/Job/pipe 仅 Windows。把节点移到新平台会增加失败条件，具体最小集合须在审批包中逐节点确认 |
 | 本地成本证据 | Linux 全目录 401 passed、53 skipped，46.10 秒；去重及测试准备优化后，H6.2 的两个 POSIX 文件 31 passed、30.74 秒，其余目录 370 passed、53 skipped、9.29 秒 |
 | 重复关系 | 完全 AST 函数体扫描无重复簇。暂停 workflow 原先在 Ubuntu 重跑两个 H6.2 文件、在 Windows 重跑四个专项文件；现改为同 job 一次执行、多份职责，不改变测试并集 |
-| 新增门禁面 | 让当前未执行的测试首次阻断 test-only PR，或恢复 Hosting workflow，均属于新 route/失败条件，必须另行明确审批；本批不实施 |
-| 回退 | 不存在活动路由迁移；若未来获批，回退分类登记和策略版本即可恢复当前 44 项模块短路径与暂停状态 |
+| 待审批门禁面 | 把当前 Ubuntu owner 拆到 macOS/Windows targeted owner、增加平台失败条件，或恢复 Hosting workflow，均须明确审批；仅从普通模块集合移除重复或不适用节点属于缩减，但须与目标 owner 原子迁移 |
+| 回退 | 若未来获批，回退分类登记和策略版本即可恢复当前 Ubuntu 完整目录执行与暂停状态 |
 
-审批方未明确批准 AP-03 前，不把其余 Hosting 测试加入活动 PR 门禁，不恢复暂停的
+审批方未明确批准 AP-03 前，不把现有 Ubuntu owner 拆到新的 targeted 平台，不恢复暂停的
 Hosting workflow，也不扩大平台矩阵。
 
 ### 待审批门禁变更 AP-04：AI loopback 节点显式归类
@@ -503,17 +503,17 @@ workflow、job、平台矩阵、触发或失败条件。
 
 | 项目 | 审批材料 |
 | --- | --- |
-| 目的 | 让普通 AppHost test-only PR 执行被修改测试所属的必要单元/合同或精确集成集合，同时保持本地进程、信号和平台场景的独立身份 |
-| 当前缺口 | 64 个文件共收集 1217 个实例；现有 AppHost 模块短路径仅登记 7 文件、165 个实例。直接修改其余 57 个文件时，当前计划只执行这 165 项，不执行被修改文件自身 |
-| 类别 | 7 个现有快速合同 owner；其余 57 个文件混合使用受控对象、临时私有目录、SQLite、锁、本机 socket、真实子进程与信号。不能把整个目录直接标成纯单元 |
-| 平台 | 本轮 Linux 离线集合 1216 passed、1 个 Windows native 条件 skip；平台最小集合与混合文件的 node 级归属须在审批材料中继续逐项确认 |
+| 目的 | 将当前由 Ubuntu 完整目录统一执行的 AppHost 集合按必要 unit/contract、真实进程和平台节点精确归属，避免把所有 1217 项长期视为同一种单元测试 |
+| 现状更正 | 64 个文件共收集 1217 个实例；#711 后 `unit_apphost` 实际传入 `tests/apphost` 完整目录。历史 7 文件、165 项 JSON inventory 不限制 pytest 参数，普通 AppHost test-only PR 已执行被修改文件及整个目录 |
+| 类别 | 7 个历史快速合同文件和其余 57 个文件当前均由完整目录 owner 执行；后者混合使用受控对象、临时私有目录、SQLite、锁、本机 socket、真实子进程与信号，不能整体标成纯单元 |
+| 平台 | 本轮 Linux 离线集合 1216 passed、1 个 Windows native 条件 skip；把 Windows 或其他平台节点改为 targeted owner 会增加相应 test-only PR 的平台失败条件，须逐项审批 |
 | 本地成本证据 | 安全选择器下完整目录优化前 103.74 秒，测试准备优化后 87.87 秒；最慢单项由 10.11 秒降至 2.02 秒。依赖安装另计 |
 | 重复关系 | 忽略测试名称后的完整 AST 函数体扫描未发现重复簇；现有 AppHost workflow 的 G8/G9/G10 同配置重跑已另行改为一次执行派生报告，不扩大测试集合 |
-| 新增门禁面 | 补齐其余 1052 个实例、为混合文件建立 node owner，或恢复 AppHost workflow 的额外路径，都会让当前未执行的测试首次阻断相应 PR，必须明确审批；本批不实施 |
-| 回退 | 若未来获批，回退 AppHost inventory/分类登记和策略版本即可恢复当前 165 项短路径；暂停状态与平台授权分别管理 |
+| 待审批门禁面 | 为混合文件建立新的 targeted/platform owner、扩大平台或恢复额外 workflow 路径会改变失败条件，必须明确审批；从完整 Ubuntu 集合删除重复或不适用执行属于缩减，但不得留下无 owner 的必要断言 |
+| 回退 | 若未来获批，回退 AppHost 分类登记和策略版本即可恢复当前 Ubuntu 完整目录执行；暂停状态与平台授权分别管理 |
 
-审批方未明确批准 AP-05 前，不补齐 AppHost 活动模块清单、不建立新的 targeted
-route、不扩大平台矩阵，也不恢复任何暂停门禁。
+审批方未明确批准 AP-05 前，不建立新的 AppHost targeted/platform owner、不扩大平台矩阵，
+也不恢复任何暂停门禁。
 
 ### 待审批门禁变更 AP-06：Coding 剩余混合集合完整归属
 
