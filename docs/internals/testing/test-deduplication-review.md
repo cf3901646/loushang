@@ -713,3 +713,18 @@ Worker candidate targeted 路径曾收集 H6 sustained 专用节点，然后因�
 批准将该节点标记为 `live`：普通 `-m not live` 路径在收集阶段排除它，既有
 `worker-sustained` 精确节点路径仍执行它。该批准只校正现有归属，不增加测试节点、
 工作流、job、平台或矩阵。
+
+## 25. Worker Session 聚焦变体的公共回归去重
+
+函数级采样显示 entry 变体在独有断言前重复执行 deferred host 和 selected ordinary
+Worker 场景；两者没有返回值，其成功、拒绝、清理、查询、payload 变化与资源投影
+断言已经由同文件 canonical `installed-protocol` 节点覆盖。disable、update、hosted
+三个聚焦变体不消费这些场景产生的历史，因此改为在候选安装和授权后直接进入各自
+Session 状态转换。disable 本地由原 163.30 秒降至 120.80 秒，update 为 129.22 秒，
+hosted 在组合验证中通过。
+
+完整 public-session 的首次候选也跳过公共场景时，后置 GC 检查只得到一条同 receipt
+start gate，`len(receipt_gates) > 1` 失败。这证明它实际消费公共场景的历史，不属于
+可删除重复；条件已收窄为只优化三个不使用该历史的聚焦变体，完整节点重跑
+511.00 秒通过。保留集合仍由 canonical 公共场景、完整 public-session 组合证据和
+三个聚焦状态转换构成，没有共享可变 Product/Session，也没有减少测试身份。

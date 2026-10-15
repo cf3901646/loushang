@@ -158,6 +158,8 @@ Worker candidate 巨型用例去重复核：覆盖视角确认删除的 text run
 
 Worker candidate 公共 author CLI 去重复核：覆盖视角保留主 public-session 的真实 CLI author、产物字段、安装和工具回合，并确认 disable/update/hosted 只断言安装后的不同 Session 状态变化；性能视角把相同 CLI author 从四次降为一次，代表 disable 场景本地 1 passed / 163.30 秒；维护视角让三个状态场景使用已有内部 builder，fixture/example Worker 源除注释外相同，不共享 mutable Product state。专用 native CLI 与 author smoke 合同继续覆盖命令失败和产物边界。
 
+Worker Session 聚焦变体公共回归去重复核：覆盖视角确认 deferred host 与 selected ordinary Worker 的完整成功、拒绝、清理、查询和 payload 变化断言仍由 canonical `installed-protocol` 唯一执行，disable/update/hosted 继续各自创建隔离 Product/Session 并保留独有状态转换；完整 public-session 因后置 GC 检查消费多条 start-gate 历史而继续执行公共回归，一次过度缩减在 `len(receipt_gates) > 1` 失败后已回退。性能视角确认 disable 由 163.30 秒降至 120.80 秒、update 129.22 秒通过，远程完整 owner 仍是接受依据。维护视角用显式 `retain_shared_session_history` 参数声明完整节点的历史依赖，不修改测试 node、route、workflow、job、平台或失败语义。
+
 Ontology 与跨 owner 去重追加复核：覆盖视角逐文件核对 21 个 Ontology owner，保留 schema、action、fact、source、query、projection、内存/SQLite、并发/恢复的不同边界；完整报告 219 项零跳过。mutation queue 的两个独有合同迁入 Harness 后删除历史 Coding 复本，frontmatter、prompt、AI adapter 及 Ontology v3 的旧用例均有替代映射。性能视角确认 Ontology 全集 6.16 秒，本轮跨 owner 审查删除 20 个旧 node ID 且不增加全局 E2E。维护视角将 canonical 行为放在 Harness/AI/Ontology owner，消费者仅保留真实 facade 或适配合同；CI 路由与完整目录校验需继续通过。
 
 AppService 能力重组追加复核：覆盖视角保留 G16/G17 原 native manifest、installed runner 和 Windows 两项短冒烟，只改变 job owner 与共享准备；离线模块回归已有独立唯一 owner。性能视角把每个平台的多次 dependency setup、两次 wheel build 合并为各一次，两个能力 job 都设 15 分钟上限，但 installed 全族未有新实测，因此 workflow 继续暂停。维护视角移除历史阶段 job 和子汇总，两个 job 与 caller 使用同一选择条件，Actions 语法和 CI 合同静态验证其完整 job 集；真实矩阵与墙钟仍是恢复前验收项。

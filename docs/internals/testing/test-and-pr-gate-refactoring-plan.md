@@ -1,6 +1,6 @@
 # 重构与优化测试与 PR 门禁
 
-- 文档修订：R16，2026-10-15。
+- 文档修订：R17，2026-10-15。
 - 状态：实施进行中；用户已建立新 goal。六类长门禁仍保持暂停。
 - 范围：现有全部工作流、源 job、平台矩阵、测试清单、执行器及汇总检查的分类、去重、有效合并与迁移。
 - 全量盘点：[16 个工作流、71 个源 job 的分析与去向](test-and-pr-gate-inventory.md)。
@@ -700,6 +700,21 @@ targeted integration 已有 `-m not live`，因此该专用节点改为在收集
 工作流仍设置 `LOUSHANG_WORKER_SUSTAINED=1`，以不带 marker 排除的精确 node 命令运行
 同一场景。该修复没有新增 required check、workflow、job、平台、矩阵或测试节点；
 它按批准内容校正现有普通路径与专用途径的归属。
+
+## Worker session 聚焦变体去重
+
+Worker candidate 的 canonical `installed-protocol` 节点已经覆盖 deferred host 的成功、
+admission 变化拒绝、清理历史，以及 selected ordinary Worker 的查询、续租后 payload
+变化拒绝和资源投影。disable、update 与 hosted 三个聚焦 Session 变体此前在进入各自
+独有状态转换前再次执行这两组公共回归。它们现在只复用相同的候选安装和授权准备，
+随后直接验证 disable fence、update fence 或 hosted 首次会话与撤销。
+
+完整 public-session 节点继续执行公共回归：它在 helper 返回后会消费多条 start-gate
+历史验证 GC 保留与清理，不能按聚焦变体处理。一次把它一并缩短的候选运行在
+`len(receipt_gates) > 1` 处失败，已据此收窄条件并重跑通过。最终本地证据为 disable
+从 163.30 秒降至 120.80 秒，update 129.22 秒通过，hosted 聚焦路径通过，完整
+public-session 511.00 秒通过。该批不改变测试 node、route、workflow、job、平台、
+矩阵、触发或失败条件；远程 49 项 owner 报告负责最终同环境计时。
 
 同轮复核 scoped reusable workflow 的变更路由：每个已登记 workflow 修改都会运行
 现有 CI 合同及自己的完整 owner，包括既有 full platform 分支；原选择器还统一附加
