@@ -724,3 +724,17 @@ Agent unit 与产品 E2E，但二者不读取或验证该 workflow 的独有编�
 共享 gate infrastructure 继续使用 Agent/E2E 保守回退，已登记 scoped workflow 不再
 附加无关任务。该缩减不影响 workflow 自身 checks、Windows full 标志、host-runtime
 完整模式或顶层 fail-closed 汇总。
+
+## Full validation 报告假红修复与远程验收
+
+定时运行 38652515258 的两个 Ubuntu targeted integration 批次分别完成
+`92 passed, 1 skipped` 与 `103 passed, 5 skipped`，但旧 verifier 因批次存在任一 skip
+而判失败。PR #786 将 integration/platform 的两条报告分支合为同一校验：允许条件性
+skip，同时继续要求零 failure/error、整个报告至少一项通过，并要求每个登记文件或
+精确 node 都存在通过 case。该修改只删除假红条件，不增加测试、job、route 或平台。
+
+合并后的 `main` 手动 full validation 运行 38671220972 完成 60 个 job，结论 success，
+总墙钟 631 秒（10 分 31 秒）。六类暂停长门禁保持 skipped；最长三个 targeted
+integration job 为 568/524/499 秒，四个 Coding 分片为 189--248 秒。该运行证明现有
+完整计划在 15 分钟预算内完成，也证明上述带条件 skip 的批次不再错误阻断，同时逐
+owner 通过校验继续生效。

@@ -732,3 +732,18 @@ start gate，`len(receipt_gates) > 1` 失败。这证明它实际消费公共场
 可删除重复；条件已收窄为只优化三个不使用该历史的聚焦变体，完整节点重跑
 511.00 秒通过。保留集合仍由 canonical 公共场景、完整 public-session 组合证据和
 三个聚焦状态转换构成，没有共享可变 Product/Session，也没有减少测试身份。
+
+## 21. Targeted 批次条件 skip 假红
+
+定时 full validation 38652515258 的两个 targeted integration 批次在 pytest 阶段分别
+得到 `92 passed, 1 skipped` 与 `103 passed, 5 skipped`，唯一失败来自报告 verifier
+对 integration 类别要求整批零 skip。批次内每个登记文件或 node 已由
+`--required-files-json` 要求至少一个对应 case 通过，因此零 skip 规则既不增加 owner
+完整性，又会让同文件中的条件不适用节点制造假红。
+
+PR #786 删除 category 专用的双分支和 `allow_skipped` 矩阵字段，统一使用
+`--allow-skipped --required-files-json`。零 failure/error、至少一项通过、每个目标至少
+一个通过 case 的 fail-closed 语义保持不变。107 项路由与 JUnit verifier 合同通过。
+合并后 full validation 38671220972 的 60 个 job 全绿，总墙钟 10 分 31 秒；最长
+三个 targeted integration 批次为 9 分 28 秒、8 分 44 秒、8 分 19 秒，满足 15 分钟
+完整计划目标。
