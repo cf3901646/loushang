@@ -646,7 +646,7 @@ class ScopeTests(unittest.TestCase):
         expected = {
             worker_sessions.ACTIVATION
             + "test_windows_product_c5_state_reopens_and_refuses_complete_record_loss",
-            pre_b + "test_windows_public_ordinary_session_preserves_pre_b_without_writing",
+            pre_b + "test_windows_ordinary_selection_preserves_pre_b_without_writing",
             pre_b + "test_windows_public_ordinary_session_enters_fresh_b_product",
             pre_b + "test_windows_public_runtime_session_enters_fresh_b_product",
             pre_b + "test_windows_ordinary_orphan_repair_refuses_worker_evidence",

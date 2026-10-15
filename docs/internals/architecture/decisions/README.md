@@ -81,6 +81,7 @@ draft/proposed and superseded groups only when they contain records.
 | [ARD-006: Keep Hosted Resume Readiness Inside One Product Binding](accepted/ARD-006-hosted-resume-readiness-and-admission.md) | Accepted | Coding, AppHost, AppService, AppServer, HarnessTUI | Keep preparing inside AppHost's one live Product binding; preserve Ack timing and use durable input lookup for hosted retry. |
 
 | [ARD-007: Correlate Resume Effects In Their Original Journals](accepted/ARD-007-resume-native-effect-correlation.md) | Accepted | Coding, Harness Approval and native Worker owners | Co-register parent context in original native journals; require frozen participation, fenced sealed enumeration, original-owner reconciliation and versioned writer boundaries before writable Resume. |
+| [ARD-008: Preserve Workspace Compatibility Across Upgrades](accepted/ARD-008-workspace-upgrade-compatibility.md) | Accepted | Product startup, Plugin storage and Session recovery | Retain compatible storage owners for existing workspaces; future storage changes preserve ordinary startup and data without user resets. |
 
 ## Reading And Change Rule
 

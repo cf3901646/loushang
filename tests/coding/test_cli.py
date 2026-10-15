@@ -9739,7 +9739,8 @@ def test_run_cli_rejects_insecure_remote_plugin_source(tmp_path) -> None:
     }
 
 
-def test_run_cli_runs_explicit_package_lifecycle_commands(tmp_path) -> None:
+@pytest.mark.parametrize("legacy_settings", (False, True))
+def test_run_cli_runs_explicit_package_lifecycle_commands(tmp_path, legacy_settings) -> None:
     from loushang.coding.cli.__main__ import run_cli
 
     source = "https://packages.example.invalid/review-pack.git"
@@ -9747,6 +9748,11 @@ def test_run_cli_runs_explicit_package_lifecycle_commands(tmp_path) -> None:
     runtime = FakeRuntime(session)
     stdout = StringIO()
     stderr = StringIO()
+    settings = tmp_path / ".loushang" / "settings.json"
+    old_bytes = b'{"disabled_plugins":["coding.arch.default"]}'
+    if legacy_settings:
+        settings.parent.mkdir()
+        settings.write_bytes(old_bytes)
 
     async def scenario() -> None:
         exit_code = await run_cli(
@@ -9801,6 +9807,8 @@ def test_run_cli_runs_explicit_package_lifecycle_commands(tmp_path) -> None:
         },
     ]
     assert stderr.getvalue() == ""
+    if legacy_settings:
+        assert settings.read_bytes() == old_bytes
 
 
 def test_run_cli_package_lifecycle_failed_record_returns_error(tmp_path) -> None:

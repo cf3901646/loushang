@@ -648,12 +648,13 @@ def test_hosted_fenced_default_refuses_invalid_product_without_legacy_fallback(
     asyncio.run(asyncio.wait_for(scenario(), 20))
 
 
-def test_hosted_default_refuses_effective_old_settings_before_plugin_writes(
+def test_hosted_default_preserves_effective_old_settings_without_product_cutover(
     tmp_path: Path,
 ) -> None:
     from loushang.coding._plugin_lifecycle import (
         resolve_coding_plugin_lifecycle_state_layout,
     )
+    from loushang.coding.package_epoch_layout import resolve_coding_package_epoch_layout
 
     settings = tmp_path / "settings.json"
     old_bytes = b'{"disabled_plugins":["coding.base"]}'
@@ -663,13 +664,13 @@ def test_hosted_default_refuses_effective_old_settings_before_plugin_writes(
     async def scenario() -> None:
         candidate, claimed, identity, factory = await _construction(tmp_path)
         try:
-            with pytest.raises(RuntimeError, match="pre-B workspace is unsupported"):
-                await factory.create_session(
-                    binding_key=SessionBindingKeyV1(
-                        identity.product_id, identity.continuity_id, identity.session_id
-                    ),
-                    opaque_session_binding=claimed.opaque_binding,
-                )
+            binding = await factory.create_session(
+                binding_key=SessionBindingKeyV1(
+                    identity.product_id, identity.continuity_id, identity.session_id
+                ),
+                opaque_session_binding=claimed.opaque_binding,
+            )
+            await binding.close()
         finally:
             await claimed.close()
             await candidate.close()
@@ -677,8 +678,8 @@ def test_hosted_default_refuses_effective_old_settings_before_plugin_writes(
 
     asyncio.run(asyncio.wait_for(scenario(), 20))
     assert settings.read_bytes() == old_bytes
-    assert not lifecycle.root.exists()
-    assert not lifecycle.package_root.exists()
+    epoch = resolve_coding_package_epoch_layout(lifecycle)
+    assert not (epoch.control_root / "epoch.jsonl").exists()
 
 
 def test_hosted_product_runtime_missing_selection_cannot_fall_back(

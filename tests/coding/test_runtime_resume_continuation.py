@@ -311,11 +311,21 @@ def test_formal_epoch_rechecks_after_backup_gc_gate_before_publication(tmp_path,
         approval.dispose()
 
 
-@pytest.mark.parametrize("mode", ["consume", "first_epoch_prepared", "delivered_close_failed", "abort", "stale", "root_close", "cancel_prepare", "cancel_delivery", "delivery_revoked", "abort_failed", "host_bind_failed", "cleanup_debt", "epoch_mismatch", "epoch_unselected", "epoch_fenced"])
+@pytest.mark.parametrize("mode", ["consume", "legacy", "first_epoch_prepared", "delivered_close_failed", "abort", "stale", "root_close", "cancel_prepare", "cancel_delivery", "delivery_revoked", "abort_failed", "host_bind_failed", "cleanup_debt", "epoch_mismatch", "epoch_unselected", "epoch_fenced"])
 def test_root_owns_native_resume_preparation_and_delivery(tmp_path, monkeypatch, mode):
     monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
 
     async def scenario():
+        if mode == "legacy":
+            from loushang.coding._plugin_lifecycle import (
+                resolve_coding_plugin_lifecycle_state_layout,
+            )
+
+            layout = resolve_coding_plugin_lifecycle_state_layout(tmp_path)
+            layout.package_root.mkdir(parents=True)
+            layout.package_lockfile.write_text(
+                '{"version":4,"packages":[],"pluginBindings":[],"pluginBindingHeads":[]}'
+            )
         manager = await SessionManager.new(
             session_dir=tmp_path / "sessions", cwd=str(tmp_path), defer_materialization=False,
         )
@@ -325,8 +335,11 @@ def test_root_owns_native_resume_preparation_and_delivery(tmp_path, monkeypatch,
         selection = CodingFencedProductApplicationSelection()
         if mode not in {"epoch_unselected", "first_epoch_prepared"}:
             factory = selection.factory_for_session(manager)
-            assert factory is not None
-            factory.runtime_lease.release()
+            if mode == "legacy":
+                assert factory is None
+            else:
+                assert factory is not None
+                factory.runtime_lease.release()
         await manager.dispose_runtime_profile()
         assert path is not None
 
@@ -483,7 +496,7 @@ def test_root_owns_native_resume_preparation_and_delivery(tmp_path, monkeypatch,
                 assert not candidate._is_current_model_call_session()
                 assert not prepared.consumed
                 assert candidate.session_manager.header == header
-                if mode in {"consume", "first_epoch_prepared", "delivered_close_failed"}:
+                if mode in {"consume", "legacy", "first_epoch_prepared", "delivered_close_failed"}:
                     result = await prepared.consume()
                     assert result.current is candidate
                     assert root.current_session is candidate

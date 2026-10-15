@@ -569,7 +569,7 @@ def test_windows_worker_candidate_requires_explicit_windows_product_flag(
         "package_lock",
     ),
 )
-def test_windows_public_ordinary_session_preserves_pre_b_without_writing(
+def test_windows_ordinary_selection_preserves_pre_b_without_writing(
     tmp_path: Path, legacy_kind: str
 ) -> None:
     workspace = tmp_path / "workspace"
@@ -651,8 +651,13 @@ def test_windows_public_ordinary_session_preserves_pre_b_without_writing(
             return_value=tmp_path / "global-settings.json",
         ),
     ):
-        with pytest.raises(RuntimeError, match="pre-B workspace is unsupported"):
-            create_agent_session(session_manager=manager, services=services)
+        selection = CodingFencedProductApplicationSelection(windows_candidate=True)
+        try:
+            assert selection.factory_for_session(
+                manager, settings_manager=None if services is None else services.settings_manager,
+            ) is None
+        finally:
+            selection.close()
     assert snapshot() == before
 
 
@@ -2444,7 +2449,7 @@ finally:
         held_workspace.rename(workspace)
 
 
-def test_windows_candidate_ordinary_session_refuses_old_desired_before_writes(
+def test_windows_candidate_ordinary_selection_preserves_old_desired_before_writes(
     tmp_path: Path,
 ) -> None:
     workspace = tmp_path / "workspace"
@@ -2471,9 +2476,8 @@ def test_windows_candidate_ordinary_session_refuses_old_desired_before_writes(
                 "loushang.coding.package_product_runtime.resolve_coding_plugin_lifecycle_state_layout",
                 return_value=lifecycle,
             ),
-            pytest.raises(RuntimeError, match="pre-B workspace is unsupported"),
         ):
-            selection.factory_for_session(manager, settings_manager=settings)
+            assert selection.factory_for_session(manager, settings_manager=settings) is None
     finally:
         selection.close()
     assert lifecycle.desired_state.read_bytes() == old_bytes

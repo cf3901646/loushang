@@ -363,7 +363,7 @@ def _disable_or_remove(
     return event
 
 
-def test_capability_plugin_refuses_legacy_disable_before_product_writes(
+def test_capability_plugin_preserves_legacy_disable_on_ordinary_startup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -382,27 +382,34 @@ def test_capability_plugin_refuses_legacy_disable_before_product_writes(
             cwd=str(workspace),
             persist=True,
         )
-        with pytest.raises(RuntimeError, match="pre-B workspace is unsupported"):
-            create_agent_session(
-                session_manager=manager,
-                model=_model(),
-                services=create_services(
-                    settings_manager=SettingsManager(
-                        ControlConfig(
-                            capabilities={
-                                "coding.arch": "always",
-                                "coding.lsp": "disabled",
-                            },
-                            disabled_plugins=("coding.arch.default",),
-                        )
+        session = create_agent_session(
+            session_manager=manager,
+            model=_model(),
+            services=create_services(
+                settings_manager=SettingsManager(
+                    ControlConfig(
+                        capabilities={
+                            "coding.arch": "always",
+                            "coding.lsp": "disabled",
+                        },
+                        disabled_plugins=("coding.arch.default",),
                     )
-                ),
-                composition_set="coding-architecture",
-            )
+                )
+            ),
+            composition_set="coding-architecture",
+        )
+        try:
+            await session.prepare_model_call_runtime()
+            from loushang.coding.arch import INSPECT_IMPORT_GRAPH_TOOL_NAME
+
+            assert INSPECT_IMPORT_GRAPH_TOOL_NAME not in session.get_active_tool_names()
+            assert session.package_product_binding_id is None
+        finally:
+            await session.dispose()
 
     asyncio.run(scenario())
-    assert not layout.root.exists()
-    assert not layout.package_root.exists()
+    epoch = resolve_coding_package_epoch_layout(layout)
+    assert not (epoch.control_root / "epoch.jsonl").exists()
 
 
 @pytest.mark.parametrize("action", ("disable", "remove"))
