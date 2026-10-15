@@ -1,6 +1,6 @@
 # 重构与优化测试与 PR 门禁
 
-- 文档修订：R14，2026-10-14。
+- 文档修订：R16，2026-10-15。
 - 状态：实施进行中；用户已建立新 goal。六类长门禁仍保持暂停。
 - 范围：现有全部工作流、源 job、平台矩阵、测试清单、执行器及汇总检查的分类、去重、有效合并与迁移。
 - 全量盘点：[16 个工作流、71 个源 job 的分析与去向](test-and-pr-gate-inventory.md)。
@@ -543,6 +543,21 @@ route、不扩大平台矩阵，也不恢复任何暂停门禁。
 耐久门禁的用例。优化重复 wheel 准备可以在不改门禁语义下继续；把该 node 移出
 integration、允许 skip 或恢复 H6 都会改变 route/失败条件，必须经审批。
 
+`test_explicit_worker_public_coding_session_reaches_installed_product` 内部原先分别以
+`print`、`text` 参数构造两套 runtime，并对两套 runtime 执行完全相同的 Worker
+选择、真实工具回合、启动 composition 和 tool result 断言。产品的
+`default_runtime_builder` 对这两个值没有执行分叉，只共同检查 mode 属于
+`{"print", "text"}`；text 的 mode adapter 行为已有独立合同测试。现保留 print
+真实回合并删除第二套等价 runtime，本地原生单例 1 项通过、437.52 秒。该本地机器
+明显慢于远程 runner，不能与 #780 的 204.969 秒直接计算加速比例。
+
+同一 helper 的 disable、update、hosted 三个会话场景原先也重复执行公共
+`build-coding-worker-candidate` CLI authoring。该 CLI 的产物字段、哈希与公开示例
+路径已由保留的主 public-session 场景及专用 native CLI/author smoke 合同覆盖；两份
+C Worker 源除注释外相同。三个场景现使用内部 candidate builder，把执行预算留给
+各自独有的在线 Session fence、更新和 revoke 断言，公共 CLI 真实链路保留一次。
+代表性的 disable 场景在改用内部 builder 后本地 1 项通过、163.30 秒。
+
 ### 待审批门禁变更 AP-07：Harness 完整角色与平台归属
 
 状态：完成当前目录规模、统一模块执行、平台 skip、完全重复和热点初审；尚未形成
@@ -676,6 +691,15 @@ package worker 测试消费，随 Coding owner 分类；`sessions/resume_overflo
 
 本轮仍不修改 test catalog、Makefile、workflow、平台、触发或失败条件。AP-11 只是
 审批材料入口，不构成批准。
+
+## Worker sustained 路由修复
+
+2026-10-15，指定审批方明确批准把 H6 sustained Worker 用例标记为 `live`。普通
+targeted integration 已有 `-m not live`，因此该专用节点改为在收集阶段 deselect，
+不再以 guaranteed skip 进入普通报告并触发零 skip 校验。既有 `worker-sustained`
+工作流仍设置 `LOUSHANG_WORKER_SUSTAINED=1`，以不带 marker 排除的精确 node 命令运行
+同一场景。该修复没有新增 required check、workflow、job、平台、矩阵或测试节点；
+它按批准内容校正现有普通路径与专用途径的归属。
 
 同轮复核 scoped reusable workflow 的变更路由：每个已登记 workflow 修改都会运行
 现有 CI 合同及自己的完整 owner，包括既有 full platform 分支；原选择器还统一附加
