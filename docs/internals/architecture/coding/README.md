@@ -36,6 +36,12 @@ The current console entrypoints resolve to Coding CLI/UI implementations; see
 the generated
 [Current Package Dependencies](../generated/current-package-dependencies.md).
 
+Screen-first native-terminal startup delegates loading input/render ownership
+to HarnessTUI on every platform. Coding prepares the Product on main and waits
+for joined input handoff before binding its UI. TUI supplies native reader
+adapters; see [ARD-009](../decisions/accepted/ARD-009-unified-loading-input-and-terminal-adapters.md)
+for behavior and outstanding native platform validation.
+
 Coding currently owns:
 
 - coding prompts, domain vocabulary and Product defaults;
