@@ -430,7 +430,10 @@ def default_runtime_builder(
         runtime_options["worker_candidate_plugin_id"] = worker_query_plugin
         runtime_options["worker_query_turn_tool"] = True
     runtime = runtime_factory(**runtime_options)
-    if invocation_product_profile is None and type(approval_resolver) is InteractiveApprovalResolver:
+    if (
+        invocation_product_profile is None
+        and type(approval_resolver) is InteractiveApprovalResolver
+    ):
         from loushang.coding.runtime.agent_session_runtime import AgentSessionRuntime
 
         if type(runtime) is AgentSessionRuntime:
@@ -1249,7 +1252,7 @@ async def _run_coding_pre_runtime_operation(
 ) -> int | None:
     args = context.args
     layout = resolve_coding_plugin_lifecycle_state_layout(context.project_root)
-    if args.list_plugins:
+    if args.list_plugins and args.export is None:
         try:
             records = list_plugin_records(
                 build_coding_plugin_management_cli_read_binding(
@@ -1381,6 +1384,14 @@ async def _run_coding_cli_operations(
         agent_standard_cli_operation_request(args),
         stdout=bootstrap.stdout,
         stderr=bootstrap.stderr,
+        additional_listing_requested=any(
+            (
+                args.list_packages,
+                args.list_methods,
+                args.show_method is not None,
+                args.show_method_plan is not None,
+            )
+        ),
         plugin_management=context.state.plugin_management,
         insertions=(
             CliOperationInsertion(

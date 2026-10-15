@@ -2924,6 +2924,172 @@ def test_run_cli_exports_session_and_exits_early(tmp_path) -> None:
     asyncio.run(scenario())
 
 
+def test_run_cli_exports_session_and_lists_models(tmp_path) -> None:
+    from loushang.coding.cli.__main__ import run_cli
+
+    class ModelSession(FakeSession):
+        def get_available_models(self):
+            self.get_available_models_calls += 1
+            return [
+                SimpleNamespace(
+                    provider="anthropic",
+                    endpoint_id="anthropic-messages",
+                    model_id="claude-3-opus",
+                )
+            ]
+
+    session = ModelSession("session-1")
+    runtime = FakeRuntime(session)
+    export_path = str(tmp_path / "export.html")
+    stdout = StringIO()
+    stderr = StringIO()
+
+    async def scenario() -> None:
+        result = await run_cli(
+            ["--list-models", "--export", export_path],
+            stdin=StringIO(""),
+            stdout=stdout,
+            stderr=stderr,
+            cwd=tmp_path,
+            services=_fake_services(),
+            runtime_builder=lambda **kwargs: runtime,
+        )
+        assert result == 0
+
+    asyncio.run(scenario())
+
+    assert session.set_export_calls == [export_path]
+    assert session.get_available_models_calls == 1
+    assert stdout.getvalue() == (
+        f"Exported to: {export_path}\nanthropic:anthropic-messages:claude-3-opus\n"
+    )
+    assert stderr.getvalue() == ""
+
+
+def test_run_cli_lists_sessions_and_exports_session(tmp_path) -> None:
+    from loushang.coding.cli.__main__ import run_cli
+
+    session = FakeSession("session-1")
+    runtime = FakeRuntime(
+        session,
+        records=[
+            SimpleNamespace(
+                session_id="session-1",
+                cwd=str(tmp_path),
+                session_file=Path("/tmp/session-1.jsonl"),
+                parent_session=None,
+                leaf_id=None,
+                metadata=SimpleNamespace(
+                    created_at="2026-05-20T10:00:00Z",
+                    updated_at="2026-05-21T10:00:00Z",
+                    name=None,
+                ),
+            )
+        ],
+    )
+    export_path = str(tmp_path / "export.html")
+    stdout = StringIO()
+    stderr = StringIO()
+
+    async def scenario() -> None:
+        result = await run_cli(
+            ["--list-sessions", "--export", export_path],
+            stdin=StringIO(""),
+            stdout=stdout,
+            stderr=stderr,
+            cwd=tmp_path,
+            services=_fake_services(),
+            runtime_builder=lambda **kwargs: runtime,
+        )
+        assert result == 0
+
+    asyncio.run(scenario())
+
+    assert len(runtime.find_session_summaries_calls) == 1
+    assert session.set_export_calls == [export_path]
+    assert stdout.getvalue() == (
+        "session-1\t/tmp/session-1.jsonl\t"
+        f"{tmp_path}\t2026-05-21T10:00:00Z\t\n"
+        f"Exported to: {export_path}\n"
+    )
+    assert stderr.getvalue() == ""
+
+
+def test_run_cli_exports_session_and_lists_plugins(tmp_path, monkeypatch) -> None:
+    from loushang.coding.cli.__main__ import run_cli
+
+    monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "home"))
+    plugin_root = tmp_path / "plugins" / "debug-pack"
+    plugin_root.mkdir(parents=True)
+    (plugin_root / "plugin.json").write_text(
+        json.dumps({"name": "debug-pack", "version": "1.0.0"}),
+        encoding="utf-8",
+    )
+    session = FakeSession("session-1")
+    runtime = FakeRuntime(session)
+    export_path = str(tmp_path / "export.html")
+    stdout = StringIO()
+    stderr = StringIO()
+
+    async def scenario() -> None:
+        result = await run_cli(
+            ["--export", export_path, "--list-plugins"],
+            stdin=StringIO(""),
+            stdout=stdout,
+            stderr=stderr,
+            cwd=tmp_path,
+            services=_fake_services(plugin_sources=(str(plugin_root),)),
+            runtime_builder=lambda **kwargs: runtime,
+        )
+        assert result == 0
+
+    asyncio.run(scenario())
+
+    assert session.set_export_calls == [export_path]
+    assert stdout.getvalue() == (
+        f"Exported to: {export_path}\n"
+        f"debug-pack\t1.0.0\t{plugin_root.resolve()}\tunknown\n"
+    )
+    assert stderr.getvalue() == ""
+
+
+def test_run_cli_exports_session_and_lists_packages(tmp_path) -> None:
+    from loushang.coding.cli.__main__ import run_cli
+
+    session = FakeSession("session-1")
+    session.packages_payload = [{"name": "review-pack", "version": "1.2.3"}]
+    runtime = FakeRuntime(session)
+    export_path = str(tmp_path / "export.html")
+    stdout = StringIO()
+    stderr = StringIO()
+
+    async def scenario() -> None:
+        result = await run_cli(
+            [
+                "--export",
+                export_path,
+                "--list-packages",
+                "--list-packages-format",
+                "json",
+            ],
+            stdin=StringIO(""),
+            stdout=stdout,
+            stderr=stderr,
+            cwd=tmp_path,
+            services=_fake_services(),
+            runtime_builder=lambda **kwargs: runtime,
+        )
+        assert result == 0
+
+    asyncio.run(scenario())
+
+    assert session.set_export_calls == [export_path]
+    export_line, packages_line = stdout.getvalue().splitlines()
+    assert export_line == f"Exported to: {export_path}"
+    assert json.loads(packages_line) == session.packages_payload
+    assert stderr.getvalue() == ""
+
+
 def test_run_cli_diag_export_exits_before_runtime_creation(
     tmp_path,
     monkeypatch,
