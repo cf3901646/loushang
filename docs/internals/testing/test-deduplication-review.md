@@ -765,3 +765,9 @@ full 计划现把这三个已测量重型文件各自放入原有 8 个 Ubuntu i
 旧关键槽减少 130.07 秒。分片上限、测试并集、PR test-only 路由、平台及失败条件均
 未改变。targeted job 名称同时改为 YAML quoted scalar，使 `#<id>` 不再被解析为注释，
 便于从 Actions 页面直接定位分片。
+
+PR #789 的首个实现 head full validation 38676143469 在 11 分 21 秒内完成；合入同期
+`main` 后，最终 head `c9689156` 的 full validation 38677731417 在 13 分 35 秒内完成。
+两次均为 54 success、6 个暂停项按计划 skipped、零失败，且后一次 job 名称已显示精确
+分片编号。连同 38671220972 的 10 分 31 秒样本，当前活动 full 计划完成三次 15 分钟内
+绿色验收。
