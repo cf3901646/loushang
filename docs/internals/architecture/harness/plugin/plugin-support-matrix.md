@@ -177,7 +177,7 @@ TUI list and status show nonempty debt.
 
 | Route | Current status | Evidence and limit |
 | --- | --- | --- |
-| Linux fresh workspace | Ordinary first-B cutover, Coding Session and offline Package GC are open | [Coding user guide](../../../../en/user-guide/README.md) and Product regressions; pre-B legacy migration is unsupported and refuses without writes |
+| Linux workspace startup | Existing unfenced workspaces retain their compatible Session owner; fresh workspaces enter Product, fenced workspaces reopen Product | [ARD-008](../../decisions/accepted/ARD-008-workspace-upgrade-compatibility.md), [Coding user guide](../../../../en/user-guide/README.md) and startup regressions; explicit fresh-only cutover remains separate |
 | Windows fresh workspace | Explicit `--windows-candidate` first-B cutover and offline GC are open; unflagged ordinary B Sessions enter through Direct, Session Runtime, and Hosted construction | PR #662 records ordinary B acceptance. A Worker query remains opt-in through the AMD64 `--worker-query-plugin` route, approved native release, and per-install decision; pre-B migration remains closed |
 | macOS | Hosting has native CI evidence | No claim here of an equivalent full Coding Product end-to-end gate |
 | Management | Fenced Product-backed CLI, optional Coding RPC, TUI, and local SDK have bounded query/command/repair routes | Exact owner/scope and command gates apply; generic Hosts do not automatically expose Coding routes |

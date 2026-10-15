@@ -2436,6 +2436,12 @@ helper, preview command, or management transport silently enables it.
 
 ### Accepted pre-B compatibility boundary
 
+Historical boundary, superseded for ordinary startup on 2026-10-15 by
+[ARD-008](../../decisions/accepted/ARD-008-workspace-upgrade-compatibility.md).
+Existing unfenced workspaces must remain usable through their compatible
+storage owner. The fresh-only offline cutover operation retains its explicit
+input contract; the refusal behavior below is not a current Session requirement.
+
 On 2026-10-01 the Product owner explicitly ended support for pre-B workspaces
 in this delivery. The workspace format boundary is the Coding Product B fence
 with runtime protocol epoch `2`. Fresh workspaces and existing, verifiable B

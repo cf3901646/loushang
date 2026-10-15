@@ -35,12 +35,14 @@
   retirement. This is candidate evidence for that Linux path. Windows V2
   authority cutover is tracked separately in #732; backup/restore, wider
   crash-boundary evidence, and default activation retain their separate gates.
-- Workspace boundary: on 2026-10-01 the Product owner ended pre-B workspace
-  compatibility for this delivery. Fresh and verifiable B-fenced workspaces
-  remain in scope; unfenced pre-B Plugin inputs must refuse without writes.
-  Migration finalization and old-release recovery are historical work, not
-  current acceptance gates. The Product owner accepted automatic first-B
-  cutover for a genuinely fresh Linux workspace on 2026-10-01. The ordinary
+- Workspace compatibility: [ARD-008](../../decisions/accepted/ARD-008-workspace-upgrade-compatibility.md)
+  supersedes the 2026-10-01 fresh-only ordinary-startup boundary. Existing
+  unfenced workspaces retain their fence-aware compatible Session owner;
+  settings, Plugin choices and history remain usable without conversion.
+  Fresh and verifiable B-fenced workspaces keep the Product route. Explicit
+  fresh-only cutover is separate from ordinary startup. The Product owner
+  accepted automatic first-B cutover for a genuinely fresh Linux workspace on
+  2026-10-01. The ordinary
   Session implementation, interruption/old-snapshot regressions, and full
   Coding offline package regression have passed. Explicit Windows candidate
   first-B and GC routes have native evidence. Direct, Session Runtime, and

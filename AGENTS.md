@@ -72,6 +72,12 @@ expected wall-clock cost, overlap with existing coverage, and rollback. Static
 analysis and proposal writing may continue while approval is pending.
 
 ## Configuration & Contributor Notes
+
+Product upgrades must preserve startup and continued use of existing workspaces,
+settings, Plugin choices and Session history. Storage changes must retain a
+compatible route or supply recoverable migration; do not require users to create
+a fresh workspace, clear state, or reset configuration because of an internal
+format change. See [ARD-008](docs/internals/architecture/decisions/accepted/ARD-008-workspace-upgrade-compatibility.md).
 Model metadata is defined in `src/loushang/ai/model/models.json`; keep examples and docs aligned with it. Treat `examples/ai/` as public guidance: main examples should show the shortest supported path, while protocol-heavy or custom-registry flows should be marked advanced.
 
 ## Architecture Decision Responsibilities

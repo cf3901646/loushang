@@ -369,6 +369,12 @@ multi-agent 可以提供独立 reviewer 的技术执行，但不拥有业务验�
 - continuation 应被视为正常能力
 - 失败信息应结构化，而不是只作为日志文本存在
 
+升级后的 Product 必须兼容已有工作区、用户配置、Plugin 选择和 Session 历史。
+存储格式演进必须保留兼容读写路径或提供可恢复迁移，不能要求用户新建工作区、
+清空状态或重置配置才能继续启动。新存储的内部代次和切换日志不得成为普通启动
+的用户前置条件。具体契约与存储所有权约束见
+[ARD-008](decisions/accepted/ARD-008-workspace-upgrade-compatibility.md)。
+
 ---
 
 ### 9. Product Assembly Must Preserve Kernel Consistency

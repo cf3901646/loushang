@@ -533,10 +533,13 @@ async def run_cli(
         for argument in raw_argv
     ):
         candidate = _parse_application_args(raw_argv, resolved_stderr, None, True)
-        if candidate.args is not None and (
-            candidate.args.install_packages
-            or candidate.args.update_packages
-            or candidate.args.uninstall_packages
+        # Wheels use the fenced Product installer. Existing source-package
+        # commands keep their compatible owner in an unfenced workspace.
+        if candidate.args is not None and any(
+            Path(source).suffix == ".whl"
+            for source in (
+                *candidate.args.install_packages, *candidate.args.update_packages,
+            )
         ):
             try:
                 project_root = (
