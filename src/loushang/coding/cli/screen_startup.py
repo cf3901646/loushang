@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import os
-import sys
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, TextIO, cast
@@ -19,15 +17,7 @@ from loushang.harnesstui.conversation.startup_host import (
     startup_failure_summary,
 )
 from loushang.tui import strip_control_sequences
-
-
-def _threaded_loading_supported(stdin: TextIO) -> bool:
-    if sys.platform != "linux":
-        return False
-    try:
-        return os.isatty(stdin.fileno())
-    except (AttributeError, OSError, ValueError):
-        return False
+from loushang.tui.terminal_backends import native_terminal_input_is_tty
 
 
 class StartupOutput:
@@ -179,7 +169,7 @@ async def run_screen_first_cli(
         return detail or f"Session preparation failed (exit {exit_code})."
 
     startup = ScreenConversationStartup(app, prepare, failure_summary=failure_summary)
-    if _threaded_loading_supported(streams.stdin):
+    if native_terminal_input_is_tty(streams.stdin):
         from loushang.harnesstui.conversation.threaded_startup import (
             ThreadedScreenStartup,
         )

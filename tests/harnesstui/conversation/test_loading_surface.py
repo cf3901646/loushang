@@ -2,7 +2,6 @@
 
 import asyncio
 import os
-import sys
 import time
 from contextlib import contextmanager
 from io import StringIO
@@ -28,7 +27,7 @@ from loushang.tui.core import RenderResult
 from loushang.tui.terminal import TerminalSize
 from loushang.tui.terminal_backends.posix import PosixTerminalInputReader
 
-pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="Linux loading worker")
+pytestmark = pytest.mark.skipif(os.name != "posix", reason="POSIX pipe transport")
 
 
 class Screen(ScreenConversationApp):

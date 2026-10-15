@@ -125,6 +125,13 @@ class WindowsConsoleInput:
         asyncio.AbstractEventLoop, asyncio.Future[str]
     ] = field(default_factory=weakref.WeakKeyDictionary, init=False, repr=False)
 
+    def open_reader(self, stdin: Any) -> WindowsTerminalInputReader:
+        del stdin
+        console = self.module_loader()
+        if console is None:
+            raise RuntimeError("native Windows console input is unavailable")
+        return WindowsTerminalInputReader(console)
+
     async def read_chunk(self, stdin: Any) -> str:
         console = self.module_loader()
         loop = asyncio.get_running_loop()
@@ -223,6 +230,88 @@ class WindowsConsoleInput:
 
 
 WINDOWS_CONSOLE_INPUT = WindowsConsoleInput()
+
+
+class WindowsTerminalInputReader:
+    """Cancellable console polling with state that survives loop/thread handoff.
+
+    Unlike the legacy one-shot reader, this never launches an unjoined blocking
+    getwch thread. Each native unit is read only after kbhit; incomplete extended
+    keys, UTF-16 pairs and VT bursts stay with this exclusive reader.
+    """
+
+    def __init__(self, console: Any) -> None:
+        self._console = console
+        self._read_lock = threading.Lock()
+        self._pending_unit = ""
+        self._text = ""
+        self._burst_deadline: float | None = None
+
+    def at_input_boundary(self) -> bool:
+        if not self._read_lock.acquire(blocking=False):
+            raise RuntimeError("cannot inspect boundary while terminal read is active")
+        try:
+            return not (self._pending_unit or self._text or self._console.kbhit())
+        finally:
+            self._read_lock.release()
+
+    def _decode_unit(self, char: str, *, alt: bool) -> str:
+        pending, self._pending_unit = self._pending_unit, ""
+        if pending in {"\x00", "\xe0"}:
+            return _EXTENDED_KEY_SEQUENCES.get(
+                char, pending + _replace_isolated_surrogate(char)
+            )
+        if pending and _is_low_surrogate(char):
+            return chr(
+                0x10000
+                + ((ord(pending) - _HIGH_SURROGATE_START) << 10)
+                + ord(char)
+                - _LOW_SURROGATE_START
+            )
+        prefix = _REPLACEMENT_CHARACTER if pending else ""
+        if char in {"\x00", "\xe0"} or _is_high_surrogate(char):
+            self._pending_unit = char
+            return prefix
+        if _is_low_surrogate(char):
+            return prefix + _REPLACEMENT_CHARACTER
+        if alt and char.lower() == "v":
+            return prefix + "\x1bv"
+        return prefix + char
+
+    async def read_chunk(self) -> str:
+        if not self._read_lock.acquire(blocking=False):
+            raise RuntimeError("terminal input reader is already active")
+        try:
+            while True:
+                # Bound each batch so a continuous paste cannot starve cancel.
+                for _ in range(64):
+                    if not self._console.kbhit():
+                        break
+                    recover_alt = (
+                        not self._pending_unit and self._burst_deadline is None
+                    )
+                    pending_alt = recover_alt and _windows_pending_alt_modifier()
+                    char = self._console.getwch()
+                    chunk = self._decode_unit(
+                        char,
+                        alt=recover_alt and (pending_alt or _windows_alt_pressed()),
+                    )
+                    self._text += chunk
+                    if _ESCAPE in chunk or self._burst_deadline is not None:
+                        self._burst_deadline = (
+                            time.monotonic() + _ESCAPE_BURST_IDLE_SECONDS
+                        )
+                if self._text and (
+                    self._burst_deadline is None
+                    or time.monotonic() >= self._burst_deadline
+                    or len(self._text) >= _ESCAPE_BURST_MAX_CHARS
+                ):
+                    text, self._text = self._text, ""
+                    self._burst_deadline = None
+                    return text
+                await asyncio.sleep(_INPUT_POLL_INTERVAL_SECONDS)
+        finally:
+            self._read_lock.release()
 
 
 @dataclass(slots=True)

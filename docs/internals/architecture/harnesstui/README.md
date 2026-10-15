@@ -682,6 +682,17 @@ product data and callbacks directly, without subclassing or re-exporting these
 shared implementations; Python package initializers do not add convenience
 exports.
 
+## Loading Input Ownership
+
+Native screen-first startup uses the same independent loading input/render
+owner on Linux, macOS and Windows, before Product preparation starts on main.
+The coordinator joins that owner before Product UI binding and preserves the
+draft, input parser and native decoding state. Queued loading input is processed
+before submission is armed. TUI supplies the transferable reader adapter;
+HarnessTUI does not import a platform backend. See
+[ARD-009](../decisions/accepted/ARD-009-unified-loading-input-and-terminal-adapters.md)
+for the contract and the outstanding native macOS/Windows validation.
+
 ## Quality Gate
 
 Run `make check-harnesstui` for the product-neutral composition boundary. The
