@@ -1082,11 +1082,16 @@ def test_worker_source_catalog_pins_explicit_product_candidate(
     disable_while_direct_session_open: bool = False,
     update_while_direct_session_open: bool = False,
     author_with_public_cli: bool = False,
+    retain_shared_session_history: bool = False,
 ) -> None:
     assert not disable_while_direct_session_open or direct_entry_only
     assert not update_while_direct_session_open or direct_entry_only
     assert not (disable_while_direct_session_open and update_while_direct_session_open)
     assert not author_with_public_cli or native_mode == "installed-protocol"
+    assert not retain_shared_session_history or direct_entry_only
+    focused_session_entry = (
+        direct_entry_only or hosted_entry_only
+    ) and not retain_shared_session_history
     installed_native = native_mode in {
         "installed-release",
         "repaired-release",
@@ -3665,79 +3670,83 @@ def test_worker_source_catalog_pins_explicit_product_candidate(
                         finally:
                             await session.dispose()
 
-                    asyncio.run(exercise_deferred_host())
-                    deferred_settled = open_coding_product_worker_supervisor_journal(
-                        product
-                    ).status(deferred_attempt)
-                    assert deferred_settled is not None
-                    assert deferred_settled.phase == "stopped"
-                    assert not (
-                        product.state_root / f"worker-payload-{deferred_attempt}"
-                    ).exists()
-                    deferred_activation = review_coding_product_worker_history_retention(
-                        product, attempt_id=deferred_attempt
-                    ).retained_activation_references
-                    assert any(
-                        item.attempt_id == deferred_attempt and item.phase == "settled"
-                        for item in deferred_activation
-                    ), deferred_activation
-                    failed_attempt = "e2" * 16
-                    failed_pending = plan_coding_product_worker_pending_launch(
-                        receipt_owner=receipt_owner,
-                        receipt=receipt,
-                        attempt_id=failed_attempt,
-                    )
-                    failed_inputs = prepare_coding_product_worker_pending_session_inputs(
-                        resolved_providers=deferred_resolved,
-                        provider_owner=deferred_owner,
-                        receipt_owner=receipt_owner,
-                        receipt=receipt,
-                        pending_launch=failed_pending,
-                        evaluated_at=150,
-                        clock=lambda: 150,
-                        base_policy_binding=base_policy,
-                    )
-                    failed_request = failed_inputs.component_requests[0]
-                    original_admit = CapabilityQueryWorkerAdapter.admit
-
-                    def changed_worker_admission(
-                        adapter: CapabilityQueryWorkerAdapter,
-                    ):
-                        return replace(
-                            original_admit(adapter),
-                            worker_identity_fingerprint="f" * 64,
+                    # The canonical installed-protocol node owns the deferred-host
+                    # success/refusal history. Focused variants only need the shared
+                    # candidate state before exercising their own Session behavior.
+                    if not focused_session_entry:
+                        asyncio.run(exercise_deferred_host())
+                        deferred_settled = open_coding_product_worker_supervisor_journal(
+                            product
+                        ).status(deferred_attempt)
+                        assert deferred_settled is not None
+                        assert deferred_settled.phase == "stopped"
+                        assert not (
+                            product.state_root / f"worker-payload-{deferred_attempt}"
+                        ).exists()
+                        deferred_activation = review_coding_product_worker_history_retention(
+                            product, attempt_id=deferred_attempt
+                        ).retained_activation_references
+                        assert any(
+                            item.attempt_id == deferred_attempt and item.phase == "settled"
+                            for item in deferred_activation
+                        ), deferred_activation
+                        failed_attempt = "e2" * 16
+                        failed_pending = plan_coding_product_worker_pending_launch(
+                            receipt_owner=receipt_owner,
+                            receipt=receipt,
+                            attempt_id=failed_attempt,
                         )
+                        failed_inputs = prepare_coding_product_worker_pending_session_inputs(
+                            resolved_providers=deferred_resolved,
+                            provider_owner=deferred_owner,
+                            receipt_owner=receipt_owner,
+                            receipt=receipt,
+                            pending_launch=failed_pending,
+                            evaluated_at=150,
+                            clock=lambda: 150,
+                            base_policy_binding=base_policy,
+                        )
+                        failed_request = failed_inputs.component_requests[0]
+                        original_admit = CapabilityQueryWorkerAdapter.admit
 
-                    async def exercise_deferred_refusal() -> None:
-                        with pytest.raises(
-                            CodingWorkerPendingHostError,
-                            match="coding_worker_pending_admission_changed",
+                        def changed_worker_admission(
+                            adapter: CapabilityQueryWorkerAdapter,
                         ):
-                            await failed_request.prepare_component(1)
+                            return replace(
+                                original_admit(adapter),
+                                worker_identity_fingerprint="f" * 64,
+                            )
 
-                    with monkeypatch.context() as refusal_patch:
-                        refusal_patch.setattr(
-                            CapabilityQueryWorkerAdapter,
-                            "admit",
-                            changed_worker_admission,
-                        )
-                        asyncio.run(exercise_deferred_refusal())
-                    failed_settled = open_coding_product_worker_supervisor_journal(
-                        product
-                    ).status(failed_attempt)
-                    assert failed_settled is not None
-                    assert failed_settled.phase in {"stopped", "process_settled"}
-                    assert failed_settled.process_settled
-                    assert not (
-                        product.state_root / f"worker-payload-{failed_attempt}"
-                    ).exists()
-                    failed_activation = review_coding_product_worker_history_retention(
-                        product, attempt_id=failed_attempt
-                    ).retained_activation_references
-                    assert any(
-                        item.attempt_id == failed_attempt and item.phase == "settled"
-                        for item in failed_activation
-                    ), failed_activation
+                        async def exercise_deferred_refusal() -> None:
+                            with pytest.raises(
+                                CodingWorkerPendingHostError,
+                                match="coding_worker_pending_admission_changed",
+                            ):
+                                await failed_request.prepare_component(1)
+
+                        with monkeypatch.context() as refusal_patch:
+                            refusal_patch.setattr(
+                                CapabilityQueryWorkerAdapter,
+                                "admit",
+                                changed_worker_admission,
+                            )
+                            asyncio.run(exercise_deferred_refusal())
+                        failed_settled = open_coding_product_worker_supervisor_journal(
+                            product
+                        ).status(failed_attempt)
+                        assert failed_settled is not None
+                        assert failed_settled.phase in {"stopped", "process_settled"}
+                        assert failed_settled.process_settled
+                        assert not (
+                            product.state_root / f"worker-payload-{failed_attempt}"
+                        ).exists()
+                        failed_activation = review_coding_product_worker_history_retention(
+                            product, attempt_id=failed_attempt
+                        ).retained_activation_references
+                        assert any(
+                            item.attempt_id == failed_attempt and item.phase == "settled"
+                            for item in failed_activation
+                        ), failed_activation
                     payloads_before_ordinary_bootstrap = tuple(
                         product.state_root.glob("worker-payload-*")
                     )
@@ -3917,7 +3926,8 @@ def test_worker_source_catalog_pins_explicit_product_candidate(
                         finally:
                             await session.dispose()
 
-                    asyncio.run(exercise_selected_ordinary_worker())
+                    if not focused_session_entry:
+                        asyncio.run(exercise_selected_ordinary_worker())
                     if direct_entry_only:
                         direct_model = Model(
                             id="direct-worker",
@@ -6132,6 +6142,7 @@ def test_explicit_worker_public_coding_session_reaches_installed_product(
         monkeypatch,
         direct_entry_only=True,
         author_with_public_cli=True,
+        retain_shared_session_history=True,
     )
     workspace = tmp_path / "workspace"
     lifecycle = resolve_coding_plugin_lifecycle_state_layout(workspace)
