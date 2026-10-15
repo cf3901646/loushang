@@ -478,23 +478,23 @@ PR #757 验证普通 test-only 收敛时又暴露一处重复：已登记的 sel
 审批方未明确批准 AP-03 前，不把其余 Hosting 测试加入活动 PR 门禁，不恢复暂停的
 Hosting workflow，也不扩大平台矩阵。
 
-### 待审批门禁变更 AP-04：AI 非 live 必要集合完整执行
+### 待审批门禁变更 AP-04：AI loopback 节点显式归类
 
-状态：完成全目录角色、重复和成本审计；未修改 `unit-tests.json`、分类 catalog、
-workflow 或执行路由。
+状态：完整目录执行缺口经复核已不存在；两个 loopback 节点的 targeted owner 仍待明确
+审批，未修改 `unit-tests.json`、分类 catalog、workflow 或执行路由。
 
 | 项目 | 审批材料 |
 | --- | --- |
-| 目的 | 让普通 AI test-only PR 执行被修改文件所属的完整必要非 live 单元/合同集合；两个真实 loopback OAuth 节点保持集成身份，7 个 vendor live 场景保持显式授权执行 |
-| 当前缺口 | 56 个文件共收集 719 个实例；现有 AI 模块短路径仅登记 7 文件、148 个实例。直接修改其余 42 个非 live 文件或 7 个 live wrapper 时，当前计划只执行这 148 个无关或部分相关实例 |
+| 目的 | 将两个真实本机 OAuth loopback 节点从普通 AI 模块集合中拆为精确 integration owner；7 个 vendor live 场景继续只允许显式授权执行 |
+| 现状更正 | #711 已把 package runner 改为：存在包测试目录时直接执行完整目录。当前 `unit_ai` 实际执行 `tests/ai`、`tests/protocols` 和 AI/auth examples 合同；历史 7 文件 JSON 清单不再限制 pytest 参数，因此不存在“只执行 148 项”的覆盖缺口 |
 | 类别 | 710 个受控 fake/in-memory/temp-file 单元与合同；`test_auth_api.py::test_login_returns_session_without_opening_browser` 和 `test_auth_oauth_lifecycle.py::test_real_authlib_login_store_resolve_refresh_lifecycle` 为本机 loopback HTTP 集成；7 个 vendor wrapper 为 live |
 | 本地成本证据 | `tests/ai -m 'not live'` 为 712 passed、7 deselected，7.55 秒；最慢 loopback 生命周期 0.58 秒。完整现有 AI gate 还包含 protocols/examples、覆盖率、Ruff、mypy 与 catalog/import 检查 |
 | 重复关系 | 忽略函数名称后的 AST 扫描只得到两组 live wrapper；每个 wrapper 调用不同 provider/protocol scenario，保留。此前两个错误命名但实际重复的 API register 用例已删除并有替代映射 |
-| 新增门禁面 | 将其余 562 个受控实例加入模块短路径，或为两个 loopback 节点建立 targeted owner，都会给相应 test-only PR 增加失败条件，必须明确审批；live 场景不得自动启用 |
-| 回退 | 若未来获批，回退 AI inventory/分类登记并更新策略版本即可恢复当前 148 项短路径；live 环境变量与授权保持独立 |
+| 待审批门禁面 | 建立两个 loopback targeted owner 会改变相应 test-only PR 的 job/失败条件，必须获得针对该精确变更的明确审批；live 场景不得自动启用 |
+| 回退 | 若未来获批，回退 targeted-node 分类和策略版本即可恢复两个 loopback 节点随完整目录执行；live 环境变量与授权保持独立 |
 
-审批方未明确批准 AP-04 前，不补齐 AI 活动模块清单、不建立 loopback targeted route，
-也不让普通 PR 访问真实 provider。
+审批方未明确批准两个 loopback 节点的 Ubuntu targeted integration owner 前，不修改
+分类 catalog 或执行路由，也不让普通 PR 访问真实 provider。
 
 ### 待审批门禁变更 AP-05：AppHost 目录必要集合完整执行
 
