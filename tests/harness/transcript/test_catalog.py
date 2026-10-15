@@ -18,8 +18,10 @@ from loushang.harness.conversation import (
 )
 from loushang.harness.transcript import (
     AGENT_MESSAGE_KIND,
+    CONVERSATION_METADATA_PATCH_KIND,
     RECORD_ANNOTATION_PATCH_KIND,
     AgentTranscriptSessionCatalog,
+    ConversationMetadataPatch,
     RecordAnnotationPatch,
     SessionQuery,
     build_agent_transcript_label_indexes,
@@ -524,6 +526,65 @@ def test_bounded_catalog_can_publish_complete_lightweight_index(
     assert all(summary.authority_fingerprint for summary in loaded)
     assert all(summary.counts_exact for summary in loaded)
     assert all(not summary.all_messages_text for summary in loaded)
+
+
+@pytest.mark.parametrize("name", ["Latest name", None])
+def test_bounded_catalog_reuses_only_unchanged_summary_metadata(
+    tmp_path,
+    monkeypatch,
+    name,
+):
+    def write_named(path, identity, title):
+        write_agent_transcript_export(
+            path,
+            _header(identity, cwd="/workspace"),
+            [
+                _record("first", "First prompt"),
+                ConversationRecord(
+                    record_id="name",
+                    parent_id="first",
+                    kind=CONVERSATION_METADATA_PATCH_KIND,
+                    payload_version=1,
+                    created_at="2026-07-18T00:00:02Z",
+                    payload=ConversationMetadataPatch(values={"name": title})
+                    if title
+                    else ConversationMetadataPatch(removed_keys=("name",)),
+                ),
+            ],
+        )
+
+    stable, changed = tmp_path / "stable.jsonl", tmp_path / "changed.jsonl"
+    write_named(stable, "stable", "Keep this name")
+    write_named(changed, "changed", "Old name")
+    catalog = AgentTranscriptSessionCatalog(tmp_path)
+    catalog.refresh_index()
+    write_named(changed, "changed", name)
+    stale = catalog.try_query_index_snapshot()
+    assert stale.index_state == "stale"
+    reads = []
+    original = catalog_module._read_bounded_segments
+
+    def read(candidate, *, segment_bytes):
+        reads.append(candidate.path)
+        return original(candidate, segment_bytes=segment_bytes)
+
+    monkeypatch.setattr(catalog_module, "_read_bounded_segments", read)
+    snapshot = catalog.bounded_index_snapshot(cached_items=stale.items)
+    assert {
+        item.projection.session_id: item.projection.name for item in snapshot.items
+    } == {
+        "stable": "Keep this name",
+        "changed": name,
+    }
+    assert reads == [changed]
+    assert snapshot.bytes_read <= 2 * 64 * 1024
+    published = catalog.refresh_bounded_index()
+    assert {item.session_id: item.name for item in published} == {
+        "stable": "Keep this name",
+        "changed": name,
+    }
+    assert reads == [changed, changed]
+    assert catalog.try_query_index_snapshot().index_state == "fresh"
 
 
 def test_bounded_index_refresh_does_not_publish_a_racing_directory(

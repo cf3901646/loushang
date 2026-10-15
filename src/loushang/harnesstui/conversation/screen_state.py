@@ -56,6 +56,7 @@ class ScreenConversationState:
     cwd: str = ""
     branch: str | None = None
     session_label: str | None = None
+    session_id: str | None = field(default=None, kw_only=True)
     permission_profile: str | None = "standard"
     statusline_visible: bool = True
     statusline_settings: StatusLineSettings = field(default_factory=StatusLineSettings)

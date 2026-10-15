@@ -223,6 +223,7 @@ class AgentScreenConversationApplicationBinding(Generic[SurfaceT]):
 
         def refresh_session_label() -> None:
             self.app.state.session_label = session_label(active_session())
+            self.app.state.session_id = session_observability_id(active_session())
             self.app.request_render("product")
 
         approval_interaction = self.approval_interaction_provider or (lambda: None)
@@ -234,6 +235,7 @@ class AgentScreenConversationApplicationBinding(Generic[SurfaceT]):
             cwd=self.startup.cwd,
             branch=self.startup.branch,
             session_label=lambda: session_label(active_session()),
+            session_id=lambda: session_observability_id(active_session()),
             thinking_level=lambda: thinking_level(active_session()),
             running=lambda: self.app.state.running or is_running(active_session()),
             permission_profile=lambda: permission_profile_id(
@@ -245,6 +247,7 @@ class AgentScreenConversationApplicationBinding(Generic[SurfaceT]):
             ),
         )
         self.app.set_statusline_settings(status_provider.statusline_settings())
+        self.app.state.session_id = session_observability_id(active_session())
         surface = self.build_surface(status_provider)
         history_records = materialize_history()
         event_source = self.event_source or session
@@ -356,6 +359,7 @@ class AgentScreenConversationApplicationBinding(Generic[SurfaceT]):
                     (), reason="resume_refresh_failed"
                 )
                 self.app.state.session_label = session_label(next_session)
+                self.app.state.session_id = session_observability_id(next_session)
                 report_problem(
                     "session_rebind_failed",
                     "Session changed, but the TUI could not refresh its history.",
@@ -812,6 +816,7 @@ async def refresh_agent_screen_session(
     app.state.cwd = snapshot.cwd
     app.state.branch = snapshot.branch
     app.state.session_label = snapshot.session_label
+    app.state.session_id = snapshot.session_observability_id
     app.state.permission_profile = permission_profile_id(approval_interaction)
     app.install_resumed_history(history)
     event_source.rebind(session)
