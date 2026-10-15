@@ -775,6 +775,36 @@ class ScopeTests(unittest.TestCase):
                         <= set(plan["unit_packages"]))
         self.assertTrue(all(plan["checks"].values()))
 
+    def test_full_targeted_shards_isolate_measured_heavy_files_without_more_jobs(self):
+        heavy = selector.FULL_TARGETED_EXCLUSIVE_PATHS[
+            ("ubuntu-24.04", "integration")
+        ]
+        companions = {
+            f"tests/coding/test_companion_{index}.py"
+            for index in range(32)
+        }
+        cases = {
+            (path, "ubuntu-24.04", "integration")
+            for path in {*heavy, *companions}
+        }
+
+        full = selector.make_targeted_jobs(cases, full=True)
+        self.assertLessEqual(len(full), selector.FULL_TARGETED_SHARDS["ubuntu-24.04"])
+        for path in heavy:
+            self.assertEqual(
+                [job["paths"] for job in full if path in job["paths"]],
+                [[path]],
+            )
+        self.assertEqual(
+            {path for job in full for path in job["paths"]},
+            {*heavy, *companions},
+        )
+        self.assertEqual(sum(len(job["paths"]) for job in full), len(cases))
+
+        ordinary = selector.make_targeted_jobs(cases, full=False)
+        self.assertEqual(len(ordinary), 1)
+        self.assertEqual(set(ordinary[0]["paths"]), {*heavy, *companions})
+
     def test_unit_inventory_is_explicit_existing_and_unique(self):
         inventory = json.loads((ROOT / "scripts/ci/unit-tests.json").read_text())
         self.assertTrue(inventory)
@@ -793,6 +823,11 @@ class ScopeTests(unittest.TestCase):
         self.assertIn("--shard ${{ matrix.shard }} --shards ${{ matrix.shards }}", workflow)
         self.assertIn("verify_module_report.py", workflow)
         self.assertIn("include: ${{ fromJSON(inputs.plan).targeted_jobs }}", workflow)
+        self.assertIn(
+            'name: "Targeted ${{ matrix.category }} '
+            '(${{ matrix.os }} #${{ matrix.id }})"',
+            workflow,
+        )
         self.assertIn("TARGET_TEST_PATHS_JSON: ${{ toJSON(matrix.paths) }}", workflow)
         self.assertIn("uv run python scripts/ci/run_targeted_tests.py", workflow)
         self.assertIn("verify_pytest_xml.py", workflow)

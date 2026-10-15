@@ -56,7 +56,7 @@ jobs:
 
   targeted:
     if: ${{ fromJSON(inputs.plan).targeted_tests }}
-    name: Targeted ${{ matrix.category }} (${{ matrix.os }} #${{ matrix.id }})
+    name: "Targeted ${{ matrix.category }} (${{ matrix.os }} #${{ matrix.id }})"
     strategy:
       fail-fast: false
       matrix:

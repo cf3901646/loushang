@@ -95,6 +95,15 @@ FULL_TARGETED_SHARDS = {
     "windows-2022": 2,
     "macos-15": 1,
 }
+# Full validation keeps these measured heavyweight files alone in three of the
+# existing Ubuntu integration buckets. PR test-only routing remains unchanged.
+FULL_TARGETED_EXCLUSIVE_PATHS = {
+    ("ubuntu-24.04", "integration"): {
+        "tests/coding/test_package_cutover_cli.py",
+        "tests/coding/test_package_external_data_wheel.py",
+        "tests/coding/test_package_worker_candidate_wheel.py",
+    },
+}
 CHECK_MODULE_REGRESSIONS = {
     "agent": "agent",
     "coding": "coding",
@@ -197,12 +206,39 @@ def make_paths(root: Path = ROOT) -> dict[str, list[str]]:
 def make_targeted_jobs(
     cases: set[tuple[str, str, str]], *, full: bool
 ) -> list[dict]:
+    def stable_shard(path: str, count: int, *, salt: str = "") -> int:
+        digest = hashlib.sha256(f"{salt}{path}".encode()).digest()
+        return int.from_bytes(digest[:8], "big") % count
+
+    reserved: dict[tuple[str, str], set[int]] = {}
+    if full:
+        available = {(platform, category, path) for path, platform, category in cases}
+        for key, paths in FULL_TARGETED_EXCLUSIVE_PATHS.items():
+            platform, category = key
+            shard_count = FULL_TARGETED_SHARDS[platform]
+            selected = sorted(
+                path for path in paths if (platform, category, path) in available
+            )
+            selected_shards = {stable_shard(path, shard_count) for path in selected}
+            if len(selected_shards) != len(selected):
+                raise ValueError(f"exclusive targeted shard collision: {key}")
+            reserved[key] = selected_shards
+
     buckets: dict[tuple[str, str, int], list[str]] = {}
     for path, platform, category in sorted(cases):
         shard_count = FULL_TARGETED_SHARDS[platform] if full else 1
-        shard = int.from_bytes(
-            hashlib.sha256(path.encode()).digest()[:8], "big"
-        ) % shard_count
+        shard = stable_shard(path, shard_count)
+        key = (platform, category)
+        exclusive_paths = FULL_TARGETED_EXCLUSIVE_PATHS.get(key, set())
+        reserved_shards = reserved.get(key, set())
+        if full and path not in exclusive_paths and shard in reserved_shards:
+            alternatives = [
+                candidate for candidate in range(shard_count)
+                if candidate not in reserved_shards
+            ]
+            if not alternatives:
+                raise ValueError(f"no targeted shard remains beside exclusive paths: {key}")
+            shard = alternatives[stable_shard(path, len(alternatives), salt="overflow:")]
         buckets.setdefault((platform, category, shard), []).append(path)
     return [
         {
