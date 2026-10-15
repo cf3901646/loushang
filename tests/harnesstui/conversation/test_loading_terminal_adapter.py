@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from io import StringIO
 from queue import Queue
 from threading import get_ident
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,7 +15,7 @@ from loushang.harnesstui.conversation import threaded_startup
 from loushang.harnesstui.conversation.host import ConversationScreenRunProfile
 from loushang.harnesstui.conversation.startup_host import ScreenConversationStartup
 from loushang.tui.terminal import TerminalSize
-from loushang.tui.terminal_backends.windows import WindowsConsoleInput
+from loushang.tui.terminal_backends.windows import WindowsTerminalInputReader
 from tests.harnesstui.conversation.test_loading_surface import Output, Screen
 
 
@@ -31,7 +32,12 @@ def test_windows_adapter_echoes_during_sync_prepare_then_transfers_once(monkeypa
         def getwch(self):
             return units.get_nowait()
 
-    backend = WindowsConsoleInput(module_loader=Console)
+        def at_input_boundary(self):
+            return units.empty()
+
+    backend = SimpleNamespace(
+        open_reader=lambda _: WindowsTerminalInputReader(Console())
+    )
     monkeypatch.setattr(
         threaded_startup, "native_terminal_input_backend", lambda _: backend
     )

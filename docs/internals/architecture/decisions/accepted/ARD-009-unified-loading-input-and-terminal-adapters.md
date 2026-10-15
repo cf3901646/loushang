@@ -42,10 +42,14 @@ previous read has joined. Cancellation retains incomplete decoding and native
 key state. Boundary inspection consumes nothing and rejects active reads.
 No loop-bound task or blocking native read may survive transfer.
 
-Linux and macOS share the POSIX incremental UTF-8 reader. Windows uses bounded
-`kbhit`/`getwch` polling with retained extended-key, UTF-16 and VT-burst state.
-Each native unit requires available input; cancellation leaves no helper thread
-reading the console. Existing mode adapters own native setup/restoration.
+Linux and macOS share the POSIX incremental UTF-8 reader. Windows polls Win32
+input records directly: `PeekConsoleInputW` establishes availability before the
+exclusive owner calls `ReadConsoleInputW`. It preserves VT characters with zero
+virtual-key/scan codes, translates native extended keys and repeats, and retains
+UTF-16 and VT-burst state. Non-text records do not prevent admission. Cancellation
+leaves no helper thread reading the console. Existing mode adapters own native
+setup/restoration. The [Win32 input contract](https://learn.microsoft.com/en-us/windows/console/low-level-console-input-functions)
+defines non-consuming immediate peeks and available-record reads.
 
 `LOAD-INPUT-003`: HarnessTUI owns loading policy, rendering, parser/draft
 transfer, joined cleanup and submission arming. It depends on the reader port,
@@ -71,8 +75,8 @@ explicitly incomplete.
 - [POSIX reader tests](../../../../../tests/tui/test_terminal_input_reader_handoff.py)
   cover UTF-8, cancellation, exclusive ownership and admission boundaries.
 - [Windows reader tests](../../../../../tests/tui/test_terminal_input_windows_handoff.py)
-  cover UTF-16, extended keys and VT state across cancellation/new loops,
-  non-consuming boundaries and modifier recovery.
+  cover UTF-16 and VT state across cancellation/new loops, native record decoding,
+  zero-VK terminal replies, repeats, modifiers and non-consuming boundaries.
 - [Loading adapter tests](../../../../../tests/harnesstui/conversation/test_loading_terminal_adapter.py)
   exercise Windows-adapter echo during synchronous preparation, joined binding,
   blocked loading Enter and explicit ready submission; native POSIX PTY cases
@@ -93,8 +97,16 @@ documentation invariants passed. Broader mypy checked 229 source files and
 reported one existing return-type error in `tui/mouse_backends/tmux.py:30`;
 that file is unchanged from the implementation baseline `31faeaac`.
 
+The first PR #793 ConPTY run passed 107 input and 24 platform cases but exposed
+two real CLI readiness timeouts during the loading-to-ready handoff. The reader
+was changed from CRT `getwch` polling to the Win32 record adapter above; CRT
+readiness does not guarantee a prompt return for every terminal response.
+The follow-up native CI run determines the disposition of this regression.
+The follow-up local regression passed 125 reader/startup cases, and the seven
+affected source files passed mypy.
+
 Linux runs and simulated Windows input do not establish native macOS/Windows
-behavior. Native loading echo, quit, draft handoff and mode restoration remain
+loading behavior. Native loading echo, quit, draft handoff and mode restoration remain
 validation work for those hosts. No cross-platform latency bound is claimed;
 native extensions holding the GIL can delay the worker.
 
