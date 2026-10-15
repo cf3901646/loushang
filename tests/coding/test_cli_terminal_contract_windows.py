@@ -46,16 +46,20 @@ def test_windows_cli_conpty_stream_ends_with_cursor_restoration(tmp_path: Path) 
         rows=24,
     ) as driver:
         driver.read_until(
-            lambda output: "Welcome to Loushang CLI"
-            in strip_control_sequences(output),
+            lambda output: "Welcome to Loushang CLI" in strip_control_sequences(output),
             timeout=15,
         )
         try:
             driver.read_until(
-                lambda output: " | idle" in strip_control_sequences(output), timeout=15
+                lambda output: " | idle" in strip_control_sequences(output),
+                # Match the shared CLI contract: Product admission verifies
+                # builtin Wheels and opens native journals before readiness.
+                timeout=30,
             )
         except TimeoutError as error:
-            stacks = stack_file.read_text(encoding="utf-8") if stack_file.exists() else ""
+            stacks = (
+                stack_file.read_text(encoding="utf-8") if stack_file.exists() else ""
+            )
             raise TimeoutError(f"{error}\nCLI thread stacks:\n{stacks}") from error
         driver.write("/quit\r")
         assert driver.wait(timeout=15) == 0

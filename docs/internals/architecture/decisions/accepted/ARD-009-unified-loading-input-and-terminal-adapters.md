@@ -98,10 +98,15 @@ reported one existing return-type error in `tui/mouse_backends/tmux.py:30`;
 that file is unchanged from the implementation baseline `31faeaac`.
 
 The first PR #793 ConPTY run passed 107 input and 24 platform cases but exposed
-two real CLI readiness timeouts during the loading-to-ready handoff. The reader
-was changed from CRT `getwch` polling to the Win32 record adapter above; CRT
-readiness does not guarantee a prompt return for every terminal response.
-The follow-up native CI run determines the disposition of this regression.
+two real CLI readiness timeouts. The reader was changed from CRT `getwch`
+polling to the Win32 record adapter above so native consumption does not rely
+on CRT filtering. The shared CLI contract then passed, while the Windows-only
+15-second readiness prerequisite still timed out. Child thread diagnostics
+showed Product preparation opening a native journal lock at ten seconds; the
+loading loop remained alive in its event poll. The Windows restoration test now
+uses the shared contract's existing 30-second admission prerequisite. Its quit
+and restoration assertions, terminal backend and triggers are unchanged.
+The follow-up native CI run determines the disposition of the remaining timeout.
 The follow-up local regression passed 125 reader/startup cases, and the seven
 affected source files passed mypy.
 
