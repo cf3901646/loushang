@@ -298,7 +298,7 @@ class WindowsConsoleInputUnits:
         if not key.bKeyDown and not (key.wVirtualKeyCode == _VK_MENU and char != "\0"):
             return ""
         alt = bool(key.dwControlKeyState & (_LEFT_ALT_PRESSED | _RIGHT_ALT_PRESSED))
-        if alt and key.wVirtualKeyCode == _VK_V:
+        if alt and key.wVirtualKeyCode == _VK_V and char.lower() == "v":
             return "\x1bv"
         if char != "\0":
             return char

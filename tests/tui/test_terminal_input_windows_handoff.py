@@ -177,6 +177,7 @@ def test_native_vt_records_with_no_virtual_key_cancel_and_transfer(monkeypatch):
     [
         ([key_record(scan=0x48, repeat=3)], "\x1b[A" * 3),
         ([key_record("v", vk=0x56, modifiers=0x02)], "\x1bv"),
+        ([key_record("@", vk=0x56, modifiers=0x09)], "@"),  # AltGr layout text
         ([key_record("à")], "à"),
         ([key_record("\x03")], "\x03"),
         ([key_record("\ud83d"), key_record("\udc4b")], "👋"),
