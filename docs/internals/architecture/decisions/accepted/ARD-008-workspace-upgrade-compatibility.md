@@ -74,17 +74,23 @@ responsibilities. No Harness storage protocol or PR gate is changed.
 - [Hosted Session tests](../../../../../tests/coding/test_hosted_session.py) and
   [Plugin lifecycle tests](../../../../../tests/coding/test_plugin_lifecycle.py)
   cover ordinary old settings and disabled Plugin behavior.
+- [CLI tests](../../../../../tests/coding/test_cli.py) cover existing Package
+  commands with old settings, preserving their original settings bytes.
 - [Resume regressions](../../../../../tests/coding/test_runtime_resume_continuation.py)
   retain native epoch admission, ownership and recovery coverage.
 
-Linux validation on 2026-10-15 passed 71 focused cases with one existing skip,
+Linux validation on 2026-10-15 passed 78 focused cases with one existing skip,
 including real Resume preparation and delivery using compatible storage.
 Both affected workspace data copies completed ordinary initialization with
-seven active tools. All 144 CI consistency cases passed after updating only
+seven active tools. The installed CLI also launched in both original directories
+in real PTYs, reached the interactive model status, accepted local `/exit`, and
+exited with code zero without a model request. All 144 CI consistency cases passed after updating only
 the existing renamed Windows selectors; no trigger or check scope changed.
 The CLI application's optional broad mypy run reports the same 45 diagnostics
 as clean `main`; the two modified storage modules add no type diagnostics.
-The complete change-selected offline regression is still in progress.
+The broader module regression was interrupted during concurrent shard execution
+on this single-CPU host. Its three identified failing cases all passed in
+separate focused runs; no complete module-regression pass is claimed.
 
 Native Windows execution needs
 a Windows host; authoring equivalent assertions does not establish a native run.
