@@ -210,7 +210,6 @@ def make_targeted_jobs(
             "paths": sorted(paths),
             "os": platform,
             "category": category,
-            "allow_skipped": category == "platform",
             "timeout_minutes": 30 if full else 15,
         }
         for index, ((platform, category, _), paths) in enumerate(

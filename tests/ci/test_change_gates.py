@@ -797,6 +797,8 @@ class ScopeTests(unittest.TestCase):
         self.assertIn("uv run python scripts/ci/run_targeted_tests.py", workflow)
         self.assertIn("verify_pytest_xml.py", workflow)
         self.assertIn("--allow-skipped", workflow)
+        self.assertIn("--required-files-json", workflow)
+        self.assertNotIn("matrix.allow_skipped", workflow)
         for package in ("ai", "agent", "coding", "harness", "harnesstui", "tui"):
             with self.subTest(package=package):
                 command = runner.commands("unit_" + package)[-1]
