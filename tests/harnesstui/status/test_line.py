@@ -116,11 +116,13 @@ def test_context_display_preserves_the_original_usage_metadata() -> None:
         "source": "estimated_from_last_usage",
         "accuracy": "projected",
     }
+    original = dict(usage)
     snapshot = _snapshot(context_usage=usage)
     field = status_line_fields(snapshot, StatusLineSettings())[-1]
     assert field.text == "64% left"
     assert field.token == "context.estimated"
-    assert snapshot.context_usage == usage
+    assert snapshot.context_usage == original
+    assert usage == original
 
 
 def test_status_line_fields_can_disable_regular_fields() -> None:

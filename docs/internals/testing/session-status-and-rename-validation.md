@@ -59,10 +59,34 @@ Linux with Python 3.11. Native macOS and Windows execution is not available in
 this workspace. These changes use shared presentation and transcript logic;
 this evidence does not claim native validation on those platforms.
 
-Broader offline checks and static validation are recorded at delivery.
+| Check | Result |
+| --- | --- |
+| Coding offline module | 3,761 passed, 20 platform skips, 57 deselected |
+| Coding UI regression | 588 passed, 59 deselected |
+| Render contracts | 181 passed, 7,524 deselected |
+| HarnessTUI offline module | 773 passed, 5 deselected |
+| Create/turn/resume/close and terminal-cancel E2E | 2 passed |
+| Harness offline inventory, including targeted environment retries | 5,390 passed; 121 platform skips, 3 deselected |
+| Changed implementation mypy | 15 files passed; final changed-file follow-ups passed |
+| Coding UI mypy | 24 files passed |
+| Ruff, dependency facts and documentation invariants | Passed; 9 documentation assertions |
+
+All selected local offline scopes completed successfully, including the
+environment retries described below. Live providers and opt-in host-runtime
+campaigns were excluded by the existing selectors.
 
 The initial broad regression encountered `ENOSPC` on the environment's 164 MiB
-`/run/user/1001` tmpfs. Affected checks are rerun with the existing
-`LOUSHANG_RUNTIME_DIR` setting pointing at task-private disk-backed scratch.
-The 64 MiB capacity preflight, offline markers and assertions remain enabled.
-The project virtual environment is reused directly for render contracts.
+runtime tmpfs. Affected checks use the existing `LOUSHANG_RUNTIME_DIR` setting
+with owner-private disk-backed scratch under `/var/tmp`. Compiler `TMPDIR` uses
+the same private filesystem. Workspace ancestry is unsuitable for native lease
+tests because existing group-writable parents correctly fail admission.
+The 64 MiB capacity preflight, native directory checks, offline markers and test
+assertions remain enabled. The project virtual environment is reused directly
+for render contracts, without a second worktree environment.
+
+Harness coverage combines 5,281 initially passing cases, 98 successful retries,
+three successful native pilot cases and the final eight successful retries.
+The initial 109 failures involved exhausted scratch storage, unsafe scratch
+ancestry or compiler temporary-file quota. No assertions were removed to make
+the retries pass. Logs and exact retry node lists remain in the task's ignored
+`.artifacts/session-presentation-*` evidence files.
