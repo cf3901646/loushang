@@ -369,6 +369,7 @@ class CodingContinuityProvider:
         history_changed = False
         history_text: str | None = None
         rows = [
+            ("Session ID", summary.session_id),
             ("Workspace", summary.cwd or "Unknown"),
             (
                 "Messages",

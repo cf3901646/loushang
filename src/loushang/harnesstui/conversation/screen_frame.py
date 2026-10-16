@@ -49,6 +49,7 @@ class ScreenFramePresentation:
             cwd=state.cwd,
             branch=state.branch,
             session_label=state.session_label,
+            session_id=state.session_id,
             running=state.running,
             permission_profile=state.permission_profile,
             pending_followups=len(state.pending_followups),

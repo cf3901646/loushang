@@ -21,7 +21,11 @@ from loushang.coding.continuity import (
     shutdown_coding_continuity,
 )
 from loushang.harness.artifacts import SessionBlobStore
-from loushang.harness.continuity import ContinuityQuery, ContinuityTarget
+from loushang.harness.continuity import (
+    ContinuityQuery,
+    ContinuityTarget,
+    StableContinuityReference,
+)
 from loushang.harness.conversation import ConversationHeader, ConversationRecord
 from loushang.harness.transcript import (
     AGENT_MESSAGE_KIND,
@@ -140,6 +144,86 @@ class _Runtime(AgentTranscriptDirectoryRuntime):
         return True
 
 
+@pytest.mark.parametrize("stale_index", [False, True])
+def test_renamed_session_title_survives_new_resume_queries_and_restart(
+    tmp_path, stale_index
+):
+    from loushang.coding.session_manager import SessionManager
+    from loushang.harnesstui.continuity import ContinuitySurface
+
+    async def scenario():
+        manager = await SessionManager.new(
+            session_dir=tmp_path, cwd=str(tmp_path), persist=True
+        )
+        await manager.append_message(
+            UserMessage(role="user", content="Original prompt", timestamp=1.0)
+        )
+        await manager.append_session_info("Original name")
+        if stale_index:
+            await manager.append_message(
+                UserMessage(role="user", content="x" * 140_000, timestamp=2.0)
+            )
+        runtime = _Runtime(tmp_path)
+        runtime.refresh_session_index()
+        runtime.current_session_ref = str(tmp_path / "other.jsonl")
+
+        async def check_title(reader, expected):
+            composition = bind_coding_continuity(reader)
+            surface = ContinuitySurface(
+                reference=StableContinuityReference(composition.hub),
+                request_render=lambda _: None,
+            )
+            try:
+                await surface.start()
+                assert len(surface._summaries) == 1
+                assert surface._summaries[0].title == expected
+                assert (
+                    surface.selected_target.opaque_id == manager.header.conversation_id
+                )
+            finally:
+                surface.close()
+
+        try:
+            await check_title(runtime, "Original name")
+            for name, expected in [
+                ("Renamed session", "Renamed session"),
+                (None, "Original prompt"),
+            ]:
+                await manager.append_session_info(name)
+                if stale_index:
+                    await manager.append_message(
+                        UserMessage(role="user", content="y" * 140_000, timestamp=3.0)
+                    )
+                    await manager.publish_index_summary()
+                    write_agent_transcript_export(
+                        tmp_path / "changed.jsonl",
+                        _header("changed"),
+                        [],
+                    )
+                await check_title(runtime, expected)
+                if stale_index:
+                    runtime.refresh_bounded_session_index()
+                    await check_title(runtime, expected)
+                await shutdown_coding_continuity(runtime)
+                restarted = _Runtime(tmp_path)
+                restarted.current_session_ref = runtime.current_session_ref
+                try:
+                    await check_title(restarted, expected)
+                finally:
+                    await shutdown_coding_continuity(restarted)
+            session_file = manager.session_file
+        finally:
+            await shutdown_coding_continuity(runtime)
+            await manager.dispose_runtime_profile()
+        reopened = await SessionManager.open(session_file, persist=False)
+        try:
+            assert reopened.get_session_summary().name is None
+        finally:
+            await reopened.dispose_runtime_profile()
+
+    asyncio.run(scenario())
+
+
 def test_coding_provider_projects_common_summary_preview_and_activation(
     tmp_path: Path,
 ) -> None:
@@ -176,6 +260,7 @@ def test_coding_provider_projects_common_summary_preview_and_activation(
         preview = await composition.hub.preview(summary.target)
         assert preview.heading == summary.title
         assert preview.sections[1].kind == "key_value"
+        assert ("Session ID", "session-1") in preview.sections[1].rows
         assert ("Messages", "1") in preview.sections[1].rows
         assert ("Storage", "Custom canonical") in preview.sections[1].rows
         assert ("Assets", "None") in preview.sections[1].rows

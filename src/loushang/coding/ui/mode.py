@@ -46,6 +46,7 @@ from loushang.harnesstui.conversation.run_context import (
     RebindableEventSource,
     StableEmit,
 )
+from loushang.harnesstui.conversation.session_view import session_observability_id
 from loushang.tui import CompletionProvider
 from loushang.tui.launch import TuiLaunchProfile, run_tui_launch_shell
 from loushang.tui.prompt import run_non_interactive_prompt_loop
@@ -167,6 +168,7 @@ async def _run_bound_screen_interactive_tui(
     )
     current = current_agent_runtime_session(runtime, session)
     apply_coding_plugin_theme_to_screen(app, current)
+    app.state.session_id = session_observability_id(current)
     completion_provider = await _load_completion_provider(
         session, base_path=Path(snapshot.cwd)
     )

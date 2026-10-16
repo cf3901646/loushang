@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal, cast
 
+from loushang.harnesstui.status.identity import session_display_label
 from loushang.tui import StatusField
 
 StatusLineAutoValue = Literal["auto", "true", "false"]
@@ -39,6 +40,7 @@ class StatusLinePreviewSnapshot:
     pending_steers: int = 0
     status_message: str | None = None
     context_usage: object | None = None
+    session_id: str | None = None
 
 
 def status_line_fields(
@@ -59,7 +61,13 @@ def status_line_fields(
     if settings.branch:
         fields.append(StatusField(snapshot.branch or "no-branch", priority=80, token="branch"))
     if settings.session:
-        fields.append(StatusField(snapshot.session_label or "no-session", priority=70, token="session"))
+        fields.append(
+            StatusField(
+                session_display_label(snapshot.session_label, snapshot.session_id),
+                priority=70,
+                token="session",
+            )
+        )
     if settings.permissions:
         fields.append(
             StatusField(
@@ -180,20 +188,20 @@ def _context_status(value: object | None) -> tuple[str, str]:
         return "ctx ?", "context.unknown"
     remaining = max(0, min(100, round(100 - float(percent))))
     if stale:
-        return f"ctx ≈{remaining}% left stale", "context.stale"
+        return f"{remaining}% left stale", "context.stale"
     if isinstance(envelope_status, str) and envelope_status in {
         "mismatched",
         "logical_mismatch",
     }:
-        return f"ctx ≈{remaining}% left changed", "context.estimated"
+        return f"{remaining}% left changed", "context.estimated"
     if accuracy is None and source == "assistant_usage":
-        return f"ctx {remaining}% left", "context.measured"
+        return f"{remaining}% left", "context.measured"
     if (
         (not isinstance(accuracy, str) or accuracy not in {"projected", "estimated", "unknown"})
         and source == "assistant_usage"
     ):
-        return f"ctx {remaining}% left", "context.measured"
-    return f"ctx ≈{remaining}% left", "context.estimated"
+        return f"{remaining}% left", "context.measured"
+    return f"{remaining}% left", "context.estimated"
 
 
 def _usage_value(value: object | None, *names: str) -> object:

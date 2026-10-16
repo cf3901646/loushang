@@ -880,6 +880,7 @@ class AgentTranscriptSessionCatalog:
         enrich_limit: int = _BOUNDED_ENRICH_LIMIT,
         segment_bytes: int = _BOUNDED_SEGMENT_BYTES,
         read_budget: SessionDiscoveryReadBudget | None = None,
+        cached_items: Sequence[IndexedProjection[SessionSummary]] = (),
     ) -> BoundedSessionCatalogSnapshot:
         """Build a bounded resume view without replaying transcript authority.
 
@@ -925,6 +926,7 @@ class AgentTranscriptSessionCatalog:
         projected, bytes_read = self._project_bounded_candidates(
             selected_candidates,
             segment_bytes=segment_bytes,
+            cached_items=cached_items,
         )
 
         selected = _query_indexed_summaries(query or SessionQuery(), projected)
@@ -961,6 +963,7 @@ class AgentTranscriptSessionCatalog:
         projected, _bytes_read = self._project_bounded_candidates(
             before,
             segment_bytes=segment_bytes,
+            cached_items=self.try_query_index_snapshot().items,
         )
         if len({item.projection.session_id for item in projected}) != len(projected):
             raise RuntimeError("session authority contains duplicate identities")
@@ -995,12 +998,31 @@ class AgentTranscriptSessionCatalog:
         candidates: Sequence[_BoundedSessionCandidate],
         *,
         segment_bytes: int,
+        cached_items: Sequence[IndexedProjection[SessionSummary]] = (),
     ) -> tuple[list[IndexedProjection[SessionSummary]], int]:
         if self._layout is None:
             raise ValueError("provider-backed catalogs have no local file layout")
         projected: list[IndexedProjection[SessionSummary]] = []
         bytes_read = 0
+        cached_by_path = {
+            item.projection.session_file: item
+            for item in cached_items
+            if self._local_index_item_is_valid(item)
+        }
         for candidate in candidates:
+            cached = cached_by_path.get(candidate.path)
+            if (
+                cached is not None
+                and cached.projection.authority_fingerprint == candidate.fingerprint
+                and (current := _bounded_candidate(candidate.path)) is not None
+                and current.fingerprint == candidate.fingerprint
+            ):
+                # Directory-wide staleness must not replace an unchanged exact
+                # projection with a partial head/tail replay. A name patch may
+                # be in the omitted middle of a long conversation.
+                self._layout.bind_path(cached.locator.key, candidate.path)
+                projected.append(cached)
+                continue
             result = _project_bounded_session_summary(
                 candidate,
                 segment_bytes=segment_bytes,
