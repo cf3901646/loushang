@@ -155,6 +155,8 @@ def bind_sandbox_execution_runtime(
         if base_profile is not None and execution_profile is not None
         else execution_profile or base_profile
     )
+    if execution_profile_provider is not None and effective_profile is None:
+        raise TypeError("live execution selection requires an EffectiveExecutionProfile ceiling")
     local_backend = _ExecServiceBackend(base_exec_service)
     binding = bind_sandbox_execution(
         settings=settings,
@@ -192,6 +194,12 @@ class _ExecServiceBackend:
 
     def __init__(self, service: ExecService) -> None:
         self._service = service
+        # Disabled containment still wraps live authority. Retain only the
+        # capture capability the delegate explicitly admits; execute-only
+        # adapters must continue to refuse managed output capture.
+        capture_factory = getattr(service, "capture_executor", None)
+        captured = capture_factory() if callable(capture_factory) else None
+        self.execute_captured = None if captured is None else captured.execute
 
     def _uses_builtin_local_backend(self) -> bool:
         return (

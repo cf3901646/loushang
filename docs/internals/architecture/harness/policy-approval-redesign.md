@@ -1387,7 +1387,10 @@ through its existing backend; changing modes does not disable the backend.
 Coding owns live selection through `CodingExecutionAuthority`. Harness provides
 `ExecutionProfileProvider` and `select_execution_profile` to intersect that
 selection with the immutable ceiling. ExecService, workspace operations and
-the hosted-process gateway consult the same owner. The persistent output
+the hosted-process gateway consult the same owner. Standard/Cautious file
+tools remain confined to the workspace itself; the extra shared Git metadata
+roots needed by linked-worktree processes do not grant file-tool access.
+The persistent output
 adapter forwards the delegate's current profile instead of copying its startup
 value. Settings precedence, user-default persistence and Resume admission
 remain unchanged.

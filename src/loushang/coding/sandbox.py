@@ -33,16 +33,32 @@ from loushang.harness.workspace.git import find_git_paths
 class CodingExecutionAuthority:
     """Live user selection within immutable Product and delegated ceilings."""
 
+    workspace_root: Path
     workspace_profile: EffectiveExecutionProfile
     ceiling: EffectiveExecutionProfile
     permission_snapshot: Callable[[], PermissionProfileSnapshot]
 
     def __call__(self) -> EffectiveExecutionProfile:
+        return self._select(self.workspace_profile)
+
+    def for_workspace_operation(self) -> EffectiveExecutionProfile:
+        # Git processes need linked-worktree metadata outside the workspace.
+        # Ordinary Standard/Cautious file tools retain their original boundary.
+        workspace_only = constrain_execution_profile(
+            self.workspace_profile,
+            EffectiveExecutionProfile(
+                readable_roots=(self.workspace_root,),
+                writable_roots=(self.workspace_root,),
+            ),
+        )
+        return self._select(workspace_only)
+
+    def _select(self, workspace_profile: EffectiveExecutionProfile) -> EffectiveExecutionProfile:
         profile = self.permission_snapshot().effective_profile
         selected = (
             self.ceiling
             if profile.workspace_access == "managed_ceiling"
-            else self.workspace_profile
+            else workspace_profile
         )
         return constrain_execution_profile(self.ceiling, selected)
 

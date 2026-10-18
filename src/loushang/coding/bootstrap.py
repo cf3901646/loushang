@@ -2116,6 +2116,7 @@ def _create_agent_session(
                 requested_profile,
             )
         execution_authority = CodingExecutionAuthority(
+            workspace_root=workspace_root_path,
             workspace_profile=workspace_execution_profile,
             ceiling=execution_ceiling,
             permission_snapshot=services.settings_manager.get_permission_profile_snapshot,
@@ -2165,7 +2166,7 @@ def _create_agent_session(
                 root=workspace_root_path,
                 operations=LOCAL_TOOL_OPERATIONS,
                 execution_profile=execution_ceiling,
-                execution_profile_provider=execution_authority,
+                execution_profile_provider=execution_authority.for_workspace_operation,
             ),
             process_launcher=authorized_process_launcher,
             scope_instance_id=f"workspace:{workspace_root}",

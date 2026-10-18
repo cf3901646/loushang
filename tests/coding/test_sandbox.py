@@ -52,6 +52,7 @@ def test_live_sandbox_scope_full_and_downgrade_respect_ceilings(tmp_path: Path, 
         ) if limited == "delegated" else host
     )
     authority = CodingExecutionAuthority(
+        workspace_root=workspace,
         workspace_profile=normal, ceiling=ceiling,
         permission_snapshot=lambda: permission_profile_snapshot(
             requested, PermissionProfileCeiling("standard" if limited == "managed" else "full_access"),
