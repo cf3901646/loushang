@@ -700,7 +700,7 @@ def test_create_agent_session_binds_always_on_lsp_to_sandbox_scope(
     assert scopes[0].audit_sink is not None
     assert scopes[0].execution_profile_ceiling is not None
     assert Path(project).resolve() in (
-        scopes[0].execution_profile_ceiling.readable_roots
+        scopes[0].effective_execution_profile().readable_roots
     )
     asyncio.run(session.prepare_model_call_runtime())
     assert INSPECT_SYMBOL_TOOL_NAME in session.get_active_tool_names()
@@ -799,6 +799,140 @@ def test_coding_session_mounts_workspace_and_rejects_process_cwd_outside_root(
                     ),
                     correlation_id="outside-workspace",
                 )
+        finally:
+            await session.dispose()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("initial_full", [False, True])
+@pytest.mark.parametrize("managed_read_only", [False, True])
+def test_full_session_execution_changes_files_commands_and_processes_immediately(
+    tmp_path: Path, initial_full: bool, managed_read_only: bool,
+) -> None:
+    from loushang.coding.bootstrap import create_agent_session, create_services
+    from loushang.coding.control import SettingsManager
+    from loushang.coding.session_manager import SessionManager
+    from loushang.harness.authorization import EffectiveExecutionProfile
+    from loushang.harness.workspace.exec import ExecService
+    from loushang.harness.workspace.process import ProcessLaunchRequest
+
+    async def scenario() -> None:
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        note = outside / "note.txt"
+        note.write_text("outside", encoding="utf-8")
+        settings = SettingsManager(global_settings_path=tmp_path / "user.json")
+        if initial_full:
+            settings.set_permission_profile("full_access", scope="user")
+            settings = SettingsManager(global_settings_path=tmp_path / "user.json")
+        service = ExecService(
+            execution_profile=(
+                EffectiveExecutionProfile(readable_roots=(tmp_path,), network="denied")
+                if managed_read_only else None
+            ),
+        )
+        manager = await SessionManager.new(
+            session_dir=tmp_path / "sessions", cwd=workspace, persist=False,
+        )
+        session = create_agent_session(
+            session_manager=manager, model=_model(),
+            services=create_services(settings_manager=settings, exec_service=service),
+        )
+        try:
+            await session.prepare_model_call_runtime()
+            tools = {tool.name: tool for tool in session.agent.tools}
+            if not initial_full:
+                with pytest.raises(PermissionError):
+                    await tools["read"].execute("standard-outside", {"path": str(note)})
+            settings.set_permission_profile("full_access")
+            result = await tools["read"].execute("full-outside", {"path": str(note)})
+            assert result.content[0].text == "outside"
+            if managed_read_only:
+                with pytest.raises(PermissionError):
+                    await tools["write"].execute(
+                        "managed-write", {"path": str(note), "content": "forbidden"},
+                    )
+            else:
+                await tools["write"].execute(
+                    "full-write", {"path": str(note), "content": "full"},
+                )
+                assert note.read_text(encoding="utf-8") == "full"
+            shell_result = await session.execute_bash("echo full", cwd=str(outside))
+            assert "full" in shell_result["output"]
+            full_profile = session.get_exec_service().execution_profile
+            assert full_profile is not None
+            assert any(outside.is_relative_to(root) for root in full_profile.readable_roots)
+            if managed_read_only:
+                assert full_profile.writable_roots == ()
+                assert full_profile.network == "denied"
+            else:
+                launcher = session.get_workspace_process_launcher()
+                handle = await launcher.start(
+                    ProcessLaunchRequest(
+                        command=(sys.executable, "-c", "print('full-process')"),
+                        cwd=str(outside), effective_environment=(),
+                    ), correlation_id="full-process",
+                )
+                assert (await handle.wait()).return_code == 0
+                await handle.close()
+            settings.set_permission_profile("standard")
+            with pytest.raises(PermissionError):
+                await tools["read"].execute("downgraded-read", {"path": str(note)})
+            with pytest.raises(PermissionError):
+                await session.get_workspace_process_launcher().start(
+                    ProcessLaunchRequest(
+                        command=("never-start",), cwd=str(outside), effective_environment=(),
+                    ), correlation_id="downgraded-process",
+                )
+            with pytest.raises(PermissionError):
+                await session.execute_bash("echo rejected", cwd=str(outside))
+            await session.execute_bash("echo standard")
+            assert session.get_exec_service().execution_profile.readable_roots == (workspace,)
+        finally:
+            await session.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_full_keeps_required_workspace_containment_at_bootstrap(tmp_path: Path, monkeypatch) -> None:
+    import loushang.coding.bootstrap as bootstrap
+    from loushang.coding.control import ControlConfig, SettingsManager
+    from loushang.coding.session_manager import SessionManager
+    from loushang.harness.sandbox import SandboxSettings
+
+    original_bind = bootstrap.bind_coding_sandbox_runtime
+    bindings = []
+
+    def bind_with_test_backend(**kwargs):
+        # Keep this a Product admission test, independent of installed OS
+        # backends. Required backend availability is covered by Harness tests.
+        bindings.append(kwargs)
+        return original_bind(**{**kwargs, "settings": SandboxSettings()})
+
+    monkeypatch.setattr(bootstrap, "bind_coding_sandbox_runtime", bind_with_test_backend)
+
+    async def scenario() -> None:
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        outside = tmp_path / "outside.txt"
+        outside.write_text("private", encoding="utf-8")
+        settings = SettingsManager(ControlConfig(sandbox=SandboxSettings(enabled=True, requirement="required")))
+        settings.set_permission_profile("full_access")
+        manager = await SessionManager.new(session_dir=tmp_path / "sessions", cwd=workspace, persist=False)
+        session = bootstrap.create_agent_session(
+            session_manager=manager, model=_model(),
+            services=bootstrap.create_services(settings_manager=settings),
+        )
+        try:
+            assert bindings[0]["settings"].requirement == "required"
+            assert bindings[0]["execution_profile"].readable_roots == (workspace,)
+            await session.prepare_model_call_runtime()
+            tool = next(tool for tool in session.agent.tools if tool.name == "read")
+            with pytest.raises(PermissionError):
+                await tool.execute("required-outside", {"path": str(outside)})
         finally:
             await session.dispose()
 

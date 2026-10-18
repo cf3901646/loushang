@@ -141,7 +141,9 @@ from loushang.coding.runtime_capability_admission import (
     resolve_coding_capability_profile,
 )
 from loushang.coding.sandbox import (
+    CodingExecutionAuthority,
     bind_coding_sandbox_runtime,
+    coding_host_execution_profile,
     coding_workspace_execution_profile,
 )
 from loushang.coding.session import AgentSession
@@ -2087,6 +2089,12 @@ def _create_agent_session(
                 network="allowed",
             )
         )
+        sandbox_settings = services.settings_manager.get_sandbox_settings()
+        execution_ceiling = (
+            workspace_execution_profile
+            if sandbox_settings.requirement == "required"
+            else coding_host_execution_profile(workspace_root_path, writable=sandbox_workspace_writable)
+        )
         requested_profiles = (
             getattr(base_exec_service, "execution_profile", None),
             (
@@ -2103,18 +2111,25 @@ def _create_agent_session(
                     "Coding workspace execution ceiling must be an "
                     "EffectiveExecutionProfile"
                 )
-            workspace_execution_profile = constrain_execution_profile(
-                workspace_execution_profile,
+            execution_ceiling = constrain_execution_profile(
+                execution_ceiling,
                 requested_profile,
             )
+        execution_authority = CodingExecutionAuthority(
+            workspace_root=workspace_root_path,
+            workspace_profile=workspace_execution_profile,
+            ceiling=execution_ceiling,
+            permission_snapshot=services.settings_manager.get_permission_profile_snapshot,
+        )
         sandbox_runtime = bind_coding_sandbox_runtime(
             workspace_root=session_manager.get_cwd(),
             writable_workspace=sandbox_workspace_writable,
-            settings=services.settings_manager.get_sandbox_settings(),
+            settings=sandbox_settings,
             base_exec_service=base_exec_service,
             diagnostics_service=services.diagnostics_service,
             session_id=session_id,
-            execution_profile=workspace_execution_profile,
+            execution_profile=execution_ceiling,
+            execution_profile_provider=execution_authority,
         )
         process_session: AgentSession | None = None
 
@@ -2128,7 +2143,8 @@ def _create_agent_session(
                 policy_evaluator=tool_policy_evaluator,
                 approval_resolver=approval_resolver,
                 audit_sink=emit_process_audit_event,
-                execution_profile_ceiling=workspace_execution_profile,
+                execution_profile_ceiling=execution_ceiling,
+                execution_profile_provider=execution_authority,
             )
         )
         workspace_root = str(workspace_root_path)
@@ -2136,12 +2152,12 @@ def _create_agent_session(
             "\0".join(
                 (
                     "coding.workspace.standard.v1",
-                    *(str(path) for path in workspace_execution_profile.readable_roots),
+                    *(str(path) for path in execution_ceiling.readable_roots),
                     "--writable--",
-                    *(str(path) for path in workspace_execution_profile.writable_roots),
+                    *(str(path) for path in execution_ceiling.writable_roots),
                     "--denied--",
-                    *(str(path) for path in workspace_execution_profile.denied_roots),
-                    f"network:{workspace_execution_profile.network}",
+                    *(str(path) for path in execution_ceiling.denied_roots),
+                    f"network:{execution_ceiling.network}",
                 )
             ).encode("utf-8")
         ).hexdigest()
@@ -2149,7 +2165,8 @@ def _create_agent_session(
             operations=CodingWorkspaceOperations(
                 root=workspace_root_path,
                 operations=LOCAL_TOOL_OPERATIONS,
-                execution_profile=workspace_execution_profile,
+                execution_profile=execution_ceiling,
+                execution_profile_provider=execution_authority.for_workspace_operation,
             ),
             process_launcher=authorized_process_launcher,
             scope_instance_id=f"workspace:{workspace_root}",
