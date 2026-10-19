@@ -869,7 +869,7 @@ def _create_agent_session(
     historical_entries = session_manager.get_entries()
     historical_startup = (
         historical_startup_composition_record(historical_entries)
-        if historical_entries
+        if historical_entries and lsp_enabled_for_session and lsp_mode == "on_demand"
         else None
     )
     historical_lsp_selected = bool(historical_entries) and (
