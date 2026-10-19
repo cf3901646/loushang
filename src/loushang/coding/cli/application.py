@@ -211,7 +211,7 @@ from loushang.harness.resources.packages import (
 from loushang.harness.resources.packages.security import PackageSecurityPolicy
 from loushang.harness.resources.plugins import is_remote_plugin_source
 from loushang.harness.scenario import run_fake_workflow_cli
-from loushang.harness.tools.agent_delegate import AGENT_DELEGATE_TOOL_NAME
+from loushang.harness.tools import AGENT_DELEGATE_TOOL_NAME
 from loushang.harness.tools.workspace import (
     WorkspaceToolRuntimeSettings,
     workspace_tool_runtime_settings,

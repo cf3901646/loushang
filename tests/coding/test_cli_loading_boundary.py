@@ -249,6 +249,18 @@ assert cli.parse_args is args.parse_args
     )
 
 
+def test_default_application_import_keeps_delegate_tool_dormant(tmp_path):
+    _probe(
+        tmp_path,
+        """
+import loushang.coding.cli.application as application
+import loushang.harness.tools as tools
+assert application.AGENT_DELEGATE_TOOL_NAME == tools.AGENT_DELEGATE_TOOL_NAME
+assert 'loushang.harness.tools.agent_delegate' not in sys.modules
+""",
+    )
+
+
 @pytest.mark.parametrize("phase", ["import", "lookup"])
 def test_grammar_facade_caches_only_successful_owner_lookup(tmp_path, phase):
     _probe(
