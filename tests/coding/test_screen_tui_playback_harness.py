@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sys
 import time
 
@@ -453,6 +454,12 @@ def test_screen_tui_tool_command_keeps_input_and_working_timer_live(
     assert observed == [(True, "next")]
     result.assert_text_contains("Working ")
     result.assert_text_contains("Worked ")
+    assert result.text.index("› next") < result.text.index("Worked ")
+    working_times = [
+        float(value) for value in re.findall(r"Working (\d+\.\d+)s", result.text)
+    ]
+    assert len(working_times) >= 2
+    assert max(working_times) - min(working_times) >= 0.1
     result.assert_no_clear_screen()
 
 

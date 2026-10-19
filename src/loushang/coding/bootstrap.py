@@ -88,6 +88,7 @@ from loushang.coding.capabilities import (
 from loushang.coding.composition_provenance import (
     composition_header_metadata,
     historical_composition_provenance,
+    historical_startup_composition_record,
 )
 from loushang.coding.composition_sets import (
     CODING_KERNEL_PROMPT_REVISION,
@@ -864,12 +865,28 @@ def _create_agent_session(
         and arch_mode != "disabled"
         and session_no_tools_mode != "all"
     )
-    # Existing persisted Sessions retain their original eager effect-owner
-    # receipts until deferred activation has its own durable resume evidence.
+    historical_entries = session_manager.get_entries()
+    historical_startup = (
+        historical_startup_composition_record(historical_entries)
+        if historical_entries
+        else None
+    )
+    historical_lsp_selected = bool(historical_entries) and (
+        historical_startup is None
+        or any(
+            item["pluginId"] == "coding.lsp.default"
+            for item in cast(
+                list[dict[str, object]], historical_startup["selectedRevisions"]
+            )
+        )
+    )
+    # A validated startup receipt distinguishes a dormant LSP Session from an
+    # older eager Session. History without a receipt keeps the conservative
+    # eager route because its original owner selection is not proven.
     defer_lsp_for_session = (
         lsp_enabled_for_session
         and lsp_mode == "on_demand"
-        and not session_manager.get_entries()
+        and not historical_lsp_selected
         and "coding.lsp.default" not in legacy_disabled_plugin_ids
     )
     eager_lsp_enabled_for_session = (
@@ -889,7 +906,7 @@ def _create_agent_session(
                     "harness.plugin-activation",
                 }
             )
-            if capability_plugins_enabled_for_session
+            if eager_capability_plugins_enabled_for_session
             else frozenset()
         )
         if worker_candidate_plugin_id is not None:
@@ -898,7 +915,7 @@ def _create_agent_session(
             raise CodingResourceCatalogAdmissionError(
                 ("resume_plugin_participation_changed",)
             )
-    if _resume_plugin_parents is not None and not capability_plugins_enabled_for_session:
+    if _resume_plugin_parents is not None and not eager_capability_plugins_enabled_for_session:
         raise ValueError(
             "Coding Resume Plugin parents require selected capability Plugins"
         )
@@ -925,7 +942,7 @@ def _create_agent_session(
     # resume recovers automatically instead of raising
     # "Missing tool results before next message".  New sessions have no
     # history and stay on the (global) default.
-    if len(session_manager.get_entries()) > 0:
+    if historical_entries:
         base_factory = agent_factory
 
         def _resume_agent_factory(**kwargs: object) -> Agent:

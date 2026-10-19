@@ -172,7 +172,7 @@ def test_private_plugin_executes_real_lsp_tools_and_retires_exact_generation(
     asyncio.run(scenario())
 
 
-def test_deferred_lsp_session_reopens_with_legacy_eager_receipts(tmp_path: Path) -> None:
+def test_deferred_lsp_session_reopens_with_dormant_receipt(tmp_path: Path) -> None:
     async def scenario() -> None:
         project = tmp_path / "project"
         project.mkdir()
@@ -206,6 +206,62 @@ def test_deferred_lsp_session_reopens_with_legacy_eager_receipts(tmp_path: Path)
         reopened_manager = await SessionManager.load(transcript)
         reopened = create_agent_session(
             session_manager=reopened_manager, model=_model(), services=services
+        )
+        try:
+            assert reopened._deferred_lsp_slot is not None
+            assert reopened._deferred_lsp_slot.state == "dormant"
+            await reopened.prepare_model_call_runtime()
+            assert INSPECT_SYMBOL_TOOL_NAME not in {
+                definition.name for definition in reopened.get_all_tools()
+            }
+            await reopened.set_active_tools([INSPECT_SYMBOL_TOOL_NAME])
+            assert reopened._deferred_lsp_slot.state == "active"
+        finally:
+            await reopened.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_historical_eager_lsp_receipt_stays_eager_on_resume(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        project = tmp_path / "project"
+        project.mkdir()
+        manager = await SessionManager.new(
+            session_dir=tmp_path / "sessions", cwd=str(project), persist=True
+        )
+        settings = SettingsManager(
+            ControlConfig(
+                capabilities={"coding.lsp": "always"},
+                sandbox=SandboxSettings(enabled=False),
+            )
+        )
+        first = create_agent_session(
+            session_manager=manager,
+            model=_model(),
+            services=create_services(settings_manager=settings),
+        )
+        try:
+            await first.prepare_model_call_runtime()
+            await manager.append_message(
+                UserMessage(role="user", content="preserved", timestamp=1.0)
+            )
+        finally:
+            await first.dispose()
+        transcript = manager.get_session_file()
+        assert transcript is not None
+
+        reopened_manager = await SessionManager.load(transcript)
+        reopened = create_agent_session(
+            session_manager=reopened_manager,
+            model=_model(),
+            services=create_services(
+                settings_manager=SettingsManager(
+                    ControlConfig(
+                        capabilities={"coding.lsp": "on_demand"},
+                        sandbox=SandboxSettings(enabled=False),
+                    )
+                )
+            ),
         )
         try:
             assert reopened._deferred_lsp_slot is None

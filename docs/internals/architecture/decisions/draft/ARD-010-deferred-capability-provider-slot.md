@@ -150,10 +150,11 @@ discovery, Plugin selection, approval, and child graph binding until explicit
 Tool activation. Dormant descriptors are visible to `/tools`; `/lsp status` is
 observational. `always` remains eager and `disabled` has no LSP slot. The
 first-party fake-server vertical slice passes through real Tool execution and
-retirement. Legacy persisted Sessions with historical entries still take the
-eager route to preserve existing startup owner receipts; a new persisted
-Session can be reopened after deferred activation. Product-selected paths and
-the durable dormant-intent receipt still need dedicated validation.
+retirement. A validated startup receipt with no LSP selected revision allows a
+persisted Session to reopen dormant, including after deferred activation.
+Historical eager receipts and history without a startup receipt keep the eager
+route to preserve their owner evidence. Product-selected paths still need
+dedicated validation.
 
 In an isolated local A/B, the previous default `on_demand` path took
 4.50–4.97 seconds to construct and prepare a Session; the deferred path took
