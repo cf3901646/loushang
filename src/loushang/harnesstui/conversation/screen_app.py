@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import threading
 import time
 from collections.abc import Callable, Iterable
+from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -115,7 +118,7 @@ class ScreenConversationApp:
         init=False,
         repr=False,
     )
-    _context_usage_refresh_task: asyncio.Task[None] | None = field(
+    _context_usage_refresh_task: asyncio.Future[None] | None = field(
         default=None, init=False, repr=False
     )
     _expanded_tool_keys: set[str | int] = field(
@@ -760,10 +763,39 @@ class ScreenConversationApp:
             pass
         else:
             self._context_usage_refresh_key = refresh_key
-            self._context_usage_refresh_task = loop.create_task(
-                self._refresh_context_usage_async(refresh_key)
+            completion = loop.create_future()
+            self._context_usage_refresh_task = completion
+            provider = self.context_usage_provider
+            context = contextvars.copy_context()
+
+            def rebuild() -> None:
+                try:
+                    value = context.run(provider) if provider is not None else None
+                except Exception:
+                    value = None
+                # The screen's event loop may already be closed; this read is
+                # observational, so its stale result may be discarded.
+                with suppress(RuntimeError):
+                    loop.call_soon_threadsafe(
+                        self._finish_context_usage_refresh,
+                        refresh_key,
+                        completion,
+                        value,
+                    )
+
+            worker = threading.Thread(
+                target=rebuild,
+                name="loushang-context-usage",
+                daemon=True,
             )
-            return
+            try:
+                worker.start()
+            except RuntimeError:
+                self._context_usage_refresh_task = None
+                self._context_usage_refresh_key = None
+                completion.cancel()
+            else:
+                return
         try:
             self.state.context_usage = self.context_usage_provider()
         except Exception:
@@ -777,17 +809,15 @@ class ScreenConversationApp:
         if task is not None:
             task.cancel()
 
-    async def _refresh_context_usage_async(
-        self, refresh_key: tuple[int, int]
+    def _finish_context_usage_refresh(
+        self,
+        refresh_key: tuple[int, int],
+        completion: asyncio.Future[None],
+        value: object | None,
     ) -> None:
-        provider = self.context_usage_provider
-        try:
-            value = await asyncio.to_thread(provider) if provider is not None else None
-        except Exception:
-            value = None
-        finally:
-            if self._context_usage_refresh_task is asyncio.current_task():
-                self._context_usage_refresh_task = None
+        if self._context_usage_refresh_task is not completion:
+            return
+        self._context_usage_refresh_task = None
         current_key = (
             self.state.records_revision,
             self.state.transcript_window_generation,
@@ -796,6 +826,8 @@ class ScreenConversationApp:
             self._context_usage_refresh_key = None
         else:
             self.state.context_usage = value
+        if not completion.done():
+            completion.set_result(None)
         self._request_render("product")
 
     def startup_welcome_panel(self) -> Any:

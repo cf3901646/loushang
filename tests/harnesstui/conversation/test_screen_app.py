@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 
 import pytest
 
@@ -232,6 +233,34 @@ def test_cancel_context_refresh_keeps_exited_screen_unmodified() -> None:
         assert app.state.context_usage is None
 
     asyncio.run(scenario())
+
+
+def test_cancelled_context_refresh_does_not_delay_event_loop_shutdown() -> None:
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_context_usage() -> int:
+        started.set()
+        release.wait(timeout=5)
+        return 42
+
+    async def scenario() -> None:
+        app = _app()
+        app.context_usage_provider = slow_context_usage
+        app.render(RenderConstraints(width=60, max_height=24, visible_height=24))
+        for _ in range(100):
+            if started.is_set():
+                break
+            await asyncio.sleep(0.01)
+        assert started.is_set()
+        app.cancel_context_usage_refresh()
+
+    start = time.perf_counter()
+    try:
+        asyncio.run(scenario())
+        assert time.perf_counter() - start < 1.0
+    finally:
+        release.set()
 
 
 def test_screen_conversation_app_reports_window_replacement_reason_once() -> None:
