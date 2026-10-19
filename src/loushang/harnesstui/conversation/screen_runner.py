@@ -602,6 +602,11 @@ async def run_conversation_screen(
         )
         raise
     finally:
+        cancel_context_usage_refresh = getattr(
+            app, "cancel_context_usage_refresh", None
+        )
+        if callable(cancel_context_usage_refresh):
+            cancel_context_usage_refresh()
         try:
             if aborting_task is not None:
                 await _join_owned_abort(aborting_task)

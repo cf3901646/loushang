@@ -770,6 +770,13 @@ class ScreenConversationApp:
             self.state.context_usage = None
         self._context_usage_refresh_key = refresh_key
 
+    def cancel_context_usage_refresh(self) -> None:
+        task = self._context_usage_refresh_task
+        self._context_usage_refresh_task = None
+        self._context_usage_refresh_key = None
+        if task is not None:
+            task.cancel()
+
     async def _refresh_context_usage_async(
         self, refresh_key: tuple[int, int]
     ) -> None:
@@ -779,7 +786,8 @@ class ScreenConversationApp:
         except Exception:
             value = None
         finally:
-            self._context_usage_refresh_task = None
+            if self._context_usage_refresh_task is asyncio.current_task():
+                self._context_usage_refresh_task = None
         current_key = (
             self.state.records_revision,
             self.state.transcript_window_generation,
