@@ -151,6 +151,12 @@ def wrap_ansi(text: str, *, width: int) -> list[str]:
     tracker = _StyleTracker()
     for input_line in text.split("\n"):
         current = tracker.active_codes()
+        if input_line.isascii():
+            plain_width = _plain_ascii_width(strip_control_sequences(input_line))
+            if plain_width is not None and plain_width <= width:
+                _process_control_sequences(input_line, tracker)
+                wrapped.append((current + input_line).rstrip(" "))
+                continue
         current_width = 0
         tokens = _ansi_tokens(input_line)
         if not tokens:

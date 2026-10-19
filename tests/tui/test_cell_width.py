@@ -292,6 +292,22 @@ def test_wrap_ansi_preserves_active_style_after_wrapping() -> None:
     assert all(visible_width(line) <= 4 for line in lines)
 
 
+def test_wrap_ansi_preserves_style_and_hyperlink_across_unwrapped_line() -> None:
+    assert wrap_ansi("\x1b[31mred blue\nnext long text\x1b[0m", width=9) == [
+        "\x1b[31mred blue",
+        "\x1b[31mnext long",
+        "\x1b[31mtext\x1b[0m",
+    ]
+
+    open_link = "\x1b]8;;https://x\x07"
+    close_link = "\x1b]8;;\x07"
+    assert wrap_ansi(f"{open_link}link\nmore link{close_link}", width=8) == [
+        f"{open_link}link",
+        f"{open_link}more{close_link}",
+        f"{open_link}link{close_link}",
+    ]
+
+
 def test_wrap_ansi_does_not_apply_underline_before_styled_text() -> None:
     underline_on = "\x1b[4m"
     underline_off = "\x1b[24m"
