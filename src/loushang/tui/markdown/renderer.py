@@ -63,6 +63,7 @@ _MARKDOWN_STABLE_BLOCK_CACHE_SIZE = 4_096
 # A partial list marker can merge backward into the preceding top-level list.
 _STREAMING_MARKDOWN_FRONTIER_GROUPS = 2
 _FLAT_LIST_STABLE_GROUP_ITEMS = 64
+_PLAIN_FLAT_BULLET_ITEM = re.compile(r"- ([A-Za-z0-9][A-Za-z0-9 ]*)\Z")
 _MARKDOWN_PARSER = MarkdownIt("commonmark").enable("table").enable("strikethrough")
 _QUOTE_MARKER = "│ "
 
@@ -291,16 +292,20 @@ class _StreamingMarkdownParseState:
         newly_completed: list[_MarkdownBlock] = []
         last_item = None
         if len(new_lines) >= 8:
-            tail_source = "\n".join(new_lines) + ("\n" if complete_count == len(lines) else "")
-            groups, has_references = _parse_markdown_groups(tail_source, line_offset=0)
-            if (
-                has_references
-                or len(groups) != 1
-                or len(groups[0].blocks) != len(new_lines)
-                or any(block.kind != "list_item" for block in groups[0].blocks)
-            ):
-                return None
-            new_blocks = groups[0].blocks
+            plain_blocks = tuple(_plain_flat_bullet_item(line) for line in new_lines)
+            if all(block is not None for block in plain_blocks):
+                new_blocks = cast(tuple[_MarkdownBlock, ...], plain_blocks)
+            else:
+                tail_source = "\n".join(new_lines) + ("\n" if complete_count == len(lines) else "")
+                groups, has_references = _parse_markdown_groups(tail_source, line_offset=0)
+                if (
+                    has_references
+                    or len(groups) != 1
+                    or len(groups[0].blocks) != len(new_lines)
+                    or any(block.kind != "list_item" for block in groups[0].blocks)
+                ):
+                    return None
+                new_blocks = groups[0].blocks
             newly_completed.extend(new_blocks[: complete_count - self._flat_list_completed_count])
             if complete_count != len(lines):
                 last_item = new_blocks[-1]
@@ -714,6 +719,9 @@ def _parse_markdown_blocks(markdown: str) -> tuple[_MarkdownBlock, ...]:
 
 
 def _parse_normalized_markdown_blocks(normalized: str) -> tuple[_MarkdownBlock, ...]:
+    plain_list = _parse_plain_flat_bullet_source(normalized)
+    if plain_list is not None:
+        return plain_list
     blocks, _index = _parse_markdown_it_blocks(
         _MARKDOWN_PARSER.parse(normalized),
         0,
@@ -721,6 +729,22 @@ def _parse_normalized_markdown_blocks(normalized: str) -> tuple[_MarkdownBlock, 
         source_lines=normalized.split("\n"),
     )
     return tuple(blocks)
+
+
+def _parse_plain_flat_bullet_source(
+    normalized: str,
+) -> tuple[_MarkdownBlock, ...] | None:
+    if not normalized.startswith("- "):
+        return None
+    lines = normalized.split("\n")
+    if lines[-1] == "":
+        lines.pop()
+    if not lines:
+        return None
+    blocks = tuple(_plain_flat_bullet_item(line) for line in lines)
+    if any(block is None for block in blocks):
+        return None
+    return cast(tuple[_MarkdownBlock, ...], blocks)
 
 
 def _parse_markdown_groups(
@@ -764,11 +788,31 @@ def _parse_markdown_groups(
 
 
 def _parse_flat_bullet_item(line: str) -> _MarkdownBlock | None:
+    plain_item = _plain_flat_bullet_item(line)
+    if plain_item is not None:
+        return plain_item
     groups, has_references = _parse_markdown_groups(line, line_offset=0)
     if has_references or len(groups) != 1 or len(groups[0].blocks) != 1:
         return None
     item = groups[0].blocks[0]
     return item if item.kind == "list_item" else None
+
+
+def _plain_flat_bullet_item(line: str) -> _MarkdownBlock | None:
+    """Build the same block as CommonMark for a restricted plain text item."""
+
+    match = _PLAIN_FLAT_BULLET_ITEM.fullmatch(line)
+    if match is None or line.endswith(" "):
+        return None
+    body = match.group(1)
+    inline = (_InlineToken("text", text=body),)
+    return _MarkdownBlock(
+        "list_item",
+        text=line,
+        meta="- ",
+        inline=inline,
+        children=(_MarkdownBlock("paragraph", text=body, inline=inline),),
+    )
 
 
 def _markdown_blocks_from_groups(groups: Sequence[_ParsedMarkdownGroup]) -> tuple[_MarkdownBlock, ...]:

@@ -117,7 +117,7 @@ def test_streaming_flat_bullet_list_reuses_completed_items(
     parsed_sources.clear()
     source += "- final item"
     assert state.parse(source) == markdown_renderer._parse_markdown_blocks(source)
-    assert parsed_sources == ["- final item"]
+    assert parsed_sources == []
 
     source += "\n\nTail"
     assert state.parse(source) == markdown_renderer._parse_markdown_blocks(source)
@@ -147,9 +147,54 @@ def test_streaming_flat_bullet_list_parses_new_burst_once(
     assert parsed_sources == [source]
 
     parsed_sources.clear()
-    source += "".join(f"- next {index}\n" for index in range(100))
+    new_burst = "".join(f"- next {index} **bold**\n" for index in range(100))
+    source += new_burst
     assert state.parse(source) == markdown_renderer._parse_markdown_blocks(source)
-    assert parsed_sources == ["".join(f"- next {index}\n" for index in range(100))]
+    assert parsed_sources == [new_burst]
+
+
+def test_streaming_plain_bullet_burst_matches_commonmark_without_bulk_parse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = "".join(f"- item {index} detail {index}\n" for index in range(512))
+    expected, _index = markdown_renderer._parse_markdown_it_blocks(
+        markdown_renderer._MARKDOWN_PARSER.parse(source),
+        0,
+        stop_type=None,
+        source_lines=source.split("\n"),
+    )
+    monkeypatch.setattr(
+        markdown_renderer,
+        "_parse_markdown_groups",
+        lambda *_args, **_kwargs: pytest.fail("plain items need no bulk parse"),
+    )
+
+    state = markdown_renderer._StreamingMarkdownParseState()
+    assert state.parse(source) == tuple(expected)
+    assert markdown_renderer._render_markdown_blocks(
+        state.parse(source), width=51
+    ) == markdown_renderer._render_markdown_blocks(tuple(expected), width=51)
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "- item 0 detail 0",
+        "- item 0 detail 0\n- item 1 detail 1\n",
+        "- Path /tmp/file.py:12, status 200\n- Next item (ok)\n",
+        "- 1. nested ordered item\n- 2) next item\n",
+        "- http://example.com\n- next item\n",
+        "".join(f"- item {index} detail {index}\n" for index in range(128)),
+    ),
+)
+def test_plain_bullet_completion_matches_commonmark_blocks(source: str) -> None:
+    expected, _index = markdown_renderer._parse_markdown_it_blocks(
+        markdown_renderer._MARKDOWN_PARSER.parse(source),
+        0,
+        stop_type=None,
+        source_lines=source.split("\n"),
+    )
+    assert markdown_renderer._parse_markdown_blocks(source) == tuple(expected)
 
 
 def test_streaming_flat_bullet_list_keeps_completed_render_segments() -> None:
