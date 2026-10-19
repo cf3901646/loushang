@@ -59,6 +59,27 @@ def test_context_usage_public_exports_keep_their_stable_package_surface() -> Non
     )
 
 
+def test_threshold_only_snapshot_preserves_budget_without_surface_fingerprint() -> None:
+    messages = [
+        UserMessage(role="user", content="a" * 800, timestamp=0.0),
+    ]
+    model = type("Model", (), {"context_window": 300})()
+    full = build_context_usage_snapshot(messages, [], model, reserve_tokens=50)
+    threshold_only = build_context_usage_snapshot(
+        messages,
+        [],
+        model,
+        reserve_tokens=50,
+        include_surface_fingerprint=False,
+    )
+    assert full.surface_fingerprint is not None
+    assert threshold_only.surface_fingerprint is None
+    assert threshold_only.tokens == full.tokens
+    assert threshold_only.compactable == full.compactable
+    assert threshold_only.threshold_tokens == full.threshold_tokens
+    assert threshold_only.source == full.source
+
+
 def _envelope_fingerprint(*, system_prompt: str = "system") -> str:
     return measure_structural_envelope_fingerprint(
         system_prompt=system_prompt,

@@ -356,6 +356,7 @@ class AgentTranscriptCompactionRuntime:
             reserve_tokens=policy.reserve_tokens,
             compact_percent=policy.compact_percent,
             keep_recent_tokens=policy.keep_recent_tokens,
+            include_surface_fingerprint=False,
         )
         current_messages = tuple(self._get_context_messages())
         if (
@@ -612,6 +613,7 @@ def build_threshold_compaction_decision(
     reserve_tokens: int,
     compact_percent: float = 100.0,
     keep_recent_tokens: int | None = None,
+    include_surface_fingerprint: bool = True,
 ) -> CompactionDecision:
     snapshot = build_context_usage_snapshot(
         messages,
@@ -620,6 +622,7 @@ def build_threshold_compaction_decision(
         reserve_tokens=reserve_tokens,
         compact_percent=compact_percent,
         keep_recent_tokens=keep_recent_tokens,
+        include_surface_fingerprint=include_surface_fingerprint,
     )
     if enabled and snapshot.compactable:
         return CompactionDecision(

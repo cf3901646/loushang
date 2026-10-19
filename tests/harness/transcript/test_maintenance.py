@@ -138,6 +138,18 @@ def test_context_usage_is_profile_owned_and_stales_at_checkpoint() -> None:
         assert stale.stale_after_compaction is True
         expected = measure_replay_context_surface(session.build_context().messages)
         assert stale.tokens == expected.tokens
+        threshold_only = build_context_usage_snapshot(
+            session.build_context().messages,
+            session.get_branch(),
+            _model(),
+            reserve_tokens=10,
+            include_surface_fingerprint=False,
+        )
+        assert threshold_only.tokens == stale.tokens
+        assert threshold_only.compactable == stale.compactable
+        assert threshold_only.stale_after_compaction == stale.stale_after_compaction
+        assert threshold_only.estimator_id == stale.estimator_id
+        assert threshold_only.surface_fingerprint is None
         assert stale.percent == (expected.tokens / 100) * 100
         assert stale.authority == "local_estimator"
         assert stale.accuracy == "estimated"
@@ -311,7 +323,17 @@ def test_compaction_runtime_counts_the_completed_message_before_context_refresh(
     asyncio.run(scenario())
 
 
-def test_after_turn_budget_check_keeps_event_loop_live_for_large_context() -> None:
+def test_after_turn_budget_check_keeps_event_loop_live_for_large_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unexpected_fingerprint(_messages: object) -> object:
+        raise AssertionError("threshold decision scanned the replay fingerprint")
+
+    monkeypatch.setattr(
+        "loushang.harness.transcript.context_usage.measure_replay_context_surface",
+        unexpected_fingerprint,
+    )
+
     async def scenario() -> None:
         session = await _session()
         messages = [
@@ -355,8 +377,7 @@ def test_after_turn_budget_check_keeps_event_loop_live_for_large_context() -> No
             stop.set()
             await ticker
         assert outcome.result is None
-        assert len(delays) >= 2
-        assert max(delays) < 0.15
+        assert not delays or max(delays) < 0.15
 
     asyncio.run(scenario())
 

@@ -289,8 +289,19 @@ def build_context_usage_snapshot(
     keep_recent_tokens: int | None = None,
     transcript_revision: int | None = None,
     leaf_id: str | None = None,
+    include_surface_fingerprint: bool = True,
 ) -> ContextUsageSnapshot:
-    replay_surface = measure_replay_context_surface(messages)
+    # A threshold-only check needs the replay token count after compaction,
+    # but never consumes the content fingerprint. Avoid serializing the whole
+    # history when its caller explicitly opts out of that display metadata.
+    replay_surface = (
+        measure_replay_context_surface(messages)
+        if include_surface_fingerprint
+        else None
+    )
+    surface_fingerprint = (
+        replay_surface.surface_fingerprint if replay_surface is not None else None
+    )
     context_window = model_context_window(model)
     if context_window is None:
         return ContextUsageSnapshot(
@@ -309,7 +320,7 @@ def build_context_usage_snapshot(
             reason="unknown_context_window",
             transcript_revision=transcript_revision,
             leaf_id=leaf_id,
-            surface_fingerprint=replay_surface.surface_fingerprint,
+            surface_fingerprint=surface_fingerprint,
         )
 
     budget = calculate_compaction_budget(
@@ -321,7 +332,11 @@ def build_context_usage_snapshot(
     if latest_compaction is not None and not has_post_compaction_usage(
         branch_entries, latest_compaction
     ):
-        tokens = replay_surface.tokens
+        tokens = (
+            replay_surface.tokens
+            if replay_surface is not None
+            else sum(estimate_message_tokens(message) for message in messages)
+        )
         return ContextUsageSnapshot(
             tokens=tokens,
             context_window=context_window,
@@ -342,8 +357,8 @@ def build_context_usage_snapshot(
             accuracy="estimated",
             transcript_revision=transcript_revision,
             leaf_id=leaf_id,
-            estimator_id=replay_surface.estimator_id,
-            surface_fingerprint=replay_surface.surface_fingerprint,
+            estimator_id=CONTEXT_MESSAGE_ESTIMATOR_ID,
+            surface_fingerprint=surface_fingerprint,
         )
 
     estimate = estimate_context_tokens(messages) if messages else None
@@ -400,7 +415,7 @@ def build_context_usage_snapshot(
         transcript_revision=transcript_revision,
         leaf_id=leaf_id,
         estimator_id=estimator_id,
-        surface_fingerprint=replay_surface.surface_fingerprint,
+        surface_fingerprint=surface_fingerprint,
     )
 
 
