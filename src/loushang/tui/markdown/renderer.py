@@ -143,6 +143,8 @@ class _StreamingMarkdownParseState:
     _revision: int = 0
     _initialized: bool = False
     _full_parse_only: bool = False
+    _flat_list_completed_blocks: list[_MarkdownBlock] = field(default_factory=list)
+    _flat_list_completed_count: int = 0
 
     def parse(self, markdown: str) -> tuple[_MarkdownBlock, ...]:
         partition = self.update(markdown)
@@ -177,6 +179,24 @@ class _StreamingMarkdownParseState:
                 generation=self._generation,
                 revision=self._revision,
                 full_blocks=_parse_normalized_markdown_blocks(normalized),
+            )
+            self._last_partition = partition
+            self._last_blocks_revision = -1
+            return partition
+
+        flat_list = self._parse_flat_bullet_list(normalized)
+        if flat_list is not None:
+            partition = _StreamingMarkdownPartition(
+                stable_groups=self._stable_groups,
+                frontier_groups=(
+                    _ParsedMarkdownGroup(
+                        start_line=0,
+                        end_line=flat_list[1],
+                        blocks=flat_list[0],
+                    ),
+                ),
+                generation=self._generation,
+                revision=self._revision,
             )
             self._last_partition = partition
             self._last_blocks_revision = -1
@@ -219,6 +239,47 @@ class _StreamingMarkdownParseState:
         self._last_blocks_revision = -1
         return partition
 
+    def _parse_flat_bullet_list(self, normalized: str) -> tuple[tuple[_MarkdownBlock, ...], int] | None:
+        """Reuse completed, independent list items while a flat list grows.
+
+        Each item must occupy one source line. Other list shapes retain the
+        ordinary parser, since their later lines can change earlier items.
+        """
+
+        if self._stable_groups or self._stable_end_line:
+            return None
+        lines = normalized.split("\n")
+        if lines[-1] == "":
+            lines.pop()
+            complete_count = len(lines)
+        else:
+            complete_count = max(0, len(lines) - 1)
+        if not lines or any(not line.startswith("- ") for line in lines):
+            return None
+        if any("<" in line or re.match(r"^\s*(?:`{3,}|~{3,})", line[2:]) for line in lines):
+            return None
+        if complete_count < self._flat_list_completed_count:
+            return None
+
+        newly_completed: list[_MarkdownBlock] = []
+        for line in lines[self._flat_list_completed_count : complete_count]:
+            item = _parse_flat_bullet_item(line)
+            if item is None:
+                return None
+            newly_completed.append(item)
+        last_item = None
+        if complete_count != len(lines):
+            last_item = _parse_flat_bullet_item(lines[-1])
+            if last_item is None:
+                return None
+        self._flat_list_completed_blocks.extend(newly_completed)
+        self._flat_list_completed_count = complete_count
+        completed = self._flat_list_completed_blocks
+        if complete_count == len(lines):
+            return tuple(completed), len(lines)
+        assert last_item is not None
+        return (*completed, last_item), len(lines)
+
     def reset(self) -> None:
         self._source = ""
         self._stable_end_line = 0
@@ -230,6 +291,8 @@ class _StreamingMarkdownParseState:
         self._revision = 0
         self._initialized = False
         self._full_parse_only = False
+        self._flat_list_completed_blocks.clear()
+        self._flat_list_completed_count = 0
 
 
 @dataclass(slots=True)
@@ -655,6 +718,14 @@ def _parse_markdown_groups(
             )
         )
     return tuple(groups), False
+
+
+def _parse_flat_bullet_item(line: str) -> _MarkdownBlock | None:
+    groups, has_references = _parse_markdown_groups(line, line_offset=0)
+    if has_references or len(groups) != 1 or len(groups[0].blocks) != 1:
+        return None
+    item = groups[0].blocks[0]
+    return item if item.kind == "list_item" else None
 
 
 def _markdown_blocks_from_groups(groups: Sequence[_ParsedMarkdownGroup]) -> tuple[_MarkdownBlock, ...]:

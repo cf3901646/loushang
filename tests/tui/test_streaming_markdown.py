@@ -93,6 +93,54 @@ def test_streaming_markdown_keeps_continuous_list_as_one_mutable_group() -> None
     assert [group.blocks[0].kind for group in state._stable_groups] == ["paragraph"]
 
 
+def test_streaming_flat_bullet_list_reuses_completed_items(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parsed_sources: list[str] = []
+    original = markdown_renderer._parse_markdown_groups
+
+    def parse_groups(
+        markdown: str,
+        *,
+        line_offset: int,
+    ) -> tuple[tuple[markdown_renderer._ParsedMarkdownGroup, ...], bool]:
+        parsed_sources.append(markdown)
+        return original(markdown, line_offset=line_offset)
+
+    monkeypatch.setattr(markdown_renderer, "_parse_markdown_groups", parse_groups)
+    source = ""
+    state = markdown_renderer._StreamingMarkdownParseState()
+    for index in range(60):
+        source += f"- item {index} **bold** and `code` [link](https://example.com)\n"
+        assert state.parse(source) == markdown_renderer._parse_markdown_blocks(source)
+
+    parsed_sources.clear()
+    source += "- final item"
+    assert state.parse(source) == markdown_renderer._parse_markdown_blocks(source)
+    assert parsed_sources == ["- final item"]
+
+    source += "\n\nTail"
+    assert state.parse(source) == markdown_renderer._parse_markdown_blocks(source)
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    (
+        "- ```python\n- code",
+        "- <div>\n- text",
+        "- [id]: https://example.com\n- [id]",
+        "\nTail",
+        "* another marker",
+    ),
+)
+def test_streaming_flat_bullet_list_falls_back_for_structural_changes(suffix: str) -> None:
+    state = markdown_renderer._StreamingMarkdownParseState()
+    source = "- [go][id]\n- **bold**\n"
+    assert state.parse(source) == markdown_renderer._parse_markdown_blocks(source)
+    source += suffix
+    assert state.parse(source) == markdown_renderer._parse_markdown_blocks(source)
+
+
 @pytest.mark.parametrize(
     "source",
     (
