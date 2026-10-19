@@ -245,20 +245,26 @@ def measure_replay_context_surface(
 ) -> ReplayContextSurfaceMeasurement:
     """Price the authoritative replay result without choosing its membership."""
 
-    sequence = list(messages)
-    projection = [_replay_message_projection(message) for message in sequence]
-    canonical = json.dumps(
-        projection,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    )
+    digest = hashlib.sha256()
+    digest.update(b"[")
+    tokens = 0
+    for index, message in enumerate(messages):
+        if index:
+            digest.update(b",")
+        digest.update(
+            json.dumps(
+                _replay_message_projection(message),
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        )
+        tokens += estimate_message_tokens(message)
+    digest.update(b"]")
     return ReplayContextSurfaceMeasurement(
-        tokens=sum(estimate_message_tokens(message) for message in sequence),
-        message_count=len(sequence),
-        surface_fingerprint=(
-            "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-        ),
+        tokens=tokens,
+        message_count=len(messages),
+        surface_fingerprint="sha256:" + digest.hexdigest(),
     )
 
 
