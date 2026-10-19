@@ -195,6 +195,40 @@ def test_transcript_region_stable_frame_reuses_projection_and_lines() -> None:
 
 
 @pytest.mark.tui_render_contract
+def test_committed_blocks_reuse_unchanged_records_and_invalidate_changed_context() -> None:
+    presentation = _SpyPresentation()
+    records = [UserPromptRecord(f"record {index}") for index in range(3)]
+    region = TranscriptRegion(
+        records=records,
+        records_revision=1,
+        presentation=presentation,
+        stable_cache_entry_limit=1,
+    )
+    constraints = RenderConstraints(width=40, max_height=30)
+
+    region.render(constraints)
+    assert presentation.project_calls == 3
+
+    records.append(UserPromptRecord("appended"))
+    region.records_revision += 1
+    region.render(constraints)
+    assert presentation.project_calls == 4
+
+    records[1] = UserPromptRecord("replaced")
+    region.records_revision += 1
+    rendered = region.render(constraints)
+    assert presentation.project_calls == 5
+    assert any("replaced" in line.text for line in rendered.lines)
+    assert all("record 1" not in line.text for line in rendered.lines)
+
+    region.presentation = _TokenPresentation("changed")
+    rendered = region.render(constraints)
+    assert all(
+        "changed:" in line.text for line in rendered.lines if line.text
+    )
+
+
+@pytest.mark.tui_render_contract
 def test_streaming_segments_honor_projection_and_effective_width() -> None:
     presentation = _ProjectingPresentation()
     theme = ThemeResolver()

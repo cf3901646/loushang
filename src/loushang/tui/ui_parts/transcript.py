@@ -156,6 +156,12 @@ class TranscriptRegion:
     _committed_segment: RenderLineSegment | None = field(
         default=None, init=False, repr=False
     )
+    _committed_block_context: tuple[object, ...] | None = field(
+        default=None, init=False, repr=False
+    )
+    _committed_record_blocks: tuple[
+        tuple[DisplayRecord, bool, tuple[str, ...]], ...
+    ] = field(default=(), init=False, repr=False)
     _committed_separator_rows: frozenset[int] = field(
         default_factory=frozenset,
         init=False,
@@ -456,6 +462,21 @@ class TranscriptRegion:
         if key == self._committed_segment_key:
             return self._committed_segment
 
+        # The small stable cache may evict old records in a long transcript.
+        # Keep the blocks already used by the current committed segment so an
+        # appended Worked divider does not render the entire history again.
+        block_context = (
+            id(self.records),
+            self.window_generation,
+            width,
+            style_signature,
+        )
+        previous_blocks = (
+            self._committed_record_blocks
+            if block_context == self._committed_block_context
+            else ()
+        )
+        current_blocks: list[tuple[DisplayRecord, bool, tuple[str, ...]]] = []
         rows: list[str] = []
         separator_rows: set[int] = set()
         controls: dict[int, int] = {}
@@ -470,9 +491,17 @@ class TranscriptRegion:
                 if expanded and isinstance(record, ToolExecutionRecord)
                 else record
             )
-            block = self._render_record_lines(
-                display_record, width=width, style_signature=style_signature
-            )
+            if (
+                index < len(previous_blocks)
+                and previous_blocks[index][0] is record
+                and previous_blocks[index][1] == expanded
+            ):
+                block = previous_blocks[index][2]
+            else:
+                block = self._render_record_lines(
+                    display_record, width=width, style_signature=style_signature
+                )
+            current_blocks.append((record, expanded, block))
             if not block:
                 continue
             if rows:
@@ -495,6 +524,8 @@ class TranscriptRegion:
         )
         self._committed_segment_key = key
         self._committed_segment = segment
+        self._committed_block_context = block_context
+        self._committed_record_blocks = tuple(current_blocks)
         self._committed_separator_rows = frozenset(separator_rows)
         self._committed_control_rows = controls
         self._committed_control_positions = tuple(controls)
@@ -707,6 +738,8 @@ class TranscriptRegion:
         self._markdown_render_cache.clear()
         self._committed_segment_key = None
         self._committed_segment = None
+        self._committed_block_context = None
+        self._committed_record_blocks = ()
         self._committed_separator_rows = frozenset()
         self._clear_draft_segment_cache()
         self._cache_generation = self.window_generation

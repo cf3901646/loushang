@@ -439,6 +439,55 @@ def test_screen_coding_tui_completion_replaces_working_with_one_worked_divider()
     assert sum("Worked for 2.32s" in line for line in step.diagnostics.current_logical_lines) == 1
 
 
+def test_worked_frame_reuses_unchanged_history_beyond_stable_cache_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from loushang.tui.ui_parts.transcript import TranscriptRegion
+
+    app = ScreenCodingTuiApp(
+        model_label="test",
+        cwd="/repo",
+        branch="main",
+        session_label="history",
+        now=lambda: 3.0,
+        stable_render_cache_entry_limit=2,
+    )
+    history = [
+        ToolExecutionRecord(
+            name=f"tool {index}",
+            state="completed",
+            elapsed_seconds=0.1,
+            output=f"output {index}",
+        )
+        for index in range(30)
+    ]
+    app.state.records.extend(history)
+    app.state.mark_records_changed()
+    runtime, _port = _runtime(app)
+    runtime.render_now()
+    app.begin_run(started_at=1.0)
+    app.begin_assistant()
+    app.append_assistant_chunk("final answer")
+    runtime.render_now()
+
+    old_record_ids = {id(record) for record in history}
+    rebuilt_old_records: list[int] = []
+    original = TranscriptRegion._render_record_uncached
+
+    def tracked(self: TranscriptRegion, record, **kwargs):
+        if id(record) in old_record_ids:
+            rebuilt_old_records.append(id(record))
+        return original(self, record, **kwargs)
+
+    monkeypatch.setattr(TranscriptRegion, "_render_record_uncached", tracked)
+    app.end_assistant()
+    app.complete_run(elapsed_seconds=2.0)
+    step = runtime.render_now()
+
+    assert step.diagnostics.operation_class == "changed_range_update"
+    assert rebuilt_old_records == []
+
+
 def test_screen_coding_tui_keeps_unsubmitted_draft_in_live_composer_only() -> None:
     app = _app()
     runtime, port = _runtime(app)
