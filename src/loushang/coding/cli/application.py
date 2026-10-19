@@ -29,7 +29,6 @@ from loushang.coding.adapters.harnesswork import (
     create_coding_work_runtime,
     run_coding_work_channel,
 )
-from loushang.coding.agent_invocation import register_coding_agent_delegate_tool
 from loushang.coding.bootstrap import (
     BootstrapServices,
     _create_agent_invocation_session_runtime,
@@ -402,6 +401,10 @@ def default_runtime_builder(
         and allowed_tool_names is not None
         and AGENT_DELEGATE_TOOL_NAME in allowed_tool_names
     ):
+        from loushang.coding.agent_invocation import (
+            register_coding_agent_delegate_tool,
+        )
+
         registered_parent_tools = tuple(
             definition.name
             for definition in runtime_tool_registry.list_enabled_definitions()
