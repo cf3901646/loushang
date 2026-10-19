@@ -314,6 +314,9 @@ def _visible_width_cached(text: str) -> int:
     if plain_ascii_width is not None:
         return plain_ascii_width
     visible = strip_control_sequences(text)
+    plain_ascii_width = _plain_ascii_width(visible)
+    if plain_ascii_width is not None:
+        return plain_ascii_width
     if not _requires_cluster_measurement(visible):
         return _measure_terminal_cells(visible)
     return sum(_cluster_width(cluster) for cluster in _display_grapheme_clusters(visible))

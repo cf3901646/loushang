@@ -24,6 +24,14 @@ def test_visible_width_ignores_ansi_sgr_and_osc8_hyperlinks() -> None:
     assert visible_width(text) == 8
 
 
+def test_visible_width_styled_ascii_skips_unicode_measurement(monkeypatch) -> None:
+    def unexpected_unicode_measurement(_text: str) -> bool:
+        raise AssertionError("printable styled ASCII needs no Unicode measurement")
+
+    monkeypatch.setattr(cell_width, "_requires_cluster_measurement", unexpected_unicode_measurement)
+    assert visible_width("\x1b[32mgreen\x1b[0m \x1b]8;;https://example.test\x1b\\link\x1b]8;;\x1b\\") == 10
+
+
 def test_visible_width_handles_wide_combining_and_emoji_clusters() -> None:
     assert visible_width("a") == 1
     assert visible_width("中") == 2
