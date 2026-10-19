@@ -4,7 +4,7 @@ import asyncio
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loushang.agent import Agent, PrepareModelCallFn
 from loushang.ai import PreparedRequestLimits
@@ -30,6 +30,7 @@ from loushang.coding._external_data_product_composition import (
     CodingExternalDataProductCompilation,
 )
 from loushang.coding._tool_authority import CODING_LSP_EXACT_OWNER_TOOL_NAMES
+from loushang.coding._worker_tool_identity import CODING_WORKER_QUERY_TOOL_NAME
 from loushang.coding.arch._plugin_tool_owner import (
     CodingArchToolOwner,
     CodingArchToolRegistrationSlot,
@@ -70,10 +71,6 @@ from loushang.coding.package_product_runtime import CodingProductWorkspaceWitnes
 from loushang.coding.package_product_worker_session_composition import (
     CodingProductWorkerOrdinarySessionBinding,
     validate_coding_product_worker_ordinary_session_inputs,
-)
-from loushang.coding.package_product_worker_turn_tool import (
-    CODING_WORKER_QUERY_TOOL_NAME,
-    CodingWorkerTurnToolBinding,
 )
 from loushang.coding.product_plan import CODING_CAPABILITY_PROFILE, CODING_PRODUCT_ID
 from loushang.coding.resource_runtime import (
@@ -181,6 +178,11 @@ from loushang.harness.transcript import (
 )
 from loushang.harness.workspace.exec import ExecResult, ExecService, ExecUpdateCallback
 from loushang.harness.workspace.exec.capture_lease import ExecCaptureFactory
+
+if TYPE_CHECKING:
+    from loushang.coding.package_product_worker_turn_tool import (
+        CodingWorkerTurnToolBinding,
+    )
 
 SessionEventListener = Callable[[AgentSessionEvent], Awaitable[None] | None]
 # project_runtime_event_to_session_event remains an external migration label.

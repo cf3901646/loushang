@@ -25,6 +25,9 @@ from loushang.coding._invocation_product_profile import (
 from loushang.coding._plugin_lifecycle import (
     resolve_coding_plugin_lifecycle_state_layout,
 )
+from loushang.coding._worker_tool_identity import (
+    CODING_WORKER_QUERY_TOOL_NAME,
+)
 from loushang.coding.adapters.harnesswork import (
     create_coding_work_runtime,
     run_coding_work_channel,
@@ -94,9 +97,6 @@ from loushang.coding.package_product_management_cli import (
 )
 from loushang.coding.package_product_runtime import (
     require_fresh_coding_product_inputs_without_writes,
-)
-from loushang.coding.package_product_worker_turn_tool import (
-    CODING_WORKER_QUERY_TOOL_NAME,
 )
 from loushang.coding.plugin_local_discovery import (
     blocked_coding_local_discovery,
