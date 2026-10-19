@@ -4,8 +4,9 @@ from importlib import import_module as _import_module
 from typing import TYPE_CHECKING
 from typing import Any as _Any
 
+AGENT_DELEGATE_TOOL_NAME = "delegate_agent"
+
 _EXPORTS = {
-    "AGENT_DELEGATE_TOOL_NAME": ".agent_delegate",
     "AGENT_DELEGATE_TOOL_PACK": ".agent_delegate",
     "AgentDelegateToolPack": ".agent_delegate",
     "AgentInvocationAdapter": ".agent_delegate",
@@ -34,7 +35,6 @@ _EXPORTS = {
 
 if TYPE_CHECKING:
     from .agent_delegate import (
-        AGENT_DELEGATE_TOOL_NAME,
         AGENT_DELEGATE_TOOL_PACK,
         AgentDelegateToolPack,
         AgentInvocationAdapter,
