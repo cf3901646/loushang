@@ -823,8 +823,6 @@ class TranscriptRegion:
         if source_buffer is not None and self._segmented_transient_content_segments:
             if self._segmented_transient_buffer_id != id(source_buffer):
                 return
-            if self._segmented_transient_buffer_version != source_buffer.version:
-                return
             if record.text != source_buffer.text:
                 return
             if (
@@ -832,6 +830,18 @@ class TranscriptRegion:
                 or self._segmented_transient_style_signature is None
             ):
                 return
+            if self._segmented_transient_buffer_version != source_buffer.version:
+                # The final delta can arrive after the last screen frame. Render
+                # only that new streaming frontier before committing, preserving
+                # the already completed segments instead of reparsing the answer.
+                self._render_streaming_draft_segments(
+                    source_buffer,
+                    width=self._segmented_transient_width,
+                    style_signature=self._segmented_transient_style_signature,
+                    has_committed=self._draft_has_leading_separator,
+                )
+                if self._segmented_transient_buffer_version != source_buffer.version:
+                    return
             canonical_lines = tuple(
                 line.text
                 for segment in self._segmented_transient_content_segments

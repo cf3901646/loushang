@@ -418,6 +418,39 @@ def test_screen_coding_tui_markdown_assistant_commit_does_not_rewrite_streamed_b
     assert step.diagnostics.changed_line_range[0] > 35
 
 
+def test_screen_coding_tui_unrendered_final_delta_reuses_streamed_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import loushang.tui.markdown.renderer as markdown_renderer
+
+    app = _app()
+    runtime, port = _runtime(app, width=100, height=18)
+    app.start_prompt("markdown stream", started_at=0.0)
+    runtime.render_now()
+    app.begin_assistant()
+    app.append_assistant_chunk(
+        "".join(
+            f"- **Line {index}**: [link](https://example.com/{index})\n"
+            for index in range(128)
+        )
+    )
+    runtime.render_now()
+    app.append_assistant_chunk("- **Final line**: [link](https://example.com/final)\n")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            markdown_renderer,
+            "_parse_normalized_markdown_blocks",
+            lambda _source: pytest.fail("completion reparsed the streamed body"),
+        )
+        app.end_assistant()
+        app.complete_run(elapsed_seconds=1.0)
+        step = runtime.render_now()
+
+    assert sum("Worked for 1.00s" in line for line in step.diagnostics.current_logical_lines) == 1
+    assert "Final line" in _visible_text(port)
+
+
 def test_screen_coding_tui_completion_replaces_working_with_one_worked_divider() -> None:
     app = _app()
     runtime, port = _runtime(app)

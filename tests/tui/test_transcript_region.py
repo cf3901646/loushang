@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 
+import loushang.tui.markdown.renderer as markdown_renderer
 import loushang.tui.ui_parts.transcript as transcript_region_module
 from loushang.tui import RenderConstraints, RenderLoop, TerminalSize
 from loushang.tui.theme import ThemeResolver
@@ -385,6 +386,45 @@ def test_streaming_cache_promotion_hides_assistant_stability_metadata() -> None:
 
     assert draft_lines == committed_lines == fresh_lines
     assert draft_lines[0] == "S:* Intro"
+
+
+@pytest.mark.tui_render_contract
+def test_streaming_cache_promotion_renders_unseen_final_delta_without_full_parse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = "".join(
+        f"- item {index} **bold** [link](https://example.com/{index})\n"
+        for index in range(128)
+    )
+    buffer = StreamingTextBuffer.from_text(source)
+    constraints = RenderConstraints(width=72, max_height=1000)
+    region = TranscriptRegion(draft_buffer=buffer, theme=ThemeResolver())
+    region.render(constraints)
+
+    buffer.append("- final **item** [link](https://example.com/final)\n")
+    committed_record = AssistantMessageRecord(buffer.text)
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            markdown_renderer,
+            "_parse_normalized_markdown_blocks",
+            lambda _source: pytest.fail("completion should reuse streaming segments"),
+        )
+        region.promote_transient_cache(committed_record, source_buffer=buffer)
+        region.clear_transient_cache()
+        region.draft_buffer = None
+        region.records.append(committed_record)
+        region.records_revision += 1
+        committed_lines = tuple(line.text for line in region.render(constraints).lines)
+
+    expected_lines = tuple(
+        line.text
+        for line in TranscriptRegion(
+            records=[committed_record], records_revision=1, theme=ThemeResolver()
+        )
+        .render(constraints)
+        .lines
+    )
+    assert committed_lines == expected_lines
 
 
 @pytest.mark.tui_render_contract
