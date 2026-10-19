@@ -9,6 +9,9 @@ import pytest
 
 from loushang.ai.model import Capabilities, Model
 from loushang.ai.types import UserMessage
+from loushang.coding._capability_plugin_composition import (
+    CodingCapabilityPluginCompositionError,
+)
 from loushang.coding.bootstrap import create_agent_session, create_services
 from loushang.coding.control import ControlConfig, SettingsManager
 from loushang.coding.lsp import (
@@ -17,6 +20,9 @@ from loushang.coding.lsp import (
     LspServerDefinition,
 )
 from loushang.coding.session_manager import SessionManager
+from loushang.harness.plugin_management.package_product import (
+    PackageProductRuntimeReadError,
+)
 from loushang.harness.sandbox import SandboxSettings
 
 _FAKE_LSP_SERVER = Path(__file__).parent / "fixtures" / "fake_lsp_server.py"
@@ -168,6 +174,46 @@ def test_private_plugin_executes_real_lsp_tools_and_retires_exact_generation(
             "shutdown",
             "exit",
         ]
+
+    asyncio.run(scenario())
+
+
+def test_active_deferred_lsp_rejects_revoked_product_selection(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        project = tmp_path / "project"
+        project.mkdir()
+        manager = await SessionManager.new(
+            session_dir=tmp_path / "sessions", cwd=str(project), persist=False
+        )
+        session = create_agent_session(
+            session_manager=manager,
+            model=_model(),
+            services=create_services(
+                settings_manager=SettingsManager(
+                    ControlConfig(
+                        capabilities={"coding.lsp": "on_demand"},
+                        sandbox=SandboxSettings(enabled=False),
+                    )
+                )
+            ),
+        )
+        try:
+            await session.set_active_tools([INSPECT_SYMBOL_TOOL_NAME])
+            slot = session._deferred_lsp_slot
+            assert slot is not None and slot.active is not None
+
+            def revoked() -> None:
+                raise PackageProductRuntimeReadError(
+                    "selected LSP revision was revoked",
+                    code="selection_changed",
+                )
+
+            slot.active.current_selection_check = revoked
+            with pytest.raises(CodingCapabilityPluginCompositionError) as failed:
+                await session.prepare_model_call_runtime()
+            assert failed.value.code == "coding_capability_product_restart_required"
+        finally:
+            await session.dispose()
 
     asyncio.run(scenario())
 
