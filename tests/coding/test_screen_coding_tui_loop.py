@@ -737,6 +737,59 @@ def test_screen_loop_acknowledges_escape_before_slow_abort_settlement() -> None:
     assert app.state.running is False
 
 
+def test_screen_loop_keeps_editor_responsive_while_escape_settles() -> None:
+    from loushang.coding.ui.screen_app import ScreenCodingTuiApp
+
+    stdout = StringIO()
+    app = ScreenCodingTuiApp(
+        model_label="kimi",
+        cwd="/repo",
+        branch="main",
+        session_label="abcd",
+        now=time.monotonic,
+    )
+    settled = asyncio.Event()
+    prompts: list[str] = []
+    observed_before_settlement: list[tuple[str, bool]] = []
+
+    async def handle_prompt(text: str) -> None:
+        prompts.append(text)
+        if text == "run":
+            await settled.wait()
+
+    async def slow_abort() -> None:
+        await asyncio.sleep(0.18)
+        observed_before_settlement.append(
+            (
+                app.composer.value,
+                "next" in strip_control_sequences(stdout.getvalue()),
+            )
+        )
+        settled.set()
+
+    result = asyncio.run(
+        run_coding_test_screen(
+            app=app,
+            stdin=StringIO(""),
+            input_chunk_reader=_timed_input_reader(
+                (0.0, "run\r"),
+                (0.01, "\x1b"),
+                (0.06, "next\r"),
+                (0.25, "\r"),
+                (0.35, ""),
+            ),
+            stdout=stdout,
+            action_host=_action_host(submit=handle_prompt, abort=slow_abort),
+            terminal_mode_factory=lambda _stdin, _stdout: _NoTerminalMode(),
+            should_exit=lambda text: False,
+        )
+    )
+
+    assert result == 0
+    assert observed_before_settlement == [("next", True)]
+    assert prompts == ["run", "next"]
+
+
 def test_screen_loop_executes_queued_steer_after_running_escape_with_delay() -> None:
     from loushang.coding.ui.screen_app import ScreenCodingTuiApp
 

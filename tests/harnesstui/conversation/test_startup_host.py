@@ -11,6 +11,7 @@ import pytest
 from loushang.harnesstui.conversation.host import ConversationScreenRunProfile
 from loushang.harnesstui.conversation.input import (
     ConversationInputHandled,
+    ConversationInputIgnored,
     ConversationInputRouter,
     ConversationPromptResult,
 )
@@ -95,6 +96,13 @@ def test_attached_product_keeps_loading_gate_until_complete_input_boundary():
             assert boundary_calls == [False], "pending parser blocks admission"
             startup.before_input_read(False)
             assert startup.submission_armed and not screen.state.startup_pending
+            router.set_submission_paused(True)
+            assert isinstance(
+                router.handle(InputEvent(kind="key", key="enter")),
+                ConversationInputIgnored,
+            )
+            assert screen.composer.value == "draft"
+            router.set_submission_paused(False)
             result = router.handle(InputEvent(kind="key", key="enter"))
             assert isinstance(result, ConversationPromptResult)
             assert result.text == "draft"
