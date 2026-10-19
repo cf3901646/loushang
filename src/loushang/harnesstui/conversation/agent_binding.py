@@ -91,7 +91,10 @@ from loushang.harnesstui.conversation.tool_transcript import (
     build_mapping_tool_transcript_projection,
     tool_block_to_record,
 )
-from loushang.tui.markdown.renderer import split_independent_flat_bullet_delta
+from loushang.tui.markdown.renderer import (
+    split_independent_flat_bullet_delta,
+    split_independent_markdown_block_delta,
+)
 from loushang.tui.transcript import DisplayRecord, ToolExecutionRecord
 
 AgentToolTranscriptProjection: TypeAlias = ToolTranscriptProjectionBinding[
@@ -702,7 +705,7 @@ def cooperative_agent_screen_event_listener(
     *,
     pause: Callable[[], Awaitable[None]] | None = None,
 ) -> Callable[[dict[str, Any]], Awaitable[None] | None]:
-    """Keep input and Working frames live during one large safe list delta."""
+    """Keep input and Working frames live during large assistant deltas."""
 
     async def pause_between_chunks() -> None:
         await asyncio.sleep(0.016)
@@ -721,12 +724,7 @@ def cooperative_agent_screen_event_listener(
         ):
             projection.handle(event)
             return None
-        chunks = split_independent_flat_bullet_delta(update["delta"])
-        if chunks is None:
-            projection.handle(event)
-            return None
-
-        async def project_chunks() -> None:
+        async def project_chunks(chunks: tuple[str, ...]) -> None:
             for index, chunk in enumerate(chunks):
                 projection.handle(
                     {
@@ -737,7 +735,24 @@ def cooperative_agent_screen_event_listener(
                 if index + 1 < len(chunks):
                     await pause_frame()
 
-        return project_chunks()
+        delta = update["delta"]
+        chunks = split_independent_flat_bullet_delta(delta)
+        if chunks is not None:
+            return project_chunks(chunks)
+        if len(delta) < 16_384:
+            projection.handle(event)
+            return None
+
+        async def project_large_markdown() -> None:
+            blocks = await asyncio.to_thread(
+                split_independent_markdown_block_delta, delta
+            )
+            if blocks is None:
+                projection.handle(event)
+            else:
+                await project_chunks(blocks)
+
+        return project_large_markdown()
 
     return handle
 

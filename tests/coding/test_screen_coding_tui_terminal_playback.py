@@ -501,6 +501,56 @@ def test_screen_coding_tui_paced_large_delta_preserves_terminal_scrollback() -> 
     asyncio.run(scenario())
 
 
+def test_screen_coding_tui_paced_mixed_markdown_preserves_terminal_scrollback() -> None:
+    from loushang.harnesstui.conversation.agent_binding import (
+        build_agent_screen_conversation_projection,
+        cooperative_agent_screen_event_listener,
+    )
+
+    async def scenario() -> None:
+        app = _app()
+        runtime, port = _runtime(app, width=100, height=18)
+        app.start_prompt("large mixed answer", started_at=0.0)
+        runtime.render_now()
+        answer = "".join(
+            f"## Section {index}\n\nParagraph {index} with **bold** and [link](https://example.com/{index}).\n\n"
+            for index in range(300)
+        )
+        projection = build_agent_screen_conversation_projection(app)
+
+        async def render_between_chunks() -> None:
+            runtime.render_now()
+            await asyncio.sleep(0)
+
+        listener = cooperative_agent_screen_event_listener(
+            projection, pause=render_between_chunks
+        )
+        listener({"type": "message_start", "message": _assistant()})
+        pending = listener(
+            {
+                "type": "message_update",
+                "message": _assistant(answer),
+                "assistant_message_event": {"type": "text_delta", "delta": answer},
+            }
+        )
+        assert pending is not None
+        await pending
+        runtime.render_now()
+        listener({"type": "message_end", "message": _assistant(answer)})
+        app.complete_run(elapsed_seconds=1.0)
+        step = runtime.render_now()
+
+        terminal_text = strip_control_sequences(
+            "\n".join((*port.screen.scrollback_lines, *port.screen.visible_lines))
+        )
+        for index in (0, 100, 200, 299):
+            assert terminal_text.count(f"Section {index}") == 1
+            assert terminal_text.count(f"Paragraph {index} with bold") == 1
+        assert sum("Worked for 1.00s" in line for line in step.diagnostics.current_logical_lines) == 1
+
+    asyncio.run(scenario())
+
+
 def test_screen_coding_tui_completion_replaces_working_with_one_worked_divider() -> None:
     app = _app()
     runtime, port = _runtime(app)

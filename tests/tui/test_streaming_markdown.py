@@ -232,6 +232,31 @@ def test_large_independent_list_delta_splits_without_changing_markdown() -> None
     ) is None
 
 
+def test_large_markdown_delta_splits_only_at_top_level_block_boundaries() -> None:
+    source = "".join(
+        f"## Section {index}\n\nParagraph {index} with **bold** and [link](https://example.com/{index}).\n\n"
+        for index in range(500)
+    )
+    chunks = markdown_renderer.split_independent_markdown_block_delta(source)
+    assert chunks is not None and len(chunks) > 1
+    assert "".join(chunks) == source
+    assert all(chunk.endswith("\n") for chunk in chunks)
+
+    state = markdown_renderer._StreamingMarkdownParseState()
+    streamed = ""
+    for chunk in chunks:
+        streamed += chunk
+        state.parse(streamed)
+    assert state.parse(streamed) == markdown_renderer._parse_markdown_blocks(source)
+
+
+def test_large_markdown_delta_keeps_fences_and_references_atomic() -> None:
+    source = "```python\n" + "print(1)\n" * 2_000 + "```\n"
+    assert markdown_renderer.split_independent_markdown_block_delta(source) is None
+    referenced = "[link][ref]\n\n" * 1_000 + "[ref]: https://example.com\n"
+    assert markdown_renderer.split_independent_markdown_block_delta(referenced) is None
+
+
 def test_streaming_plain_bullet_burst_matches_commonmark_without_bulk_parse(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import threading
 from types import SimpleNamespace
 
 import pytest
 
+import loushang.harnesstui.conversation.agent_binding as agent_binding
 from loushang.ai import TextPart
 from loushang.coding.ui.screen_app import ScreenCodingTuiApp
 from loushang.harness.events import OrderedEventBus
@@ -29,6 +31,13 @@ def _large_list() -> str:
     return "".join(
         f"- **Line {index}**: [link](https://example.com/{index})\n"
         for index in range(2000)
+    )
+
+
+def _large_mixed_markdown() -> str:
+    return "".join(
+        f"## Section {index}\n\nParagraph {index} with **bold** and [link](https://example.com/{index}).\n\n"
+        for index in range(500)
     )
 
 
@@ -68,6 +77,91 @@ def test_large_screen_delta_yields_between_safe_batches_and_preserves_final_text
         app.complete_run(elapsed_seconds=1.0)
         assert [record.text for record in app.state.records if isinstance(record, AssistantMessageRecord)] == [answer]
         assert sum(isinstance(record, WorkedDividerRecord) for record in app.state.records) == 1
+
+    asyncio.run(scenario())
+
+
+def test_large_mixed_markdown_delta_yields_without_changing_final_text() -> None:
+    async def scenario() -> None:
+        app = ScreenCodingTuiApp(
+            model_label="test", cwd="/repo", branch="main", session_label="paced"
+        )
+        app.begin_run(started_at=0.0)
+        projection = build_agent_screen_conversation_projection(app)
+        pauses: list[int] = []
+
+        async def pause() -> None:
+            draft = app.state.assistant_draft
+            pauses.append(len(draft.text) if draft is not None else 0)
+            await asyncio.sleep(0)
+
+        listener = cooperative_agent_screen_event_listener(projection, pause=pause)
+        answer = _large_mixed_markdown()
+        listener({"type": "message_start", "message": _assistant()})
+        pending = listener(
+            {
+                "type": "message_update",
+                "message": _assistant(answer),
+                "assistant_message_event": {"type": "text_delta", "delta": answer},
+            }
+        )
+        assert inspect.isawaitable(pending)
+        await pending
+        assert pauses and pauses == sorted(pauses)
+        assert pauses[-1] < len(answer)
+        assert app.state.assistant_draft is not None
+        assert app.state.assistant_draft.text == answer
+
+        listener({"type": "message_end", "message": _assistant(answer)})
+        app.complete_run(elapsed_seconds=1.0)
+        assert [record.text for record in app.state.records if isinstance(record, AssistantMessageRecord)] == [answer]
+        assert sum(isinstance(record, WorkedDividerRecord) for record in app.state.records) == 1
+
+    asyncio.run(scenario())
+
+
+def test_cancelling_large_markdown_parse_does_not_project_the_delta(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocked_parse(_delta: str) -> tuple[str, ...] | None:
+        started.set()
+        assert release.wait(5)
+        return None
+
+    monkeypatch.setattr(
+        agent_binding, "split_independent_markdown_block_delta", blocked_parse
+    )
+
+    async def scenario() -> None:
+        app = ScreenCodingTuiApp(
+            model_label="test", cwd="/repo", branch="main", session_label="paced"
+        )
+        app.begin_run(started_at=0.0)
+        listener = cooperative_agent_screen_event_listener(
+            build_agent_screen_conversation_projection(app)
+        )
+        answer = _large_mixed_markdown()
+        listener({"type": "message_start", "message": _assistant()})
+        pending = listener(
+            {
+                "type": "message_update",
+                "message": _assistant(answer),
+                "assistant_message_event": {"type": "text_delta", "delta": answer},
+            }
+        )
+        assert inspect.isawaitable(pending)
+        task = asyncio.create_task(pending)
+        try:
+            assert await asyncio.to_thread(started.wait, 5)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        finally:
+            release.set()
+        assert app.state.assistant_draft is None
 
     asyncio.run(scenario())
 

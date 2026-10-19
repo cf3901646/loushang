@@ -799,6 +799,54 @@ def split_independent_flat_bullet_delta(delta: str) -> tuple[str, ...] | None:
     return tuple(chunks) if len(chunks) > 1 else None
 
 
+def split_independent_markdown_block_delta(delta: str) -> tuple[str, ...] | None:
+    """Batch a large Markdown delta at top-level block boundaries.
+
+    Parse the complete delta before choosing boundaries so fenced blocks and
+    nested lists stay intact. Reference definitions can change earlier inline
+    rendering, so those documents keep the ordinary projection path.
+    This function is intended to run off the input event loop.
+    """
+
+    if len(delta) < 16_384 or not delta.endswith("\n"):
+        return None
+    lines = delta.splitlines(keepends=True)
+    if len(lines) < 64:
+        return None
+    parser = MarkdownIt("commonmark").enable("table").enable("strikethrough")
+    environment: dict[str, object] = {}
+    tokens = parser.parse(delta, environment)
+    if environment.get("references"):
+        return None
+    ends = sorted(
+        {
+            token.map[1]
+            for token in tokens
+            if token.level == 0
+            and token.map is not None
+            and token.nesting >= 0
+            and 0 < token.map[1] < len(lines)
+        }
+    )
+    if not ends:
+        return None
+    target_chars = max(4_096, (len(delta) + 31) // 32)
+    chunks: list[str] = []
+    start = 0
+    previous_end = 0
+    current_chars = 0
+    for end in ends:
+        current_chars += sum(map(len, lines[previous_end:end]))
+        previous_end = end
+        if current_chars >= target_chars:
+            chunks.append("".join(lines[start:end]))
+            start = end
+            current_chars = 0
+    if start < len(lines):
+        chunks.append("".join(lines[start:]))
+    return tuple(chunks) if len(chunks) > 1 else None
+
+
 def _parse_markdown_groups(
     markdown: str,
     *,
@@ -1536,8 +1584,16 @@ def _render_code_block(
     rendered = [_fit_styled(_apply_markdown_style(header, "markdown.code.fence", theme, capabilities), width)]
     code_lines = _highlight_code(normalize_box_drawing_diagram(lines), language, code_highlighter, capabilities)
     indent = _code_block_indent(theme, capabilities)
+    code_style = _resolve_style(theme, "markdown.code.text", capabilities)
     for line in code_lines:
-        rendered.extend(_wrap(_apply_markdown_style(f"{indent}{line}", "markdown.code.text", theme, capabilities), width=width))
+        content = f"{indent}{line}"
+        styled = apply_theme_style(content, code_style)
+        if content.isascii() and content.isprintable() and len(content) <= max(1, width):
+            # A single printable ASCII line needs neither ANSI tokenization nor
+            # wrapping. The style prefix/suffix stays identical to _wrap.
+            rendered.append(styled.rstrip())
+        else:
+            rendered.extend(_wrap(styled, width=width))
     rendered.append(_fit_styled(_apply_markdown_style("```", "markdown.code.fence", theme, capabilities), width))
     return rendered
 
