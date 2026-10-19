@@ -9,11 +9,7 @@ from loushang.coding.continuity_bootstrap import (
     bind_coding_configured_continuity,
     get_coding_configured_continuity_composition,
 )
-from loushang.coding.presentation.tui.plain import (
-    PlainCodingUiRenderer,
-)
 from loushang.coding.ui.completion import coding_inline_completion_provider
-from loushang.coding.ui.plain_app import build_plain_coding_tui_app
 from loushang.coding.ui.plugin_theme import apply_coding_plugin_theme_to_screen
 from loushang.coding.ui.product_binding import (
     ScreenCodingDebugBinding,
@@ -293,6 +289,9 @@ async def _run_plain_tui(
     stderr: TextIO,
     verbose: bool,
 ) -> int:
+    from loushang.coding.presentation.tui.plain import PlainCodingUiRenderer
+    from loushang.coding.ui.plain_app import build_plain_coding_tui_app
+
     renderer = PlainCodingUiRenderer(stdout=stdout, stderr=stderr, verbose=verbose)
     snapshot = await load_coding_tui_startup_view(runtime=runtime, session=session)
 
