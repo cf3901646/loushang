@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ AMBIGUOUS_WIDTH_ENV = "LOUSHANG_TUI_AMBIGUOUS_WIDTH"
 _THAI_LAO_AM_TRANSLATION = str.maketrans({"\u0e33": "\u0e4d\u0e32", "\u0eb3": "\u0ecd\u0eb2"})
 _VISIBLE_WIDTH_CACHE_SIZE = 16_384
 _CLUSTER_WIDTH_CACHE_SIZE = 16_384
+_ASCII_TOKEN_RUNS = re.compile(r"\s+|\S+")
 AmbiguousWidth = Literal[1, 2]
 _AMBIGUOUS_WIDTH: AmbiguousWidth = 1
 
@@ -35,12 +37,14 @@ def strip_control_sequences(text: str) -> str:
     output: list[str] = []
     index = 0
     while index < len(text):
-        control = _extract_control_sequence(text, index)
-        if control is not None:
-            index += control.length
-            continue
-        output.append(text[index])
-        index += 1
+        escape = text.find("\x1b", index)
+        if escape < 0:
+            output.append(text[index:])
+            break
+        output.append(text[index:escape])
+        control = _extract_control_sequence(text, escape)
+        assert control is not None
+        index = escape + control.length
     return "".join(output)
 
 
@@ -473,6 +477,9 @@ def _extract_control_sequence(text: str, start: int) -> _ControlSequence | None:
 
 
 def _ansi_tokens(text: str) -> list[str]:
+    if text.isascii():
+        return _ansi_tokens_ascii(text)
+
     tokens: list[str] = []
     current = ""
     current_kind: str | None = None
@@ -503,15 +510,49 @@ def _ansi_tokens(text: str) -> list[str]:
     return tokens
 
 
+def _ansi_tokens_ascii(text: str) -> list[str]:
+    tokens: list[str] = []
+    current = ""
+    current_kind: str | None = None
+    pending_controls = ""
+    index = 0
+    while index < len(text):
+        escape = text.find("\x1b", index)
+        end = len(text) if escape < 0 else escape
+        for match in _ASCII_TOKEN_RUNS.finditer(text, index, end):
+            run = match.group()
+            kind = "space" if run[0].isspace() else "word"
+            if current and current_kind is not None and current_kind != kind:
+                tokens.append(current)
+                current = ""
+            if pending_controls:
+                current += pending_controls
+                pending_controls = ""
+            current += run
+            current_kind = kind
+        if escape < 0:
+            break
+        control = _extract_control_sequence(text, escape)
+        assert control is not None
+        pending_controls += control.code
+        index = escape + control.length
+    if pending_controls:
+        current += pending_controls
+    if current:
+        tokens.append(current)
+    return tokens
+
+
 def _process_control_sequences(text: str, tracker: _StyleTracker) -> None:
     index = 0
     while index < len(text):
-        control = _extract_control_sequence(text, index)
-        if control is not None:
-            tracker.process(control.code)
-            index += control.length
-            continue
-        index += len(_next_cluster(text, index))
+        escape = text.find("\x1b", index)
+        if escape < 0:
+            return
+        control = _extract_control_sequence(text, escape)
+        assert control is not None
+        tracker.process(control.code)
+        index = escape + control.length
 
 
 def _break_long_ansi_token(token: str, *, width: int, tracker: _StyleTracker) -> list[str]:
