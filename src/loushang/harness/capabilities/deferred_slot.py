@@ -9,7 +9,7 @@ synchronous so the generation and its public tools appear in one event-loop turn
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Generic, Literal, Protocol, TypeVar, cast, runtime_checkable
@@ -23,7 +23,9 @@ DeferredSlotState = Literal[
 
 @runtime_checkable
 class PreparedDeferredCapability(Protocol):
-    """One owned candidate, including rollback after partial publication."""
+    """One owned candidate, including rollback after partial preparation."""
+
+    async def prepare(self) -> None: ...
 
     def publish(self) -> None: ...
 
@@ -58,6 +60,8 @@ CandidateT = TypeVar("CandidateT", bound=PreparedDeferredCapability)
 class DeferredCapabilitySlot(Generic[CandidateT]):
     """Single-flight activation with a Session-owned close and retry boundary.
 
+    ``create`` must only allocate an inert candidate. The slot retains it
+    before the first preparation await, so failed cleanup remains retryable.
     Cancelling a caller never cancels the activation task. Closing waits for
     preparation to settle, skips publication if it has not happened, and
     disposes the candidate. A failed publication must be fully disposed before
@@ -67,14 +71,14 @@ class DeferredCapabilitySlot(Generic[CandidateT]):
     def __init__(
         self,
         declaration: DeferredCapabilityDeclaration,
-        prepare: Callable[[], Awaitable[CandidateT]],
+        create: Callable[[], CandidateT],
     ) -> None:
         if not isinstance(declaration, DeferredCapabilityDeclaration):
             raise TypeError("deferred slot requires a Capability declaration")
-        if not callable(prepare):
-            raise TypeError("deferred slot requires a preparation factory")
+        if not callable(create):
+            raise TypeError("deferred slot requires an inert candidate factory")
         self.declaration = declaration
-        self._prepare = prepare
+        self._create = create
         self._state: DeferredSlotState = "dormant"
         self._candidate: CandidateT | None = None
         self._activation_task: asyncio.Task[CandidateT] | None = None
@@ -110,10 +114,11 @@ class DeferredCapabilitySlot(Generic[CandidateT]):
 
     async def _activate_once(self) -> CandidateT:
         try:
-            candidate = await self._prepare()
+            candidate = self._create()
             if not isinstance(candidate, PreparedDeferredCapability):
-                raise TypeError("deferred preparation returned an invalid generation")
+                raise TypeError("deferred factory returned an invalid candidate")
             self._candidate = candidate
+            await candidate.prepare()
             if self._state == "closing":
                 raise RuntimeError("deferred Capability slot closed during preparation")
             candidate.publish()

@@ -137,10 +137,16 @@ concurrent activation, and retirement against the current owner and registry
 APIs. The accepted contract and implementation evidence remain outstanding.
 
 The Harness now has an inert `DeferredCapabilityDeclaration` and a
-`DeferredCapabilitySlot` that owns one activation task, publication, explicit
-retry, and close. Focused tests cover 100 concurrent callers, cancellation of
-one waiter, close during preparation, publication rollback, failed cleanup
-retry, and cancellation of a close caller. This establishes only the slot
-lifecycle. Coding has not declared an LSP slot or moved Plugin selection and
-Component preparation out of startup; the child graph, Tool publication,
-durable resume evidence, and Product retirement hooks still need integration.
+`DeferredCapabilitySlot` that retains its candidate before preparation, owns
+one activation task, publication, explicit retry, and close. Focused tests
+cover 100 concurrent callers, cancellation of one waiter, close during
+preparation, publication rollback, failed cleanup retry, and cancellation of a
+close caller. A Coding LSP candidate has also bound a freshly selected real
+first-party Provider into a private child graph and staged its admitted Tool
+generation. Focused tests prove approval after a 301-second idle period,
+Tool publication/retirement, and rollback after injected Tool staging failure.
+
+Coding has not yet declared the slot in default Sessions or moved Plugin
+selection out of startup. Durable resume evidence, Product runtime selection,
+Session close order, and discoverable dormant Tool descriptors still need
+integration before this draft can be accepted.
