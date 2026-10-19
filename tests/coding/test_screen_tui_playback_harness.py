@@ -21,7 +21,7 @@ from loushang.tui import (
     SelectItem,
     strip_control_sequences,
 )
-from loushang.tui.transcript import AssistantMessageRecord
+from loushang.tui.transcript import AssistantMessageRecord, ToolExecutionRecord
 from tests.coding.tui_support.playback import (
     ScreenTuiInputScenario,
     ScreenTuiLoopScenario,
@@ -433,7 +433,19 @@ def test_screen_tui_tool_command_keeps_input_and_working_timer_live(
         )
 
         def on_update(chunk) -> None:
-            preview.append(chunk)
+            partial = preview.append(chunk)
+            scenario.app.state.upsert_tool_record(
+                "bash-running",
+                ToolExecutionRecord(
+                    name="bash",
+                    tool_name="bash",
+                    state="running",
+                    elapsed_seconds=0.0,
+                    command="streaming command",
+                    output=partial.content[0].text,
+                ),
+            )
+            scenario.app.request_render("product")
 
         try:
             await ExecService().execute(
@@ -463,6 +475,9 @@ def test_screen_tui_tool_command_keeps_input_and_working_timer_live(
     assert observed[0][2] < 0.2
     result.assert_text_contains("Working ")
     result.assert_text_contains("Worked ")
+    if continuous_output:
+        result.assert_text_contains("streaming command")
+        assert preview.total_bytes >= 1_000_000
     assert result.text.index("› next") < result.text.index("Worked ")
     working_times = [
         float(value) for value in re.findall(r"Working (\d+\.\d+)s", result.text)
