@@ -8,7 +8,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, TextIO, cast
 
-from loushang.coding.cli.startup_route import screen_startup_eligible
 from loushang.coding.ui.screen_app import ScreenCodingTuiApp
 from loushang.harness.host.product_host import ProductHostLifecycle, stream_is_tty
 from loushang.harnesstui.conversation.startup_host import (
@@ -18,6 +17,14 @@ from loushang.harnesstui.conversation.startup_host import (
 )
 from loushang.tui import strip_control_sequences
 from loushang.tui.terminal_backends import native_terminal_input_is_tty
+
+
+def screen_startup_eligible(
+    args: Any, plan: Any, *, stdin: TextIO, stdout: TextIO
+) -> bool:
+    from loushang.coding.cli.startup_route import screen_startup_eligible as check
+
+    return check(args, plan, stdin=stdin, stdout=stdout)
 
 
 class StartupOutput:
