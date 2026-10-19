@@ -1423,6 +1423,8 @@ def test_session_active_tools_still_materialize_after_substrate_migration(
 
 
 def test_bash_partial_output_preserves_truncation_across_chunk_boundaries() -> None:
+    import random
+
     from loushang.harness.tools.workspace.bash import _BashPartialOutput
     from loushang.harness.tools.workspace.truncate import truncate_tail
     from loushang.harness.workspace.exec import ExecOutputChunk
@@ -1433,6 +1435,12 @@ def test_bash_partial_output_preserves_truncation_across_chunk_boundaries() -> N
         "\n" + "word\n" * 2_200,
         "\u2028suffix",
     ]
+    chunks.extend(
+        random.Random(798).choices(
+            ("x" * 900, "a\nb\n", "\r\n", "é" * 200, "🙂" * 120, "u\n" * 40),
+            k=256,
+        )
+    )
     partial = _BashPartialOutput()
     complete = ""
     for chunk in chunks:
