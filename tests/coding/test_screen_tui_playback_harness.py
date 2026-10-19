@@ -404,7 +404,7 @@ def test_screen_tui_tool_command_keeps_input_and_working_timer_live(
 
     scenario = ScreenTuiLoopScenario()
     scenario.app.now = time.monotonic
-    observed: list[tuple[bool, str]] = []
+    observed: list[tuple[bool, str, float]] = []
     running = False
     preview = _BashPartialOutput()
 
@@ -413,14 +413,21 @@ def test_screen_tui_tool_command_keeps_input_and_working_timer_live(
         running = True
 
         async def observe_input() -> None:
+            started_at = asyncio.get_running_loop().time()
             await asyncio.sleep(0.18)
-            observed.append((running, scenario.app.composer.value))
+            observed.append(
+                (
+                    running,
+                    scenario.app.composer.value,
+                    asyncio.get_running_loop().time() - started_at - 0.18,
+                )
+            )
 
         observer = asyncio.create_task(observe_input())
         program = (
             "import sys,time; "
-            "[(sys.stdout.write('x'*8192),sys.stdout.flush(),time.sleep(.01)) "
-            "for _ in range(35)]"
+            "[(sys.stdout.write('x'*8192),sys.stdout.flush(),time.sleep(.002)) "
+            "for _ in range(200)]"
             if continuous_output
             else "import time; time.sleep(.35)"
         )
@@ -451,7 +458,9 @@ def test_screen_tui_tool_command_keeps_input_and_working_timer_live(
     )
 
     result.assert_exit_code(0)
-    assert observed == [(True, "next")]
+    assert len(observed) == 1
+    assert observed[0][:2] == (True, "next")
+    assert observed[0][2] < 0.2
     result.assert_text_contains("Working ")
     result.assert_text_contains("Worked ")
     assert result.text.index("› next") < result.text.index("Worked ")
