@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import threading
+
 import pytest
 
 from loushang.harnesstui.conversation.screen_app import ScreenConversationApp
@@ -132,6 +135,75 @@ def test_context_usage_refreshes_after_run_without_display_changes() -> None:
 
     assert app.state.records_revision == revision
     assert calls == 2
+
+
+def test_worked_frame_does_not_wait_for_context_usage_rebuild() -> None:
+    async def scenario() -> None:
+        app = _app()
+        started = threading.Event()
+        release = threading.Event()
+
+        def slow_context_usage() -> int:
+            started.set()
+            if not release.wait(timeout=5):
+                raise TimeoutError("context usage worker did not finish")
+            return 42
+
+        app.context_usage_provider = slow_context_usage
+        constraints = RenderConstraints(width=60, max_height=24, visible_height=24)
+        app.begin_run(started_at=1.0)
+        app.complete_run(elapsed_seconds=1.0)
+        try:
+            frame = app.render(constraints)
+            assert any("Worked for" in line.text for line in frame.lines)
+            assert app.state.context_usage is None
+            assert await asyncio.to_thread(started.wait, 1)
+        finally:
+            release.set()
+        task = app._context_usage_refresh_task
+        assert task is not None
+        await asyncio.wait_for(task, timeout=2)
+        assert app.state.context_usage == 42
+
+    asyncio.run(scenario())
+
+
+def test_context_usage_from_previous_run_cannot_replace_newer_snapshot() -> None:
+    async def scenario() -> None:
+        app = _app()
+        started = threading.Event()
+        release = threading.Event()
+        calls = 0
+
+        def context_usage() -> int:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                started.set()
+                if not release.wait(timeout=5):
+                    raise TimeoutError("context usage worker did not finish")
+            return calls
+
+        app.context_usage_provider = context_usage
+        constraints = RenderConstraints(width=60, max_height=24, visible_height=24)
+        app.render(constraints)
+        try:
+            assert await asyncio.to_thread(started.wait, 1)
+            app.start_prompt("new run", started_at=1.0)
+            app.complete_run(elapsed_seconds=1.0)
+        finally:
+            release.set()
+        first_task = app._context_usage_refresh_task
+        assert first_task is not None
+        await asyncio.wait_for(first_task, timeout=2)
+        assert app.state.context_usage is None
+        app.render(constraints)
+        second_task = app._context_usage_refresh_task
+        assert second_task is not None
+        await asyncio.wait_for(second_task, timeout=2)
+        assert app.state.context_usage == 2
+
+    asyncio.run(scenario())
 
 
 def test_screen_conversation_app_reports_window_replacement_reason_once() -> None:

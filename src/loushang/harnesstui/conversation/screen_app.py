@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
@@ -113,6 +114,9 @@ class ScreenConversationApp:
         default=None,
         init=False,
         repr=False,
+    )
+    _context_usage_refresh_task: asyncio.Task[None] | None = field(
+        default=None, init=False, repr=False
     )
     _expanded_tool_keys: set[str | int] = field(
         default_factory=set, init=False, repr=False
@@ -736,8 +740,8 @@ class ScreenConversationApp:
         self._tool_index_cache_revision = revision
 
     def _refresh_context_usage(self) -> None:
-        # Rebuilding a long session's context is synchronous and can stall
-        # animation and input while a tool is running. Refresh after the run.
+        # A long session's context can take substantial time to rebuild. Keep
+        # both the active frames and the first idle frame free of that work.
         if self.context_usage_provider is None or self.state.running:
             return
         refresh_key = (
@@ -746,11 +750,45 @@ class ScreenConversationApp:
         )
         if refresh_key == self._context_usage_refresh_key:
             return
+        if self._context_usage_refresh_task is not None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # Static rendering and synchronous callers preserve their immediate
+            # context snapshot contract.
+            pass
+        else:
+            self._context_usage_refresh_key = refresh_key
+            self._context_usage_refresh_task = loop.create_task(
+                self._refresh_context_usage_async(refresh_key)
+            )
+            return
         try:
             self.state.context_usage = self.context_usage_provider()
         except Exception:
             self.state.context_usage = None
         self._context_usage_refresh_key = refresh_key
+
+    async def _refresh_context_usage_async(
+        self, refresh_key: tuple[int, int]
+    ) -> None:
+        provider = self.context_usage_provider
+        try:
+            value = await asyncio.to_thread(provider) if provider is not None else None
+        except Exception:
+            value = None
+        finally:
+            self._context_usage_refresh_task = None
+        current_key = (
+            self.state.records_revision,
+            self.state.transcript_window_generation,
+        )
+        if self.state.running or current_key != refresh_key:
+            self._context_usage_refresh_key = None
+        else:
+            self.state.context_usage = value
+        self._request_render("product")
 
     def startup_welcome_panel(self) -> Any:
         raise NotImplementedError(
