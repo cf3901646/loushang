@@ -22,6 +22,7 @@ from loushang.tui.transcript import (
     StreamingTextBuffer,
     ToolExecutionRecord,
     TranscriptView,
+    WorkedDividerRecord,
     _prefix_streaming_assistant_segment,
     _render_streaming_assistant_markdown_segments,
 )
@@ -155,6 +156,9 @@ class TranscriptRegion:
     )
     _committed_segment: RenderLineSegment | None = field(
         default=None, init=False, repr=False
+    )
+    _committed_render_segments: tuple[RenderLineSegment, ...] = field(
+        default=(), init=False, repr=False
     )
     _committed_block_context: tuple[object, ...] | None = field(
         default=None, init=False, repr=False
@@ -411,10 +415,7 @@ class TranscriptRegion:
             style_signature=style_signature,
             has_committed=committed is not None,
         )
-        segments = (
-            *((committed,) if committed is not None else ()),
-            *draft_segments,
-        )
+        segments = (*self._committed_render_segments, *draft_segments)
         lines = SegmentedRenderLines.from_segments(segments)
         if len(lines) <= max_height:
             self._tail_start = 0
@@ -476,6 +477,62 @@ class TranscriptRegion:
             if block_context == self._committed_block_context
             else ()
         )
+        # The final assistant and Worked divider normally arrive together
+        # after the last streaming frame. Preserve the already rendered history
+        # instead of rebuilding every line just to append that short suffix.
+        appended = self.records[len(previous_blocks) :]
+        if (
+            previous_blocks
+            and self._committed_segment is not None
+            and self._committed_segment_key is not None
+            and self.expanded_tool_indices == self._committed_segment_key[-2]
+            and self.focused_tool_index == self._committed_segment_key[-1]
+            and appended
+            and all(
+                previous[0] is self.records[index]
+                for index, previous in enumerate(previous_blocks)
+            )
+            and all(
+                isinstance(record, (AssistantMessageRecord, WorkedDividerRecord))
+                for record in appended
+            )
+        ):
+            previous_render_segments = self._committed_render_segments
+            lines = list(self._committed_segment.lines)
+            suffix_lines: list[RenderLine] = []
+            append_separator_rows = set(self._committed_separator_rows)
+            appended_blocks = []
+            for record in appended:
+                block = self._render_record_lines(
+                    record, width=width, style_signature=style_signature
+                )
+                appended_blocks.append((record, False, block))
+                if block:
+                    if lines:
+                        append_separator_rows.add(len(lines))
+                        separator = RenderLine("")
+                        lines.append(separator)
+                        suffix_lines.append(separator)
+                    rendered_lines = tuple(RenderLine(row) for row in block)
+                    lines.extend(rendered_lines)
+                    suffix_lines.extend(rendered_lines)
+            append_segment = RenderLineSegment(lines=tuple(lines), revision=key)
+            self._committed_segment_key = key
+            self._committed_segment = append_segment
+            if suffix_lines:
+                suffix_segment = RenderLineSegment(
+                    lines=tuple(suffix_lines), revision=key
+                )
+                self._committed_render_segments = (
+                    *previous_render_segments,
+                    suffix_segment,
+                )
+            else:
+                self._committed_render_segments = previous_render_segments
+            self._committed_record_blocks = (*previous_blocks, *appended_blocks)
+            self._committed_separator_rows = frozenset(append_separator_rows)
+            return append_segment
+
         current_blocks: list[tuple[DisplayRecord, bool, tuple[str, ...]]] = []
         rows: list[str] = []
         separator_rows: set[int] = set()
@@ -524,6 +581,7 @@ class TranscriptRegion:
         )
         self._committed_segment_key = key
         self._committed_segment = segment
+        self._committed_render_segments = (segment,) if segment is not None else ()
         self._committed_block_context = block_context
         self._committed_record_blocks = tuple(current_blocks)
         self._committed_separator_rows = frozenset(separator_rows)
@@ -738,6 +796,7 @@ class TranscriptRegion:
         self._markdown_render_cache.clear()
         self._committed_segment_key = None
         self._committed_segment = None
+        self._committed_render_segments = ()
         self._committed_block_context = None
         self._committed_record_blocks = ()
         self._committed_separator_rows = frozenset()
