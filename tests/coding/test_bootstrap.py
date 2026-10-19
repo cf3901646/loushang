@@ -1779,7 +1779,7 @@ def test_lsp_and_base_publish_three_owner_generations_from_product_compilation(
             ),
         ),
     )
-    assert assembly_counts == {"selection": 1, "compilation": 2}
+    assert assembly_counts == {"selection": 1, "compilation": 1}
     lsp_assembly = session._coding_lsp_plugin_assembly
     inputs = session._capability_composition_inputs
     assert lsp_assembly is not None
@@ -1801,6 +1801,7 @@ def test_lsp_and_base_publish_three_owner_generations_from_product_compilation(
     }
 
     asyncio.run(session.prepare_model_call_runtime())
+    assert assembly_counts == {"selection": 1, "compilation": 1}
     assert len(session._capability_owner_generations) == 3
     asyncio.run(session.dispose())
 
