@@ -104,6 +104,9 @@ class CodingDeferredLspGeneration:
     assembly_factory: Callable[
         [], Awaitable[CodingCapabilityPluginCompositionAssembly]
     ] = field(repr=False)
+    current_selection_check: Callable[[], None] | None = field(
+        default=None, repr=False
+    )
     assembly: CodingCapabilityPluginCompositionAssembly | None = field(
         default=None, init=False, repr=False
     )
@@ -141,6 +144,7 @@ class CodingDeferredLspGeneration:
             raise RuntimeError("deferred LSP generation was already prepared")
         assembly = await self.assembly_factory()
         self.assembly = assembly
+        self.assert_current()
         if set(assembly.tool_owners) != {_PLUGIN_ID}:
             raise ValueError("deferred LSP generation requires one selected Tool owner")
         owner = assembly.tool_owner_for(_PLUGIN_ID)
@@ -257,11 +261,17 @@ class CodingDeferredLspGeneration:
             raise RuntimeError("deferred LSP generation is not prepared")
         if self._published:
             return
+        self.assert_current()
         commit_session_capability_owner_generations(self.generations)
         self.assembly.publish_owner_generations(self.receipts)
         self._published = True
         self.assembly.close()
         self._release_starts()
+
+    def assert_current(self) -> None:
+        check = self.current_selection_check
+        if check is not None:
+            check()
 
     async def dispose(self) -> None:
         if self._closed:

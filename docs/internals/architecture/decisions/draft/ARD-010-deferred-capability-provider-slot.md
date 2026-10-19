@@ -153,8 +153,10 @@ first-party fake-server vertical slice passes through real Tool execution and
 retirement. A validated startup receipt with no LSP selected revision allows a
 persisted Session to reopen dormant, including after deferred activation.
 Historical eager receipts and history without a startup receipt keep the eager
-route to preserve their owner evidence. Product-selected paths still need
-dedicated validation.
+route to preserve their owner evidence. A Product-selected deferred generation
+captures Desired State and selected-manifest evidence at activation and rechecks
+both before publication and during later Session preparation. Product-selected
+paths still need a supported-platform end-to-end test.
 
 In an isolated local A/B, the previous default `on_demand` path took
 4.50–4.97 seconds to construct and prepare a Session; the deferred path took

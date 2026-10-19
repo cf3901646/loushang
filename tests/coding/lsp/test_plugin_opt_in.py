@@ -481,6 +481,14 @@ def test_deferred_lsp_child_graph_selects_after_demand_and_retires(
             source_id="coding-lsp-opt-in-test",
         )
         registration = _ToolRegistrationPort()
+        selection_checks = 0
+        selection_current = True
+
+        def check_selection() -> None:
+            nonlocal selection_checks
+            selection_checks += 1
+            if not selection_current:
+                raise RuntimeError("Product LSP selection changed")
 
         async def assemble():
             owner = _ApprovalOwner(now)
@@ -518,6 +526,7 @@ def test_deferred_lsp_child_graph_selects_after_demand_and_retires(
                 workspace_binding=workspace_binding,
                 registration=registration,
                 assembly_factory=assemble,
+                current_selection_check=check_selection,
             ),
         )
         assert owners == []
@@ -527,11 +536,15 @@ def test_deferred_lsp_child_graph_selects_after_demand_and_retires(
         assert owners[0].activation_calls == 1
         assert owners[0].activation_decision is not None
         assert owners[0].activation_decision.issued_at_unix_ms == now - 10
+        assert selection_checks >= 2
         assert registration.visible == ["document_outline", "inspect_symbol"]
         assert generation.access is not None
         assert generation.access.status().enabled
         assert generation.graph is not None
         assert generation.graph.snapshot is not None
+        selection_current = False
+        with pytest.raises(RuntimeError, match="selection changed"):
+            generation.assert_current()
         await slot.close()
         assert registration.visible == []
         assert generation.graph.is_closed

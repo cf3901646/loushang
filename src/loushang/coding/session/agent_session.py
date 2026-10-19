@@ -1337,6 +1337,20 @@ class AgentSession(AgentProductSession):
                         "selection change",
                         code="coding_capability_product_restart_required",
                     ) from exc
+        deferred_lsp = self._deferred_lsp_slot
+        active_lsp = deferred_lsp.active if deferred_lsp is not None else None
+        if active_lsp is not None:
+            try:
+                active_lsp.assert_current()
+            except (
+                PackageProductRuntimeActivationError,
+                PackageProductRuntimeReadError,
+            ) as exc:
+                raise CodingCapabilityPluginCompositionError(
+                    "Active Coding Session requires restart after deferred "
+                    "LSP Product selection change",
+                    code="coding_capability_product_restart_required",
+                ) from exc
 
     def _claim_current_coding_runtime_owners(self) -> None:
         capability_plugins = self._coding_capability_plugin_assembly

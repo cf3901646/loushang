@@ -32,6 +32,7 @@ from loushang.coding._base_product_composition import (
     extend_coding_base_product_data_resources,
 )
 from loushang.coding._capability_plugin_composition import (
+    CodingCapabilityPluginCompositionAssembly,
     CodingCapabilityPluginCompositionError,
     CodingResumePluginParents,
     coding_capability_plugin_failure_custodian,
@@ -2437,7 +2438,10 @@ def _create_agent_session(
                 )
                 if product_lsp_available:
 
-                    def build_deferred_lsp_assembly():
+                    def build_deferred_lsp_assembly() -> tuple[
+                        CodingCapabilityPluginCompositionAssembly,
+                        Callable[[], None] | None,
+                    ]:
                         temporary_state = (
                             _ExplicitTemporaryDirectory(
                                 prefix="loushang-coding-deferred-lsp-"
@@ -2454,6 +2458,7 @@ def _create_agent_session(
                             / "deferred-lsp"
                         )
                         preparation = None
+                        current_selection_check: Callable[[], None] | None = None
                         try:
                             global_config, project_config = coding_lsp_config_paths(
                                 services.settings_manager,
@@ -2481,6 +2486,23 @@ def _create_agent_session(
                                     raise CodingResourceCatalogAdmissionError(
                                         ("product_requested_capability_not_installed",)
                                     )
+                                selected_manifest = (
+                                    product_base_runtime.capture_selected_plugin_manifest_for(
+                                        "coding.lsp.default",
+                                        max_files=64,
+                                        max_total_bytes=1024 * 1024,
+                                    )
+                                )
+
+                                def check_product_lsp_selection() -> None:
+                                    product_base_runtime.assert_plugin_desired_selection_current(
+                                        selection
+                                    )
+                                    product_base_runtime.assert_selected_plugin_manifest_current(
+                                        selected_manifest
+                                    )
+
+                                current_selection_check = check_product_lsp_selection
                                 preparation = (
                                     prepare_coding_product_capability_plugin_composition(
                                         product_base_runtime,
@@ -2519,12 +2541,13 @@ def _create_agent_session(
                                         else None
                                     ),
                                 )
-                            return preparation.bind_workspace(
+                            assembly = preparation.bind_workspace(
                                 workspace_binding,
                                 host_boot_id=_CODING_PLUGIN_HOST_BOOT_ID,
                                 tool_modes={CODING_LSP_CAPABILITY: "on_demand"},
                                 clock=coding_plugin_clock,
                             )
+                            return assembly, current_selection_check
                         except BaseException:
                             if preparation is not None:
                                 preparation.close()
@@ -2532,11 +2555,26 @@ def _create_agent_session(
                                 temporary_state.cleanup()
                             raise
 
-                    async def assemble_deferred_lsp():
-                        task = asyncio.create_task(
-                            asyncio.to_thread(build_deferred_lsp_assembly)
+                    def create_deferred_lsp_generation() -> CodingDeferredLspGeneration:
+                        async def assemble_deferred_lsp(
+                        ) -> CodingCapabilityPluginCompositionAssembly:
+                            task = asyncio.create_task(
+                                asyncio.to_thread(build_deferred_lsp_assembly)
+                            )
+                            assembly, check = await _await_cancellation_atomic(task)
+                            generation.current_selection_check = check
+                            return assembly
+
+                        generation = CodingDeferredLspGeneration(
+                            session_id=session_id,
+                            profile_fingerprint=(
+                                session._capability_graph_runtime.profile_fingerprint
+                            ),
+                            workspace_binding=workspace_binding,
+                            registration=session._composition.tool_controller,
+                            assembly_factory=assemble_deferred_lsp,
                         )
-                        return await _await_cancellation_atomic(task)
+                        return generation
 
                     session.install_deferred_lsp_slot(
                         DeferredCapabilitySlot(
@@ -2545,15 +2583,7 @@ def _create_agent_session(
                                 facet_ids=CODING_LSP_CAPABILITY_DEFINITION.facets,
                                 tool_names=CODING_LSP_EXACT_OWNER_TOOL_NAMES,
                             ),
-                            lambda: CodingDeferredLspGeneration(
-                                session_id=session_id,
-                                profile_fingerprint=(
-                                    session._capability_graph_runtime.profile_fingerprint
-                                ),
-                                workspace_binding=workspace_binding,
-                                registration=session._composition.tool_controller,
-                                assembly_factory=assemble_deferred_lsp,
-                            ),
+                            create_deferred_lsp_generation,
                         ),
                         management_cleanup=deferred_lsp_management_state_cleanup,
                     )
