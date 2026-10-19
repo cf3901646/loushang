@@ -206,6 +206,34 @@ def test_context_usage_from_previous_run_cannot_replace_newer_snapshot() -> None
     asyncio.run(scenario())
 
 
+def test_cancel_context_refresh_keeps_exited_screen_unmodified() -> None:
+    async def scenario() -> None:
+        app = _app()
+        started = threading.Event()
+        release = threading.Event()
+
+        def context_usage() -> int:
+            started.set()
+            if not release.wait(timeout=5):
+                raise TimeoutError("context usage worker did not finish")
+            return 42
+
+        app.context_usage_provider = context_usage
+        app.render(RenderConstraints(width=60, max_height=24, visible_height=24))
+        try:
+            assert await asyncio.to_thread(started.wait, 1)
+            task = app._context_usage_refresh_task
+            assert task is not None
+            app.cancel_context_usage_refresh()
+            assert app._context_usage_refresh_task is None
+        finally:
+            release.set()
+        await asyncio.gather(task, return_exceptions=True)
+        assert app.state.context_usage is None
+
+    asyncio.run(scenario())
+
+
 def test_screen_conversation_app_reports_window_replacement_reason_once() -> None:
     app = _app()
 
