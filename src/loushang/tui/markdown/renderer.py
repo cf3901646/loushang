@@ -62,6 +62,7 @@ _MARKDOWN_LINE_CACHE_SIZE = 2_048
 _MARKDOWN_STABLE_BLOCK_CACHE_SIZE = 4_096
 # A partial list marker can merge backward into the preceding top-level list.
 _STREAMING_MARKDOWN_FRONTIER_GROUPS = 2
+_FLAT_LIST_STABLE_GROUP_ITEMS = 64
 _MARKDOWN_PARSER = MarkdownIt("commonmark").enable("table").enable("strikethrough")
 _QUOTE_MARKER = "│ "
 
@@ -145,6 +146,7 @@ class _StreamingMarkdownParseState:
     _full_parse_only: bool = False
     _flat_list_completed_blocks: list[_MarkdownBlock] = field(default_factory=list)
     _flat_list_completed_count: int = 0
+    _flat_list_stable_groups: list[_ParsedMarkdownGroup] = field(default_factory=list)
 
     def parse(self, markdown: str) -> tuple[_MarkdownBlock, ...]:
         partition = self.update(markdown)
@@ -186,21 +188,45 @@ class _StreamingMarkdownParseState:
 
         flat_list = self._parse_flat_bullet_list(normalized)
         if flat_list is not None:
-            partition = _StreamingMarkdownPartition(
-                stable_groups=self._stable_groups,
-                frontier_groups=(
+            blocks, end_line = flat_list
+            stable_count = (
+                self._flat_list_completed_count // _FLAT_LIST_STABLE_GROUP_ITEMS
+            ) * _FLAT_LIST_STABLE_GROUP_ITEMS
+            while len(self._flat_list_stable_groups) * _FLAT_LIST_STABLE_GROUP_ITEMS < stable_count:
+                start = len(self._flat_list_stable_groups) * _FLAT_LIST_STABLE_GROUP_ITEMS
+                stop = start + _FLAT_LIST_STABLE_GROUP_ITEMS
+                self._flat_list_stable_groups.append(
                     _ParsedMarkdownGroup(
-                        start_line=0,
-                        end_line=flat_list[1],
-                        blocks=flat_list[0],
+                        start_line=start,
+                        end_line=stop,
+                        blocks=blocks[start:stop],
+                    )
+                )
+            flat_frontier_groups = (
+                (
+                    _ParsedMarkdownGroup(
+                        start_line=stable_count,
+                        end_line=end_line,
+                        blocks=blocks[stable_count:],
                     ),
-                ),
+                )
+                if stable_count < len(blocks)
+                else ()
+            )
+            partition = _StreamingMarkdownPartition(
+                stable_groups=self._flat_list_stable_groups,
+                frontier_groups=flat_frontier_groups,
                 generation=self._generation,
                 revision=self._revision,
             )
             self._last_partition = partition
             self._last_blocks_revision = -1
             return partition
+        if self._flat_list_stable_groups:
+            # A later line changed the Markdown structure or defined a link
+            # reference. Reparse the whole source and discard stable list rows.
+            self._flat_list_stable_groups.clear()
+            self._generation = object()
 
         source_lines = normalized.split("\n")
         tail_source = "\n".join(source_lines[self._stable_end_line :])
@@ -309,6 +335,7 @@ class _StreamingMarkdownParseState:
         self._full_parse_only = False
         self._flat_list_completed_blocks.clear()
         self._flat_list_completed_count = 0
+        self._flat_list_stable_groups.clear()
 
 
 @dataclass(slots=True)

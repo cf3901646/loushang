@@ -152,6 +152,64 @@ def test_streaming_flat_bullet_list_parses_new_burst_once(
     assert parsed_sources == ["".join(f"- next {index}\n" for index in range(100))]
 
 
+def test_streaming_flat_bullet_list_keeps_completed_render_segments() -> None:
+    cache = markdown_renderer.MarkdownRenderCache()
+    stream_key = object()
+    constraints = RenderConstraints(width=80, max_height=1000)
+    source = "".join(
+        f"- item {index} **bold** and [link](https://example.com/{index})\n"
+        for index in range(128)
+    )
+
+    def render(text: str):
+        return markdown_renderer.MarkdownRenderer(
+            text, render_cache=cache, streaming_key=stream_key
+        ).render_streaming_segments(constraints)
+
+    first = render(source)
+    assert first is not None
+    assert len(first.segments) >= 2
+    assert all(segment.stable for segment in first.segments[:2])
+
+    extended = source + "- final **item**\n"
+    second = render(extended)
+    assert second is not None
+    assert second.segments[:2] == first.segments[:2]
+    assert all(
+        current is previous
+        for current, previous in zip(
+            second.segments[:2], first.segments[:2], strict=True
+        )
+    )
+    expected = markdown_renderer.MarkdownRenderer(extended).render(constraints)
+    assert tuple(
+        line for segment in second.segments for line in segment.lines
+    ) == tuple(line.text for line in expected.lines)
+
+
+def test_streaming_flat_bullet_segments_reset_when_structure_changes() -> None:
+    cache = markdown_renderer.MarkdownRenderCache()
+    stream_key = object()
+    constraints = RenderConstraints(width=80, max_height=1000)
+    source = "".join(f"- item {index}\n" for index in range(128))
+    first = markdown_renderer.MarkdownRenderer(
+        source, render_cache=cache, streaming_key=stream_key
+    ).render_streaming_segments(constraints)
+    assert first is not None
+    assert first.segments[0].stable
+
+    changed = source + "\nTail paragraph"
+    second = markdown_renderer.MarkdownRenderer(
+        changed, render_cache=cache, streaming_key=stream_key
+    ).render_streaming_segments(constraints)
+    assert second is not None
+    assert all(segment is not first.segments[0] for segment in second.segments)
+    expected = markdown_renderer.MarkdownRenderer(changed).render(constraints)
+    assert tuple(
+        line for segment in second.segments for line in segment.lines
+    ) == tuple(line.text for line in expected.lines)
+
+
 @pytest.mark.parametrize(
     "suffix",
     (
