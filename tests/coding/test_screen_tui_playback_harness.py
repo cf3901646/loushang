@@ -395,9 +395,9 @@ def test_screen_tui_loop_playback_drives_running_steer_then_escape() -> None:
         result.assert_no_clear_screen()
 
 
-@pytest.mark.parametrize("continuous_output", [False, True])
+@pytest.mark.parametrize("output_mode", ["silent", "continuous", "burst"])
 def test_screen_tui_tool_command_keeps_input_and_working_timer_live(
-    tmp_path, continuous_output: bool
+    tmp_path, output_mode: str
 ) -> None:
     from loushang.harness.tools.workspace.bash import _BashPartialOutput
     from loushang.harness.workspace.exec import ExecRequest, ExecService
@@ -424,13 +424,19 @@ def test_screen_tui_tool_command_keeps_input_and_working_timer_live(
             )
 
         observer = asyncio.create_task(observe_input())
-        program = (
-            "import sys,time; "
-            "[(sys.stdout.write('x'*8192),sys.stdout.flush(),time.sleep(.002)) "
-            "for _ in range(200)]"
-            if continuous_output
-            else "import time; time.sleep(.35)"
-        )
+        if output_mode == "continuous":
+            program = (
+                "import sys,time; "
+                "[(sys.stdout.write('x'*8192),sys.stdout.flush(),time.sleep(.002)) "
+                "for _ in range(200)]"
+            )
+        elif output_mode == "burst":
+            program = (
+                "import sys,time; sys.stdout.write('x'*2024000); "
+                "sys.stdout.flush(); time.sleep(.35)"
+            )
+        else:
+            program = "import time; time.sleep(.35)"
 
         def on_update(chunk) -> None:
             partial = preview.append(chunk)
@@ -475,9 +481,11 @@ def test_screen_tui_tool_command_keeps_input_and_working_timer_live(
     assert observed[0][2] < 0.2
     result.assert_text_contains("Working ")
     result.assert_text_contains("Worked ")
-    if continuous_output:
+    if output_mode != "silent":
         result.assert_text_contains("streaming command")
-        assert preview.total_bytes >= 1_000_000
+        assert preview.total_bytes == (
+            2_024_000 if output_mode == "burst" else 200 * 8192
+        )
     assert result.text.index("› next") < result.text.index("Worked ")
     working_times = [
         float(value) for value in re.findall(r"Working (\d+\.\d+)s", result.text)
