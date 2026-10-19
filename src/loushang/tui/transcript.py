@@ -19,6 +19,7 @@ from loushang.tui.markdown.renderer import (
     MarkdownRenderer,
     MarkdownSegmentedRenderResult,
 )
+from loushang.tui.terminal_image import is_terminal_image_line
 from loushang.tui.theme import TerminalCapabilities, ThemeResolver
 
 ToolState = Literal["running", "completed", "failed", "cancelled", "truncated"]
@@ -557,6 +558,18 @@ def _prefix_streaming_assistant_segment(
     use_first_prefix: bool,
 ) -> tuple[str, ...]:
     target_width = autowrap_safe_width(width)
+    if target_width >= 3 and not any(is_terminal_image_line(line) for line in lines):
+        # The Markdown segment already passed _result at target_width - 2.
+        # Its two-cell assistant prefix fits without another width scan.
+        prefixed: list[str] = []
+        used_first = False
+        for line in lines:
+            if not line:
+                prefixed.append("")
+                continue
+            prefixed.append(("* " if use_first_prefix and not used_first else "  ") + line)
+            used_first = True
+        return tuple(prefixed)
     return tuple(
         _prefixed_rendered_lines(
             "* " if use_first_prefix else "  ",

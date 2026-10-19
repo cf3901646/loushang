@@ -115,6 +115,9 @@ def grapheme_clusters(text: str) -> tuple[str, ...]:
 def max_display_cluster_width(text: str) -> int:
     """Return the widest indivisible display cluster in styled text."""
 
+    ascii_width = _printable_sgr_ascii_width(text)
+    if ascii_width is not None:
+        return 1 if ascii_width else 0
     visible = strip_control_sequences(text)
     return max(
         (_cluster_width(cluster) for cluster in _display_grapheme_clusters(visible)),
@@ -314,10 +317,10 @@ def _visible_width_cached(text: str) -> int:
     plain_ascii_width = _plain_ascii_width(text)
     if plain_ascii_width is not None:
         return plain_ascii_width
-    if "\x1b" in text and text.isascii():
-        without_sgr = _ASCII_SGR_CODES.sub("", text)
-        if "\x1b" not in without_sgr and without_sgr.isprintable():
-            return len(without_sgr)
+    if "\x1b" in text:
+        sgr_ascii_width = _printable_sgr_ascii_width(text)
+        if sgr_ascii_width is not None:
+            return sgr_ascii_width
     visible = strip_control_sequences(text)
     plain_ascii_width = _plain_ascii_width(visible)
     if plain_ascii_width is not None:
@@ -325,6 +328,15 @@ def _visible_width_cached(text: str) -> int:
     if not _requires_cluster_measurement(visible):
         return _measure_terminal_cells(visible)
     return sum(_cluster_width(cluster) for cluster in _display_grapheme_clusters(visible))
+
+
+def _printable_sgr_ascii_width(text: str) -> int | None:
+    if not text.isascii():
+        return None
+    without_sgr = _ASCII_SGR_CODES.sub("", text)
+    if "\x1b" in without_sgr or not without_sgr.isprintable():
+        return None
+    return len(without_sgr)
 
 
 def _requires_cluster_measurement(text: str) -> bool:

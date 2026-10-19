@@ -40,6 +40,16 @@ def test_visible_width_printable_sgr_ascii_skips_control_scanner(monkeypatch) ->
     assert visible_width("\x1b[38;2;101;202;77munique 798 line\x1b[0m") == 15
 
 
+def test_ascii_table_cell_skips_grapheme_scan(monkeypatch) -> None:
+    def unexpected_grapheme_scan(_text: str):
+        raise AssertionError("printable ASCII has only one-cell clusters")
+
+    monkeypatch.setattr(cell_width, "_display_grapheme_clusters", unexpected_grapheme_scan)
+    assert cell_width.max_display_cluster_width("plain table cell") == 1
+    assert cell_width.max_display_cluster_width("\x1b[36mstyled table cell\x1b[0m") == 1
+    assert cell_width.max_display_cluster_width("\x1b[0m") == 0
+
+
 def test_visible_width_handles_wide_combining_and_emoji_clusters() -> None:
     assert visible_width("a") == 1
     assert visible_width("中") == 2
