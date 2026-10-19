@@ -1427,7 +1427,8 @@ def test_catalog_default_publishes_base_tools_and_commands_as_owner_generations(
                 )
             ),
         )
-        assert assembly_counts == {"selection": 0, "compilation": 1}
+        # The base Product is selected once even when LSP is disabled.
+        assert assembly_counts == {"selection": 1, "compilation": 1}
         assert session._tool_exec_service is None
         assert session._composition.tool_controller.tool_registry is registry
         inputs = session._capability_composition_inputs
