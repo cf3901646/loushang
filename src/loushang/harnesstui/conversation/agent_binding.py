@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
@@ -90,6 +91,7 @@ from loushang.harnesstui.conversation.tool_transcript import (
     build_mapping_tool_transcript_projection,
     tool_block_to_record,
 )
+from loushang.tui.markdown.renderer import split_independent_flat_bullet_delta
 from loushang.tui.transcript import DisplayRecord, ToolExecutionRecord
 
 AgentToolTranscriptProjection: TypeAlias = ToolTranscriptProjectionBinding[
@@ -695,6 +697,51 @@ def build_agent_screen_conversation_projection(
     )
 
 
+def cooperative_agent_screen_event_listener(
+    projection: ConversationProjectionBinding[dict[str, Any]],
+    *,
+    pause: Callable[[], Awaitable[None]] | None = None,
+) -> Callable[[dict[str, Any]], Awaitable[None] | None]:
+    """Keep input and Working frames live during one large safe list delta."""
+
+    async def pause_between_chunks() -> None:
+        await asyncio.sleep(0.016)
+
+    pause_frame = pause or pause_between_chunks
+
+    def handle(event: dict[str, Any]) -> Awaitable[None] | None:
+        update = event.get("assistant_message_event")
+        message = event.get("message")
+        if (
+            event.get("type") != "message_update"
+            or getattr(message, "role", None) != "assistant"
+            or not isinstance(update, Mapping)
+            or update.get("type") != "text_delta"
+            or not isinstance(update.get("delta"), str)
+        ):
+            projection.handle(event)
+            return None
+        chunks = split_independent_flat_bullet_delta(update["delta"])
+        if chunks is None:
+            projection.handle(event)
+            return None
+
+        async def project_chunks() -> None:
+            for index, chunk in enumerate(chunks):
+                projection.handle(
+                    {
+                        **event,
+                        "assistant_message_event": {**update, "delta": chunk},
+                    }
+                )
+                if index + 1 < len(chunks):
+                    await pause_frame()
+
+        return project_chunks()
+
+    return handle
+
+
 def _agent_tool_result_message_event(message: object) -> Mapping[str, Any]:
     tool_name = str(getattr(message, "tool_name", "tool"))
     tool_call_id = getattr(message, "tool_call_id", None)
@@ -808,6 +855,7 @@ __all__ = [
     "build_agent_plain_conversation_projection",
     "build_agent_plain_event_projection",
     "build_agent_screen_conversation_projection",
+    "cooperative_agent_screen_event_listener",
     "build_agent_tool_transcript_projection",
     "project_agent_conversation_history",
     "run_agent_plain_prompt",

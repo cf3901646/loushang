@@ -263,6 +263,7 @@ async def _run_bound_screen_interactive_tui(
         stdout=stdout,
         now=time.monotonic,
         completion_provider=completion_provider,
+        cooperative_large_deltas=True,
         capability_provider=current_capabilities,
         resume_command_prefix=("loushang", "--resume"),
         session_provider=lambda: current_agent_runtime_session(runtime, session),

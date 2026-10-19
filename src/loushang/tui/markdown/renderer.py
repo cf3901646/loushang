@@ -767,6 +767,38 @@ def _parse_inline_flat_bullet_source(
     return tuple(_parse_inline_bullet_item(line) for line in lines)
 
 
+def split_independent_flat_bullet_delta(delta: str) -> tuple[str, ...] | None:
+    """Split a large, independent list delta at safe item boundaries.
+
+    The same row predicate guards the fast Markdown parser. An arbitrary
+    Markdown stream may define references or nested blocks later, so it must
+    continue through the ordinary one-delta projection path.
+    """
+
+    if len(delta) < 16_384 or not delta.endswith("\n") or not delta.startswith("- "):
+        return None
+    lines = delta.splitlines(keepends=True)
+    if len(lines) < 64 or not all(
+        line.endswith("\n") and _independent_inline_bullet_item(line[:-1])
+        for line in lines
+    ):
+        return None
+    chunk_chars = max(8_192, (len(delta) + 31) // 32)
+    chunks: list[str] = []
+    current: list[str] = []
+    current_chars = 0
+    for line in lines:
+        if current and current_chars + len(line) > chunk_chars:
+            chunks.append("".join(current))
+            current = []
+            current_chars = 0
+        current.append(line)
+        current_chars += len(line)
+    if current:
+        chunks.append("".join(current))
+    return tuple(chunks) if len(chunks) > 1 else None
+
+
 def _parse_markdown_groups(
     markdown: str,
     *,

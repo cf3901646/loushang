@@ -205,6 +205,33 @@ def test_independent_inline_bullet_item_rejects_block_or_reference_syntax(
     assert not markdown_renderer._independent_inline_bullet_item(f"- {body}")
 
 
+def test_large_independent_list_delta_splits_without_changing_markdown() -> None:
+    source = "".join(
+        f"- **Line {index}**: [link](https://example.com/{index})\n"
+        for index in range(2000)
+    )
+    chunks = markdown_renderer.split_independent_flat_bullet_delta(source)
+    assert chunks is not None and len(chunks) > 1
+    assert all(chunk.endswith("\n") for chunk in chunks)
+    assert "".join(chunks) == source
+
+    state = markdown_renderer._StreamingMarkdownParseState()
+    streamed = ""
+    for chunk in chunks:
+        streamed += chunk
+        state.parse(streamed)
+    expected, _index = markdown_renderer._parse_markdown_it_blocks(
+        markdown_renderer._MARKDOWN_PARSER.parse(source),
+        0,
+        stop_type=None,
+        source_lines=source.split("\n"),
+    )
+    assert state.parse(streamed) == tuple(expected)
+    assert markdown_renderer.split_independent_flat_bullet_delta(
+        source + "- [ref]: https://example.com\n"
+    ) is None
+
+
 def test_streaming_plain_bullet_burst_matches_commonmark_without_bulk_parse(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
