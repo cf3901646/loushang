@@ -15,6 +15,7 @@ from loushang.harnesstui.conversation.tool_transcript import (
     ToolTranscriptBlock,
     ToolTranscriptProjector,
 )
+from loushang.tui.markdown.types import _MarkdownBlock
 from loushang.tui.transcript import ToolExecutionRecord, UserPromptRecord
 
 ProjectionEventT = TypeVar("ProjectionEventT")
@@ -166,6 +167,13 @@ class ScreenConversationProjectionTarget:
 
     def assistant_delta(self, delta: str) -> None:
         self.app.append_assistant_chunk(delta)
+
+    def prepare_assistant_markdown(
+        self, markdown: str, blocks: tuple[_MarkdownBlock, ...]
+    ) -> None:
+        prepare = getattr(self.app, "prepare_assistant_markdown", None)
+        if callable(prepare):
+            prepare(markdown, blocks)
 
     def assistant_finished(
         self,

@@ -40,6 +40,15 @@ def test_visible_width_printable_sgr_ascii_skips_control_scanner(monkeypatch) ->
     assert visible_width("\x1b[38;2;101;202;77munique 798 line\x1b[0m") == 15
 
 
+def test_visible_width_box_table_ascii_skips_unicode_scanner(monkeypatch) -> None:
+    def fail(_text: str) -> int:
+        raise AssertionError("box table row used the general Unicode scanner")
+
+    monkeypatch.setattr(cell_width, "_measure_terminal_cells", fail)
+    assert visible_width("┌─┬─┐") == 5
+    assert visible_width("│ \x1b[32mrow 798\x1b[0m │") == 11
+
+
 def test_ascii_table_cell_skips_grapheme_scan(monkeypatch) -> None:
     def unexpected_grapheme_scan(_text: str):
         raise AssertionError("printable ASCII has only one-cell clusters")

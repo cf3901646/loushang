@@ -15,6 +15,7 @@ from loushang.harnesstui.conversation.agent_binding import (
     build_agent_screen_conversation_projection,
     cooperative_agent_screen_event_listener,
 )
+from loushang.tui.markdown.renderer import LargeMarkdownDeltaAnalysis
 from loushang.tui.transcript import AssistantMessageRecord, WorkedDividerRecord
 
 
@@ -126,13 +127,13 @@ def test_cancelling_large_markdown_parse_does_not_project_the_delta(
     started = threading.Event()
     release = threading.Event()
 
-    def blocked_parse(_delta: str) -> tuple[str, ...] | None:
+    def blocked_parse(_delta: str) -> LargeMarkdownDeltaAnalysis:
         started.set()
         assert release.wait(5)
-        return None
+        return LargeMarkdownDeltaAnalysis()
 
     monkeypatch.setattr(
-        agent_binding, "split_independent_markdown_block_delta", blocked_parse
+        agent_binding, "analyze_large_markdown_delta", blocked_parse
     )
 
     async def scenario() -> None:

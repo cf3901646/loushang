@@ -501,6 +501,59 @@ def test_screen_coding_tui_paced_large_delta_preserves_terminal_scrollback() -> 
     asyncio.run(scenario())
 
 
+def test_screen_coding_tui_atomic_table_uses_worker_parse_before_worked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from loushang.harnesstui.conversation.agent_binding import (
+        build_agent_screen_conversation_projection,
+        cooperative_agent_screen_event_listener,
+    )
+    from loushang.tui.markdown import renderer as markdown_renderer
+
+    async def scenario() -> None:
+        app = _app()
+        runtime, port = _runtime(app, width=80, height=18)
+        app.start_prompt("table", started_at=0.0)
+        runtime.render_now()
+        answer = "| Name | Value |\n| --- | --- |\n" + "".join(
+            f"| row {index} | [link](https://example.com/{index}) |\n"
+            for index in range(600)
+        )
+        listener = cooperative_agent_screen_event_listener(
+            build_agent_screen_conversation_projection(app)
+        )
+        listener({"type": "message_start", "message": _assistant()})
+        pending = listener(
+            {
+                "type": "message_update",
+                "message": _assistant(answer),
+                "assistant_message_event": {"type": "text_delta", "delta": answer},
+            }
+        )
+        assert pending is not None
+        await pending
+        listener({"type": "message_end", "message": _assistant(answer)})
+        app.complete_run(elapsed_seconds=1.0)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                markdown_renderer._MARKDOWN_PARSER,
+                "parse",
+                lambda *_args, **_kwargs: pytest.fail("table parsed on input loop"),
+            )
+            step = runtime.render_now()
+
+        terminal_text = strip_control_sequences(
+            "\n".join((*port.screen.scrollback_lines, *port.screen.visible_lines))
+        )
+        assert terminal_text.count("row 0") == 1
+        assert terminal_text.count("row 599") == 1
+        assert sum("Worked for 1.00s" in line for line in step.diagnostics.current_logical_lines) == 1
+        step.assert_no_clear_scrollback()
+
+    asyncio.run(scenario())
+
+
 def test_screen_coding_tui_paced_mixed_markdown_preserves_terminal_scrollback() -> None:
     from loushang.harnesstui.conversation.agent_binding import (
         build_agent_screen_conversation_projection,

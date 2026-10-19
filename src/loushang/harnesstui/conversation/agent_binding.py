@@ -80,6 +80,7 @@ from loushang.harnesstui.conversation.projection import (
 from loushang.harnesstui.conversation.runtime_view import StringQueueReader
 from loushang.harnesstui.conversation.screen_target import (
     ScreenConversationProjectionPort,
+    ScreenConversationProjectionTarget,
     ScreenProjectionStatusCopy,
     StandardScreenProjectionStatusCopy,
     build_screen_conversation_projection,
@@ -92,8 +93,8 @@ from loushang.harnesstui.conversation.tool_transcript import (
     tool_block_to_record,
 )
 from loushang.tui.markdown.renderer import (
+    analyze_large_markdown_delta,
     split_independent_flat_bullet_delta,
-    split_independent_markdown_block_delta,
 )
 from loushang.tui.transcript import DisplayRecord, ToolExecutionRecord
 
@@ -744,13 +745,21 @@ def cooperative_agent_screen_event_listener(
             return None
 
         async def project_large_markdown() -> None:
-            blocks = await asyncio.to_thread(
-                split_independent_markdown_block_delta, delta
+            analysis = await asyncio.to_thread(
+                analyze_large_markdown_delta, delta
             )
-            if blocks is None:
+            if analysis.chunks is None:
                 projection.handle(event)
+                target = projection.projector.target
+                if (
+                    analysis.prepared_table_blocks is not None
+                    and isinstance(target, ScreenConversationProjectionTarget)
+                ):
+                    target.prepare_assistant_markdown(
+                        delta, analysis.prepared_table_blocks
+                    )
             else:
-                await project_chunks(blocks)
+                await project_chunks(analysis.chunks)
 
         return project_large_markdown()
 

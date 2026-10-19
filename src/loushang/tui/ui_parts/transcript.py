@@ -15,6 +15,7 @@ from loushang.tui.core import (
     SegmentedRenderLines,
 )
 from loushang.tui.markdown.renderer import MarkdownRenderCache
+from loushang.tui.markdown.types import _MarkdownBlock
 from loushang.tui.theme import ThemeResolver
 from loushang.tui.transcript import (
     AssistantMessageRecord,
@@ -213,6 +214,11 @@ class TranscriptRegion:
         return bool(
             self.records or self.draft is not None or self.draft_buffer is not None
         )
+
+    def prepare_assistant_markdown(
+        self, markdown: str, blocks: tuple[_MarkdownBlock, ...]
+    ) -> None:
+        self._markdown_render_cache.prepare_blocks(markdown, blocks)
 
     def render(self, constraints: RenderConstraints) -> RenderResult:
         self._reset_cache_if_window_changed()

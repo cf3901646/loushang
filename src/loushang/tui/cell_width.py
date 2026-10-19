@@ -19,6 +19,10 @@ _VISIBLE_WIDTH_CACHE_SIZE = 16_384
 _CLUSTER_WIDTH_CACHE_SIZE = 16_384
 _ASCII_TOKEN_RUNS = re.compile(r"\s+|\S+")
 _ASCII_SGR_CODES = re.compile(r"\x1b\[[0-9;:]*m")
+_BOX_DRAWING_GLYPH = re.compile("[┌─┬┐├┼┤│└┴┘]")
+_BOX_DRAWING_ASCII_TRANSLATION = str.maketrans(
+    {glyph: "|" for glyph in "┌─┬┐├┼┤│└┴┘"}
+)
 AmbiguousWidth = Literal[1, 2]
 _AMBIGUOUS_WIDTH: AmbiguousWidth = 1
 
@@ -317,6 +321,16 @@ def _visible_width_cached(text: str) -> int:
     plain_ascii_width = _plain_ascii_width(text)
     if plain_ascii_width is not None:
         return plain_ascii_width
+    if _AMBIGUOUS_WIDTH == 1 and not text.isascii() and _BOX_DRAWING_GLYPH.search(text):
+        box_ascii = text.translate(_BOX_DRAWING_ASCII_TRANSLATION)
+        if box_ascii.isascii():
+            box_width = (
+                _printable_sgr_ascii_width(box_ascii)
+                if "\x1b" in box_ascii
+                else _plain_ascii_width(box_ascii)
+            )
+            if box_width is not None:
+                return box_width
     if "\x1b" in text:
         sgr_ascii_width = _printable_sgr_ascii_width(text)
         if sgr_ascii_width is not None:

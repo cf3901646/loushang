@@ -52,6 +52,7 @@ from loushang.tui.cell_width import (
 )
 from loushang.tui.core import RenderLine
 from loushang.tui.keybindings import KeybindingManager
+from loushang.tui.markdown.types import _MarkdownBlock
 from loushang.tui.theme import ThemeResolver
 from loushang.tui.transcript import (
     AssistantMessageRecord,
@@ -209,6 +210,13 @@ class ScreenConversationApp:
     def append_assistant_chunk(self, chunk: str) -> None:
         self.state.append_assistant_chunk(chunk)
         self._request_render("stream")
+
+    def prepare_assistant_markdown(
+        self, markdown: str, blocks: tuple[_MarkdownBlock, ...]
+    ) -> None:
+        draft = self.state.assistant_draft
+        if draft is not None and draft.text == markdown:
+            self._transcript_region.prepare_assistant_markdown(markdown, blocks)
 
     def end_assistant(self, final_text: str | None = None) -> None:
         draft_buffer = self.state.assistant_draft_buffer

@@ -351,6 +351,8 @@ class _StreamingMarkdownParseState:
 class MarkdownRenderCache:
     stable_entry_limit: int = _MARKDOWN_STABLE_BLOCK_CACHE_SIZE
     _stable_blocks: dict[tuple[object, ...], tuple[str, ...]] = field(default_factory=dict, init=False, repr=False)
+    _prepared_source: str | None = field(default=None, init=False, repr=False)
+    _prepared_blocks: tuple[_MarkdownBlock, ...] | None = field(default=None, init=False, repr=False)
     _streaming_key: object | None = field(default=None, init=False, repr=False)
     _streaming_parse_state: _StreamingMarkdownParseState | None = field(default=None, init=False, repr=False)
     _streaming_render_context: tuple[object, ...] | None = field(default=None, init=False, repr=False)
@@ -372,7 +374,23 @@ class MarkdownRenderCache:
 
     def clear(self) -> None:
         self._stable_blocks.clear()
+        self._prepared_source = None
+        self._prepared_blocks = None
         self.clear_streaming()
+
+    def prepare_blocks(self, markdown: str, blocks: tuple[_MarkdownBlock, ...]) -> None:
+        """Hold one worker-parsed document for the next matching render."""
+
+        self._prepared_source = markdown
+        self._prepared_blocks = blocks
+
+    def take_prepared_blocks(self, markdown: str) -> tuple[_MarkdownBlock, ...] | None:
+        if self._prepared_source != markdown:
+            return None
+        blocks = self._prepared_blocks
+        self._prepared_source = None
+        self._prepared_blocks = None
+        return blocks
 
     def clear_streaming(self) -> None:
         self._streaming_key = None
@@ -466,11 +484,13 @@ class MarkdownRenderer:
         framed = self.padding_x > 0 or self.padding_y > 0 or _has_background_style(frame_style)
         width = _markdown_frame_content_width(target_width, self.padding_x) if framed else target_width
         if self.render_cache is not None:
-            blocks = (
-                self.render_cache.parse_streaming(self.markdown, key=self.streaming_key)
-                if self.streaming_key is not None
-                else _parse_markdown_blocks(self.markdown)
-            )
+            if self.streaming_key is not None:
+                blocks = self.render_cache.parse_streaming(
+                    self.markdown, key=self.streaming_key
+                )
+            else:
+                prepared = self.render_cache.take_prepared_blocks(self.markdown)
+                blocks = prepared if prepared is not None else _parse_markdown_blocks(self.markdown)
             raw_lines = list(
                 _render_markdown_blocks(
                     blocks,
@@ -808,16 +828,28 @@ def split_independent_markdown_block_delta(delta: str) -> tuple[str, ...] | None
     This function is intended to run off the input event loop.
     """
 
+    return analyze_large_markdown_delta(delta).chunks
+
+
+@dataclass(frozen=True, slots=True)
+class LargeMarkdownDeltaAnalysis:
+    chunks: tuple[str, ...] | None = None
+    prepared_table_blocks: tuple[_MarkdownBlock, ...] | None = None
+
+
+def analyze_large_markdown_delta(delta: str) -> LargeMarkdownDeltaAnalysis:
+    """Find safe chunks and retain an atomic table parse for the UI thread."""
+
     if len(delta) < 16_384 or not delta.endswith("\n"):
-        return None
+        return LargeMarkdownDeltaAnalysis()
     lines = delta.splitlines(keepends=True)
     if len(lines) < 64:
-        return None
+        return LargeMarkdownDeltaAnalysis()
     parser = MarkdownIt("commonmark").enable("table").enable("strikethrough")
     environment: dict[str, object] = {}
     tokens = parser.parse(delta, environment)
     if environment.get("references"):
-        return None
+        return LargeMarkdownDeltaAnalysis()
     ends = sorted(
         {
             token.map[1]
@@ -829,7 +861,7 @@ def split_independent_markdown_block_delta(delta: str) -> tuple[str, ...] | None
         }
     )
     if not ends:
-        return None
+        return _atomic_table_analysis(delta, tokens)
     target_chars = max(4_096, (len(delta) + 31) // 32)
     chunks: list[str] = []
     start = 0
@@ -844,7 +876,23 @@ def split_independent_markdown_block_delta(delta: str) -> tuple[str, ...] | None
             current_chars = 0
     if start < len(lines):
         chunks.append("".join(lines[start:]))
-    return tuple(chunks) if len(chunks) > 1 else None
+    if len(chunks) > 1:
+        return LargeMarkdownDeltaAnalysis(chunks=tuple(chunks))
+    return _atomic_table_analysis(delta, tokens)
+
+
+def _atomic_table_analysis(delta: str, tokens: list[Token]) -> LargeMarkdownDeltaAnalysis:
+    # The committed renderer normalizes tabs before parsing. Restrict the
+    # handoff to exact source text and one table, whose blocks cannot be paced
+    # at independent Markdown boundaries.
+    if "\t" in delta or len(delta) > 131_072:
+        return LargeMarkdownDeltaAnalysis()
+    blocks, _index = _parse_markdown_it_blocks(
+        tokens, 0, stop_type=None, source_lines=delta.split("\n")
+    )
+    if len(blocks) != 1 or blocks[0].kind != "table":
+        return LargeMarkdownDeltaAnalysis()
+    return LargeMarkdownDeltaAnalysis(prepared_table_blocks=tuple(blocks))
 
 
 def _parse_markdown_groups(

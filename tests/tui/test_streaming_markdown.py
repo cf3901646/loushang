@@ -257,6 +257,31 @@ def test_large_markdown_delta_keeps_fences_and_references_atomic() -> None:
     assert markdown_renderer.split_independent_markdown_block_delta(referenced) is None
 
 
+def test_atomic_large_table_worker_parse_matches_committed_renderer() -> None:
+    source = "| Name | Value |\n| --- | --- |\n" + "".join(
+        f"| row {index} | [link](https://example.com/{index}) |\n"
+        for index in range(600)
+    )
+    analysis = markdown_renderer.analyze_large_markdown_delta(source)
+
+    assert analysis.chunks is None
+    assert analysis.prepared_table_blocks == markdown_renderer._parse_markdown_blocks(source)
+    assert markdown_renderer.analyze_large_markdown_delta(
+        source + "\n[link]: https://other.example\n"
+    ).prepared_table_blocks is None
+
+    cache = markdown_renderer.MarkdownRenderCache()
+    assert analysis.prepared_table_blocks is not None
+    cache.prepare_blocks(source, analysis.prepared_table_blocks)
+    changed = source + "\nAfter the table.\n"
+    assert cache.take_prepared_blocks(changed) is None
+    assert cache.take_prepared_blocks(source) == analysis.prepared_table_blocks
+    assert cache.take_prepared_blocks(source) is None
+    cache.prepare_blocks(source, analysis.prepared_table_blocks)
+    cache.clear()
+    assert cache.take_prepared_blocks(source) is None
+
+
 def test_streaming_plain_bullet_burst_matches_commonmark_without_bulk_parse(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

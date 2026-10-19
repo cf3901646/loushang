@@ -359,19 +359,20 @@ def _render_record(
         return _prefixed_block("> ", record.text, width=target_width)
     if isinstance(record, AssistantMessageRecord):
         if theme is not None:
-            return _prefixed_rendered_lines(
-                "* ",
-                "  ",
-                _render_markdown_content(
-                    record.text,
-                    width=target_width - visible_width("* "),
-                    theme=theme,
-                    capabilities=capabilities,
-                    code_highlighter=code_highlighter,
-                    markdown_cache=markdown_cache,
-                    markdown_streaming_key=markdown_streaming_key,
-                ),
-                width=target_width,
+            return list(
+                _prefix_streaming_assistant_segment(
+                    _render_markdown_content(
+                        record.text,
+                        width=target_width - visible_width("* "),
+                        theme=theme,
+                        capabilities=capabilities,
+                        code_highlighter=code_highlighter,
+                        markdown_cache=markdown_cache,
+                        markdown_streaming_key=markdown_streaming_key,
+                    ),
+                    width=width,
+                    use_first_prefix=True,
+                )
             )
         return _prefixed_block("* ", record.text, width=target_width)
     if isinstance(record, ToolExecutionRecord):
