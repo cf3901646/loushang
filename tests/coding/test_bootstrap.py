@@ -757,15 +757,13 @@ def test_coding_session_mounts_workspace_and_rejects_process_cwd_outside_root(
             snapshot = session._capability_graph_runtime.snapshot
             assert snapshot is not None
             assert snapshot.roots == (
-                "coding.lsp",
                 "harness.model_input",
                 "harness.workspace",
             )
             nodes = {node.capability_id: node for node in snapshot.nodes}
-            assert tuple(
-                requirement.capability_id
-                for requirement in nodes["coding.lsp"].requirements
-            ) == ("harness.workspace",)
+            assert "coding.lsp" not in nodes
+            assert session._deferred_lsp_slot is not None
+            assert session._deferred_lsp_slot.state == "dormant"
             assert tuple(
                 requirement.capability_id
                 for requirement in nodes["harness.model_input"].requirements
@@ -776,17 +774,13 @@ def test_coding_session_mounts_workspace_and_rejects_process_cwd_outside_root(
                 for requirement in nodes["harness.session"].requirements
             ) == ("harness.resources", "harness.workspace")
             assert nodes["harness.resources"].required_by == ("harness.session",)
-            assert nodes["harness.workspace"].required_by == (
-                "coding.lsp",
-                "harness.session",
-            )
+            assert nodes["harness.workspace"].required_by == ("harness.session",)
             assert nodes["harness.session"].required_by == ("harness.model_input",)
             assert nodes["harness.workspace"].requirements == ()
             view = session.get_effective_runtime_view()
             assert tuple(node.capability_id for node in view.capabilities) == (
-                "harness.workspace",
-                "coding.lsp",
                 "harness.resources",
+                "harness.workspace",
                 "harness.session",
                 "harness.model_input",
             )
@@ -964,7 +958,7 @@ def test_create_agent_session_projects_default_lsp_environment(tmp_path) -> None
         ),
     )
 
-    asyncio.run(session.prepare_model_call_runtime())
+    asyncio.run(session.set_active_tools([INSPECT_SYMBOL_TOOL_NAME]))
     assert INSPECT_SYMBOL_TOOL_NAME in {
         definition.name for definition in session.get_all_tools()
     }
@@ -990,17 +984,16 @@ def test_on_demand_lsp_discovers_installed_product_defaults(
     project = tmp_path / "project"
     project.mkdir()
     captured_definitions: list[LspServerDefinition] = []
-    prepare = coding_bootstrap.prepare_coding_builtin_product_composition
+    discover = coding_bootstrap.discover_lsp_catalog
 
-    def capture_definitions(request, **kwargs):
-        captured_definitions.extend(
-            kwargs["configurations"]["coding.lsp.default"].definitions
-        )
-        return prepare(request, **kwargs)
+    def capture_definitions(**kwargs):
+        catalog = discover(**kwargs)
+        captured_definitions.extend(catalog.definitions)
+        return catalog
 
     monkeypatch.setattr(
         coding_bootstrap,
-        "prepare_coding_builtin_product_composition",
+        "discover_lsp_catalog",
         capture_definitions,
     )
     services = create_services(
@@ -1025,6 +1018,8 @@ def test_on_demand_lsp_discovers_installed_product_defaults(
         lsp_baseline_environment={"PATH": str(executable_dir)},
     )
 
+    assert captured_definitions == []
+    asyncio.run(session.set_active_tools(["inspect_symbol"]))
     assert [definition.id for definition in captured_definitions] == ["pyright"]
     assert captured_definitions[0].command == (str(executable.resolve()), "--stdio")
     asyncio.run(session.dispose())

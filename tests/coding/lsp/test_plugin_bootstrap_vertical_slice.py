@@ -8,6 +8,7 @@ from typing import Literal
 import pytest
 
 from loushang.ai.model import Capabilities, Model
+from loushang.ai.types import UserMessage
 from loushang.coding.bootstrap import create_agent_session, create_services
 from loushang.coding.control import ControlConfig, SettingsManager
 from loushang.coding.lsp import (
@@ -82,20 +83,42 @@ def test_private_plugin_executes_real_lsp_tools_and_retires_exact_generation(
         )
         registry = session._composition.tool_controller.tool_registry
         assert registry is not None
-        assert session.get_lsp_status().enabled is False
+        if mode == "always":
+            assert session.get_lsp_status().enabled is False
+        else:
+            assert session.get_lsp_status().enabled is True
+            assert session._deferred_lsp_slot is not None
+            assert session._deferred_lsp_slot.state == "dormant"
+            assert session._coding_lsp_plugin_assembly is None
+            dormant_status = await session.execute_command_async("lsp", "status")
+            assert dormant_status is not None
+            assert dormant_status.result["enabled"] is True
+            assert session._deferred_lsp_slot.state == "dormant"
 
         try:
             await session.prepare_model_call_runtime()
 
-            assert _LSP_TOOL_NAMES <= {
-                definition.name for definition in session.get_all_tools()
-            }
             if mode == "always":
+                assert _LSP_TOOL_NAMES <= {
+                    definition.name for definition in session.get_all_tools()
+                }
                 assert _LSP_TOOL_NAMES <= set(session.get_active_tool_names())
             else:
+                assert _LSP_TOOL_NAMES <= {
+                    str(item["name"]) for item in session.get_all_tool_infos()
+                }
+                assert _LSP_TOOL_NAMES.isdisjoint(
+                    definition.name for definition in session.get_all_tools()
+                )
                 assert _LSP_TOOL_NAMES.isdisjoint(session.get_active_tool_names())
-                await session.set_active_tools(sorted(_LSP_TOOL_NAMES))
-                assert set(session.get_active_tool_names()) == _LSP_TOOL_NAMES
+                tools_result = await session.execute_command_async(
+                    "tools", "on document_outline inspect_symbol"
+                )
+                assert tools_result is not None
+                assert _LSP_TOOL_NAMES <= set(session.get_active_tool_names())
+                assert _LSP_TOOL_NAMES <= {
+                    definition.name for definition in session.get_all_tools()
+                }
 
             materialized = {tool.name: tool for tool in session.agent.tools}
             symbol = await materialized[INSPECT_SYMBOL_TOOL_NAME].execute(
@@ -145,5 +168,52 @@ def test_private_plugin_executes_real_lsp_tools_and_retires_exact_generation(
             "shutdown",
             "exit",
         ]
+
+    asyncio.run(scenario())
+
+
+def test_deferred_lsp_session_reopens_with_legacy_eager_receipts(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / "pyproject.toml").touch()
+        manager = await SessionManager.new(
+            session_dir=tmp_path / "sessions", cwd=str(project), persist=True
+        )
+        services = create_services(
+            settings_manager=SettingsManager(
+                ControlConfig(
+                    capabilities={"coding.lsp": "on_demand"},
+                    sandbox=SandboxSettings(enabled=False),
+                )
+            )
+        )
+        first = create_agent_session(
+            session_manager=manager, model=_model(), services=services
+        )
+        try:
+            assert first._deferred_lsp_slot is not None
+            await first.set_active_tools([INSPECT_SYMBOL_TOOL_NAME])
+            assert first._deferred_lsp_slot.state == "active"
+            await manager.append_message(
+                UserMessage(role="user", content="preserved", timestamp=1.0)
+            )
+        finally:
+            await first.dispose()
+        transcript = manager.get_session_file()
+        assert transcript is not None
+
+        reopened_manager = await SessionManager.load(transcript)
+        reopened = create_agent_session(
+            session_manager=reopened_manager, model=_model(), services=services
+        )
+        try:
+            assert reopened._deferred_lsp_slot is None
+            await reopened.prepare_model_call_runtime()
+            assert INSPECT_SYMBOL_TOOL_NAME in {
+                definition.name for definition in reopened.get_all_tools()
+            }
+        finally:
+            await reopened.dispose()
 
     asyncio.run(scenario())

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
+from typing import Never
 
 from loushang.coding._capability_plugin_composition import (
     CodingCapabilityPluginCompositionAssembly,
@@ -20,6 +21,10 @@ from loushang.coding.lsp._provider_api import (
     CodingLspSessionCapabilityConsumer,
 )
 from loushang.coding.lsp.runtime import CodingLspSessionAccess
+from loushang.coding.lsp.tools import (
+    create_document_outline_tool_definition,
+    create_inspect_symbol_tool_definition,
+)
 from loushang.coding.product_plan import CODING_PRODUCT_ID
 from loushang.harness.capabilities.component_host import (
     CapabilityComponentAdmissionStart,
@@ -53,8 +58,39 @@ from loushang.harness.session.capability_composition_inputs import (
     dispose_session_capability_owner_generations,
     stage_session_capability_owner_generations,
 )
+from loushang.harness.tools.core import project_tool_definition
 
 _PLUGIN_ID = "coding.lsp.default"
+
+
+def dormant_lsp_tool_infos() -> list[dict[str, object]]:
+    """Product-owned discovery metadata without creating a Provider or Tool lease."""
+
+    runtime = _DormantLspToolRuntime()
+    return [
+        {
+            **project_tool_definition(definition),
+            "sourceInfo": {
+                "path": f"<coding.lsp.default:{definition.name}>",
+                "source": "plugin",
+                "scope": "project",
+                "origin": "top-level",
+                "baseDir": None,
+            },
+        }
+        for definition in (
+            create_document_outline_tool_definition(runtime),
+            create_inspect_symbol_tool_definition(runtime),
+        )
+    ]
+
+
+class _DormantLspToolRuntime:
+    async def inspect_symbol(self, **_kwargs: object) -> Never:
+        raise RuntimeError("activate the LSP tools before calling them")
+
+    async def document_outline(self, **_kwargs: object) -> Never:
+        raise RuntimeError("activate the LSP tools before calling them")
 
 
 @dataclass(slots=True)

@@ -7,7 +7,7 @@
 - Parent: Loushang
 - Authority: normative candidate
 - Design status: draft
-- Implementation status: partial (Harness activation owner only)
+- Implementation status: partial (new Coding Sessions wired; resume and Product audit pending)
 - Owner: Loushang architecture
 - Tracking: [#798](https://github.com/zhnt/loushang/issues/798)
 - Method revision reviewed: `0f9bd3ff51afabeaaf76cc38dff1ceb279b7d37e`
@@ -65,7 +65,7 @@ evidence, and reports a stable failure without exposing a half-active tool.
 
 The slot states are `DORMANT`, `ACTIVATING`, `ACTIVE`, `FAILED`, `CLOSING`, and
 `CLOSED`. Concurrent callers await one owned activation task. Cancelling one
-waiter does not cancel that task. Session close cancels and joins activation,
+waiter does not cancel that task. Session close joins activation,
 then retires active Tool and Provider generations in reverse dependency order.
 `FAILED` is terminal until an explicit retry creates a fresh attempt and fresh
 approval. Demand after a long idle period performs the same fresh transaction.
@@ -131,10 +131,9 @@ startup reduction; measure the remaining Arch/base work after LSP is dormant.
 
 ## Review state
 
-The source review above identifies a feasible private-child publication seam.
-Acceptance is pending an executable prototype that proves exact rollback,
-concurrent activation, and retirement against the current owner and registry
-APIs. The accepted contract and implementation evidence remain outstanding.
+The source review identified a feasible private-child publication seam. The
+prototype below has passed focused tests; the contract remains a draft until
+Product and durable resume paths are fully audited.
 
 The Harness now has an inert `DeferredCapabilityDeclaration` and a
 `DeferredCapabilitySlot` that retains its candidate before preparation, owns
@@ -146,7 +145,18 @@ first-party Provider into a private child graph and staged its admitted Tool
 generation. Focused tests prove approval after a 301-second idle period,
 Tool publication/retirement, and rollback after injected Tool staging failure.
 
-Coding has not yet declared the slot in default Sessions or moved Plugin
-selection out of startup. Durable resume evidence, Product runtime selection,
-Session close order, and discoverable dormant Tool descriptors still need
-integration before this draft can be accepted.
+New default `on_demand` Coding Sessions now declare the slot and defer catalog
+discovery, Plugin selection, approval, and child graph binding until explicit
+Tool activation. Dormant descriptors are visible to `/tools`; `/lsp status` is
+observational. `always` remains eager and `disabled` has no LSP slot. The
+first-party fake-server vertical slice passes through real Tool execution and
+retirement. Legacy persisted Sessions with historical entries still take the
+eager route to preserve existing startup owner receipts; a new persisted
+Session can be reopened after deferred activation. Product-selected paths and
+the durable dormant-intent receipt still need dedicated validation.
+
+In an isolated local A/B, the previous default `on_demand` path took
+4.50–4.97 seconds to construct and prepare a Session; the deferred path took
+0.72–0.86 seconds. The disabled path was about 0.73 seconds in the same run.
+These measurements are startup-only and do not claim to reduce the first LSP
+activation cost.

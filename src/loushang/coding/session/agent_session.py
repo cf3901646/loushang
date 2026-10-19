@@ -29,6 +29,7 @@ from loushang.coding._cleanup import run_cleanup_steps
 from loushang.coding._external_data_product_composition import (
     CodingExternalDataProductCompilation,
 )
+from loushang.coding._tool_authority import CODING_LSP_EXACT_OWNER_TOOL_NAMES
 from loushang.coding.arch._plugin_tool_owner import (
     CodingArchToolOwner,
     CodingArchToolRegistrationSlot,
@@ -45,6 +46,10 @@ from loushang.coding.composition_provenance import (
     historical_startup_composition_record,
 )
 from loushang.coding.composition_sets import CodingCompositionSetPlan
+from loushang.coding.lsp._deferred_generation import (
+    CodingDeferredLspGeneration,
+    dormant_lsp_tool_infos,
+)
 from loushang.coding.lsp._plugin_opt_in import CodingLspPluginOptInAssembly
 from loushang.coding.lsp._plugin_tool_owner import (
     CodingLspToolOwner,
@@ -97,6 +102,7 @@ from loushang.harness.capabilities import (
     StagedResourceCompositionCandidate,
     stage_resource_composition_candidate,
 )
+from loushang.harness.capabilities.deferred_slot import DeferredCapabilitySlot
 from loushang.harness.capabilities.graph_runtime import CapabilityFacetSet
 from loushang.harness.capabilities.tool_intent import DefaultToolProfileSnapshot
 from loushang.harness.capabilities.tools import ToolSelection
@@ -181,6 +187,20 @@ SessionEventListener = Callable[[AgentSessionEvent], Awaitable[None] | None]
 RuntimeEventListener = Callable[[RuntimeEvent[object]], Awaitable[None] | None]
 
 
+class _DormantLspSessionAccess:
+    def status(self) -> LspSessionStatus:
+        return LspSessionStatus(enabled=True)
+
+    async def stop(
+        self, *, definition_id: str, workspace_root: str | Path
+    ) -> bool:
+        del definition_id, workspace_root
+        return False
+
+
+_DORMANT_LSP_ACCESS = _DormantLspSessionAccess()
+
+
 def _copy_to_clipboard(text: str) -> object:
     from loushang.tui.clipboard import copy_to_clipboard
 
@@ -245,6 +265,12 @@ class _CodingResumeRuntimePublication:
 
 class AgentSession(AgentProductSession):
     """Coding content and policy bound to the shared Agent Product session."""
+
+    _coding_session_manager: SessionManager
+    _coding_lsp_plugin_assembly: CodingCapabilityPluginCompositionAssembly | None
+    _lsp_access: CodingLspSessionAccess | None
+    _deferred_lsp_slot: DeferredCapabilitySlot[CodingDeferredLspGeneration] | None
+    _deferred_lsp_management_cleanup: Callable[[], None] | None
 
     @property
     def execution_available(self) -> bool:
@@ -312,6 +338,51 @@ class AgentSession(AgentProductSession):
         return super().register_runtime_tools(
             definitions, activate=activate, source_info=source_info
         )
+
+    async def set_active_tools(self, tool_names: list[str]) -> None:
+        slot = self._deferred_lsp_slot
+        requested_lsp = set(tool_names).intersection(CODING_LSP_EXACT_OWNER_TOOL_NAMES)
+        if slot is not None and requested_lsp:
+            if any(
+                not self._composition.tool_controller.is_tool_allowed(name)
+                for name in requested_lsp
+            ):
+                raise ValueError("LSP Tool is not allowed in this Session")
+            await self.prepare_model_call_runtime()
+            generation = await slot.activate(retry=slot.state == "failed")
+            self._lsp_access = generation.access
+        await super().set_active_tools(tool_names)
+
+    def get_all_tool_infos(self) -> list[dict[str, object]]:
+        infos = super().get_all_tool_infos()
+        slot = self._deferred_lsp_slot
+        if slot is None or slot.active is not None:
+            return infos
+        known = {item.get("name") for item in infos}
+        return [
+            *infos,
+            *(
+                item
+                for item in dormant_lsp_tool_infos()
+                if item["name"] not in known
+                and self._composition.tool_controller.is_tool_allowed(
+                    str(item["name"])
+                )
+            ),
+        ]
+
+    def install_deferred_lsp_slot(
+        self,
+        slot: DeferredCapabilitySlot[CodingDeferredLspGeneration],
+        *,
+        management_cleanup: Callable[[], None] | None = None,
+    ) -> None:
+        if self._deferred_lsp_slot is not None or self._coding_lsp_plugin_assembly:
+            raise RuntimeError("Coding LSP already has an owner")
+        if slot.declaration.capability_id != "coding.lsp":
+            raise ValueError("deferred slot does not declare Coding LSP")
+        self._deferred_lsp_slot = slot
+        self._deferred_lsp_management_cleanup = management_cleanup
 
     def _register_extension_runtime_tool(
         self, tool: object, source_info: object | None = None
@@ -584,7 +655,9 @@ class AgentSession(AgentProductSession):
         if coding_plugin_clock is not None and not callable(coding_plugin_clock):
             raise TypeError("Coding Plugin clock is invalid")
         self._sandbox_runtime = sandbox_runtime
-        self._lsp_access: CodingLspSessionAccess | None = None
+        self._lsp_access = None
+        self._deferred_lsp_slot = None
+        self._deferred_lsp_management_cleanup = None
         self._coding_capability_plugin_assembly = capability_plugin_assembly
         lsp_tool_owner = (
             capability_plugin_assembly.tool_owner_for("coding.lsp.default")
@@ -1038,6 +1111,8 @@ class AgentSession(AgentProductSession):
 
     def get_lsp_status(self) -> LspSessionStatus:
         if self._lsp_access is None:
+            if self._deferred_lsp_slot is not None:
+                return LspSessionStatus(enabled=True)
             return disabled_lsp_session_status()
         return self._lsp_access.status()
 
@@ -1080,7 +1155,15 @@ class AgentSession(AgentProductSession):
     ) -> object | None:
         await self.prepare_model_call_runtime()
         if normalize_command_name(invocation_name) == LSP_SESSION_COMMAND_NAME:
-            return await execute_lsp_session_command(self._lsp_access, args)
+            return await execute_lsp_session_command(
+                self._lsp_access
+                or (
+                    _DORMANT_LSP_ACCESS
+                    if self._deferred_lsp_slot is not None
+                    else None
+                ),
+                args,
+            )
         return await super().execute_command_async(invocation_name, args)
 
     async def emit_product_tool_audit_event(
@@ -1266,7 +1349,9 @@ class AgentSession(AgentProductSession):
         assembly = self._coding_base_plugin_assembly
         if assembly is not None and assembly.management_lease is not None:
             assembly.management_lease.claim_runtime(
-                runtime_claim_id if capability_plugins is not None else None
+                runtime_claim_id
+                if capability_plugins is not None or self._deferred_lsp_slot is not None
+                else None
             )
 
     async def prepare_model_call_runtime(self) -> None:
@@ -2086,6 +2171,16 @@ class AgentSession(AgentProductSession):
 
     async def _dispose_session_runtime_profile(self) -> None:
         primary_error: BaseException | None = None
+        deferred_lsp = getattr(self, "_deferred_lsp_slot", None)
+        if deferred_lsp is not None:
+            try:
+                await deferred_lsp.close()
+                self._lsp_access = None
+                deferred_cleanup = self._deferred_lsp_management_cleanup
+                if deferred_cleanup is not None:
+                    deferred_cleanup()
+            except BaseException as exc:
+                primary_error = exc
         worker_tool_lease = getattr(self, "_coding_worker_turn_tool_lease", None)
         if worker_tool_lease is not None:
             try:
