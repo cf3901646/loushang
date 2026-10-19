@@ -123,6 +123,35 @@ def test_streaming_flat_bullet_list_reuses_completed_items(
     assert state.parse(source) == markdown_renderer._parse_markdown_blocks(source)
 
 
+def test_streaming_flat_bullet_list_parses_new_burst_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parsed_sources: list[str] = []
+    original = markdown_renderer._parse_markdown_groups
+
+    def parse_groups(
+        markdown: str,
+        *,
+        line_offset: int,
+    ) -> tuple[tuple[markdown_renderer._ParsedMarkdownGroup, ...], bool]:
+        parsed_sources.append(markdown)
+        return original(markdown, line_offset=line_offset)
+
+    monkeypatch.setattr(markdown_renderer, "_parse_markdown_groups", parse_groups)
+    source = "".join(
+        f"- item {index} **bold** [link](https://example.com/{index})\n"
+        for index in range(100)
+    )
+    state = markdown_renderer._StreamingMarkdownParseState()
+    assert state.parse(source) == markdown_renderer._parse_markdown_blocks(source)
+    assert parsed_sources == [source]
+
+    parsed_sources.clear()
+    source += "".join(f"- next {index}\n" for index in range(100))
+    assert state.parse(source) == markdown_renderer._parse_markdown_blocks(source)
+    assert parsed_sources == ["".join(f"- next {index}\n" for index in range(100))]
+
+
 @pytest.mark.parametrize(
     "suffix",
     (

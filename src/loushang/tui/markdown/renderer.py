@@ -261,17 +261,33 @@ class _StreamingMarkdownParseState:
         if complete_count < self._flat_list_completed_count:
             return None
 
+        new_lines = lines[self._flat_list_completed_count :]
         newly_completed: list[_MarkdownBlock] = []
-        for line in lines[self._flat_list_completed_count : complete_count]:
-            item = _parse_flat_bullet_item(line)
-            if item is None:
-                return None
-            newly_completed.append(item)
         last_item = None
-        if complete_count != len(lines):
-            last_item = _parse_flat_bullet_item(lines[-1])
-            if last_item is None:
+        if len(new_lines) >= 8:
+            tail_source = "\n".join(new_lines) + ("\n" if complete_count == len(lines) else "")
+            groups, has_references = _parse_markdown_groups(tail_source, line_offset=0)
+            if (
+                has_references
+                or len(groups) != 1
+                or len(groups[0].blocks) != len(new_lines)
+                or any(block.kind != "list_item" for block in groups[0].blocks)
+            ):
                 return None
+            new_blocks = groups[0].blocks
+            newly_completed.extend(new_blocks[: complete_count - self._flat_list_completed_count])
+            if complete_count != len(lines):
+                last_item = new_blocks[-1]
+        else:
+            for line in lines[self._flat_list_completed_count : complete_count]:
+                item = _parse_flat_bullet_item(line)
+                if item is None:
+                    return None
+                newly_completed.append(item)
+            if complete_count != len(lines):
+                last_item = _parse_flat_bullet_item(lines[-1])
+                if last_item is None:
+                    return None
         self._flat_list_completed_blocks.extend(newly_completed)
         self._flat_list_completed_count = complete_count
         completed = self._flat_list_completed_blocks
