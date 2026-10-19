@@ -295,6 +295,10 @@ class _StreamingMarkdownParseState:
             plain_blocks = tuple(_plain_flat_bullet_item(line) for line in new_lines)
             if all(block is not None for block in plain_blocks):
                 new_blocks = cast(tuple[_MarkdownBlock, ...], plain_blocks)
+            elif all(_independent_inline_bullet_item(line) for line in new_lines):
+                # The source has no block syntax or reference definitions, so
+                # each tight-list paragraph has its own inline parse context.
+                new_blocks = tuple(_parse_inline_bullet_item(line) for line in new_lines)
             else:
                 tail_source = "\n".join(new_lines) + ("\n" if complete_count == len(lines) else "")
                 groups, has_references = _parse_markdown_groups(tail_source, line_offset=0)
@@ -722,6 +726,9 @@ def _parse_normalized_markdown_blocks(normalized: str) -> tuple[_MarkdownBlock, 
     plain_list = _parse_plain_flat_bullet_source(normalized)
     if plain_list is not None:
         return plain_list
+    inline_list = _parse_inline_flat_bullet_source(normalized)
+    if inline_list is not None:
+        return inline_list
     blocks, _index = _parse_markdown_it_blocks(
         _MARKDOWN_PARSER.parse(normalized),
         0,
@@ -745,6 +752,19 @@ def _parse_plain_flat_bullet_source(
     if any(block is None for block in blocks):
         return None
     return cast(tuple[_MarkdownBlock, ...], blocks)
+
+
+def _parse_inline_flat_bullet_source(
+    normalized: str,
+) -> tuple[_MarkdownBlock, ...] | None:
+    if not normalized.startswith("- "):
+        return None
+    lines = normalized.split("\n")
+    if lines[-1] == "":
+        lines.pop()
+    if not lines or not all(_independent_inline_bullet_item(line) for line in lines):
+        return None
+    return tuple(_parse_inline_bullet_item(line) for line in lines)
 
 
 def _parse_markdown_groups(
@@ -809,6 +829,41 @@ def _plain_flat_bullet_item(line: str) -> _MarkdownBlock | None:
     return _MarkdownBlock(
         "list_item",
         text=line,
+        meta="- ",
+        inline=inline,
+        children=(_MarkdownBlock("paragraph", text=body, inline=inline),),
+    )
+
+
+def _independent_inline_bullet_item(line: str) -> bool:
+    """Whether a list row has a single independent paragraph body."""
+
+    if not line.startswith("- ") or line.endswith(" "):
+        return False
+    body = line[2:]
+    if not body or body[0].isspace() or any(char in body for char in ("<", "\t", "\r")):
+        return False
+    if "]:" in body:
+        # A link reference definition can change earlier list items.
+        return False
+    if body.startswith(("#", ">", "-", "+", "~", "`")):
+        return False
+    if body == "*" or body.startswith("* ") or body.startswith("_ "):
+        return False
+    if re.fullmatch(r"(?:\* *){3,}|(?:_ *){3,}", body):
+        return False
+    if re.match(r"^\d{1,9}[.)](?:\s|$)", body):
+        return False
+    return True
+
+
+def _parse_inline_bullet_item(line: str) -> _MarkdownBlock:
+    parsed = _MARKDOWN_PARSER.parseInline(line[2:])
+    inline = _inline_tokens_from_markdown_it(parsed[0].children or ())
+    body = _inline_tokens_to_plain_text(inline, preserve_markup=True, softbreak="\n")
+    return _MarkdownBlock(
+        "list_item",
+        text=f"- {body}",
         meta="- ",
         inline=inline,
         children=(_MarkdownBlock("paragraph", text=body, inline=inline),),

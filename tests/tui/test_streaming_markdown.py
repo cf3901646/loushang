@@ -123,7 +123,7 @@ def test_streaming_flat_bullet_list_reuses_completed_items(
     assert state.parse(source) == markdown_renderer._parse_markdown_blocks(source)
 
 
-def test_streaming_flat_bullet_list_parses_new_burst_once(
+def test_streaming_independent_inline_bullet_burst_matches_commonmark_without_bulk_parse(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     parsed_sources: list[str] = []
@@ -144,13 +144,65 @@ def test_streaming_flat_bullet_list_parses_new_burst_once(
     )
     state = markdown_renderer._StreamingMarkdownParseState()
     assert state.parse(source) == markdown_renderer._parse_markdown_blocks(source)
-    assert parsed_sources == [source]
+    assert parsed_sources == []
 
     parsed_sources.clear()
     new_burst = "".join(f"- next {index} **bold**\n" for index in range(100))
     source += new_burst
     assert state.parse(source) == markdown_renderer._parse_markdown_blocks(source)
-    assert parsed_sources == [new_burst]
+    assert parsed_sources == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        "**bold** text",
+        "alpha *emphasis*",
+        "`code` text",
+        "[link](https://example.com)",
+        "a ~~strike~~",
+        r"a \*escaped*",
+        "[x] task",
+        "normal ![image](x.png)",
+        "__bold__",
+        "a [link](https://x \"title\")",
+        "a &amp; b",
+        "a 😀 中文",
+    ),
+)
+def test_independent_inline_bullet_item_matches_commonmark(body: str) -> None:
+    source = "".join(f"- {body}{index}\n" for index in range(12))
+    expected, _index = markdown_renderer._parse_markdown_it_blocks(
+        markdown_renderer._MARKDOWN_PARSER.parse(source),
+        0,
+        stop_type=None,
+        source_lines=source.split("\n"),
+    )
+    state = markdown_renderer._StreamingMarkdownParseState()
+    assert state.parse(source) == tuple(expected)
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        "[id]: https://example.com",
+        "# heading",
+        "> quote",
+        "- nested",
+        "1. nested",
+        "```python",
+        "***",
+        "___",
+        "*",
+        "<div>",
+        "  indented",
+        "ends with space ",
+    ),
+)
+def test_independent_inline_bullet_item_rejects_block_or_reference_syntax(
+    body: str,
+) -> None:
+    assert not markdown_renderer._independent_inline_bullet_item(f"- {body}")
 
 
 def test_streaming_plain_bullet_burst_matches_commonmark_without_bulk_parse(
