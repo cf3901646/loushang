@@ -18,6 +18,7 @@ _THAI_LAO_AM_TRANSLATION = str.maketrans({"\u0e33": "\u0e4d\u0e32", "\u0eb3": "\
 _VISIBLE_WIDTH_CACHE_SIZE = 16_384
 _CLUSTER_WIDTH_CACHE_SIZE = 16_384
 _ASCII_TOKEN_RUNS = re.compile(r"\s+|\S+")
+_ASCII_SGR_CODES = re.compile(r"\x1b\[[0-9;:]*m")
 AmbiguousWidth = Literal[1, 2]
 _AMBIGUOUS_WIDTH: AmbiguousWidth = 1
 
@@ -313,6 +314,10 @@ def _visible_width_cached(text: str) -> int:
     plain_ascii_width = _plain_ascii_width(text)
     if plain_ascii_width is not None:
         return plain_ascii_width
+    if "\x1b" in text and text.isascii():
+        without_sgr = _ASCII_SGR_CODES.sub("", text)
+        if "\x1b" not in without_sgr and without_sgr.isprintable():
+            return len(without_sgr)
     visible = strip_control_sequences(text)
     plain_ascii_width = _plain_ascii_width(visible)
     if plain_ascii_width is not None:
