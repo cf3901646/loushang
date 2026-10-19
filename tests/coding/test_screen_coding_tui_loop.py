@@ -692,6 +692,51 @@ def test_screen_loop_executes_queued_steer_after_running_escape() -> None:
     assert prompts == ["follow"]
 
 
+def test_screen_loop_acknowledges_escape_before_slow_abort_settlement() -> None:
+    from loushang.coding.ui.screen_app import ScreenCodingTuiApp
+
+    stdout = StringIO()
+    app = ScreenCodingTuiApp(
+        model_label="kimi",
+        cwd="/repo",
+        branch="main",
+        session_label="abcd",
+        now=time.monotonic,
+    )
+    settled = asyncio.Event()
+    observed_acknowledgement: list[bool] = []
+
+    async def handle_prompt(_text: str) -> None:
+        await settled.wait()
+
+    async def slow_abort() -> None:
+        observed_acknowledgement.append(
+            "Stopping…" in strip_control_sequences(stdout.getvalue())
+        )
+        await asyncio.sleep(0.1)
+        settled.set()
+
+    result = asyncio.run(
+        run_coding_test_screen(
+            app=app,
+            stdin=StringIO(""),
+            input_chunk_reader=_timed_input_reader(
+                (0.0, "run\r"),
+                (0.01, "\x1b"),
+                (0.2, ""),
+            ),
+            stdout=stdout,
+            action_host=_action_host(submit=handle_prompt, abort=slow_abort),
+            terminal_mode_factory=lambda _stdin, _stdout: _NoTerminalMode(),
+            should_exit=lambda text: False,
+        )
+    )
+
+    assert result == 0
+    assert observed_acknowledgement == [True]
+    assert app.state.running is False
+
+
 def test_screen_loop_executes_queued_steer_after_running_escape_with_delay() -> None:
     from loushang.coding.ui.screen_app import ScreenCodingTuiApp
 

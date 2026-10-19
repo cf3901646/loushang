@@ -121,6 +121,8 @@ class ConversationScreenPort(ConversationScreenInputPort, Protocol):
 
     def add_error(self, summary: str, diagnostics: str = "") -> None: ...
 
+    def set_status(self, message: str | None) -> None: ...
+
     def complete_run(self, *, elapsed_seconds: float | None = None) -> None: ...
 
     def elapsed_seconds(self) -> float: ...
@@ -460,6 +462,10 @@ async def run_conversation_screen(
                         )
                     if isinstance(result, ConversationAbortResult):
                         interrupt_pending_steer = pop_interrupt_pending_steer(app)
+                        # Show acknowledgement before the Product waits for a
+                        # tool process and the active turn to settle.
+                        app.set_status("Stopping…")
+                        runtime.render_now()
                         await abort_active(
                             app=app,
                             active_task=active_task,

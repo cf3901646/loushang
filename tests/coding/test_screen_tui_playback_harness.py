@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import sys
+import time
 
 import pytest
 
@@ -389,6 +392,68 @@ def test_screen_tui_loop_playback_drives_running_steer_then_escape() -> None:
         result.assert_text_contains("fresh change")
         result.assert_text_contains("Conversation interrupted")
         result.assert_no_clear_screen()
+
+
+@pytest.mark.parametrize("continuous_output", [False, True])
+def test_screen_tui_tool_command_keeps_input_and_working_timer_live(
+    tmp_path, continuous_output: bool
+) -> None:
+    from loushang.harness.tools.workspace.bash import _BashPartialOutput
+    from loushang.harness.workspace.exec import ExecRequest, ExecService
+
+    scenario = ScreenTuiLoopScenario()
+    scenario.app.now = time.monotonic
+    observed: list[tuple[bool, str]] = []
+    running = False
+    preview = _BashPartialOutput()
+
+    async def handle_prompt(_text: str) -> None:
+        nonlocal running
+        running = True
+
+        async def observe_input() -> None:
+            await asyncio.sleep(0.18)
+            observed.append((running, scenario.app.composer.value))
+
+        observer = asyncio.create_task(observe_input())
+        program = (
+            "import sys,time; "
+            "[(sys.stdout.write('x'*8192),sys.stdout.flush(),time.sleep(.01)) "
+            "for _ in range(35)]"
+            if continuous_output
+            else "import time; time.sleep(.35)"
+        )
+
+        def on_update(chunk) -> None:
+            preview.append(chunk)
+
+        try:
+            await ExecService().execute(
+                ExecRequest(
+                    command=(sys.executable, "-c", program),
+                    cwd=str(tmp_path),
+                ),
+                on_update=on_update,
+            )
+        finally:
+            running = False
+            await observer
+
+    result = (
+        scenario.type_text("run")
+        .enter()
+        .wait(0.05)
+        .type_text("next")
+        .wait(0.45)
+        .end_input()
+        .run(handle_prompt=handle_prompt)
+    )
+
+    result.assert_exit_code(0)
+    assert observed == [(True, "next")]
+    result.assert_text_contains("Working ")
+    result.assert_text_contains("Worked ")
+    result.assert_no_clear_screen()
 
 
 def _step_visible_text(result, step_index: int) -> str:
