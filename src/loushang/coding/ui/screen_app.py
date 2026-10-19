@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -48,6 +49,7 @@ DEFAULT_ACTIVE_TRANSCRIPT_LINE_BUDGET = 320
 DEFAULT_STABLE_RENDER_CACHE_ENTRY_LIMIT = DEFAULT_STABLE_TRANSCRIPT_CACHE_ENTRY_LIMIT
 DEFAULT_TOOL_PREVIEW_SCREEN_ROWS = 7
 _TOOL_PREVIEW_HINT = "ctrl + t to view transcript"
+_NON_PLAIN_PREVIEW_CHAR = re.compile(r"[^\x20-\x7e\n]")
 
 _CODING_SCREEN_FRAME_COPY = ScreenFrameCopy(
     working_label="Working",
@@ -200,6 +202,19 @@ def _preview_wrapped_rows(
 
     if width <= 0:
         raise ValueError("width must be positive")
+    # Most command output consists of short printable lines. Count those in C
+    # and retain only the visible ends instead of visiting every line in Python.
+    if (
+        limit > 0
+        and re.search(rf"[^\n]{{{width + 1}}}", text) is None
+        and _NON_PLAIN_PREVIEW_CHAR.search(text) is None
+    ):
+        count = text.count("\n") + 1
+        return (
+            count,
+            text.split("\n", limit)[:limit],
+            text.rsplit("\n", limit)[-limit:],
+        )
     head: list[str] = []
     tail: deque[str] = deque(maxlen=limit)
     count = 0

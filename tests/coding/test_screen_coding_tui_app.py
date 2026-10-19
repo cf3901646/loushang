@@ -681,6 +681,25 @@ def test_coding_tool_preview_does_not_wrap_full_large_ascii_output(
     assert len(preview.splitlines()) <= 7
 
 
+def test_coding_tool_preview_counts_many_short_lines_without_per_line_wrapping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import loushang.coding.ui.screen_app as screen_app
+
+    def unexpected_strip(_value: str) -> str:
+        raise AssertionError("short printable lines must use the bounded preview path")
+
+    monkeypatch.setattr(screen_app, "strip_control_sequences", unexpected_strip)
+    output = "ok\n" * 100_000
+    count, head, tail = screen_app._preview_wrapped_rows(
+        output, width=80, limit=7
+    )
+
+    assert count == 100_001
+    assert head == ["ok"] * 7
+    assert tail == ["ok"] * 6 + [""]
+
+
 def test_worked_frame_keeps_large_tool_result_out_of_full_wrap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

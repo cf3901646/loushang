@@ -3,6 +3,7 @@ from __future__ import annotations
 DEFAULT_TOOL_OUTPUT_PREVIEW_LINES = 8
 TOOL_OUTPUT_HEAD_LINES = 3
 TOOL_OUTPUT_TAIL_LINES = 3
+_LINE_BREAKS = "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029"
 
 
 def collapse_tool_output_preview(
@@ -38,6 +39,21 @@ def prefers_tail_tool_output(tool_name: str) -> bool:
 
 def drop_tool_timing_tail_line(output: str) -> str:
     if not output:
+        return output
+    # The common case has no timing suffix. Inspect its bounded last line
+    # before allocating a list for every line of a large tool result.
+    cutoff = max(0, len(output) - 1024)
+    end = len(output)
+    while end > cutoff and output[end - 1] in _LINE_BREAKS:
+        end -= 1
+    start = end
+    while start > cutoff and output[start - 1] not in _LINE_BREAKS:
+        start -= 1
+    if (
+        (end > cutoff or cutoff == 0)
+        and (start > cutoff or cutoff == 0)
+        and not _is_tool_timing_line(output[start:end].strip())
+    ):
         return output
     lines = output.splitlines()
     if not lines or not _is_tool_timing_line(lines[-1].strip()):
