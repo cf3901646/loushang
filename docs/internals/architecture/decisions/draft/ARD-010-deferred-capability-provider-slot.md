@@ -7,7 +7,7 @@
 - Parent: Loushang
 - Authority: normative candidate
 - Design status: draft
-- Implementation status: not-started
+- Implementation status: partial (Harness activation owner only)
 - Owner: Loushang architecture
 - Tracking: [#798](https://github.com/zhnt/loushang/issues/798)
 - Method revision reviewed: `0f9bd3ff51afabeaaf76cc38dff1ceb279b7d37e`
@@ -135,3 +135,12 @@ The source review above identifies a feasible private-child publication seam.
 Acceptance is pending an executable prototype that proves exact rollback,
 concurrent activation, and retirement against the current owner and registry
 APIs. The accepted contract and implementation evidence remain outstanding.
+
+The Harness now has an inert `DeferredCapabilityDeclaration` and a
+`DeferredCapabilitySlot` that owns one activation task, publication, explicit
+retry, and close. Focused tests cover 100 concurrent callers, cancellation of
+one waiter, close during preparation, publication rollback, failed cleanup
+retry, and cancellation of a close caller. This establishes only the slot
+lifecycle. Coding has not declared an LSP slot or moved Plugin selection and
+Component preparation out of startup; the child graph, Tool publication,
+durable resume evidence, and Product retirement hooks still need integration.
