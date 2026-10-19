@@ -3658,9 +3658,12 @@ def test_create_agent_session_defaults_custom_tools_active_without_defaulting_al
         "write",
         "edit",
         "custom_tool",
-        "document_outline",
-        "inspect_symbol",
     }
+    assert {"document_outline", "inspect_symbol"} <= {
+        str(item["name"]) for item in session.get_all_tool_infos()
+    }
+    assert session._deferred_lsp_slot is not None
+    assert session._deferred_lsp_slot.state == "dormant"
     assert "- custom_tool:" not in session.agent.system_prompt
     assert "- grep:" in session.agent.system_prompt
 
