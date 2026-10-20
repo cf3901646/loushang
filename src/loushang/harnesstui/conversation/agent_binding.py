@@ -714,7 +714,38 @@ def cooperative_agent_screen_event_listener(
 
     pause_frame = pause or pause_between_chunks
 
+    async def prepare_unrendered_draft() -> None:
+        target = projection.projector.target
+        if not isinstance(target, ScreenConversationProjectionTarget):
+            return
+        captured = target.unrendered_assistant_markdown_spec()
+        if captured is None:
+            return
+        markdown, spec = captured
+        try:
+            result = await asyncio.to_thread(
+                render_prepared_atomic_markdown, markdown, None, spec
+            )
+        except Exception:
+            return
+        target.prepare_assistant_markdown_render(markdown, spec, result)
+
     def handle(event: dict[str, Any]) -> Awaitable[None] | None:
+        if event.get("type") == "message_end" and getattr(
+            event.get("message"), "role", None
+        ) == "assistant":
+            target = projection.projector.target
+            if (
+                isinstance(target, ScreenConversationProjectionTarget)
+                and target.unrendered_assistant_markdown_spec() is not None
+            ):
+
+                async def finish_assistant() -> None:
+                    await prepare_unrendered_draft()
+                    projection.handle(event)
+
+                return finish_assistant()
+
         update = event.get("assistant_message_event")
         message = event.get("message")
         if (
@@ -726,22 +757,6 @@ def cooperative_agent_screen_event_listener(
         ):
             projection.handle(event)
             return None
-
-        async def prepare_unrendered_draft() -> None:
-            target = projection.projector.target
-            if not isinstance(target, ScreenConversationProjectionTarget):
-                return
-            captured = target.unrendered_assistant_markdown_spec()
-            if captured is None:
-                return
-            markdown, spec = captured
-            try:
-                result = await asyncio.to_thread(
-                    render_prepared_atomic_markdown, markdown, None, spec
-                )
-            except Exception:
-                return
-            target.prepare_assistant_markdown_render(markdown, spec, result)
 
         async def project_chunks(chunks: tuple[str, ...]) -> None:
             for index, chunk in enumerate(chunks):

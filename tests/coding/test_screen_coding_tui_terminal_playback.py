@@ -519,6 +519,57 @@ def test_large_unrendered_final_markdown_prepares_worked_off_input_loop(
     asyncio.run(scenario())
 
 
+def test_many_small_deltas_prepare_worked_off_input_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from loushang.harnesstui.conversation.agent_binding import (
+        build_agent_screen_conversation_projection,
+        cooperative_agent_screen_event_listener,
+    )
+    from loushang.tui.markdown import renderer as markdown_renderer
+
+    async def scenario() -> None:
+        app = _app()
+        runtime, _port = _runtime(app, width=80, height=18)
+        app.start_prompt("small deltas", started_at=0.0)
+        runtime.render_now()
+        listener = cooperative_agent_screen_event_listener(
+            build_agent_screen_conversation_projection(app)
+        )
+        listener({"type": "message_start", "message": _assistant()})
+        chunks = [
+            f"- **Line {index}**: [link](https://example.com/{index})\n"
+            for index in range(512)
+        ]
+        for chunk in chunks:
+            assert listener(
+                {
+                    "type": "message_update",
+                    "message": _assistant(chunk),
+                    "assistant_message_event": {"type": "text_delta", "delta": chunk},
+                }
+            ) is None
+        answer = "".join(chunks)
+        pending = listener({"type": "message_end", "message": _assistant(answer)})
+        assert pending is not None
+        await pending
+        assert app._transcript_region.has_prepared_assistant_markdown_render
+        app.complete_run(elapsed_seconds=1.0)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                markdown_renderer,
+                "_render_markdown_blocks",
+                lambda *_args, **_kwargs: pytest.fail("final markdown rendered on input loop"),
+            )
+            step = runtime.render_loop.plan(TerminalSize(columns=80, rows=18))
+
+        assert sum("Worked for 1.00s" in line for line in step.current_logical_lines) == 1
+        assert any("Line 511" in line for line in step.current_logical_lines)
+
+    asyncio.run(scenario())
+
+
 def test_screen_coding_tui_paced_large_delta_preserves_terminal_scrollback() -> None:
     from loushang.harnesstui.conversation.agent_binding import (
         build_agent_screen_conversation_projection,

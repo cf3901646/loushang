@@ -76,7 +76,9 @@ def test_large_screen_delta_yields_between_safe_batches_and_preserves_final_text
         assert app.state.assistant_draft.text == answer
         assert update["assistant_message_event"]["delta"] == answer
 
-        listener({"type": "message_end", "message": _assistant(answer)})
+        completion = listener({"type": "message_end", "message": _assistant(answer)})
+        if inspect.isawaitable(completion):
+            await completion
         app.complete_run(elapsed_seconds=1.0)
         assert [record.text for record in app.state.records if isinstance(record, AssistantMessageRecord)] == [answer]
         assert sum(isinstance(record, WorkedDividerRecord) for record in app.state.records) == 1
@@ -252,12 +254,75 @@ def test_atomic_table_worker_render_failure_keeps_normal_projection(
         await pending
         assert app.state.assistant_draft is not None
         assert app.state.assistant_draft.text == answer
-        listener({"type": "message_end", "message": _assistant(answer)})
+        completion = listener({"type": "message_end", "message": _assistant(answer)})
+        if inspect.isawaitable(completion):
+            await completion
         app.complete_run(elapsed_seconds=1.0)
         rendered = app.render(
             RenderConstraints(width=80, max_height=18, visible_height=18)
         )
         assert sum("Worked for" in line.text for line in rendered.lines) == 1
+
+    asyncio.run(scenario())
+
+
+def test_small_deltas_wait_for_worker_without_blocking_working_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = threading.Event()
+    release = threading.Event()
+    original = agent_binding.render_prepared_atomic_markdown
+
+    def blocked_render(*args: Any) -> Any:
+        started.set()
+        assert release.wait(5)
+        return original(*args)
+
+    monkeypatch.setattr(agent_binding, "render_prepared_atomic_markdown", blocked_render)
+
+    async def scenario() -> None:
+        app = ScreenCodingTuiApp(
+            model_label="test", cwd="/repo", branch="main", session_label="paced"
+        )
+        app.begin_run(started_at=0.0)
+        app.render(RenderConstraints(width=80, max_height=18, visible_height=18))
+        listener = cooperative_agent_screen_event_listener(
+            build_agent_screen_conversation_projection(app)
+        )
+        listener({"type": "message_start", "message": _assistant()})
+        chunks = [
+            f"- **Line {index}**: [link](https://example.com/{index})\n"
+            for index in range(512)
+        ]
+        for chunk in chunks:
+            listener(
+                {
+                    "type": "message_update",
+                    "message": _assistant(chunk),
+                    "assistant_message_event": {"type": "text_delta", "delta": chunk},
+                }
+            )
+        answer = "".join(chunks)
+        pending = listener({"type": "message_end", "message": _assistant(answer)})
+        assert inspect.isawaitable(pending)
+        task = asyncio.create_task(pending)
+        try:
+            assert await asyncio.to_thread(started.wait, 5)
+            ticked = asyncio.Event()
+            asyncio.get_running_loop().call_soon(ticked.set)
+            await asyncio.wait_for(ticked.wait(), 1)
+            assert app.state.running
+            assert app.state.assistant_draft is not None
+            assert not any(
+                isinstance(record, WorkedDividerRecord) for record in app.state.records
+            )
+        finally:
+            release.set()
+        await task
+        app.complete_run(elapsed_seconds=1.0)
+        assert sum(
+            isinstance(record, WorkedDividerRecord) for record in app.state.records
+        ) == 1
 
     asyncio.run(scenario())
 
