@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from importlib.metadata import version
 from pathlib import Path
 from typing import Literal
 
@@ -12,12 +13,18 @@ from loushang.ai.types import UserMessage
 from loushang.coding._capability_plugin_composition import (
     CodingCapabilityPluginCompositionError,
 )
+from loushang.coding._plugin_lifecycle import (
+    resolve_coding_plugin_lifecycle_state_layout,
+)
 from loushang.coding.bootstrap import create_agent_session, create_services
 from loushang.coding.control import ControlConfig, SettingsManager
 from loushang.coding.lsp import (
     DOCUMENT_OUTLINE_TOOL_NAME,
     INSPECT_SYMBOL_TOOL_NAME,
     LspServerDefinition,
+)
+from loushang.coding.package_pre_b_snapshot import (
+    cutover_and_bootstrap_coding_package_product,
 )
 from loushang.coding.session_manager import SessionManager
 from loushang.harness.plugin_management.package_product import (
@@ -264,6 +271,109 @@ def test_deferred_lsp_session_reopens_with_dormant_receipt(tmp_path: Path) -> No
             assert reopened._deferred_lsp_slot.state == "active"
         finally:
             await reopened.dispose()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="Product pre-fence registration requires the admitted Linux route",
+)
+def test_product_selected_deferred_lsp_executes_and_reopens_dormant(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir(mode=0o700)
+    (project / "pyproject.toml").touch()
+    (project / "main.py").write_text("target = 1\n", encoding="utf-8")
+    monkeypatch.setenv("LOUSHANG_HOME", str(tmp_path / "platform"))
+    settings = SettingsManager(
+        ControlConfig(sandbox=SandboxSettings(enabled=False)),
+        global_settings_path=tmp_path / "settings.json",
+        project_settings_path=project / ".loushang" / "settings.json",
+    )
+    cutover_and_bootstrap_coding_package_product(
+        resolve_coding_plugin_lifecycle_state_layout(project),
+        settings,
+        workspace=project,
+        namespace_id="6" * 64,
+        runtime_version=version("loushang"),
+        runtime_protocol_epoch=2,
+    )
+    method_log = project / "lsp-methods.log"
+    definition = LspServerDefinition(
+        id="product-fake-python",
+        command=(sys.executable, str(_FAKE_LSP_SERVER)),
+        language_extensions={"python": (".py",)},
+        root_markers=("pyproject.toml",),
+        environment={"LOUSHANG_FAKE_LSP_LOG": str(method_log)},
+        startup_timeout_seconds=3,
+        request_timeout_seconds=3,
+        shutdown_timeout_seconds=3,
+    )
+
+    async def scenario() -> None:
+        manager = await SessionManager.new(
+            session_dir=tmp_path / "sessions", cwd=str(project), persist=True
+        )
+        transcript = None
+        for reopen in (False, True):
+            if reopen:
+                assert transcript is not None
+                manager = await SessionManager.load(transcript)
+            session = create_agent_session(
+                session_manager=manager,
+                model=_model(),
+                services=create_services(settings_manager=settings),
+                lsp_definitions=(definition,),
+            )
+            slot = session._deferred_lsp_slot
+            assert slot is not None and slot.state == "dormant"
+            registry = session._composition.tool_controller.tool_registry
+            assert registry is not None
+            graph = None
+            try:
+                await session.prepare_model_call_runtime()
+                parent_snapshot = session._capability_graph_runtime.snapshot
+                assert slot.state == "dormant"
+                status = await session.execute_command_async("lsp", "status")
+                assert status is not None and status.result["enabled"] is True
+                assert slot.state == "dormant"
+                await session.set_active_tools([DOCUMENT_OUTLINE_TOOL_NAME])
+                generation = slot.active
+                assert generation is not None
+                # The Product route must retain the real Desired State and
+                # selected-manifest witnesses, rather than the private fallback.
+                assert generation.current_selection_check is not None
+                generation.assert_current()
+                graph = generation.graph
+                assert graph is not None
+                assert session._capability_graph_runtime.snapshot is parent_snapshot
+                await session.prepare_model_call_runtime()
+                tool = next(
+                    tool for tool in session.agent.tools
+                    if tool.name == DOCUMENT_OUTLINE_TOOL_NAME
+                )
+                result = await tool.execute("product-outline", {"path": "main.py"})
+                assert result.details["server_id"] == "product-fake-python"
+                assert result.details["items"][0]["name"] == "target"
+                assert session.get_lsp_status().ready_count == 1
+                if not reopen:
+                    await manager.append_message(
+                        UserMessage(role="user", content="preserved", timestamp=1.0)
+                    )
+                    transcript = manager.get_session_file()
+            finally:
+                await session.dispose()
+            assert slot.state == "closed"
+            assert graph is not None and graph.is_closed
+            assert _LSP_TOOL_NAMES.isdisjoint(
+                definition.name for definition in registry.list_definitions()
+            )
+        assert method_log.read_text(encoding="utf-8").splitlines() == [
+            "initialize", "initialized", "textDocument/didOpen",
+            "textDocument/documentSymbol", "shutdown", "exit",
+        ] * 2
 
     asyncio.run(scenario())
 
