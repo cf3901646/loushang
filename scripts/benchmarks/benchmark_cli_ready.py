@@ -136,6 +136,24 @@ def main() -> int:
         )
         for label, group in samples.items()
     }
+    idle_spread_ratios = {
+        label: round(
+            max(float(sample["idle_s"]) for sample in group)
+            / min(float(sample["idle_s"]) for sample in group),
+            3,
+        )
+        for label, group in samples.items()
+    }
+    timing_warning = (
+        "fewer than three samples per build; do not attribute the difference"
+        if args.rounds < 3
+        else (
+            "idle times vary by more than 20% within a build; "
+            "do not attribute the difference"
+            if any(spread > 1.2 for spread in idle_spread_ratios.values())
+            else None
+        )
+    )
     print(json.dumps({
         "schema_version": 1,
         "measurement": "installed_cli_pty_welcome_and_idle",
@@ -147,6 +165,8 @@ def main() -> int:
         "candidate_idle_median_s": candidate_idle,
         "welcome_median_s": welcome_medians,
         "child_cpu_median_s": child_cpu_medians,
+        "idle_spread_ratio": idle_spread_ratios,
+        "timing_warning": timing_warning,
         "idle_improvement_percent": round(
             100 * (baseline_idle - candidate_idle) / baseline_idle, 2
         ),
