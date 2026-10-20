@@ -261,6 +261,19 @@ assert 'loushang.harness.tools.agent_delegate' not in sys.modules
     )
 
 
+def test_default_application_import_keeps_worker_session_composition_dormant(
+    tmp_path,
+):
+    _probe(
+        tmp_path,
+        """
+import loushang.coding.cli.application
+assert 'loushang.coding.package_product_worker_session_composition' not in sys.modules
+assert 'loushang.coding.package_product_worker_provider' not in sys.modules
+""",
+    )
+
+
 @pytest.mark.parametrize("phase", ["import", "lookup"])
 def test_grammar_facade_caches_only_successful_owner_lookup(tmp_path, phase):
     _probe(
