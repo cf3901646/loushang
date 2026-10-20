@@ -8567,12 +8567,13 @@ while True:
                                 architecture_session._coding_base_product_compilation.plan.selected_plugin_ids
                             ) == {
                                 "coding.base",
-                                "coding.lsp.default",
                                 "coding.arch.default",
                             }
                             assert set(
                                 architecture_session._coding_capability_plugin_assembly.tool_owners
-                            ) == {"coding.lsp.default", "coding.arch.default"}
+                            ) == {"coding.arch.default"}
+                            assert architecture_session._deferred_lsp_slot is not None
+                            assert architecture_session._deferred_lsp_slot.state == "dormant"
                         finally:
                             if architecture_session is not None:
                                 asyncio.run(architecture_session.dispose())
@@ -8648,7 +8649,7 @@ while True:
                                 )
                                 assert (
                                     selected._coding_base_product_compilation.plan.selected_plugin_ids
-                                    == ("coding.base", "coding.lsp.default")
+                                    == ("coding.base",)
                                 )
                             finally:
                                 await standalone.dispose_session_runtime()
@@ -8718,7 +8719,7 @@ while True:
                                 )
                                 assert (
                                     direct_session._coding_base_product_compilation.plan.selected_plugin_ids
-                                    == ("coding.base", "coding.lsp.default")
+                                    == ("coding.base",)
                                 )
                                 before_transports = len(
                                     PackageLifecycleJournal(
