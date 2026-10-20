@@ -317,7 +317,7 @@ class ModelInputTranscriptCommitter(
                     logical_input,
                     name="logical Model Input",
                 )
-                writer = ModelInputV2Writer(
+                writer = await ModelInputV2Writer.prepare(
                     transcript=self._transcript,
                     expected_revision=self._expected_revision,
                     expected_leaf_id=self._expected_leaf_id,

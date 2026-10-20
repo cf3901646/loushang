@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
-from collections.abc import Callable, Mapping, Sequence
+import time
+from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from functools import partial
-from typing import Literal, cast
+from typing import Literal, Self, cast
 from weakref import WeakKeyDictionary
 
 from loushang.foundation.json import JSONValue, require_json_value
@@ -184,12 +186,35 @@ class ModelInputV2NodeIndex:
             tuple[str, int],
             tuple[tuple[str, ...], str],
         ] = {}
+        for _ in self._index_records(records):
+            pass
+
+    @classmethod
+    async def build_async(cls, records: Sequence[AgentTranscriptRecord]) -> Self:
+        """Build an unpublished index, yielding between the same strict checks."""
+
+        index = cls(())
+        steps = index._index_records(records)
+        deadline = time.monotonic() + 0.008
+        try:
+            for _ in steps:
+                if time.monotonic() >= deadline:
+                    await asyncio.sleep(0)
+                    deadline = time.monotonic() + 0.008
+        finally:
+            steps.close()
+        return index
+
+    def _index_records(
+        self, records: Sequence[AgentTranscriptRecord]
+    ) -> Generator[None, None, None]:
         self._records = tuple(records)
         for position, record in enumerate(self._records):
             if record.kind != MODEL_INPUT_COMPONENT_KIND or not isinstance(
                 record.payload,
                 ModelInputNodeBundle,
             ):
+                yield
                 continue
             if record.payload_version != MODEL_INPUT_V2_PAYLOAD_VERSION:
                 raise ModelInputIntegrityError(
@@ -228,6 +253,8 @@ class ModelInputV2NodeIndex:
                     )
                     if item.value_hash is not None and item.value_hash_verified:
                         self._authority_verified_value_hashes.add(item.value_hash)
+                    yield
+                yield
                 continue
             for ordinal, node in enumerate(record.payload.nodes):
                 if hash_model_input_node(node) != node.content_hash:
@@ -261,6 +288,8 @@ class ModelInputV2NodeIndex:
                     ),
                     sequence_link_loader=None,
                 )
+                yield
+            yield
 
     def _add_indexed_node(
         self,
@@ -679,6 +708,73 @@ def _optional_phase(
 class ModelInputV2Writer:
     """Materialize one v2 request using only verified active-path ancestors."""
 
+    @classmethod
+    async def prepare(
+        cls,
+        *,
+        transcript: AgentTranscriptUnitOfWork,
+        expected_revision: int,
+        expected_leaf_id: str,
+        max_encoded_record_bytes: int,
+        phase_timer: PhaseTimer | None = None,
+    ) -> Self:
+        """Prepare a cold/branched index without monopolizing the UI loop."""
+
+        def require_current() -> None:
+            if (
+                transcript.revision != expected_revision
+                or transcript.leaf_id != expected_leaf_id
+            ):
+                raise ModelInputIntegrityError(
+                    "transcript changed during Model Input index preparation"
+                )
+
+        require_current()
+        with _optional_phase(phase_timer, "active_path"):
+            records = transcript.active_path()
+        cached = _MODEL_INPUT_V2_INDEX_CACHES.get(transcript)
+        token = MODEL_INPUT_V2_INDEX_COMPATIBILITY_TOKEN
+        rebuild = (
+            cached is None
+            or cached.compatibility_token != token
+            or not _path_extends(cached.records, records)
+        )
+        with _optional_phase(phase_timer, "node_index_build"):
+            if rebuild:
+                index = await ModelInputV2NodeIndex.build_async(records)
+                require_current()
+                if token != MODEL_INPUT_V2_INDEX_COMPATIBILITY_TOKEN:
+                    raise ModelInputIntegrityError(
+                        "Model Input index compatibility changed during preparation"
+                    )
+                # Publish only a complete current-path index. A cancellation or
+                # failed check leaves the previous cache intact.
+                cached = _ModelInputV2IndexCache(
+                    compatibility_token=token,
+                    records=records,
+                    index=index,
+                    sequence_plans={},
+                )
+                _MODEL_INPUT_V2_INDEX_CACHES[transcript] = cached
+                status: ModelInputV2IndexCacheStatus = "rebuilt"
+            else:
+                index, cached, status = _cached_node_index(transcript, records)
+        writer = cls.__new__(cls)
+        writer._index, writer._index_cache, writer._index_cache_status = (
+            index,
+            cached,
+            status,
+        )
+        writer._initialize(
+            transcript=transcript,
+            expected_revision=expected_revision,
+            expected_leaf_id=expected_leaf_id,
+            max_encoded_record_bytes=max_encoded_record_bytes,
+            phase_timer=phase_timer,
+            active_records=records,
+        )
+        return writer
+
     def __init__(
         self,
         *,
@@ -688,10 +784,6 @@ class ModelInputV2Writer:
         max_encoded_record_bytes: int,
         phase_timer: PhaseTimer | None = None,
     ) -> None:
-        self._transcript = transcript
-        self._expected_revision = expected_revision
-        self._expected_leaf_id = expected_leaf_id
-        self._max_encoded_record_bytes = max_encoded_record_bytes
         with _optional_phase(phase_timer, "active_path"):
             active_records = transcript.active_path()
         with _optional_phase(phase_timer, "node_index_build"):
@@ -700,6 +792,29 @@ class ModelInputV2Writer:
                 self._index_cache,
                 self._index_cache_status,
             ) = _cached_node_index(transcript, active_records)
+        self._initialize(
+            transcript=transcript,
+            expected_revision=expected_revision,
+            expected_leaf_id=expected_leaf_id,
+            max_encoded_record_bytes=max_encoded_record_bytes,
+            phase_timer=phase_timer,
+            active_records=active_records,
+        )
+
+    def _initialize(
+        self,
+        *,
+        transcript: AgentTranscriptUnitOfWork,
+        expected_revision: int,
+        expected_leaf_id: str,
+        max_encoded_record_bytes: int,
+        phase_timer: PhaseTimer | None,
+        active_records: tuple[AgentTranscriptRecord, ...],
+    ) -> None:
+        self._transcript = transcript
+        self._expected_revision = expected_revision
+        self._expected_leaf_id = expected_leaf_id
+        self._max_encoded_record_bytes = max_encoded_record_bytes
         with _optional_phase(phase_timer, "resolver_build"):
             self._existing_resolver = ModelInputV2Resolver(active_records)
         self._existing_owner_position = len(active_records)

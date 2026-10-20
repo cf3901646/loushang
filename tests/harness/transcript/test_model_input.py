@@ -77,6 +77,7 @@ from loushang.harness.transcript.model_input_v2_types import (
     ModelInputNodeReference,
     ModelInputSequenceTailNode,
     ModelInputSnapshotV2,
+    create_model_input_json_value,
     hash_model_input_node,
     model_input_node_hash_basis,
     model_input_node_to_json,
@@ -452,9 +453,7 @@ def test_model_input_externalizes_session_images_without_losing_exact_rebuild(
                     "content": [
                         {
                             "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/png;base64,{encoded}"
-                            },
+                            "image_url": {"url": f"data:image/png;base64,{encoded}"},
                         }
                     ],
                 }
@@ -468,9 +467,7 @@ def test_model_input_externalizes_session_images_without_losing_exact_rebuild(
             binary_codec=codec,
         )
 
-        await committer.commit_prepared_request(
-            _prepared(payload=prepared_payload)
-        )
+        await committer.commit_prepared_request(_prepared(payload=prepared_payload))
 
         snapshot_id = committer.commits[0].snapshot_id
         snapshot_record = next(
@@ -518,9 +515,7 @@ def test_model_input_reserved_literal_alone_sets_projection_version(tmp_path) ->
             "system_prompt": "system prompt",
             "messages": [],
             "tools": [],
-            "request_options": {
-                "$loushang.sessionBlob": {"application": "literal"}
-            },
+            "request_options": {"$loushang.sessionBlob": {"application": "literal"}},
         }
         prepared_payload = {
             "model": "model-input-model",
@@ -536,9 +531,7 @@ def test_model_input_reserved_literal_alone_sets_projection_version(tmp_path) ->
             binary_codec=codec,
         )
 
-        await committer.commit_prepared_request(
-            _prepared(payload=prepared_payload)
-        )
+        await committer.commit_prepared_request(_prepared(payload=prepared_payload))
 
         snapshot_id = committer.commits[0].snapshot_id
         snapshot = next(
@@ -767,6 +760,110 @@ def test_model_input_v2_node_index_cache_extends_selected_ancestry(
         await second.commit_prepared_request(_prepared(invocation_id="second"))
 
         assert builds == 1
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("change", ["none", "cancel", "branch", "commit", "invalid"])
+@pytest.mark.parametrize("warm", [False, True])
+def test_model_input_index_preparation_yields_without_publishing_partial_state(
+    monkeypatch, change, warm
+):
+    from types import SimpleNamespace
+
+    async def scenario():
+        transcript = await _memory_transcript()
+        root = transcript.leaf_id
+        if warm:
+            first = ModelInputTranscriptCommitter(
+                transcript=transcript,
+                context=_context(transcript),
+                runtime_references=_runtime_references(),
+            )
+            await first.commit_prepared_request(_prepared())
+            transcript.branch(root)
+        previous_cache = model_input_v2_module._MODEL_INPUT_V2_INDEX_CACHES.get(
+            transcript
+        )
+        nodes = tuple(create_model_input_json_value({"value": i}) for i in range(100))
+        await transcript.append_model_input_node_bundles(
+            (ModelInputNodeBundle(nodes),),
+            max_encoded_record_bytes=MODEL_INPUT_MAX_ENCODED_RECORD_BYTES,
+            expected_revision=transcript.revision,
+            expected_leaf_id=transcript.leaf_id,
+        )
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript),
+            runtime_references=_runtime_references(),
+        )
+        before = transcript.records
+        clock = [0.0]
+        indexed = []
+        original = model_input_v2_module.ModelInputV2NodeIndex._add_indexed_node
+
+        def add(index, node, **kwargs):
+            clock[0] += 0.005
+            indexed.append(node)
+            if change == "invalid" and len(indexed) == 100:
+                raise ModelInputIntegrityError("invalid final indexed node")
+            return original(index, node, **kwargs)
+
+        monkeypatch.setattr(
+            model_input_v2_module.ModelInputV2NodeIndex, "_add_indexed_node", add
+        )
+        monkeypatch.setattr(
+            model_input_v2_module,
+            "time",
+            SimpleNamespace(monotonic=lambda: clock[0]),
+            raising=False,
+        )
+        job = asyncio.create_task(committer.commit_prepared_request(_prepared()))
+        await asyncio.sleep(0)
+        assert not job.done(), (
+            "cold Model Input index blocked input until it was complete"
+        )
+        assert 0 < len(indexed) < 100
+        assert (
+            model_input_v2_module._MODEL_INPUT_V2_INDEX_CACHES.get(transcript)
+            is previous_cache
+        )
+        assert transcript.records == before
+        if change == "cancel":
+            job.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await job
+        elif change == "branch":
+            transcript.branch(root)
+            with pytest.raises(ModelInputIntegrityError, match="changed"):
+                await job
+        elif change == "commit":
+            await transcript.append_agent_message(
+                UserMessage(role="user", content="other", timestamp=2.0)
+            )
+            with pytest.raises(ModelInputIntegrityError, match="changed"):
+                await job
+        elif change == "invalid":
+            with pytest.raises(ModelInputIntegrityError, match="invalid final"):
+                await job
+        else:
+            await job
+            rebuilt = rebuild_model_input(transcript, committer.commits[0].snapshot_id)
+            assert rebuilt.prepared_payload_hash == _prepared().payload_hash
+            assert rebuilt.logical_input == thaw_model_input_json(
+                _context(transcript).logical_input
+            )
+        if change != "none":
+            assert not committer.commits
+            assert (
+                model_input_v2_module._MODEL_INPUT_V2_INDEX_CACHES.get(transcript)
+                is previous_cache
+            )
+        assert not [
+            task
+            for task in asyncio.all_tasks()
+            if task is not asyncio.current_task() and not task.done()
+        ]
 
     asyncio.run(scenario())
 
@@ -1062,7 +1159,9 @@ def test_attempt_usage_committer_is_atomic_idempotent_and_terminal() -> None:
         )
         assert await committer.record_model_call_attempt_usage(terminal) is True
         assert project_model_call_usage(transcript.active_path()).complete is True
-        assert project_model_call_usage(transcript.active_path()).usage.total_tokens == 12
+        assert (
+            project_model_call_usage(transcript.active_path()).usage.total_tokens == 12
+        )
         assert [
             record.payload
             for record in transcript.records

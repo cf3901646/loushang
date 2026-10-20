@@ -388,6 +388,124 @@ failures (282.43s). Its Ruff and 164-source mypy checks passed. Hosting offline
 regression passed 257 tests, with 193 skipped and four deselected; the two real
 Product persistence/cancellation E2E smoke cases passed as well.
 
+## Phase three: prepared transport and repeated activation checks
+
+The private offline probe now uses the normal prepared-provider adapter path.
+It verifies the committed snapshot receipt and prepared-payload hash before
+each transport call. One new controlled tool call produces two new durable
+Model Inputs. Continuous absolute key deadlines cover preparation, execution
+and completion. Historical tools are never invoked, and network connections
+are blocked. The earlier synthetic transport explicitly omitted these commits;
+its timings cannot establish the cost of the real Model Input barrier.
+
+The isolated-file setup also needed correction. Native writer-head metadata is
+bound to filesystem identity. Copying a journal invalidates its head, even when
+the deferred-read index remains valid. A cold copy's first write therefore
+strictly reconciles the entire prefix. The original sample has a valid head.
+Warm-write fixtures now use the backend's idempotent append of the already
+existing final record, outside the measurement process, to establish a native
+head. Both authority bytes and journal mtime are checked unchanged. Cold
+recovery remains a separate required scenario; its approximately 35-second
+tool-start observation is not representative of an ordinary valid-head append.
+
+With a valid head, the previous committed source still showed an approximately
+1,013ms maximum input delay and 1,206ms Worked delay. Its first Model Input
+commit took 1,123ms, including 553ms building the historical node index; the
+second commit took 353ms. These are exploratory single rounds.
+
+Stage tracing found another synchronous replay after Model Input metadata
+advanced the transcript revision: the next Coding message ran the complete
+activation projector again, taking approximately 352ms immediately before
+Worked. The new Coding guard can reuse its completed classification only when
+the entire checked prefix is activation-neutral, native immutable record
+identities remain an exact prefix, and the new suffix has valid unique parent
+links and no activation intent or reserved runtime-binding key. A later
+sensitive fact still gets full ancestry hashing. Bound histories retain the
+existing local input-proof check. This deliberately leaves their repeated full
+validation as remaining work.
+
+Ordinary-message guard advancement now inspects the committed record and its
+selected prefix, including all `coding.runtimeBinding*` keys. It previously
+checked only the v1 key in the caller's mutable metadata. Four regressions
+first demonstrated that v2/future keys, caller mutation and a concurrent branch
+change could bypass the next fence; all pass after the correction. Pending
+publication still blocks before any cache lookup.
+
+Cold/branched Model Input indexes now build cooperatively between the same
+node checks. Cancellation, malformed history, a changed revision/leaf or a
+changed compatibility token prevents publication of the new cache. A previous
+branch cache remains intact. Synchronous consumers retain the same generator
+and validation. Warm suffix indexing and the durable commit-before-send
+barrier are unchanged. Ten regression cases exercise both cold and existing
+branch caches, including observation while preparation is incomplete.
+
+The latest isolated prepared round, with 24,459 initial records and 8,967
+deferred bundles, recorded the following. This is not a matched five-round
+acceptance result:
+
+| Measurement | Observed |
+| --- | ---: |
+| Continuous input samples | 315 |
+| Input p95 / p99 / maximum | 345.62 / 461.40 / 544.88ms |
+| Maximum event-loop delay | 412.60ms |
+| Maximum timer-frame gap | 576.60ms |
+| Maximum warm render frame | 12.48ms |
+| Final activation guard | 19.38ms |
+| Tool exit to Worked | 1,267.21ms |
+
+Two main-thread generation-two collections still took 280.98ms and 361.16ms.
+The second Model Input commit still took 499.25ms. Input and Worked targets
+remain unmet. A separate reopened process rebuilt both new Model Inputs through
+the Product API, verified their hashes, the new prompt/tool identity and both
+terminal usage facts, and checked authority bytes/mtime unchanged. Draft
+preservation, one Worked divider and no remaining asyncio tasks also passed.
+
+A separate continued-session cancellation round used the same private copy
+after that normal turn. Escape displayed Stopping in 33.59ms and cancelled the
+controlled running tool, preserving the draft and leaving no asyncio tasks.
+Cancellation-to-Worked still took 652.40ms, with input p95/p99 of
+277.38/341.57ms. This is one continued-session round, not a matched cancellation
+acceptance result. A completion-only profiler is now available for diagnosis;
+its instrumented latency is excluded from acceptance comparisons.
+
+The prepared consecutive-tool probe now invokes three distinct controlled new
+tools through the real sequential Agent executor. The short-session smoke
+passed with a 6.95ms maximum input delay and 77.09ms Worked delay. In a separate
+continued long-session round all three tools succeeded, the draft remained
+exact and disposal left no asyncio tasks; maximum input delay was 385.08ms and
+Worked took 908.94ms. This corrects the earlier probe's single-tool coverage;
+matched long-session consecutive-tool acceptance is still outstanding.
+
+Two allocation experiments were withdrawn: selective per-node bundle decoding
+caused repeated parsing and showed no valid response improvement; replacing
+per-node callback wrappers with bundle references also failed to establish an
+end-to-end improvement. Neither change is retained. No GC policy, timeout or
+response threshold was changed.
+
+Current focused offline validation passed 220 tests covering Model Input,
+deferred file indexes, request evidence, activation and bindings. Changed-source
+Ruff and three-source mypy passed. The required `make check-changed` run passed
+documentation and architecture validation, then stopped in Coding: 3,374 passed,
+283 skipped, 55 deselected, 127 failed and 39 errors (867.71s). The 166 failing
+node IDs are all in the previously established baseline; the additional grep
+timing failure from the earlier run did not recur. This is not a green gate.
+
+The complete Harness offline route passed 5,143 tests, skipped 724 and deselected
+three, with exactly the same 25 Linux-rooted-I/O failures on macOS (325.78s).
+Harness Ruff passed. Its full 775-source mypy route stopped on six errors for
+`_pid_namespace_digest` in the unchanged sandbox legacy-runtime module. An
+isolated full 775-source run against the frozen prior source reproduced those
+same six errors at identical locations. No unrelated runtime code or type gate
+was changed to suppress them. Matched normal/cancelled acceptance rounds remain
+pending.
+
+Hosting offline regression passed 257 tests, with 193 skipped and four
+deselected. The two real Product persistence/resume/close and terminal
+cancellation/new-message/exit E2E smoke cases passed (4.35s). Documentation
+validation passed nine tests. Product source hashes still match the separately
+frozen phase-three candidate; the proposed continuation-purpose and bound-proof
+cache changes are separate private experiments, outside this checked snapshot.
+
 ## Verification so far
 
 - Conversation/UnitOfWork regressions after batch extension: 118 passed, 24 skipped.
@@ -430,9 +548,9 @@ are not a final green gate.
 - Complete five matched actual-screen rounds for quiet commands, sustained
   output, consecutive tools, large ASCII and Unicode results, with normal
   completion and cancellation. Verify output/truncation metadata and drafts.
-- Complete matched file-backed Product measurements and measure new durable
-  Model Input commits through a conformant offline transport. The memory-store
-  probe and synthetic transport do not establish the full provider barrier cost.
+- Complete matched file-backed Product measurements through the prepared offline
+  transport, including separate valid-head and cold-recovery workloads. The
+  completed exploratory prepared round does not replace matched acceptance.
 - Investigate cold full-window rendering and resize. Its uninstrumented first
   frame still took 15.18 seconds with the first committed candidate. The bounded resume
   window and warm-cache improvement do not prove long-running resize is safe.

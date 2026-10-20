@@ -26,7 +26,11 @@ from loushang.coding.product_plan import (
     CODING_TRANSCRIPT_RUNTIME,
 )
 from loushang.foundation.json import JSONValue, require_json_mapping
-from loushang.harness.conversation import ConversationHeader, StoreCommitOutcomeUnknown
+from loushang.harness.conversation import (
+    ConversationHeader,
+    ConversationRecord,
+    StoreCommitOutcomeUnknown,
+)
 from loushang.harness.journal._owned_io import settled_io
 from loushang.harness.runtime import (
     SIDE_QUESTION_PROVIDER_SLOT,
@@ -49,6 +53,7 @@ from loushang.harness.transcript.jsonl_file import (
     load_agent_transcript_file,
     load_agent_transcript_header,
 )
+from loushang.harness.transcript.types import ExtensionData
 
 from .resume_activation_attempt import (
     CodingActivationAttemptV1,
@@ -76,7 +81,6 @@ from .resume_activation_projection_v2 import (
     project_coding_activation_attempt_path_v2_async,
 )
 from .resume_binding import (
-    CODING_RUNTIME_BINDING_METADATA_KEY,
     CodingRuntimeBindingV1,
     coding_user_input_digest,
     freeze_coding_user_input,
@@ -228,6 +232,8 @@ class SessionManager(
         tuple[CodingActivationAttemptV1, AgentTranscriptRecord, str] | None
     ) = None
     _activation_guard_snapshot: tuple[int, str | None] | None = None
+    _activation_guard_path: tuple[AgentTranscriptRecord, ...] | None = None
+    _activation_guard_path_is_neutral: bool = False
 
     @property
     def resume_runtime_publication_pending(self) -> bool:
@@ -530,9 +536,8 @@ class SessionManager(
         if (
             self.persist
             and isinstance(message, UserMessage)
-            and historical_composition_provenance(
-                self.get_header().metadata
-            ) is not None
+            and historical_composition_provenance(self.get_header().metadata)
+            is not None
             and not getattr(self, "_coding_composition_ready", False)
         ):
             raise ValueError(
@@ -540,14 +545,18 @@ class SessionManager(
                 "prepare the Session before committing input"
             )
         guarded_revision = self._transcript.revision
+        guarded_path = self._transcript.active_path() if self.persist else ()
         record_id = await super().append_message(message, metadata=metadata)
+        selected = self._transcript.active_path() if self.persist else ()
         if (
             self.persist
             and self._transcript.revision == guarded_revision + 1
             and self._transcript.leaf_id == record_id
-            and (
-                metadata is None or CODING_RUNTIME_BINDING_METADATA_KEY not in metadata
-            )
+            and len(selected) == len(guarded_path) + 1
+            and all(old is new for old, new in zip(guarded_path, selected))
+            and selected[-1].parent_id
+            == (guarded_path[-1].record_id if guarded_path else None)
+            and self._activation_neutral_record(selected[-1])
         ):
             # A commit without Binding cannot change activation classification.
             # Retain the guard so subsequent messages avoid a full replay.
@@ -972,9 +981,7 @@ class SessionManager(
         return self.runtime_profile
 
     def _fork_header_metadata(self) -> Mapping[str, JSONValue] | None:
-        provenance = historical_composition_provenance(
-            self.get_header().metadata
-        )
+        provenance = historical_composition_provenance(self.get_header().metadata)
         if provenance is None:
             # A legacy transcript may still be branched as transcript data.
             # Its fork remains unproven and cannot be opened as a Product
@@ -999,9 +1006,7 @@ class SessionManager(
         self._coding_composition_ready = False
         if self.persist:
             self.require_no_unsettled_resume_activation()
-        provenance = historical_composition_provenance(
-            self.get_header().metadata
-        )
+        provenance = historical_composition_provenance(self.get_header().metadata)
         if provenance is not None:
             if provenance.set_id != plan.set_id:
                 raise ValueError(
@@ -1024,9 +1029,7 @@ class SessionManager(
     def mark_composition_startup_prepared(self) -> None:
         if self.persist:
             self.require_no_unsettled_resume_activation()
-        provenance = historical_composition_provenance(
-            self.get_header().metadata
-        )
+        provenance = historical_composition_provenance(self.get_header().metadata)
         if provenance is None:
             raise ValueError("Coding Session has no pinned composition plan")
         startup = historical_startup_composition_record(self.get_entries())
@@ -1054,17 +1057,21 @@ class SessionManager(
             if self._activation_guard_snapshot == snapshot:
                 return
             records = self._transcript.active_path()
+            if self._extend_neutral_activation_guard(snapshot, records):
+                return
             try:
                 projection = await project_coding_activation_attempt_path_v2_async(
                     records, current_session_id=self.get_header().conversation_id
                 )
             except ValueError as error:
-                raise CodingResumeRecoveryRequired("history.activation_invalid") from error
+                raise CodingResumeRecoveryRequired(
+                    "history.activation_invalid"
+                ) from error
             if self._resume_runtime_publication_pending:
                 raise CodingResumeRecoveryRequired("runtime.publication_pending")
             if snapshot != (self._transcript.revision, self._transcript.leaf_id):
                 continue
-            self._accept_activation_guard_projection(snapshot, projection)
+            self._accept_activation_guard_projection(snapshot, projection, records)
             return
 
     def require_no_unsettled_resume_activation(self) -> None:
@@ -1080,19 +1087,75 @@ class SessionManager(
         snapshot = (self._transcript.revision, self._transcript.leaf_id)
         if self._activation_guard_snapshot == snapshot:
             return
+        records = self._transcript.active_path()
+        if self._extend_neutral_activation_guard(snapshot, records):
+            return
         try:
             projection = project_coding_activation_attempt_path_v2(
-            self._transcript.active_path(),
-            current_session_id=self.get_header().conversation_id,
-        )
+                records,
+                current_session_id=self.get_header().conversation_id,
+            )
         except ValueError as error:
             raise CodingResumeRecoveryRequired("history.activation_invalid") from error
-        self._accept_activation_guard_projection(snapshot, projection)
+        self._accept_activation_guard_projection(snapshot, projection, records)
+
+    @staticmethod
+    def _activation_neutral_record(record: AgentTranscriptRecord) -> bool:
+        # Only native immutable envelopes can extend a checked prefix. Nested
+        # ordinary message/extension data cannot change activation classification;
+        # binding metadata and intent bodies always require the full projector.
+        if type(record) is not ConversationRecord:
+            return False
+        payload = record.payload
+        if isinstance(payload, ExtensionData) and (
+            type(payload) is not ExtensionData
+            or payload.extension_type.startswith("coding.activation-attempt/")
+        ):
+            return False
+        return not any(
+            key.startswith("coding.runtimeBinding") for key in record.metadata
+        )
+
+    def _extend_neutral_activation_guard(
+        self,
+        snapshot: tuple[int, str | None],
+        records: tuple[AgentTranscriptRecord, ...],
+    ) -> bool:
+        previous = self._activation_guard_path
+        if (
+            self._activation_guard_snapshot is None
+            or not self._activation_guard_path_is_neutral
+            or previous is None
+            or len(records) < len(previous)
+            or (records[-1].record_id if records else None) != snapshot[1]
+            or not all(old is new for old, new in zip(previous, records))
+        ):
+            return False
+        seen = {record.record_id for record in previous}
+        parent_id = previous[-1].record_id if previous else None
+        for record in records[len(previous) :]:
+            if (
+                record.parent_id != parent_id
+                or record.record_id in seen
+                or not self._activation_neutral_record(record)
+            ):
+                return False
+            seen.add(record.record_id)
+            parent_id = record.record_id
+        if snapshot != (self._transcript.revision, self._transcript.leaf_id):
+            return False
+        # This cache contains only the "none / no binding" classification. A
+        # later intent/binding gets a full replay, including the ancestry digest
+        # over every intervening Model Input record, never a stale digest.
+        self._activation_guard_path = records
+        self._activation_guard_snapshot = snapshot
+        return True
 
     def _accept_activation_guard_projection(
         self,
         snapshot: tuple[int, str | None],
         projection: CodingActivationAttemptProjectionV2,
+        records: tuple[AgentTranscriptRecord, ...],
     ) -> None:
         if projection.status != "none":
             raise CodingResumeRecoveryRequired(
@@ -1115,6 +1178,12 @@ class SessionManager(
                     proof[0].attempt_id, proof[1].record_id
                 )
         self._activation_guard_snapshot = snapshot
+        self._activation_guard_path = records
+        self._activation_guard_path_is_neutral = (
+            records[-1].record_id if records else None
+        ) == snapshot[1] and all(
+            self._activation_neutral_record(record) for record in records
+        )
 
 
 def _create_owned_session_factory(
