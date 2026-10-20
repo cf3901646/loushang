@@ -8494,7 +8494,9 @@ while True:
                                     ),
                                     services=create_services(
                                         settings_manager=SettingsManager(
-                                            ControlConfig()
+                                            ControlConfig(
+                                                capabilities={"coding.lsp": "always"}
+                                            )
                                         )
                                     ),
                                     package_product_runtime_factory=(
