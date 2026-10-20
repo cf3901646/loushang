@@ -3,13 +3,15 @@
 
 This is a local A/B measurement, not a CI timing gate. Each sample uses a new
 home and workspace; alternating order reduces drift from host load and caches.
-Use installed console scripts built for the same Python version on POSIX.
+The default 11 rounds report p50 and nearest-rank p90. Use installed console
+scripts built for the same Python version on POSIX.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import resource
 import statistics
@@ -87,11 +89,16 @@ def _sample(console_script: Path, *, timeout: float) -> dict[str, float | int]:
         }
 
 
+def _p90(values: list[float]) -> float:
+    ordered = sorted(values)
+    return ordered[math.ceil(0.9 * len(ordered)) - 1]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", type=Path, required=True)
     parser.add_argument("--candidate", type=Path, required=True)
-    parser.add_argument("--rounds", type=int, default=3)
+    parser.add_argument("--rounds", type=int, default=11)
     parser.add_argument("--timeout", type=float, default=45.0)
     args = parser.parse_args()
     if not 1 <= args.rounds <= 20 or not 1 <= args.timeout <= 120:
@@ -136,6 +143,13 @@ def main() -> int:
         )
         for label, group in samples.items()
     }
+    p90_s = {
+        label: {
+            metric: _p90([float(sample[metric]) for sample in group])
+            for metric in ("welcome_s", "idle_s", "child_cpu_s")
+        }
+        for label, group in samples.items()
+    }
     idle_spread_ratios = {
         label: round(
             max(float(sample["idle_s"]) for sample in group)
@@ -145,8 +159,8 @@ def main() -> int:
         for label, group in samples.items()
     }
     timing_warning = (
-        "fewer than three samples per build; do not attribute the difference"
-        if args.rounds < 3
+        "fewer than eleven samples per build; do not attribute the difference"
+        if args.rounds < 11
         else (
             "idle times vary by more than 20% within a build; "
             "do not attribute the difference"
@@ -155,7 +169,7 @@ def main() -> int:
         )
     )
     print(json.dumps({
-        "schema_version": 1,
+        "schema_version": 2,
         "measurement": "installed_cli_pty_welcome_and_idle",
         "baseline": str(args.baseline.resolve()),
         "candidate": str(args.candidate.resolve()),
@@ -165,6 +179,7 @@ def main() -> int:
         "candidate_idle_median_s": candidate_idle,
         "welcome_median_s": welcome_medians,
         "child_cpu_median_s": child_cpu_medians,
+        "p90_s": p90_s,
         "idle_spread_ratio": idle_spread_ratios,
         "timing_warning": timing_warning,
         "idle_improvement_percent": round(
