@@ -506,6 +506,189 @@ validation passed nine tests. Product source hashes still match the separately
 frozen phase-three candidate; the proposed continuation-purpose and bound-proof
 cache changes are separate private experiments, outside this checked snapshot.
 
+## Phase four: continuation selection and bound-history proofs
+
+The Agent emits `tool_continuation` after executing a tool batch, but the
+inspection purpose allowlist omitted that value. Inspection rebuilt the latest
+tool request, discarded it, then rebuilt an older main request. A private
+experiment using saved snapshots from three real controlled tool executions
+reproduced two rebuilds and selection of the older request. Including the
+actual continuation purpose selected the newest request with one rebuild and
+retained full prepared-payload hash verification. The purpose regression first
+failed only for `tool_continuation`; the corrected five-purpose matrix passes.
+
+Activation validation now also supports an unchanged bound prefix. Only a
+neutral suffix may extend it. Sensitive intent/input records retain exact
+record fingerprints, which are checked again before reuse. Full historical
+classification and the live local input proof are separate checks; a completed
+classification no longer invokes the entire projector a second time just to
+check the same input. Writer presence, pending input, committed intent, exact
+input digest, parent correspondence and current selected-path identity remain
+checked. New sensitive facts still require complete ancestry validation.
+
+Regressions first reproduced both duplicate full replay and publication of a
+classification whose sensitive data changed while asynchronous validation was
+suspended. The new code captures sensitive fingerprints before validation and
+compares them again before publishing. Changes at the same cached revision and
+branch changes during input hashing are rejected as well. These tests cover
+historical bindings and local live proofs. Focused combined offline validation
+passed 246 tests with 32 skipped; two-source mypy and changed-file Ruff passed.
+Full affected-route checks remain pending for this phase.
+
+The next continued-session prepared probe began with 24,519 records and 8,982
+deferred bundles. It also observed draft input for 1.2 seconds after the first
+Worked frame, so late idle stalls are now visible. The probe protocol change
+means these timings are not a matched comparison with earlier runs:
+
+| Input phase | Samples | p95 | p99 | Maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Preparation | 149 | 459.10ms | 638.25ms | 667.94ms |
+| Tool execution | 37 | 10.06ms | 37.23ms | 37.23ms |
+| Completion | 25 | 406.42ms | 444.09ms | 444.09ms |
+| Idle after Worked | 31 | 41.43ms | 55.30ms | 55.30ms |
+
+The controlled tool began after 6,003.91ms. Tool exit to Worked took 1,043.58ms;
+the maximum timer-frame gap was 665.73ms. Both new Model Inputs, terminal usage
+facts and the new tool result were independently reopened and hash-verified,
+with authority bytes/mtime unchanged. Draft and task-cleanup assertions passed.
+Preparation and completion still fail the response targets.
+
+A separate diagnostic-only run captured generation-two allocation stacks.
+One 230.80ms collection arose while request-evidence recovery read a single
+logical component but decoded and retained its entire deferred node bundle.
+Another 305.66ms collection arose while the cold node index created per-node
+`ModelInputNodeReference` objects. These observations identify concrete retained
+allocation owners for the next experiments; they are not acceptance timings.
+Any reduction must preserve source-byte authority, validation of unselected
+siblings and full-bundle wire compatibility. Earlier selective-decoding
+experiments remain withdrawn until a new valid-head comparison proves a gain.
+
+Three additional closed-session candidates of approximately 3.0MB, 13.3MB and
+30.2MB have immutable private copies. Original bytes/mtimes and copy hashes are
+verified. Native admission and context projection now pass for 372, 2,170 and
+3,355 records respectively, with 132, 807 and 1,246 deferred bundles and no blob
+references. Private writable fixtures have valid native writer heads, without
+changing authority bytes/mtimes or executing historical tools. Performance
+validation remains pending before they establish the multiple-scale requirement.
+
+## Allocation and cooperative preparation experiments
+
+A partial-bundle retention experiment continued validating every sibling, but
+promoted to a complete cache on a second distinct ordinal. The exploratory
+prepared run avoided generation-two collections, yet tool exit to Worked took
+1,317.93ms. This did not prove an overall improvement; the extra parsing path
+has been withdrawn from the working candidate.
+
+The retained index experiment stores the already-validated immutable identity
+and location once, materializes reference DTOs on use, and replaces per-node
+callback wrappers with bundle references. Native header validation and full
+body identity/hash checks remain. The custom-loader constructor is preserved.
+A regression verifies unused indexes retain neither reference DTOs nor loader
+wrappers without traversing the private authority bodies.
+
+One identical-prefix pair used 24,459 records, 8,967 deferred bundles, valid
+writer heads, fresh processes and the same complete input-observation protocol.
+The phase-four baseline took 936.43ms from tool exit to Worked. A private
+reference-index plus slotted-DTO experiment took 1,124.13ms, despite reducing
+index construction from 622.97ms to 370.33ms. The slotted DTO experiment has not
+been applied to Product. One pair cannot establish a latency improvement.
+
+Cooperative materialization alone also remains insufficient: a further pristine
+fixture measured 1,275.02ms to Worked, with completion input p99 497.41ms. It
+retained a 299.87ms generation-two collection during preparation. The change
+does service cancellation before durable writes and between long planning
+iterations, but leaves earlier synchronous preparation to investigate.
+
+The current candidate therefore also separates Agent preparation, provider
+payload construction, request validation and durable graph materialization with
+event-loop checkpoints. After yielding, transcript revision and selected leaf
+are rechecked before further work; interrupted planning cannot publish its
+sequence-plan updates. Four validation-boundary cases and eight cold/warm
+planning cases cover cancellation, concurrent append, branch change and normal
+hash-verified reconstruction. The old implementation failed three validation
+cases and all eight planning cases. Combined focused validation then passed
+259 tests with 32 skips.
+
+Provider payload projection already creates a detached native JSON tree. The
+candidate validates that tree without copying it a second time. Returned
+transport objects remain independent of both the source and other transport
+objects. Two new provider-boundary cancellation tests failed on the old code;
+neither durable commit nor transport may run after those interruptions.
+
+Native Model Input JSON trees now use strict no-copy validation followed by the
+standard canonical encoder. Frozen/custom containers and rejected native values
+retain the general encoder and its existing error contracts. The parity corpus
+also checks native projections of every generated sample and shared subtrees,
+Unicode and numeric boundaries. Wire schema, canonical bytes, hashes, sibling
+validation, GC policy and acceptance thresholds are unchanged. Latency
+acceptance for this combined candidate is still pending.
+
+The initial complete AI check exposed five standalone SDK regressions: the
+unconditional yields changed completion before an event loop was closed.
+Yields are now restricted to requests carrying a durable committer, which is
+the long-session Product path under investigation. All five cases and the
+prepared-request suite then passed together (38 tests). The complete AI gate
+subsequently passed 866 tests, with seven deselected and 90.64% coverage;
+76-source mypy, Ruff, catalog and import-boundary checks passed as well.
+
+One preliminary identical-prefix comparison of the combined path produced:
+
+| Large-session metric | Phase-four baseline | Combined candidate |
+| --- | ---: | ---: |
+| Tool start after Working | 4,788.43ms | 4,898.17ms |
+| Preparation input p95 | 275.70ms | 197.68ms |
+| Preparation input p99 | 330.02ms | 270.42ms |
+| Completion input p95 | 351.37ms | 287.09ms |
+| Completion input p99 | 389.19ms | 317.04ms |
+| Tool exit to Worked | 936.43ms | 876.35ms |
+| Maximum timer-frame gap | 424.43ms | 310.01ms |
+
+Both fixtures began with the same 24,459-record authority prefix, 8,967 deferred
+bundles and valid native writer heads. Processes were separate, no CPU-heavy
+test job ran during measurement, and draft input continued for 1.2 seconds
+after Worked. The candidate still incurred one 243.74ms generation-two
+collection. This is one preliminary pair, not the required five-round acceptance
+distribution. Preparation and completion input targets and Worked latency still
+fail; tool-start time did not improve.
+
+The smaller 372-record sample measured Worked at 237.60ms before and 233.32ms
+after, with preparation input maxima of 260.71ms and 194.22ms respectively.
+Its six completion input samples measured maxima of 99.80ms and 86.56ms. A
+single small-sample pair does not establish sustained responsiveness either.
+
+A continued large-session run executed three actual controlled tools and
+measured 895.12ms to Worked. A subsequent stream-tool cancellation displayed
+Stopping after 35.33ms; safe tool cancellation to Worked still took 733.51ms.
+The cancellation outcome was the expected user abort. Draft, one-Worked and
+async-task cleanup assertions passed. Native reopens independently verified both
+normal requests and their terminal usage, and all three tool results, without
+changing journal bytes/mtime or executing historical tools.
+
+Final affected offline checks so far: Agent 153 passed; Hosting 257 passed,
+193 skipped and four deselected; Product persistence/resume and terminal-cancel
+E2E two passed. Harness reports 5,161 passed, 724 skipped, three deselected and
+25 failed. Those exact 25 node IDs match the earlier macOS Linux-rooted-IO
+baseline, with no new failures. Coding reports 3,387 passed, 283 skipped,
+55 deselected, 127 failed and 39 errors; the exact 166 failure/error node IDs
+match the prior baseline, with none added or removed. `make check-changed`
+stops at that known failing Coding route, so this is not a fully green gate.
+The separate Harness, Hosting and Product E2E results above cover those paths.
+
+A later final-source repeat on a pristine large-session fixture measured
+1,239.32ms to Worked and completion input p99 353.16ms. The source matched the
+tested manifest. This variation further limits conclusions from a single pair.
+Its two requests, terminal usage, converted-output hash and persisted truncation
+flag passed a native reopen without changing journal bytes/mtime. Original
+session size/mtime and the immutable sample hash were independently rechecked.
+
+A separate private scheduling experiment changes the six zero-delay CPU-work
+checkpoints to 1ms continuations, allowing the queued input/read/render chain
+to run before the next CPU phase. Its 155 focused correctness tests passed.
+With an identical initial large-session prefix, completion input p99 measured
+168.71ms and Worked 1,113.65ms. Preparation still incurred a 292.21ms collection,
+with input p99 345.85ms. This is one exploratory pair; the experiment is not
+included in the Product candidate or its complete gate results above.
+
 ## Verification so far
 
 - Conversation/UnitOfWork regressions after batch extension: 118 passed, 24 skipped.

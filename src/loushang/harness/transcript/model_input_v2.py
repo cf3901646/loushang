@@ -9,7 +9,6 @@ import time
 from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
-from functools import partial
 from typing import Literal, Self, cast
 from weakref import WeakKeyDictionary
 
@@ -75,7 +74,15 @@ ModelInputV2IndexCacheStatus = Literal["hit", "extended", "rebuilt"]
 class IndexedModelInputNode:
     """One indexed node whose validated body may remain off-heap until needed."""
 
-    __slots__ = ("reference", "record_position", "_node", "_node_loader")
+    __slots__ = (
+        "_reference",
+        "record_position",
+        "_node",
+        "_node_loader",
+        "_deferred_bundle",
+        "_identity",
+        "_location",
+    )
 
     def __init__(
         self,
@@ -84,22 +91,57 @@ class IndexedModelInputNode:
         record_position: int,
         *,
         node_loader: Callable[[], ModelInputNode] | None = None,
+        deferred_bundle: DeferredModelInputNodeBundle | None = None,
+        defer_reference: bool = False,
     ) -> None:
-        if node is None and node_loader is None:
+        if node is None and node_loader is None and deferred_bundle is None:
             raise ValueError("indexed Model Input node requires a body or loader")
-        self.reference = reference
+        self._identity = (reference.node_kind, reference.content_hash)
+        self._location = (reference.record_id, reference.ordinal)
+        self._reference = None if defer_reference else reference
         self.record_position = record_position
         self._node = node
         self._node_loader = node_loader
+        self._deferred_bundle = deferred_bundle
+
+    @property
+    def reference(self) -> ModelInputNodeReference:
+        reference = self._reference
+        if reference is None:
+            reference = ModelInputNodeReference(
+                record_id=self._location[0],
+                ordinal=self._location[1],
+                node_kind=self._identity[0],
+                content_hash=self._identity[1],
+            )
+            self._reference = reference
+        return reference
+
+    @reference.setter
+    def reference(self, reference: ModelInputNodeReference) -> None:
+        self._identity = (reference.node_kind, reference.content_hash)
+        self._location = (reference.record_id, reference.ordinal)
+        self._reference = reference
+
+    @property
+    def index_identity(self) -> tuple[str, str]:
+        return self._identity
+
+    @property
+    def index_location(self) -> tuple[str, int]:
+        return self._location
 
     @property
     def node(self) -> ModelInputNode:
         node = self._node
         if node is None:
             loader = self._node_loader
-            if loader is None:  # pragma: no cover - guarded by construction
+            if loader is not None:
+                node = loader()
+            elif self._deferred_bundle is not None:
+                node = self._deferred_bundle.node_at(self._location[1])
+            else:  # pragma: no cover - guarded by construction
                 raise RuntimeError("indexed Model Input node loader is unavailable")
-            node = loader()
             if (
                 node.node_kind != self.reference.node_kind
                 or node.content_hash != self.reference.content_hash
@@ -175,9 +217,9 @@ class ModelInputV2NodeIndex:
             tuple[str, int],
             ModelInputSequenceTailNode | DeferredModelInputSequenceLink,
         ] = {}
-        self._sequence_link_loaders_by_location: dict[
+        self._sequence_link_bundles_by_location: dict[
             tuple[str, int],
-            Callable[[], DeferredModelInputSequenceLink],
+            DeferredModelInputNodeBundle,
         ] = {}
         self._verified_value_canonicals: dict[str, str] = {}
         self._authority_verified_value_hashes: set[str] = set()
@@ -232,7 +274,8 @@ class ModelInputV2NodeIndex:
                         reference,
                         None,
                         position,
-                        node_loader=partial(record.payload.node_at, item.ordinal),
+                        deferred_bundle=record.payload,
+                        defer_reference=True,
                     )
                     self._add_indexed_node(
                         indexed,
@@ -245,8 +288,8 @@ class ModelInputV2NodeIndex:
                             else None
                         ),
                         sequence_node=None,
-                        sequence_link_loader=(
-                            partial(record.payload.sequence_link_at, item.ordinal)
+                        sequence_link_bundle=(
+                            record.payload
                             if item.node_kind == "sequence_tail"
                             else None
                         ),
@@ -265,7 +308,9 @@ class ModelInputV2NodeIndex:
                     node_kind=node.node_kind,
                     content_hash=node.content_hash,
                 )
-                indexed = IndexedModelInputNode(reference, node, position)
+                indexed = IndexedModelInputNode(
+                    reference, node, position, defer_reference=True
+                )
                 self._add_indexed_node(
                     indexed,
                     value_hash=(
@@ -286,7 +331,7 @@ class ModelInputV2NodeIndex:
                     sequence_node=(
                         node if isinstance(node, ModelInputSequenceTailNode) else None
                     ),
-                    sequence_link_loader=None,
+                    sequence_link_bundle=None,
                 )
                 yield
             yield
@@ -301,10 +346,10 @@ class ModelInputV2NodeIndex:
         sequence_node: ModelInputSequenceTailNode
         | DeferredModelInputSequenceLink
         | None,
-        sequence_link_loader: Callable[[], DeferredModelInputSequenceLink] | None,
+        sequence_link_bundle: DeferredModelInputNodeBundle | None,
     ) -> None:
-        reference = indexed.reference
-        identity = (reference.node_kind, reference.content_hash)
+        identity = indexed.index_identity
+        location = indexed.index_location
         existing = self._by_identity.get(identity)
         if (
             existing is not None
@@ -316,14 +361,9 @@ class ModelInputV2NodeIndex:
             raise ModelInputIntegrityError("Model Input v2 typed node hash collision")
         self._by_identity.setdefault(identity, indexed)
         if value_hash is not None:
-            self._value_hashes_by_location[(reference.record_id, reference.ordinal)] = (
-                value_hash
-            )
+            self._value_hashes_by_location[location] = value_hash
             prior_value = self._values.get(value_hash)
-            if (
-                prior_value is not None
-                and prior_value.reference.content_hash != reference.content_hash
-            ):
+            if prior_value is not None and prior_value.index_identity[1] != identity[1]:
                 raise ModelInputIntegrityError(
                     "Model Input v2 JSON value hash is ambiguous"
                 )
@@ -332,23 +372,16 @@ class ModelInputV2NodeIndex:
                 self.mark_value_verified(value_hash, inline_json)
         if sequence_state is not None:
             prior = self._sequence_states.get(sequence_state)
-            if (
-                prior is not None
-                and prior.reference.content_hash != reference.content_hash
-            ):
+            if prior is not None and prior.index_identity[1] != identity[1]:
                 raise ModelInputIntegrityError(
                     "Model Input v2 sequence state is ambiguous"
                 )
             self._sequence_states.setdefault(sequence_state, indexed)
         if sequence_node is not None:
-            self._sequence_nodes_by_location[
-                (reference.record_id, reference.ordinal)
-            ] = sequence_node
-        if sequence_link_loader is not None:
-            self._sequence_link_loaders_by_location[
-                (reference.record_id, reference.ordinal)
-            ] = sequence_link_loader
-        self._by_location[(reference.record_id, reference.ordinal)] = indexed
+            self._sequence_nodes_by_location[location] = sequence_node
+        if sequence_link_bundle is not None:
+            self._sequence_link_bundles_by_location[location] = sequence_link_bundle
+        self._by_location[location] = indexed
 
     def find_node(self, node: ModelInputNode) -> IndexedModelInputNode | None:
         indexed = self._by_identity.get((node.node_kind, node.content_hash))
@@ -456,7 +489,7 @@ class ModelInputV2NodeIndex:
                 sequence_node=(
                     node if isinstance(node, ModelInputSequenceTailNode) else None
                 ),
-                sequence_link_loader=None,
+                sequence_link_bundle=None,
             )
             references.append(reference)
         return tuple(references)
@@ -531,13 +564,13 @@ class ModelInputV2NodeIndex:
         self,
         indexed: IndexedModelInputNode,
     ) -> ModelInputSequenceTailNode | DeferredModelInputSequenceLink:
-        key = (indexed.reference.record_id, indexed.reference.ordinal)
+        key = indexed.index_location
         projected = self._sequence_nodes_by_location.get(key)
         if projected is not None:
             return projected
-        loader = self._sequence_link_loaders_by_location.get(key)
-        if loader is not None:
-            projected = loader()
+        bundle = self._sequence_link_bundles_by_location.get(key)
+        if bundle is not None:
+            projected = bundle.sequence_link_at(key[1])
             self._sequence_nodes_by_location[key] = projected
             return projected
         node = indexed.node
@@ -548,7 +581,7 @@ class ModelInputV2NodeIndex:
         return node
 
     def _verified_value_hash(self, indexed: IndexedModelInputNode) -> str:
-        key = (indexed.reference.record_id, indexed.reference.ordinal)
+        key = indexed.index_location
         projected = self._value_hashes_by_location.get(key)
         if projected is not None and (
             projected in self._authority_verified_value_hashes
@@ -574,8 +607,8 @@ class ModelInputV2NodeIndex:
                 "Model Input v2 node is outside reference ancestry"
             )
         if (
-            indexed.reference.node_kind != reference.node_kind
-            or indexed.reference.content_hash != reference.content_hash
+            indexed.index_identity[0] != reference.node_kind
+            or indexed.index_identity[1] != reference.content_hash
         ):
             raise ModelInputIntegrityError("Model Input v2 node reference changed")
         return indexed
@@ -852,6 +885,7 @@ class ModelInputV2Writer:
         model_visible_headers: Mapping[str, str],
     ) -> ModelInputV2Materialization:
         timing = PhaseTimer()
+        self._work_deadline = time.monotonic() + 0.008
         with timing.phase("plan"):
             logical = dict(logical_input)
             prepared = dict(prepared_payload)
@@ -865,7 +899,7 @@ class ModelInputV2Writer:
                 for name, value in mapping.items():
                     if isinstance(value, list):
                         cache_key = (mapping_index, name)
-                        plan = self._sequence_plan(value, cache_key=cache_key)
+                        plan = await self._sequence_plan(value, cache_key=cache_key)
                         state = (len(plan.values), plan.final_hash)
                         prior_plan = sequence_plans.get(state)
                         if prior_plan is not None and (
@@ -888,8 +922,10 @@ class ModelInputV2Writer:
                         mapping_value_hashes[(mapping_index, name)] = (
                             self._collect_value(value).value_hash
                         )
+                    await self._yield_if_needed()
             headers_plan = self._collect_value(headers)
 
+        await self._yield_if_needed()
         with timing.phase("values"):
             await self._materialize_values()
 
@@ -897,6 +933,7 @@ class ModelInputV2Writer:
             sequence_nodes: dict[tuple[int, str], ModelInputSequenceTailNode] = {}
             sequence_refs: dict[tuple[int, str], ModelInputNodeReference] = {}
             for state, plan in sequence_plans.items():
+                await self._yield_if_needed()
                 indexed_sequence = self._index.find_sequence_state(*state)
                 if indexed_sequence is not None:
                     if not self._index.sequence_state_is_verified(*state):
@@ -974,6 +1011,7 @@ class ModelInputV2Writer:
         with timing.phase("roots"):
             roots: list[ModelInputMappingRootNode] = []
             for mapping_index, mapping in enumerate(mapping_values):
+                await self._yield_if_needed()
                 entries = []
                 canonical_fields: dict[str, str] = {}
                 for name in mapping:
@@ -1109,7 +1147,20 @@ class ModelInputV2Writer:
         self._value_plans[plan.value_hash] = plan
         return plan
 
-    def _sequence_plan(
+    async def _yield_if_needed(self) -> None:
+        if time.monotonic() < self._work_deadline:
+            return
+        await asyncio.sleep(0)
+        if (
+            self._transcript.revision != self._expected_revision
+            or self._transcript.leaf_id != self._expected_leaf_id
+        ):
+            raise ModelInputIntegrityError(
+                "Model Input transcript changed during materialization"
+            )
+        self._work_deadline = time.monotonic() + 0.008
+
+    async def _sequence_plan(
         self,
         values: Sequence[JSONValue],
         *,
@@ -1128,11 +1179,12 @@ class ModelInputV2Writer:
                 cached.item_plans[reused_count].value,
             ):
                 reused_count += 1
+                await self._yield_if_needed()
 
-        item_plans = [
-            self._reuse_value_plan(plan)
-            for plan in (() if cached is None else cached.item_plans[:reused_count])
-        ]
+        item_plans = []
+        for plan in () if cached is None else cached.item_plans[:reused_count]:
+            item_plans.append(self._reuse_value_plan(plan))
+            await self._yield_if_needed()
         prefix_hashes = (
             [model_input_empty_sequence_hash()]
             if cached is None
@@ -1144,6 +1196,7 @@ class ModelInputV2Writer:
             prefix_hashes.append(
                 extend_model_input_sequence_hash(prefix_hashes[-1], plan.value_hash)
             )
+            await self._yield_if_needed()
         resolved_item_plans = tuple(item_plans)
         sequence_plan = _SequencePlan(
             tuple(item.value for item in resolved_item_plans),
@@ -1176,6 +1229,7 @@ class ModelInputV2Writer:
             )
         missing_plans: list[_ValuePlan] = []
         for plan in self._value_plans.values():
+            await self._yield_if_needed()
             existing = self._index.find_value(plan.value_hash)
             if existing is None:
                 missing_plans.append(plan)
@@ -1215,6 +1269,7 @@ class ModelInputV2Writer:
         chunks_by_plan: dict[str, tuple[ModelInputJsonChunkNode, ...]] = {}
         chunk_nodes: dict[tuple[str, str], ModelInputJsonChunkNode] = {}
         for plan in missing_plans:
+            await self._yield_if_needed()
             if len(plan.canonical) <= MODEL_INPUT_V2_CHUNK_CHARACTERS:
                 continue
             chunks = tuple(
@@ -1231,6 +1286,7 @@ class ModelInputV2Writer:
 
         value_nodes: dict[str, ModelInputJsonValueNode] = {}
         for plan in missing_plans:
+            await self._yield_if_needed()
             chunks = chunks_by_plan.get(plan.value_hash, ())
             chunk_refs = []
             for chunk in chunks:
@@ -1285,6 +1341,7 @@ class ModelInputV2Writer:
         return 0, None
 
     async def _materialize_nodes(self, nodes: Sequence[ModelInputNode]) -> None:
+        await self._yield_if_needed()
         missing: dict[tuple[str, str], ModelInputNode] = {}
         for node in nodes:
             if self._index.find_node(node) is None:

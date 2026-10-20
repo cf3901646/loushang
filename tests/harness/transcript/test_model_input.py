@@ -764,6 +764,147 @@ def test_model_input_v2_node_index_cache_extends_selected_ancestry(
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("change", ["none", "cancel", "branch", "commit"])
+def test_model_input_validation_yields_before_writing(monkeypatch, change):
+    async def scenario():
+        transcript = await _memory_transcript()
+        root = transcript.leaf_id
+        await transcript.append_agent_message(
+            UserMessage(role="user", content="next", timestamp=2.0)
+        )
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript),
+            runtime_references=_runtime_references(),
+        )
+        before = transcript.records
+        validated = asyncio.Event()
+        original = model_input_module._validate_prepared_request
+
+        def validate(request):
+            result = original(request)
+            validated.set()
+            return result
+
+        monkeypatch.setattr(model_input_module, "_validate_prepared_request", validate)
+        job = asyncio.create_task(committer.commit_prepared_request(_prepared()))
+        await validated.wait()
+        assert not job.done(), "request validation blocked input until durable writes"
+        assert transcript.records == before
+        if change == "cancel":
+            job.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await job
+            assert transcript.records == before
+        elif change == "branch":
+            transcript.branch(root)
+            with pytest.raises(ModelInputIntegrityError, match="changed"):
+                await job
+            transcript.branch(before[-1].record_id)
+            assert transcript.records == before
+        elif change == "commit":
+            await transcript.append_agent_message(
+                UserMessage(role="user", content="other", timestamp=2.0)
+            )
+            with pytest.raises(ModelInputIntegrityError, match="changed"):
+                await job
+            assert len(transcript.records) == len(before) + 1
+        else:
+            await job
+            rebuilt = rebuild_model_input(transcript, committer.commits[0].snapshot_id)
+            assert rebuilt.prepared_payload_hash == _prepared().payload_hash
+        if change != "none":
+            assert not committer.commits
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("change", ["none", "cancel", "branch", "commit"])
+@pytest.mark.parametrize("warm", [False, True])
+def test_model_input_planning_services_input_before_finishing(
+    monkeypatch, change, warm
+):
+    from types import SimpleNamespace
+
+    async def scenario():
+        transcript = await _memory_transcript()
+        root = transcript.leaf_id
+        if warm:
+            first = ModelInputTranscriptCommitter(
+                transcript=transcript,
+                context=_context(transcript),
+                runtime_references=_runtime_references(),
+            )
+            await first.commit_prepared_request(_prepared())
+        await transcript.append_agent_message(
+            UserMessage(role="user", content="continue", timestamp=3.0)
+        )
+        messages = [{"role": "user", "content": str(i)} for i in range(30)]
+        logical = dict(thaw_model_input_json(_context(transcript).logical_input))
+        logical["messages"] = messages
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript, logical_input=logical),
+            runtime_references=_runtime_references(),
+        )
+        request = _prepared(payload={"messages": messages})
+        before = transcript.records
+        prior_cache = model_input_v2_module._MODEL_INPUT_V2_INDEX_CACHES.get(transcript)
+        prior_plans = {} if prior_cache is None else dict(prior_cache.sequence_plans)
+        planning = asyncio.Event()
+        collected = []
+        clock = [0.0]
+        original = model_input_v2_module.ModelInputV2Writer._collect_value
+
+        def collect(writer, value):
+            result = original(writer, value)
+            collected.append(value)
+            clock[0] += 0.005
+            if len(collected) == 3:
+                planning.set()
+            return result
+
+        monkeypatch.setattr(
+            model_input_v2_module.ModelInputV2Writer, "_collect_value", collect
+        )
+        monkeypatch.setattr(
+            model_input_v2_module, "time", SimpleNamespace(monotonic=lambda: clock[0])
+        )
+        job = asyncio.create_task(committer.commit_prepared_request(request))
+        await planning.wait()
+        assert not job.done()
+        assert len(collected) < 30, "planning a long request blocked pending input"
+        assert transcript.records == before
+        if change == "cancel":
+            job.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await job
+            assert transcript.records == before
+        elif change == "branch":
+            transcript.branch(root)
+            with pytest.raises(ModelInputIntegrityError, match="changed"):
+                await job
+            assert transcript.records == before
+        elif change == "commit":
+            await transcript.append_agent_message(
+                UserMessage(role="user", content="other", timestamp=4.0)
+            )
+            with pytest.raises(ModelInputIntegrityError, match="changed"):
+                await job
+            assert len(transcript.records) == len(before) + 1
+        else:
+            await job
+            rebuilt = rebuild_model_input(transcript, committer.commits[0].snapshot_id)
+            assert rebuilt.prepared_payload_hash == request.payload_hash
+            assert rebuilt.logical_input == logical
+        if change != "none":
+            assert not committer.commits
+            cache = model_input_v2_module._MODEL_INPUT_V2_INDEX_CACHES.get(transcript)
+            assert cache is None or cache.sequence_plans == prior_plans
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("change", ["none", "cancel", "branch", "commit", "invalid"])
 @pytest.mark.parametrize("warm", [False, True])
 def test_model_input_index_preparation_yields_without_publishing_partial_state(
@@ -819,7 +960,8 @@ def test_model_input_index_preparation_yields_without_publishing_partial_state(
             raising=False,
         )
         job = asyncio.create_task(committer.commit_prepared_request(_prepared()))
-        await asyncio.sleep(0)
+        while not indexed and not job.done():
+            await asyncio.sleep(0)
         assert not job.done(), (
             "cold Model Input index blocked input until it was complete"
         )

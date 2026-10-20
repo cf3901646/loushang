@@ -18,6 +18,7 @@ from loushang.ai.prepared_request import (
     PreparedModelRequest,
     PreparedRequestAdapter,
     PreparedRequestLimits,
+    invoke_prepared_request,
 )
 from loushang.ai.protocols.anthropic_messages import AnthropicMessagesAdapter
 from loushang.ai.protocols.openai_chat_completions import OpenAIChatCompletionsAdapter
@@ -215,6 +216,53 @@ def test_prepared_model_request_is_canonical_and_deeply_immutable() -> None:
         prepared.payload["messages"][0]["content"] = "changed"  # type: ignore[index]
 
 
+@pytest.mark.parametrize("boundary", ["before_preparation", "after_preparation"])
+def test_prepared_invocation_services_cancellation_before_commit(boundary) -> None:
+    async def scenario():
+        committer = _RecordingCommitter()
+        adapter = _PreparedAdapter(committer.events)
+        prepared = asyncio.Event()
+        original = adapter.prepare_request
+
+        def prepare(request):
+            value = original(request)
+            prepared.set()
+            return value
+
+        adapter.prepare_request = prepare
+        source = invoke_prepared_request(
+            adapter, _request(options=CallOptions(prepared_request_committer=committer))
+        )
+        task = asyncio.create_task(anext(source))
+        if boundary == "before_preparation":
+            await asyncio.sleep(0)
+            assert not prepared.is_set()
+        else:
+            await prepared.wait()
+        assert not committer.requests
+        assert adapter.transport_calls == 0
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await source.aclose()
+        assert not committer.requests
+        assert adapter.transport_calls == 0
+
+    asyncio.run(scenario())
+
+
+def test_transport_payload_copies_remain_independent_of_source_and_each_other() -> None:
+    original = {"messages": [{"content": ["hello"]}]}
+    prepared = PreparedModelRequest.from_provider_request(_request(), payload=original)
+    canonical, digest = prepared.canonical_payload, prepared.payload_hash
+    original["messages"][0]["content"].append("source mutation")
+    first = prepared.payload_for_transport()
+    first["messages"][0]["content"].append("transport mutation")
+    assert prepared.payload_for_transport() == {"messages": [{"content": ["hello"]}]}
+    assert prepared.canonical_payload == canonical
+    assert prepared.payload_hash == digest
+
+
 def test_prepared_model_request_measures_messages_tools_and_images() -> None:
     prepared = PreparedModelRequest.from_provider_request(
         _request(invocation_id="invocation-metrics"),
@@ -313,6 +361,21 @@ def test_prepared_model_request_rejects_non_json_payload() -> None:
             _request(invocation_id="invocation-invalid"),
             payload={1: "invalid"},  # type: ignore[dict-item]
         )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"nested": [float("nan")]},
+        {"nested": [float("inf")]},
+        {"nested": ["\ud800"]},
+        {"nested": {"\ud800": "invalid key"}},
+        {"nested": [b"not JSON"]},
+    ],
+)
+def test_detached_payload_still_requires_strict_json(payload) -> None:
+    with pytest.raises(TypeError):
+        PreparedModelRequest.from_provider_request(_request(), payload=payload)
 
 
 @pytest.mark.parametrize(

@@ -48,6 +48,23 @@ class ModelInputIntegrityError(RuntimeError):
 
 
 def canonical_model_input_json(value: object, *, name: str) -> str:
+    # Materialization owns native JSON trees. Validate without a second copy,
+    # then use the native encoder instead of allocating a Python tuple/path
+    # for every field. Frozen/custom containers retain the general encoder
+    # below, including its existing rejection and error-path contracts.
+    if type(value) is dict or type(value) is list:
+        try:
+            validate_json_value(value, name=name)
+        except JsonValueError:
+            pass
+        else:
+            return stdlib_json.dumps(
+                value,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
     # Single-pass canonical encoder.  It is byte-identical to the reference
     # pipeline ``dump_json_value(thaw(freeze(value)), sort_keys=True)`` (see
     # tests/harness/transcript/test_model_input_canonical.py) but skips the

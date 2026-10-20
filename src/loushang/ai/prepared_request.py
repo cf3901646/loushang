@@ -13,7 +13,11 @@ from loushang.ai.errors import AIRequestTooLargeError
 from loushang.ai.json_codec import deserialize_usage, serialize_usage
 from loushang.ai.types import AssistantMessage, StopReason, Usage
 from loushang.ai.utils.async_iter import close_async_source
-from loushang.foundation.json import JSONValue, require_json_mapping
+from loushang.foundation.json import (
+    JSONValue,
+    require_json_mapping,
+    validate_json_value,
+)
 
 if TYPE_CHECKING:
     from loushang.ai.event_stream.raw_parts import RawPart
@@ -415,14 +419,23 @@ async def invoke_prepared_request(
     adapter: PreparedRequestAdapter,
     request: ProviderRequest,
 ) -> AsyncIterator[RawPart]:
-    prepared = adapter.prepare_request(request)
     committer = (
         request.options.prepared_request_committer
         if request.options is not None
         else None
     )
+    # Let input/cancellation run between Agent preparation, provider payload
+    # materialization and the durable commit barrier. These stages can each
+    # traverse a long context even when no transport has started yet.
+    if committer is not None:
+        await asyncio.sleep(0)
+        _raise_if_transport_cancelled()
+    prepared = adapter.prepare_request(request)
     limits = request.options.request_limits if request.options is not None else None
     validate_prepared_request_capacity(prepared, limits)
+    if committer is not None:
+        await asyncio.sleep(0)
+        _raise_if_transport_cancelled()
     await commit_prepared_request(prepared, committer)
     _raise_if_transport_cancelled()
     source = adapter.invoke_prepared_raw(request, prepared)
@@ -669,7 +682,12 @@ def _require_positive_int(value: object, *, name: str) -> None:
 
 def _project_payload(payload: Mapping[str, FrozenJSONValue]) -> dict[str, JSONValue]:
     projected = _thaw_json(payload)
-    return require_json_mapping(projected, name="prepared model request payload")
+    if not isinstance(projected, dict):
+        return require_json_mapping(projected, name="prepared model request payload")
+    # Thaw already owns every native container. Retain strict validation while
+    # avoiding a second complete copy of that detached tree.
+    validate_json_value(projected, name="prepared model request payload")
+    return projected
 
 
 def _project_model_visible_headers(headers: Mapping[str, str]) -> dict[str, str]:

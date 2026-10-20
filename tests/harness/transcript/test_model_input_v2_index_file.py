@@ -263,6 +263,63 @@ def test_verified_index_defers_duplicate_model_input_bodies_until_access(
     assert decode_calls == 1
 
 
+def test_unused_deferred_index_does_not_retain_per_node_references_and_callbacks(
+    tmp_path,
+):
+    import gc
+    from functools import partial
+    from types import MethodType
+
+    from loushang.harness.transcript.model_input_v2 import IndexedModelInputNode
+
+    path = tmp_path / "conversation.jsonl"
+    records = _model_input_records()
+    _write_transcript(path, records)
+    load = _indexed_loader(path)
+    load()
+    index = ModelInputV2NodeIndex(load().records)
+
+    def retained():
+        stack, seen, references, callbacks = [index], set(), [], []
+        while stack:
+            value = stack.pop()
+            if id(value) in seen:
+                continue
+            seen.add(id(value))
+            if isinstance(value, ModelInputNodeReference):
+                references.append(value)
+            if isinstance(value, partial | MethodType):
+                callbacks.append(value)
+            if isinstance(
+                value,
+                (
+                    dict,
+                    list,
+                    tuple,
+                    set,
+                    ModelInputV2NodeIndex,
+                    IndexedModelInputNode,
+                    partial,
+                    MethodType,
+                ),
+            ):
+                stack.extend(gc.get_referents(value))
+        return references, callbacks
+
+    assert retained() == ([], []), (
+        "unused historical nodes retained speculative references/callbacks"
+    )
+    node = records[0].payload.nodes[0]
+    indexed = index.find_value(node.value_hash)
+    assert indexed is not None
+    reference = indexed.reference
+    assert reference.record_id == records[0].record_id
+    assert reference.content_hash == node.content_hash
+    assert indexed.reference is reference
+    assert retained() == ([reference], [])
+    assert indexed.node == node
+
+
 def test_invalid_or_structurally_tampered_index_falls_back_and_self_heals(
     tmp_path: Path,
 ) -> None:

@@ -19,7 +19,7 @@ from tests.coding.test_resume_activation_attempt_v2 import _intent
 from tests.coding.test_resume_binding_v2 import _binding
 
 
-def _path(session_id="session-1"):
+def _path(session_id="session-1", message=None):
     ancestry = project_coding_runtime_binding_path(
         (), current_session_id=session_id
     ).ancestry_digest
@@ -27,7 +27,8 @@ def _path(session_id="session-1"):
     intent_record = prepare_coding_activation_attempt_v2_record(
         intent, created_at=datetime(2026, 10, 13, tzinfo=UTC)
     )
-    message = UserMessage(role="user", content="continue", timestamp=1.0)
+    if message is None:
+        message = UserMessage(role="user", content="continue", timestamp=1.0)
     binding = _binding(message, intent)
     message_record = prepare_coding_resume_v2_user_record(
         binding, message, intent=intent, created_at=datetime(2026, 10, 13, tzinfo=UTC)
@@ -336,32 +337,18 @@ def test_activation_guard_extension_keeps_full_validation_fences(monkeypatch, ch
     assert len(seen) == (0 if change == "publication" else 1)
 
 
-def test_bound_history_keeps_local_proof_check_after_metadata_extension(monkeypatch):
-    from types import SimpleNamespace
-
+def test_bound_history_keeps_local_proof_check_after_metadata_extension():
     from loushang.coding.resume_activation_attempt import CodingResumeRecoveryRequired
 
-    records = _path()
-    manager = _guard_manager(records)
+    manager, records, attempt = _bound_guard_manager()
+    manager._resume_committed_input = None
     manager.require_no_unsettled_resume_activation()
-    manager._resume_committed_input = (
-        SimpleNamespace(attempt_id="local"),
-        records[-1],
-        "digest",
-    )
-    seen = []
-
-    def require(attempt_id, record_id):
-        seen.append((attempt_id, record_id))
-        raise CodingResumeRecoveryRequired("runtime.input_changed")
-
-    monkeypatch.setattr(manager, "_require_committed_resume_input", require)
+    manager._resume_committed_input = (attempt, records[-1], "changed-digest")
     _select_guard_path(
         manager, (*records, _neutral_record("bundle", records[-1].record_id))
     )
     with pytest.raises(CodingResumeRecoveryRequired, match="input_changed"):
         manager.require_no_unsettled_resume_activation()
-    assert seen == [("local", records[-1].record_id)]
 
 
 @pytest.mark.parametrize("fault", ["v2", "future", "caller-mutation", "branch"])
@@ -488,3 +475,178 @@ def test_async_activation_guard_publishes_only_the_current_completed_path(
         ]
 
     asyncio.run(scenario())
+
+
+def _bound_guard_manager():
+    from types import SimpleNamespace
+
+    from loushang.ai.types import TextPart
+    from loushang.coding.resume_activation_attempt_v2 import (
+        validate_coding_activation_attempt_v2_record,
+    )
+    from loushang.coding.resume_input_lookup import coding_resume_input_record_digest
+
+    records = _path(
+        message=UserMessage(
+            role="user", content=[TextPart(type="text", text="continue")], timestamp=1.0
+        )
+    )
+    manager = _guard_manager(records)
+    attempt = validate_coding_activation_attempt_v2_record(records[0])
+    manager._lifecycle_session = SimpleNamespace(_writer_owner=object())
+    manager._resume_committed_attempt = (attempt, records[0].created_at)
+    manager._resume_committed_input = (
+        attempt,
+        records[1],
+        coding_resume_input_record_digest(records[1]),
+    )
+    return manager, records, attempt
+
+
+@pytest.mark.parametrize(
+    "fault", ["none", "input", "intent", "owner", "pending", "digest", "attempt"]
+)
+def test_bound_guard_reuses_validation_and_preserves_current_input_identity(
+    monkeypatch, fault
+):
+    from loushang.ai.types import TextPart
+    from loushang.coding import session_manager as module
+    from loushang.coding.resume_activation_attempt import CodingResumeRecoveryRequired
+
+    manager, records, attempt = _bound_guard_manager()
+    original = module.project_coding_activation_attempt_path_v2
+    calls = []
+
+    def project(records, **kwargs):
+        calls.append(records)
+        return original(records, **kwargs)
+
+    monkeypatch.setattr(module, "project_coding_activation_attempt_path_v2", project)
+    manager.require_no_unsettled_resume_activation()
+    assert len(calls) == 1, "local identity proof replayed the whole path a second time"
+    selected = (*records, _neutral_record("bundle", records[-1].record_id))
+    _select_guard_path(manager, selected)
+    manager.require_no_unsettled_resume_activation()
+    for _ in range(2):
+        assert (
+            manager._require_committed_resume_input(
+                attempt.attempt_id, records[-1].record_id
+            )[1]
+            is records[-1]
+        )
+    assert len(calls) == 1, (
+        "ordinary metadata/input verification replayed bound history"
+    )
+    if fault == "none":
+        return
+    if fault == "input":
+        records[1].payload.content.append(TextPart(type="text", text="changed"))
+    elif fault == "intent":
+        records[0].payload.data["version"] = True
+    elif fault == "owner":
+        manager._lifecycle_session._writer_owner = None
+    elif fault == "pending":
+        manager._resume_first_input = object()
+    elif fault == "digest":
+        manager._resume_committed_input = (attempt, records[1], "0" * 64)
+    else:
+        manager._resume_committed_attempt = (
+            replace(attempt, subject_digest="0" * 64),
+            records[0].created_at,
+        )
+    with pytest.raises(CodingResumeRecoveryRequired):
+        manager._require_committed_resume_input(
+            attempt.attempt_id, records[-1].record_id
+        )
+
+
+@pytest.mark.parametrize("fact", ["input", "intent"])
+def test_bound_guard_does_not_cache_changed_historical_sensitive_facts(fact):
+    from loushang.ai.types import TextPart
+    from loushang.coding.resume_activation_attempt import CodingResumeRecoveryRequired
+
+    manager, records, _ = _bound_guard_manager()
+    manager._resume_committed_input = None
+    manager.require_no_unsettled_resume_activation()
+    old_snapshot = manager._activation_guard_snapshot
+    if fact == "input":
+        records[1].payload.content.append(TextPart(type="text", text="changed"))
+    else:
+        records[0].payload.data["version"] = True
+    _select_guard_path(
+        manager, (*records, _neutral_record("bundle", records[-1].record_id))
+    )
+    with pytest.raises(CodingResumeRecoveryRequired):
+        manager.require_no_unsettled_resume_activation()
+    assert manager._activation_guard_snapshot == old_snapshot
+
+
+def test_async_bound_guard_does_not_publish_facts_changed_while_suspended(monkeypatch):
+    import asyncio
+
+    from loushang.coding import session_manager as module
+    from loushang.coding.resume_activation_attempt import CodingResumeRecoveryRequired
+
+    async def scenario():
+        manager, records, _ = _bound_guard_manager()
+        manager._resume_committed_input = None
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def project(records, **kwargs):
+            result = module.project_coding_activation_attempt_path_v2(records, **kwargs)
+            entered.set()
+            await release.wait()
+            return result
+
+        monkeypatch.setattr(
+            module, "project_coding_activation_attempt_path_v2_async", project
+        )
+        job = asyncio.create_task(manager.prepare_resume_activation_guard())
+        await entered.wait()
+        records[0].payload.data["version"] = True
+        release.set()
+        with pytest.raises(CodingResumeRecoveryRequired):
+            await job
+        assert manager._activation_guard_snapshot is None
+
+    asyncio.run(scenario())
+
+
+def test_current_input_proof_rejects_branch_changed_during_identity_hash(monkeypatch):
+    from loushang.coding import session_manager as module
+    from loushang.coding.resume_activation_attempt import CodingResumeRecoveryRequired
+
+    manager, records, attempt = _bound_guard_manager()
+    manager.require_no_unsettled_resume_activation()
+    original = module.coding_resume_input_record_digest
+    changed = False
+
+    def digest(record):
+        nonlocal changed
+        if not changed:
+            changed = True
+            _select_guard_path(manager, records[:1])
+        return original(record)
+
+    monkeypatch.setattr(module, "coding_resume_input_record_digest", digest)
+    with pytest.raises(CodingResumeRecoveryRequired, match="input_changed"):
+        manager._require_committed_resume_input(
+            attempt.attempt_id, records[-1].record_id
+        )
+
+
+@pytest.mark.parametrize("prepare", [False, True])
+def test_guard_rechecks_mutable_sensitive_facts_at_the_cached_revision(prepare):
+    import asyncio
+
+    from loushang.coding.resume_activation_attempt import CodingResumeRecoveryRequired
+
+    manager, records, _ = _bound_guard_manager()
+    manager._resume_committed_input = None
+    manager.require_no_unsettled_resume_activation()
+    records[0].payload.data["version"] = True
+    with pytest.raises(CodingResumeRecoveryRequired):
+        if prepare:
+            asyncio.run(manager.prepare_resume_activation_guard())
+        else:
+            manager.require_no_unsettled_resume_activation()

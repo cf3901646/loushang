@@ -233,7 +233,10 @@ class SessionManager(
     ) = None
     _activation_guard_snapshot: tuple[int, str | None] | None = None
     _activation_guard_path: tuple[AgentTranscriptRecord, ...] | None = None
-    _activation_guard_path_is_neutral: bool = False
+    _activation_guard_fingerprints: (
+        tuple[tuple[AgentTranscriptRecord, str], ...] | None
+    ) = None
+    _activation_guard_binding_record_id: str | None = None
 
     @property
     def resume_runtime_publication_pending(self) -> bool:
@@ -564,6 +567,8 @@ class SessionManager(
                 self._transcript.revision,
                 self._transcript.leaf_id,
             )
+            if self._activation_guard_path is guarded_path:
+                self._activation_guard_path = selected
         return record_id
 
     def _stage_resume_first_user_input(
@@ -787,6 +792,37 @@ class SessionManager(
     ) -> tuple[CodingActivationAttemptV1, AgentTranscriptRecord]:
         """Verify local commit and selected-path identity without granting execution."""
 
+        snapshot = (self._transcript.revision, self._transcript.leaf_id)
+        selected = self._transcript.active_path()
+        result = self._require_committed_resume_input_identity(
+            attempt_id, record_id, selected
+        )
+        try:
+            if (
+                not self._activation_guard_covers_path(selected)
+                and project_coding_activation_attempt_path_v2(
+                    selected, current_session_id=self.get_header().conversation_id
+                ).status
+                != "none"
+            ):
+                raise ValueError("Coding Resume committed input identity changed")
+        except ValueError as error:
+            raise CodingResumeRecoveryRequired("runtime.input_changed") from error
+        if snapshot != (
+            self._transcript.revision,
+            self._transcript.leaf_id,
+        ) or not self._same_activation_path(selected, self._transcript.active_path()):
+            raise CodingResumeRecoveryRequired("runtime.input_changed")
+        return result
+
+    def _require_committed_resume_input_identity(
+        self,
+        attempt_id: str,
+        record_id: str,
+        selected: tuple[AgentTranscriptRecord, ...],
+    ) -> tuple[CodingActivationAttemptV1, AgentTranscriptRecord]:
+        """Check live owner and exact input/intent identity, never classify history."""
+
         proof = self._resume_committed_input
         intent_proof = self._resume_committed_attempt
         if (
@@ -801,7 +837,6 @@ class SessionManager(
             raise ValueError(
                 "Coding Resume publication differs from its committed input"
             )
-        selected = self._transcript.active_path()
         try:
             index = next(
                 i for i, entry in enumerate(selected) if entry.record_id == record_id
@@ -818,11 +853,6 @@ class SessionManager(
                         intent_proof[1].replace("Z", "+00:00")
                     ),
                 )
-                or project_coding_activation_attempt_path_v2(
-                    selected,
-                    current_session_id=self.get_header().conversation_id,
-                ).status
-                != "none"
             ):
                 raise ValueError("Coding Resume committed input identity changed")
         except (ValueError, StopIteration) as error:
@@ -1054,11 +1084,15 @@ class SessionManager(
             if self._resume_runtime_publication_pending:
                 raise CodingResumeRecoveryRequired("runtime.publication_pending")
             snapshot = (self._transcript.revision, self._transcript.leaf_id)
-            if self._activation_guard_snapshot == snapshot:
+            if self._activation_guard_snapshot == snapshot and (
+                self._activation_guard_fingerprints is None
+                or self._activation_fingerprints_unchanged()
+            ):
                 return
             records = self._transcript.active_path()
             if self._extend_neutral_activation_guard(snapshot, records):
                 return
+            fingerprints = self._activation_fingerprints(records)
             try:
                 projection = await project_coding_activation_attempt_path_v2_async(
                     records, current_session_id=self.get_header().conversation_id
@@ -1071,7 +1105,9 @@ class SessionManager(
                 raise CodingResumeRecoveryRequired("runtime.publication_pending")
             if snapshot != (self._transcript.revision, self._transcript.leaf_id):
                 continue
-            self._accept_activation_guard_projection(snapshot, projection, records)
+            self._accept_activation_guard_projection(
+                snapshot, projection, records, fingerprints
+            )
             return
 
     def require_no_unsettled_resume_activation(self) -> None:
@@ -1085,11 +1121,15 @@ class SessionManager(
         if self._resume_runtime_publication_pending:
             raise CodingResumeRecoveryRequired("runtime.publication_pending")
         snapshot = (self._transcript.revision, self._transcript.leaf_id)
-        if self._activation_guard_snapshot == snapshot:
+        if self._activation_guard_snapshot == snapshot and (
+            self._activation_guard_fingerprints is None
+            or self._activation_fingerprints_unchanged()
+        ):
             return
         records = self._transcript.active_path()
         if self._extend_neutral_activation_guard(snapshot, records):
             return
+        fingerprints = self._activation_fingerprints(records)
         try:
             projection = project_coding_activation_attempt_path_v2(
                 records,
@@ -1097,13 +1137,77 @@ class SessionManager(
             )
         except ValueError as error:
             raise CodingResumeRecoveryRequired("history.activation_invalid") from error
-        self._accept_activation_guard_projection(snapshot, projection, records)
+        self._accept_activation_guard_projection(
+            snapshot, projection, records, fingerprints
+        )
+
+    @classmethod
+    def _activation_fingerprints(
+        cls, records: tuple[AgentTranscriptRecord, ...]
+    ) -> tuple[tuple[AgentTranscriptRecord, str], ...] | None:
+        fingerprints = []
+        for record in records:
+            if type(record) is not ConversationRecord:
+                return None
+            if cls._activation_neutral_record(record):
+                continue
+            if type(record.payload) not in {ExtensionData, UserMessage}:
+                return None
+            try:
+                fingerprint = coding_resume_input_record_digest(record)
+            except (ValueError, TypeError):
+                return None
+            fingerprints.append((record, fingerprint))
+        return tuple(fingerprints)
+
+    def _activation_fingerprints_unchanged(self) -> bool:
+        fingerprints = self._activation_guard_fingerprints
+        if fingerprints is None:
+            return False
+        try:
+            return all(
+                coding_resume_input_record_digest(record) == expected
+                for record, expected in fingerprints
+            )
+        except (ValueError, TypeError):
+            return False
+
+    def _activation_guard_covers_path(
+        self, records: tuple[AgentTranscriptRecord, ...]
+    ) -> bool:
+        return (
+            self._activation_guard_snapshot
+            == (self._transcript.revision, self._transcript.leaf_id)
+            and self._activation_guard_path is not None
+            and self._same_activation_path(self._activation_guard_path, records)
+            and self._activation_fingerprints_unchanged()
+        )
+
+    @staticmethod
+    def _same_activation_path(
+        left: tuple[AgentTranscriptRecord, ...],
+        right: tuple[AgentTranscriptRecord, ...],
+    ) -> bool:
+        return left is right or (
+            len(left) == len(right) and all(old is new for old, new in zip(left, right))
+        )
+
+    def _require_activation_guard_input_proof(
+        self, binding_record_id: str | None, records: tuple[AgentTranscriptRecord, ...]
+    ) -> None:
+        proof = self._resume_committed_input
+        if binding_record_id is not None and proof is not None:
+            if binding_record_id != proof[1].record_id:
+                raise CodingResumeRecoveryRequired("runtime.current_admission_required")
+            self._require_committed_resume_input_identity(
+                proof[0].attempt_id, proof[1].record_id, records
+            )
 
     @staticmethod
     def _activation_neutral_record(record: AgentTranscriptRecord) -> bool:
         # Only native immutable envelopes can extend a checked prefix. Nested
         # ordinary message/extension data cannot change activation classification;
-        # binding metadata and intent bodies always require the full projector.
+        # new binding metadata and intent bodies require the full projector.
         if type(record) is not ConversationRecord:
             return False
         payload = record.payload
@@ -1124,7 +1228,7 @@ class SessionManager(
         previous = self._activation_guard_path
         if (
             self._activation_guard_snapshot is None
-            or not self._activation_guard_path_is_neutral
+            or self._activation_guard_fingerprints is None
             or previous is None
             or len(records) < len(previous)
             or (records[-1].record_id if records else None) != snapshot[1]
@@ -1144,9 +1248,19 @@ class SessionManager(
             parent_id = record.record_id
         if snapshot != (self._transcript.revision, self._transcript.leaf_id):
             return False
-        # This cache contains only the "none / no binding" classification. A
-        # later intent/binding gets a full replay, including the ancestry digest
-        # over every intervening Model Input record, never a stale digest.
+        self._require_activation_guard_input_proof(
+            self._activation_guard_binding_record_id, records
+        )
+        if not self._activation_fingerprints_unchanged():
+            return False
+        if snapshot != (
+            self._transcript.revision,
+            self._transcript.leaf_id,
+        ) or not self._same_activation_path(records, self._transcript.active_path()):
+            return False
+        # Only the suffix is neutral. Sensitive facts in the accepted prefix
+        # retain exact byte identity, and local input/owner proof is rechecked.
+        # A new intent/binding always gets fresh complete ancestry validation.
         self._activation_guard_path = records
         self._activation_guard_snapshot = snapshot
         return True
@@ -1156,6 +1270,7 @@ class SessionManager(
         snapshot: tuple[int, str | None],
         projection: CodingActivationAttemptProjectionV2,
         records: tuple[AgentTranscriptRecord, ...],
+        fingerprints: tuple[tuple[AgentTranscriptRecord, str], ...] | None,
     ) -> None:
         if projection.status != "none":
             raise CodingResumeRecoveryRequired(
@@ -1168,21 +1283,30 @@ class SessionManager(
             # process restart. It grants no current Tool or model authority;
             # those come from the runtime being built now. When this process
             # owns a local commit proof, retain the stronger identity check.
-            proof = self._resume_committed_input
-            if proof is not None:
-                if projection.binding_record_id != proof[1].record_id:
-                    raise CodingResumeRecoveryRequired(
-                        "runtime.current_admission_required"
-                    )
-                self._require_committed_resume_input(
-                    proof[0].attempt_id, proof[1].record_id
-                )
+            self._require_activation_guard_input_proof(
+                projection.binding_record_id, records
+            )
+        if (
+            fingerprints is not None
+            and self._activation_fingerprints(records) != fingerprints
+        ):
+            raise CodingResumeRecoveryRequired("history.activation_invalid")
+        if snapshot != (
+            self._transcript.revision,
+            self._transcript.leaf_id,
+        ) or not self._same_activation_path(records, self._transcript.active_path()):
+            raise CodingResumeRecoveryRequired("history.activation_invalid")
         self._activation_guard_snapshot = snapshot
         self._activation_guard_path = records
-        self._activation_guard_path_is_neutral = (
-            records[-1].record_id if records else None
-        ) == snapshot[1] and all(
-            self._activation_neutral_record(record) for record in records
+        self._activation_guard_binding_record_id = (
+            projection.binding_record_id
+            if projection.binding_status == "bound"
+            else None
+        )
+        self._activation_guard_fingerprints = (
+            fingerprints
+            if (records[-1].record_id if records else None) == snapshot[1]
+            else None
         )
 
 
