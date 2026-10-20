@@ -9025,9 +9025,12 @@ while True:
                     assert (
                         closed_manifest.value.code == "package_product_runtime_inactive"
                     )
-                with pytest.raises(PackageEpochRuntimeLeaseRegistryError) as released:
-                    registry.snapshot(store_id=store_id)
-                assert released.value.code == "package_epoch_lease_absent"
+                try:
+                    unexpected = registry.snapshot(store_id=store_id)
+                except PackageEpochRuntimeLeaseRegistryError as released:
+                    assert released.code == "package_epoch_lease_absent"
+                else:
+                    raise AssertionError(f"unexpected live epoch leases: {unexpected!r}")
             if not runtime_lease_released:
                 runtime_lease.release()
         assert pre_b_tree() == frozen_pre_b_tree

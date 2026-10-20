@@ -60,7 +60,7 @@ def test_windows_cli_conpty_stream_ends_with_cursor_restoration(tmp_path: Path) 
             stacks = (
                 stack_file.read_text(encoding="utf-8") if stack_file.exists() else ""
             )
-            raise TimeoutError(f"{error}\nCLI thread stacks:\n{stacks}") from error
+            raise TimeoutError(f"CLI thread stacks:\n{stacks}\n{error}") from error
         driver.write("/quit\r")
         assert driver.wait(timeout=15) == 0
         output = driver.raw_output
