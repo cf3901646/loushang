@@ -148,25 +148,39 @@ editing while composition is still held, and both cases finish with exactly
 one Worked divider and a closed LSP slot. Four render regressions cover 30/80
 columns, long labels, and visible/hidden status footers. The final focused
 selection passed 26 cases; Coding UI passed 602, TUI units passed 1312, and
-render contracts passed 244. Native-platform evidence for this later change
-remains required.
+render contracts passed 244. Subsequent native evidence is recorded below.
 
 The later broad Coding run passed 3353 cases, skipped 283 and deselected 55;
 its 127 failures and 39 fixture errors matched the baseline's failing/error
 node IDs exactly. The grep timing case passed in this full run. HarnessTUI
 passed 1051 cases, with 18 deselections and the same two macOS PTY failures.
 
+## Native Actions verification
+
+[PR #801](https://github.com/zhnt/loushang/pull/801) passed all selected checks
+at `6649edd0d05ce878d81ac2241de9fc2d6e803a42` and merged as
+`02df224d5ba84b9159ff46e4f3bba0afd171e16f` with the same source tree.
+The [Actions run](https://github.com/zhnt/loushang/actions/runs/39408549038)
+included Coding module shards, HarnessTUI/Coding UI, deterministic rendering,
+POSIX PTY, Windows ConPTY, and resume E2E on Ubuntu, macOS, and Windows.
+
+The downloaded `targeted-0.xml` report confirms six passing LSP vertical cases,
+zero skips, zero failures, and zero errors on Ubuntu. In particular,
+`test_product_selected_deferred_lsp_executes_and_reopens_dormant` passed in
+4.094 seconds. This proves that the new case actually executed; it is not
+inferred from a green workflow aggregate. The native Product case activates
+the real selected Provider, executes an outline, closes its generation,
+reopens persisted history with a dormant slot, activates again, and retires
+both language-server processes. Its parent graph snapshot remains unchanged.
+
+This closes the supported-Linux vertical-test and later-input/native-check
+items in the earlier local report. It does not accept the whole architecture
+decision or establish the remaining total-startup performance target.
+
 ## Remaining acceptance work
 
 1. Establish the requested whole-CLI startup reduction with sufficiently stable
    measurements. The current total-startup evidence does not reach 50%.
-2. Execute the Product-selected LSP activation and persisted-resume vertical
-   test on Linux. The Product pre-fence registration owner explicitly rejects
-   macOS; a macOS skip does not prove Linux behavior. The local legacy-route
-   vertical suite passed five cases, with the new Linux case skipped.
-3. Validate `3f0be917` and the later visible stopping-phase change through the
-   existing native terminal Actions routes. Earlier green PR checks do not
-   cover these changes.
-4. Complete the Product/resume acceptance review for
+2. Complete the Product/resume acceptance review for
    [ARD-010](../decisions/draft/ARD-010-deferred-capability-provider-slot.md).
    Its draft/partial status is retained.
