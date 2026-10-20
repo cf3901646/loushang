@@ -121,6 +121,8 @@ class ConversationScreenPort(ConversationScreenInputPort, Protocol):
 
     def add_error(self, summary: str, diagnostics: str = "") -> None: ...
 
+    def set_status(self, message: str | None) -> None: ...
+
     def complete_run(self, *, elapsed_seconds: float | None = None) -> None: ...
 
     def elapsed_seconds(self) -> float: ...
@@ -204,6 +206,8 @@ async def run_conversation_screen(
         input_chunk_reader = continuation.input_chunk_reader
     router: ConversationInputRouterPort | None = None
     active_task: asyncio.Task[int | None] | None = None
+    aborting_task: asyncio.Task[None] | None = None
+    interrupt_pending_steer: str | None = None
     active_prompt_started_at: float | None = None
     previous_surface_host = app.surface_host
     previous_render_requester = app.render_requester
@@ -247,6 +251,35 @@ async def run_conversation_screen(
                 ),
             )
         )
+
+        async def settle_aborting_task(
+            *, resume_pending: bool = True
+        ) -> ConversationInputResult | None:
+            nonlocal aborting_task, active_task, active_prompt_started_at
+            nonlocal interrupt_pending_steer
+            if aborting_task is None:
+                return None
+            await aborting_task
+            aborting_task = None
+            active_task = None
+            active_prompt_started_at = None
+            runtime.render_now()
+            if resume_pending and interrupt_pending_steer is not None:
+                app.start_pending_prompt(interrupt_pending_steer)
+                active_task = asyncio.create_task(
+                    run_prompt_handler(handle_prompt, interrupt_pending_steer)
+                )
+                active_prompt_started_at = app.state.active_started_at
+                interrupt_pending_steer = None
+                runtime.render_now()
+            resume_submission = getattr(router, "resume_paused_submission", None)
+            if resume_pending and callable(resume_submission):
+                return resume_submission()
+            pause_submissions = getattr(router, "set_submission_paused", None)
+            if callable(pause_submissions):
+                pause_submissions(False)
+            return None
+
         app.surface_host = runtime.overlay_host()
         promote_pending_page_surface(app)
         env_values = dict(os.environ)
@@ -338,7 +371,67 @@ async def run_conversation_screen(
                         return finish(
                             runtime=runtime, stdout=stdout, exit_code=startup_exit
                         )
-                if active_task is not None and active_task.done():
+                if aborting_task is not None and aborting_task.done():
+                    resumed = await settle_aborting_task()
+                    if isinstance(resumed, ConversationPromptResult):
+                        active_prompt_started_at = app.state.active_started_at
+                        active_task = asyncio.create_task(
+                            run_prompt_handler(
+                                handle_prompt,
+                                resumed.text,
+                                attachments=resumed.attachments,
+                            )
+                        )
+                    elif isinstance(resumed, ConversationExitResult):
+                        return finish(
+                            runtime=runtime,
+                            stdout=stdout,
+                            exit_code=resumed.exit_code,
+                        )
+                    elif isinstance(resumed, ConversationLocalResult):
+                        if handle_local is not None:
+                            exit_code = await run_text_handler(
+                                handle_local, resumed.text
+                            )
+                            if exit_code is not None:
+                                return finish(
+                                    runtime=runtime,
+                                    stdout=stdout,
+                                    exit_code=exit_code,
+                                )
+                    elif isinstance(resumed, ConversationSteerResult):
+                        if handle_steer is not None:
+                            exit_code = await run_text_handler(
+                                handle_steer,
+                                resumed.text,
+                                attachments=resumed.attachments,
+                            )
+                            if exit_code is not None:
+                                return finish(
+                                    runtime=runtime,
+                                    stdout=stdout,
+                                    exit_code=exit_code,
+                                )
+                    elif isinstance(resumed, ConversationFollowupResult):
+                        if handle_followup is not None:
+                            exit_code = await run_text_handler(
+                                handle_followup,
+                                resumed.text,
+                                attachments=resumed.attachments,
+                            )
+                            if exit_code is not None:
+                                return finish(
+                                    runtime=runtime,
+                                    stdout=stdout,
+                                    exit_code=exit_code,
+                                )
+                    if resumed is not None and resumed.render_requested:
+                        _request_runtime_render(runtime, "input")
+                if (
+                    aborting_task is None
+                    and active_task is not None
+                    and active_task.done()
+                ):
                     exit_code = await finish_active_task(
                         app=app,
                         active_task=active_task,
@@ -366,8 +459,12 @@ async def run_conversation_screen(
                     stdin,
                     runtime=runtime,
                     active_task=(
-                        active_task
-                        if active_task is not None or lifecycle is None
+                        aborting_task or active_task
+                        if (
+                            aborting_task is not None
+                            or active_task is not None
+                            or lifecycle is None
+                        )
                         else lifecycle.wait_task
                     ),
                     input_chunk_reader=input_chunk_reader,
@@ -412,6 +509,8 @@ async def run_conversation_screen(
                         terminal_context=terminal_context,
                     )
                 elif data == "":
+                    if aborting_task is not None:
+                        await settle_aborting_task()
                     if active_task is not None:
                         exit_code = await finish_active_task(
                             app=app,
@@ -452,6 +551,8 @@ async def run_conversation_screen(
                             set_viewport(runtime.render_loop.previous_viewport_top)
                     result = router.handle(event)
                     if isinstance(result, ConversationExitResult):
+                        if aborting_task is not None:
+                            await settle_aborting_task(resume_pending=False)
                         runtime.render_now()
                         return finish(
                             runtime=runtime,
@@ -459,26 +560,26 @@ async def run_conversation_screen(
                             exit_code=result.exit_code,
                         )
                     if isinstance(result, ConversationAbortResult):
+                        if aborting_task is not None:
+                            continue
                         interrupt_pending_steer = pop_interrupt_pending_steer(app)
-                        await abort_active(
-                            app=app,
-                            active_task=active_task,
-                            on_abort=on_abort,
-                            interruption_message=interruption_message,
-                        )
-                        active_task = None
-                        active_prompt_started_at = None
+                        # Show acknowledgement before the Product waits for a
+                        # tool process and the active turn to settle.
+                        app.set_status("Stopping…")
                         runtime.render_now()
-                        if interrupt_pending_steer is not None:
-                            app.start_pending_prompt(interrupt_pending_steer)
-                            active_task = asyncio.create_task(
-                                run_prompt_handler(
-                                    handle_prompt,
-                                    interrupt_pending_steer,
-                                )
+                        pause_submissions = getattr(
+                            router, "set_submission_paused", None
+                        )
+                        if callable(pause_submissions):
+                            pause_submissions(True)
+                        aborting_task = asyncio.create_task(
+                            abort_active(
+                                app=app,
+                                active_task=active_task,
+                                on_abort=on_abort,
+                                interruption_message=interruption_message,
                             )
-                            active_prompt_started_at = app.state.active_started_at
-                            runtime.render_now()
+                        )
                         continue
                     if isinstance(result, ConversationPromptResult):
                         active_prompt_started_at = app.state.active_started_at
@@ -561,22 +662,33 @@ async def run_conversation_screen(
         )
         raise
     finally:
-        if copy_coordinator is not None:
-            await copy_coordinator.close()
-
-        def dispose_router() -> None:
-            dispose = getattr(router, "dispose", None)
-            if callable(dispose):
-                dispose()
-
+        cancel_context_usage_refresh = getattr(
+            app, "cancel_context_usage_refresh", None
+        )
+        if callable(cancel_context_usage_refresh):
+            cancel_context_usage_refresh()
         try:
-            if lifecycle is not None:
-                await lifecycle.settle(screen_exit_code, active_task, dispose_router)
-            else:
-                dispose_router()
+            if aborting_task is not None:
+                await _join_owned_abort(aborting_task)
         finally:
             try:
-                terminal_owner.close()
+                if copy_coordinator is not None:
+                    await copy_coordinator.close()
+
+                def dispose_router() -> None:
+                    dispose = getattr(router, "dispose", None)
+                    if callable(dispose):
+                        dispose()
+
+                try:
+                    if lifecycle is not None:
+                        await lifecycle.settle(
+                            screen_exit_code, active_task, dispose_router
+                        )
+                    else:
+                        dispose_router()
+                finally:
+                    terminal_owner.close()
             finally:
                 app.surface_host = previous_surface_host
                 app.terminal_diagnostics_provider = (
@@ -584,6 +696,20 @@ async def run_conversation_screen(
                 )
                 app.terminal_capabilities = previous_terminal_capabilities
                 app.render_requester = previous_render_requester
+
+
+async def _join_owned_abort(task: asyncio.Task[None]) -> None:
+    """Keep the cancellation owner alive until its cleanup has settled."""
+
+    interrupted: asyncio.CancelledError | None = None
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError as error:
+            interrupted = error
+    task.result()
+    if interrupted is not None:
+        raise interrupted
 
 
 async def finish_active_task(

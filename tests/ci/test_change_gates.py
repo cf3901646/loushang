@@ -804,6 +804,7 @@ class ScopeTests(unittest.TestCase):
         ordinary = selector.make_targeted_jobs(cases, full=False)
         self.assertEqual(len(ordinary), 1)
         self.assertEqual(set(ordinary[0]["paths"]), {*heavy, *companions})
+        self.assertEqual(ordinary[0]["timeout_minutes"], 30)
 
     def test_unit_inventory_is_explicit_existing_and_unique(self):
         inventory = json.loads((ROOT / "scripts/ci/unit-tests.json").read_text())

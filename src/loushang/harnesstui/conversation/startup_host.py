@@ -68,6 +68,14 @@ class _StartupRouter:
         self.loading = _LoadingRouter(**kwargs)
         self.ready: ConversationInputRouterPort | None = None
         self.disposed = False
+        self._submission_paused = False
+
+    def set_submission_paused(self, paused: bool) -> None:
+        self._submission_paused = paused
+        for router in (self.loading, self.ready):
+            setter = getattr(router, "set_submission_paused", None)
+            if callable(setter):
+                setter(paused)
 
     def handle(self, event: InputEvent) -> ConversationInputResult:
         if event.kind == "resize":
@@ -266,6 +274,7 @@ class ScreenConversationStartup:
                 keybindings=keybindings,
             )
             self.router.ready = (factory or ConversationInputRouter)(**kwargs)
+            self.router.set_submission_paused(self.router._submission_paused)
             self.finished = asyncio.get_running_loop().create_future()
             self.attached = True
             if self.submission_armed:

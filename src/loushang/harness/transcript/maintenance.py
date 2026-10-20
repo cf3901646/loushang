@@ -339,18 +339,33 @@ class AgentTranscriptCompactionRuntime:
         if context_window <= 0:
             return AutoCompactionOutcome()
 
-        context_messages = self._get_context_messages()
+        source_messages = tuple(self._get_context_messages())
+        context_messages = list(source_messages)
         if not any(message is assistant_message for message in context_messages):
             context_messages.append(assistant_message)
-        decision = build_threshold_compaction_decision(
-            context_messages,
-            branch,
-            self._get_model(),
+        model = self._get_model()
+        branch_snapshot = tuple(branch)
+        # Surface fingerprinting and token estimation scan every message. Keep
+        # terminal input and Working ticks live while this pure decision runs.
+        decision = await asyncio.to_thread(
+            build_threshold_compaction_decision,
+            tuple(context_messages),
+            branch_snapshot,
+            model,
             enabled=policy.enabled,
             reserve_tokens=policy.reserve_tokens,
             compact_percent=policy.compact_percent,
             keep_recent_tokens=policy.keep_recent_tokens,
+            include_surface_fingerprint=False,
         )
+        current_messages = tuple(self._get_context_messages())
+        if (
+            policy != self._get_policy()
+            or model != self._get_model()
+            or branch_snapshot != tuple(self._transcript.get_branch())
+            or current_messages not in (source_messages, tuple(context_messages))
+        ):
+            return AutoCompactionOutcome()
         if decision.usage.tokens is None or decision.action != "threshold":
             return AutoCompactionOutcome()
         result = await self.compact(
@@ -598,6 +613,7 @@ def build_threshold_compaction_decision(
     reserve_tokens: int,
     compact_percent: float = 100.0,
     keep_recent_tokens: int | None = None,
+    include_surface_fingerprint: bool = True,
 ) -> CompactionDecision:
     snapshot = build_context_usage_snapshot(
         messages,
@@ -606,6 +622,7 @@ def build_threshold_compaction_decision(
         reserve_tokens=reserve_tokens,
         compact_percent=compact_percent,
         keep_recent_tokens=keep_recent_tokens,
+        include_surface_fingerprint=include_surface_fingerprint,
     )
     if enabled and snapshot.compactable:
         return CompactionDecision(

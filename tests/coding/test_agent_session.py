@@ -102,6 +102,27 @@ def test_agent_session_restores_persisted_context_on_init(tmp_path) -> None:
     ] == ["user"]
 
 
+def test_worker_session_binding_still_rejects_unselected_inputs(tmp_path) -> None:
+    from loushang.agent import Agent
+    from loushang.coding.session import AgentSession
+    from loushang.coding.session_manager import SessionManager
+
+    manager = asyncio.run(
+        SessionManager.new(session_dir=tmp_path, cwd=str(tmp_path), persist=False)
+    )
+    try:
+        with pytest.raises(
+            ValueError, match="Coding Product Worker ordinary Session changed"
+        ):
+            AgentSession(
+                agent=Agent(),
+                session_manager=manager,
+                coding_product_worker_ordinary_binding=cast(Any, object()),
+            )
+    finally:
+        asyncio.run(manager.dispose_runtime_profile())
+
+
 def test_product_capability_route_rejects_unselected_runtime_package(tmp_path) -> None:
     from loushang.agent import Agent
     from loushang.coding._capability_plugin_composition import (

@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextvars
+import threading
 import time
 from collections.abc import Callable, Iterable
+from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -42,12 +46,18 @@ from loushang.tui import (
     theme_capabilities_from_runtime,
 )
 from loushang.tui.cell_width import (
+    autowrap_safe_width,
     slice_by_column,
     strip_control_sequences,
     visible_width,
 )
 from loushang.tui.core import RenderLine
 from loushang.tui.keybindings import KeybindingManager
+from loushang.tui.markdown.renderer import (
+    AtomicMarkdownRenderSpec,
+    atomic_markdown_render_spec,
+)
+from loushang.tui.markdown.types import _MarkdownBlock
 from loushang.tui.theme import ThemeResolver
 from loushang.tui.transcript import (
     AssistantMessageRecord,
@@ -114,12 +124,16 @@ class ScreenConversationApp:
         init=False,
         repr=False,
     )
+    _context_usage_refresh_task: asyncio.Future[None] | None = field(
+        default=None, init=False, repr=False
+    )
     _expanded_tool_keys: set[str | int] = field(
         default_factory=set, init=False, repr=False
     )
     _focused_tool_index: int | None = field(default=None, init=False, repr=False)
     _focused_tool_key: str | int | None = field(default=None, init=False, repr=False)
     _screen_rows: tuple[str, ...] = field(default=(), init=False, repr=False)
+    _last_render_width: int | None = field(default=None, init=False, repr=False)
     _selection_anchor: tuple[int, int] | None = field(
         default=None, init=False, repr=False
     )
@@ -196,12 +210,94 @@ class ScreenConversationApp:
 
     def begin_assistant(self) -> None:
         self.state.begin_assistant()
+        self._transcript_region.clear_prepared_assistant_markdown_render()
         self._transcript_region.clear_transient_cache()
         self._request_render("product")
 
     def append_assistant_chunk(self, chunk: str) -> None:
         self.state.append_assistant_chunk(chunk)
         self._request_render("stream")
+
+    def prepare_assistant_markdown(
+        self,
+        markdown: str,
+        blocks: tuple[_MarkdownBlock, ...],
+        *,
+        rendered: tuple[AtomicMarkdownRenderSpec, RenderResult] | None = None,
+    ) -> None:
+        draft = self.state.assistant_draft
+        if draft is not None and draft.text == markdown:
+            self._transcript_region.prepare_assistant_markdown(markdown, blocks)
+            if rendered is not None:
+                spec, result = rendered
+                self._transcript_region.prepare_assistant_markdown_render(
+                    spec.cache_key, result
+                )
+
+    def prepare_assistant_markdown_render(
+        self,
+        markdown: str,
+        spec: AtomicMarkdownRenderSpec,
+        result: RenderResult,
+    ) -> None:
+        draft = self.state.assistant_draft
+        if draft is not None and draft.text == markdown:
+            self._transcript_region.prepare_assistant_markdown_render(
+                spec.cache_key, result
+            )
+
+    def unrendered_assistant_markdown_spec(
+        self,
+    ) -> tuple[str, AtomicMarkdownRenderSpec] | None:
+        buffer = self.state.assistant_draft_buffer
+        width = self._last_render_width
+        theme = self.transcript_theme
+        if buffer is None or width is None or theme is None:
+            return None
+        if self._transcript_region.has_prepared_assistant_markdown_render:
+            return None
+        capabilities = (
+            theme_capabilities_from_runtime(self.terminal_capabilities)
+            if self.terminal_capabilities is not None
+            else None
+        )
+        if self._transcript_region.has_complete_streaming_draft(
+            buffer, width=width, theme=theme, capabilities=capabilities
+        ):
+            return None
+        markdown = buffer.text
+        if len(markdown) < 16_384:
+            return None
+        spec = self.atomic_markdown_render_spec(markdown)
+        return (markdown, spec) if spec is not None else None
+
+    def atomic_markdown_render_spec(
+        self, markdown: str
+    ) -> AtomicMarkdownRenderSpec | None:
+        width = self._last_render_width
+        theme = self.transcript_theme
+        if width is None or theme is None:
+            return None
+        record = self._transcript_presentation.project_record(
+            AssistantMessageRecord(markdown), width=width
+        )
+        if not isinstance(record, AssistantMessageRecord) or record.text != markdown:
+            return None
+        render_width = self._transcript_presentation.record_render_width(
+            record, width=width
+        )
+        markdown_width = autowrap_safe_width(render_width) - 2
+        capabilities = (
+            theme_capabilities_from_runtime(self.terminal_capabilities)
+            if self.terminal_capabilities is not None
+            else None
+        )
+        return atomic_markdown_render_spec(
+            markdown,
+            width=markdown_width,
+            theme=theme,
+            capabilities=capabilities,
+        )
 
     def end_assistant(self, final_text: str | None = None) -> None:
         draft_buffer = self.state.assistant_draft_buffer
@@ -213,6 +309,7 @@ class ScreenConversationApp:
         if (
             isinstance(committed, AssistantMessageRecord)
             and committed.text == draft_text
+            and not self._transcript_region.has_prepared_assistant_markdown_render
         ):
             self._transcript_region.promote_transient_cache(
                 committed,
@@ -427,6 +524,7 @@ class ScreenConversationApp:
         return min(active_due_ms, completion_due_ms)
 
     def render(self, constraints: RenderConstraints) -> RenderResult:
+        self._last_render_width = constraints.width
         if (
             self._selection_revision is not None
             and self._selection_revision != self.state.records_revision
@@ -736,8 +834,8 @@ class ScreenConversationApp:
         self._tool_index_cache_revision = revision
 
     def _refresh_context_usage(self) -> None:
-        # Rebuilding a long session's context is synchronous and can stall
-        # animation and input while a tool is running. Refresh after the run.
+        # A long session's context can take substantial time to rebuild. Keep
+        # both the active frames and the first idle frame free of that work.
         if self.context_usage_provider is None or self.state.running:
             return
         refresh_key = (
@@ -746,11 +844,82 @@ class ScreenConversationApp:
         )
         if refresh_key == self._context_usage_refresh_key:
             return
+        if self._context_usage_refresh_task is not None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # Static rendering and synchronous callers preserve their immediate
+            # context snapshot contract.
+            pass
+        else:
+            self._context_usage_refresh_key = refresh_key
+            completion = loop.create_future()
+            self._context_usage_refresh_task = completion
+            provider = self.context_usage_provider
+            context = contextvars.copy_context()
+
+            def rebuild() -> None:
+                try:
+                    value = context.run(provider) if provider is not None else None
+                except Exception:
+                    value = None
+                # The screen's event loop may already be closed; this read is
+                # observational, so its stale result may be discarded.
+                with suppress(RuntimeError):
+                    loop.call_soon_threadsafe(
+                        self._finish_context_usage_refresh,
+                        refresh_key,
+                        completion,
+                        value,
+                    )
+
+            worker = threading.Thread(
+                target=rebuild,
+                name="loushang-context-usage",
+                daemon=True,
+            )
+            try:
+                worker.start()
+            except RuntimeError:
+                self._context_usage_refresh_task = None
+                self._context_usage_refresh_key = None
+                completion.cancel()
+            else:
+                return
         try:
             self.state.context_usage = self.context_usage_provider()
         except Exception:
             self.state.context_usage = None
         self._context_usage_refresh_key = refresh_key
+
+    def cancel_context_usage_refresh(self) -> None:
+        task = self._context_usage_refresh_task
+        self._context_usage_refresh_task = None
+        self._context_usage_refresh_key = None
+        if task is not None:
+            task.cancel()
+
+    def _finish_context_usage_refresh(
+        self,
+        refresh_key: tuple[int, int],
+        completion: asyncio.Future[None],
+        value: object | None,
+    ) -> None:
+        if self._context_usage_refresh_task is not completion:
+            return
+        self._context_usage_refresh_task = None
+        current_key = (
+            self.state.records_revision,
+            self.state.transcript_window_generation,
+        )
+        if self.state.running or current_key != refresh_key:
+            self._context_usage_refresh_key = None
+        else:
+            self.state.context_usage = value
+        if not completion.done():
+            completion.set_result(None)
+        self._request_render("product")
 
     def startup_welcome_panel(self) -> Any:
         raise NotImplementedError(

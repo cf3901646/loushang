@@ -293,6 +293,10 @@ class LocalExecBackend:
                     activity.mark()
                     for text in decoder.feed(chunk):
                         await _publish(stream_name, sink, text)
+                    # A pipe can remain readable for many consecutive reads.
+                    # Give terminal input and the Working timer a scheduling
+                    # turn even when every read completes from the local buffer.
+                    await asyncio.sleep(0)
             except BaseException:
                 if capture is not None:
                     capture.stop_accepting()

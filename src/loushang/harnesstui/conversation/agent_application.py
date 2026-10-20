@@ -30,6 +30,7 @@ from loushang.harnesstui.conversation.agent_binding import (
     agent_session_history_records,
     build_agent_plain_conversation_projection,
     build_agent_screen_conversation_projection,
+    cooperative_agent_screen_event_listener,
 )
 from loushang.harnesstui.conversation.application_host import (
     InstalledConversationHistory,
@@ -171,6 +172,7 @@ class AgentScreenConversationApplicationBinding(Generic[SurfaceT]):
     stdout: TextIO
     now: Callable[[], float]
     completion_provider: object | None = None
+    cooperative_large_deltas: bool = field(default=False, kw_only=True)
     capability_provider: Callable[[], ConversationCapabilities] | None = field(default=None, kw_only=True)
     bind_presenter: Callable[[SurfaceT], Cleanup] = _ignore_surface
     bind_transition: Callable[[SurfaceT], Cleanup] = _ignore_surface
@@ -258,25 +260,31 @@ class AgentScreenConversationApplicationBinding(Generic[SurfaceT]):
             event_source=event_source,
         )
 
+        def make_event_listener() -> object:
+            projection = build_agent_screen_conversation_projection(
+                self.app,
+                tool_definition_resolver=resolve_tool,
+                read_pending_steers=stable_string_queue_reader(
+                    lambda: read_pending("steering")
+                ),
+                read_pending_followups=stable_string_queue_reader(
+                    lambda: read_pending("follow_up")
+                ),
+                on_session_info_changed=refresh_session_label,
+                now=self.now,
+            )
+            return (
+                cooperative_agent_screen_event_listener(projection)
+                if self.cooperative_large_deltas
+                else projection.handle
+            )
+
         return PreparedScreenConversationRun(
             app=self.app,
             action_host=self.action_host,
             surface=surface,
             event_source=event_source,
-            event_listener_factory=lambda: (
-                build_agent_screen_conversation_projection(
-                    self.app,
-                    tool_definition_resolver=resolve_tool,
-                    read_pending_steers=stable_string_queue_reader(
-                        lambda: read_pending("steering")
-                    ),
-                    read_pending_followups=stable_string_queue_reader(
-                        lambda: read_pending("follow_up")
-                    ),
-                    on_session_info_changed=refresh_session_label,
-                    now=self.now,
-                ).handle
-            ),
+            event_listener_factory=make_event_listener,
             interaction_context=self.interaction_context,
             profile=self.profile,
             should_exit=_screen_should_exit,

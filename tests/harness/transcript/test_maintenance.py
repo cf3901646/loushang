@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import threading
+from time import monotonic
 
 import pytest
 
+import loushang.harness.transcript.maintenance as maintenance
 from loushang.ai.model import Capabilities, Model
 from loushang.ai.types import AssistantMessage, TextPart, Usage, UserMessage
 from loushang.ai.utils import is_context_overflow
@@ -135,6 +138,18 @@ def test_context_usage_is_profile_owned_and_stales_at_checkpoint() -> None:
         assert stale.stale_after_compaction is True
         expected = measure_replay_context_surface(session.build_context().messages)
         assert stale.tokens == expected.tokens
+        threshold_only = build_context_usage_snapshot(
+            session.build_context().messages,
+            session.get_branch(),
+            _model(),
+            reserve_tokens=10,
+            include_surface_fingerprint=False,
+        )
+        assert threshold_only.tokens == stale.tokens
+        assert threshold_only.compactable == stale.compactable
+        assert threshold_only.stale_after_compaction == stale.stale_after_compaction
+        assert threshold_only.estimator_id == stale.estimator_id
+        assert threshold_only.surface_fingerprint is None
         assert stale.percent == (expected.tokens / 100) * 100
         assert stale.authority == "local_estimator"
         assert stale.accuracy == "estimated"
@@ -306,6 +321,120 @@ def test_compaction_runtime_counts_the_completed_message_before_context_refresh(
         assert session.get_entries()[-1].kind == "context.compaction_checkpoint"
 
     asyncio.run(scenario())
+
+
+def test_after_turn_budget_check_keeps_event_loop_live_for_large_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unexpected_fingerprint(_messages: object) -> object:
+        raise AssertionError("threshold decision scanned the replay fingerprint")
+
+    monkeypatch.setattr(
+        "loushang.harness.transcript.context_usage.measure_replay_context_surface",
+        unexpected_fingerprint,
+    )
+
+    async def scenario() -> None:
+        session = await _session()
+        messages = [
+            UserMessage(role="user", content="x" * 16384, timestamp=float(index))
+            for index in range(2000)
+        ]
+        completed = _assistant(total_tokens=1)
+
+        def unexpected_prepare(_entries, _keep):
+            raise AssertionError("unexpected compaction")
+
+        async def unexpected_execute(_preparation, _instructions):
+            raise AssertionError("unexpected compaction")
+
+        runtime = AgentTranscriptCompactionRuntime(
+            transcript=session,
+            get_policy=lambda: TranscriptCompactionPolicy(enabled=True, reserve_tokens=0),
+            get_model=lambda: _model(context_window=100_000_000),
+            get_context_messages=lambda: list(messages),
+            refresh_context=lambda: None,
+            prepare_compaction=unexpected_prepare,
+            execute_compaction=unexpected_execute,
+            dispatch_event=lambda event: _append([], event),
+            has_queued_messages=lambda: False,
+        )
+        stop = asyncio.Event()
+        delays: list[float] = []
+
+        async def heartbeat() -> None:
+            expected = monotonic() + 0.02
+            while not stop.is_set():
+                await asyncio.sleep(0.02)
+                delays.append(monotonic() - expected)
+                expected = monotonic() + 0.02
+
+        ticker = asyncio.create_task(heartbeat())
+        await asyncio.sleep(0)
+        try:
+            outcome = await runtime.maybe_compact_after_turn(completed)
+        finally:
+            stop.set()
+            await ticker
+        assert outcome.result is None
+        assert not delays or max(delays) < 0.15
+
+    asyncio.run(scenario())
+
+
+def test_after_turn_budget_discards_decision_if_policy_changes_during_scan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        session = await _session()
+        completed = _assistant(total_tokens=95)
+        policy = [TranscriptCompactionPolicy(enabled=True, reserve_tokens=10)]
+        started = threading.Event()
+        release = threading.Event()
+        original = maintenance.build_threshold_compaction_decision
+
+        def paused_decision(*args, **kwargs):
+            started.set()
+            assert release.wait(timeout=5)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(
+            maintenance, "build_threshold_compaction_decision", paused_decision
+        )
+
+        def unexpected_prepare(_entries, _keep):
+            raise AssertionError("stale compaction decision was accepted")
+
+        async def unexpected_execute(_preparation, _instructions):
+            raise AssertionError("stale compaction decision was accepted")
+
+        runtime = AgentTranscriptCompactionRuntime(
+            transcript=session,
+            get_policy=lambda: policy[0],
+            get_model=_model,
+            get_context_messages=lambda: [completed],
+            refresh_context=lambda: None,
+            prepare_compaction=unexpected_prepare,
+            execute_compaction=unexpected_execute,
+            dispatch_event=lambda event: _append([], event),
+            has_queued_messages=lambda: False,
+        )
+        task = asyncio.create_task(runtime.maybe_compact_after_turn(completed))
+        try:
+            await asyncio.wait_for(_wait_for_thread_event(started), timeout=2)
+            policy[0] = TranscriptCompactionPolicy(enabled=False, reserve_tokens=10)
+        finally:
+            release.set()
+        outcome = await task
+        assert outcome.result is None
+        assert session.get_entries() == []
+
+    asyncio.run(scenario())
+
+
+async def _wait_for_thread_event(event: threading.Event) -> None:
+    while not event.is_set():
+        await asyncio.sleep(0.001)
 
 
 def test_typed_payload_capacity_recovery_does_not_require_context_metadata() -> None:
