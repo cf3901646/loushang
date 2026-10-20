@@ -253,7 +253,9 @@ class ConversationInputRouter:
         repr=False,
     )
     _submission_paused: bool = field(default=False, init=False, repr=False)
-    _submission_deferred: bool = field(default=False, init=False, repr=False)
+    _submission_deferred: tuple[str, tuple[PromptImageAttachment, ...]] | None = field(
+        default=None, init=False, repr=False
+    )
     _composer_target: ComposerInputTarget = field(init=False, repr=False)
     _transcript_viewport_top: int = field(default=0, init=False, repr=False)
 
@@ -277,6 +279,7 @@ class ConversationInputRouter:
         self._composer_target = ComposerInputTarget(app.composer)
         self._jump_mode = None
         self._transcript_viewport_top = 0
+        self._submission_deferred = None
 
     def set_transcript_viewport_top(self, row: int) -> None:
         """Map terminal mouse rows onto the committed logical conversation frame."""
@@ -289,6 +292,7 @@ class ConversationInputRouter:
         if self._disposed:
             return
         self._disposed = True
+        self._submission_deferred = None
         self._clear_prompt_attachments()
 
     def set_submission_paused(self, paused: bool) -> None:
@@ -296,14 +300,27 @@ class ConversationInputRouter:
 
         self._submission_paused = paused
         if not paused:
-            self._submission_deferred = False
+            self._submission_deferred = None
 
     def resume_paused_submission(self) -> ConversationInputResult | None:
         """Submit an Enter pressed during cancellation after the turn retires."""
 
         deferred = self._submission_deferred
         self.set_submission_paused(False)
-        return self._submit() if deferred else None
+        if deferred is None:
+            return None
+        text, attachments = deferred
+        current_attachments = self.draft_store.select_for_text(text)
+        if (
+            self.app.composer.value != text
+            or len(current_attachments) != len(attachments)
+            or any(
+                current is not captured
+                for current, captured in zip(current_attachments, attachments)
+            )
+        ):
+            return None
+        return self._submit()
 
     def handle(self, event: InputEvent) -> ConversationInputResult:
         if self._disposed:
@@ -534,7 +551,10 @@ class ConversationInputRouter:
 
     def _submit(self) -> ConversationInputResult:
         if self._submission_paused:
-            self._submission_deferred = True
+            text = self.app.composer.value
+            self._submission_deferred = (
+                (text, self.draft_store.select_for_text(text)) if text.strip() else None
+            )
             return ConversationInputIgnored()
         self._check_deferred_attachments()
         text = self.app.composer.value
