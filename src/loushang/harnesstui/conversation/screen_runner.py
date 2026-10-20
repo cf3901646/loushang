@@ -258,7 +258,7 @@ async def run_conversation_screen(
             nonlocal aborting_task, active_task, active_prompt_started_at
             nonlocal interrupt_pending_steer
             if aborting_task is None:
-                return
+                return None
             await aborting_task
             aborting_task = None
             active_task = None

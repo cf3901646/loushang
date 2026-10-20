@@ -8436,7 +8436,7 @@ while True:
                             assert default_builtin_session._deferred_lsp_slot.state == "dormant"
                             assert (
                                 default_builtin_session._coding_base_product_compilation.plan.selected_plugin_ids
-                                == ("coding.base", "coding.lsp.default")
+                                == ("coding.base",)
                             )
                             assert default_builtin_session._coding_base_product_compilation.product_composition is not None
                             assert (
