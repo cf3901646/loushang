@@ -252,16 +252,15 @@ async def run_conversation_screen(
             )
         )
 
-        async def settle_aborting_task(*, resume_pending: bool = True) -> None:
+        async def settle_aborting_task(
+            *, resume_pending: bool = True
+        ) -> ConversationInputResult | None:
             nonlocal aborting_task, active_task, active_prompt_started_at
             nonlocal interrupt_pending_steer
             if aborting_task is None:
                 return
             await aborting_task
             aborting_task = None
-            pause_submissions = getattr(router, "set_submission_paused", None)
-            if callable(pause_submissions):
-                pause_submissions(False)
             active_task = None
             active_prompt_started_at = None
             runtime.render_now()
@@ -273,6 +272,13 @@ async def run_conversation_screen(
                 active_prompt_started_at = app.state.active_started_at
                 interrupt_pending_steer = None
                 runtime.render_now()
+            resume_submission = getattr(router, "resume_paused_submission", None)
+            if resume_pending and callable(resume_submission):
+                return resume_submission()
+            pause_submissions = getattr(router, "set_submission_paused", None)
+            if callable(pause_submissions):
+                pause_submissions(False)
+            return None
 
         app.surface_host = runtime.overlay_host()
         promote_pending_page_surface(app)
@@ -366,7 +372,61 @@ async def run_conversation_screen(
                             runtime=runtime, stdout=stdout, exit_code=startup_exit
                         )
                 if aborting_task is not None and aborting_task.done():
-                    await settle_aborting_task()
+                    resumed = await settle_aborting_task()
+                    if isinstance(resumed, ConversationPromptResult):
+                        active_prompt_started_at = app.state.active_started_at
+                        active_task = asyncio.create_task(
+                            run_prompt_handler(
+                                handle_prompt,
+                                resumed.text,
+                                attachments=resumed.attachments,
+                            )
+                        )
+                    elif isinstance(resumed, ConversationExitResult):
+                        return finish(
+                            runtime=runtime,
+                            stdout=stdout,
+                            exit_code=resumed.exit_code,
+                        )
+                    elif isinstance(resumed, ConversationLocalResult):
+                        if handle_local is not None:
+                            exit_code = await run_text_handler(
+                                handle_local, resumed.text
+                            )
+                            if exit_code is not None:
+                                return finish(
+                                    runtime=runtime,
+                                    stdout=stdout,
+                                    exit_code=exit_code,
+                                )
+                    elif isinstance(resumed, ConversationSteerResult):
+                        if handle_steer is not None:
+                            exit_code = await run_text_handler(
+                                handle_steer,
+                                resumed.text,
+                                attachments=resumed.attachments,
+                            )
+                            if exit_code is not None:
+                                return finish(
+                                    runtime=runtime,
+                                    stdout=stdout,
+                                    exit_code=exit_code,
+                                )
+                    elif isinstance(resumed, ConversationFollowupResult):
+                        if handle_followup is not None:
+                            exit_code = await run_text_handler(
+                                handle_followup,
+                                resumed.text,
+                                attachments=resumed.attachments,
+                            )
+                            if exit_code is not None:
+                                return finish(
+                                    runtime=runtime,
+                                    stdout=stdout,
+                                    exit_code=exit_code,
+                                )
+                    if resumed is not None and resumed.render_requested:
+                        _request_runtime_render(runtime, "input")
                 if (
                     aborting_task is None
                     and active_task is not None

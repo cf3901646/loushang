@@ -8431,17 +8431,14 @@ while True:
                                 asyncio.run(
                                     default_builtin_session.prepare_model_call_runtime()
                                 )
-                                assert not (
-                                    default_builtin_session._coding_capability_plugin_assembly.state_root.exists()
-                                )
+                            assert default_builtin_session._coding_capability_plugin_assembly is None
+                            assert default_builtin_session._deferred_lsp_slot is not None
+                            assert default_builtin_session._deferred_lsp_slot.state == "dormant"
                             assert (
                                 default_builtin_session._coding_base_product_compilation.plan.selected_plugin_ids
                                 == ("coding.base", "coding.lsp.default")
                             )
-                            assert (
-                                default_builtin_session._coding_capability_plugin_assembly.session_inputs.product_composition
-                                is default_builtin_session._coding_base_product_compilation.product_composition
-                            )
+                            assert default_builtin_session._coding_base_product_compilation.product_composition is not None
                             assert (
                                 default_builtin_session._package_controller.get_package_materializer()
                                 is None

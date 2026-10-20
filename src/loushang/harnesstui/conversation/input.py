@@ -253,6 +253,7 @@ class ConversationInputRouter:
         repr=False,
     )
     _submission_paused: bool = field(default=False, init=False, repr=False)
+    _submission_deferred: bool = field(default=False, init=False, repr=False)
     _composer_target: ComposerInputTarget = field(init=False, repr=False)
     _transcript_viewport_top: int = field(default=0, init=False, repr=False)
 
@@ -294,6 +295,15 @@ class ConversationInputRouter:
         """Keep the draft editable while the previous run is retiring."""
 
         self._submission_paused = paused
+        if not paused:
+            self._submission_deferred = False
+
+    def resume_paused_submission(self) -> ConversationInputResult | None:
+        """Submit an Enter pressed during cancellation after the turn retires."""
+
+        deferred = self._submission_deferred
+        self.set_submission_paused(False)
+        return self._submit() if deferred else None
 
     def handle(self, event: InputEvent) -> ConversationInputResult:
         if self._disposed:
@@ -524,6 +534,7 @@ class ConversationInputRouter:
 
     def _submit(self) -> ConversationInputResult:
         if self._submission_paused:
+            self._submission_deferred = True
             return ConversationInputIgnored()
         self._check_deferred_attachments()
         text = self.app.composer.value
