@@ -107,6 +107,99 @@ def test_evidence_free_resume_does_not_rebuild_historical_requests() -> None:
     assert runtime.project_model_input(_preparation([])) is None
 
 
+@pytest.mark.parametrize(
+    "outcome", ["complete", "cancel", "close", "corrupt", "append_corrupt"]
+)
+def test_evidence_recovery_yields_and_never_publishes_partial_or_stale_state(
+    monkeypatch, outcome: str
+) -> None:
+    import asyncio
+
+    import loushang.harness.session.request_evidence as evidence_module
+
+    async def scenario() -> None:
+        snapshot = _snapshot(snapshot_id="historical")
+        records = [
+            ConversationRecord(
+                record_id=f"snapshot-{index}",
+                parent_id=f"snapshot-{index - 1}" if index else None,
+                kind="model.input.prepared",
+                payload_version=1,
+                created_at="2026-10-21T00:00:00Z",
+                payload=replace(snapshot, snapshot_id=f"historical-{index}"),
+                metadata={},
+            )
+            for index in range(120)
+        ]
+        runtime = _runtime(records, [])
+        clock = [0.0]
+        reads = []
+        fault = [outcome]
+        original_read = evidence_module.ModelInputLogicalComponentReader.read
+
+        def read(reader, record, name):
+            clock[0] += 0.005
+            reads.append(record.record_id)
+            if fault[0] == "corrupt" and len(reads) == 7:
+                raise RequestEvidenceIntegrityError("corrupt historical component")
+            return original_read(reader, record, name)
+
+        monkeypatch.setattr(
+            evidence_module, "time", SimpleNamespace(monotonic=lambda: clock[0])
+        )
+        monkeypatch.setattr(
+            evidence_module.ModelInputLogicalComponentReader, "read", read
+        )
+        existing = asyncio.all_tasks()
+        job = asyncio.create_task(runtime.prepare_model_input_async())
+
+        async def input_or_interrupt():
+            while not reads:
+                await asyncio.sleep(0)
+            assert len(reads) < 120, "input did not run during historical recovery"
+            assert runtime._hydrated_record_ids is None
+            if outcome == "cancel":
+                job.cancel()
+            elif outcome == "close":
+                runtime.close()
+            elif outcome == "append_corrupt":
+                records.append(
+                    replace(
+                        records[-1],
+                        record_id="bad-suffix",
+                        parent_id=records[-1].record_id,
+                        metadata={RESOURCE_EVIDENCE_METADATA_KEY: {}},
+                    )
+                )
+
+        observer = asyncio.create_task(input_or_interrupt())
+        (result,) = await asyncio.gather(job, return_exceptions=True)
+        await observer
+        if outcome == "close":
+            assert isinstance(result, RuntimeError) and "closed" in str(result)
+        elif outcome == "corrupt":
+            assert isinstance(result, RequestEvidenceIntegrityError)
+        elif outcome == "cancel":
+            assert isinstance(result, asyncio.CancelledError)
+        else:
+            assert result is None
+        if outcome in {"cancel", "close", "corrupt"}:
+            assert runtime._hydrated_record_ids is None
+            assert runtime._recovered == {}
+        if outcome == "append_corrupt":
+            with pytest.raises(RequestEvidenceIntegrityError, match="non-message"):
+                runtime.project_model_input(_preparation([]))
+        elif outcome != "close":
+            fault[0] = "complete"
+            await runtime.prepare_model_input_async()
+            before = len(reads)
+            assert runtime.project_model_input(_preparation([])) is None
+            assert len(reads) == before
+        assert not asyncio.all_tasks() - existing
+
+    asyncio.run(scenario())
+
+
 def test_snapshot_only_evidence_follows_its_source_branch() -> None:
     message = _user_message("branch message")
     message_record = _message_record("message", message)

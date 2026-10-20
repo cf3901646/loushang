@@ -124,3 +124,158 @@ def test_bool_version_is_malformed_not_a_future_schema():
     raw["version"] = True
     with pytest.raises(ValueError):
         _project((intent, replace(message, metadata={"coding.runtimeBindingV2": raw})))
+
+
+def test_async_activation_projection_yields_and_matches_sync_validation(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+
+    from loushang.coding import resume_activation_projection_v2 as module
+    from loushang.harness.conversation import ConversationRecord
+
+    async def scenario():
+        records = tuple(
+            ConversationRecord(
+                record_id=str(index),
+                parent_id=str(index - 1) if index else None,
+                kind="agent.message",
+                payload_version=1,
+                created_at="2026-10-21",
+                payload=UserMessage(role="user", content="history", timestamp=0.0),
+            )
+            for index in range(120)
+        )
+        clock = [0.0]
+        original = module._encoded
+
+        def encoded(value):
+            clock[0] += 0.005
+            return original(value)
+
+        monkeypatch.setattr(module, "_encoded", encoded)
+        monkeypatch.setattr(
+            module, "time", SimpleNamespace(monotonic=lambda: clock[0]), raising=False
+        )
+        expected = _project(records)
+        clock[0] = 0.0
+        job = asyncio.create_task(
+            module.project_coding_activation_attempt_path_v2_async(
+                records, current_session_id="session-1"
+            )
+        )
+        await asyncio.sleep(0)
+        assert not job.done(), "activation validation blocked every other task"
+        assert 0 < clock[0] < 0.6
+        assert await job == expected
+        for selected in (_path(), (_path()[1],)):
+            try:
+                expected = _project(selected)
+            except ValueError:
+                with pytest.raises(ValueError):
+                    await module.project_coding_activation_attempt_path_v2_async(
+                        selected, current_session_id="session-1"
+                    )
+            else:
+                assert (
+                    await module.project_coding_activation_attempt_path_v2_async(
+                        selected, current_session_id="session-1"
+                    )
+                    == expected
+                )
+        job = asyncio.create_task(
+            module.project_coding_activation_attempt_path_v2_async(
+                records, current_session_id="session-1"
+            )
+        )
+        await asyncio.sleep(0)
+        stopped = clock[0]
+        job.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await job
+        assert clock[0] == stopped
+        assert not [
+            task
+            for task in asyncio.all_tasks()
+            if task is not asyncio.current_task() and not task.done()
+        ]
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("change", ["none", "cancel", "branch", "publication"])
+def test_async_activation_guard_publishes_only_the_current_completed_path(
+    monkeypatch, change
+):
+    import asyncio
+    from types import SimpleNamespace
+
+    from loushang.coding import session_manager as module
+    from loushang.coding.resume_activation_attempt import CodingResumeRecoveryRequired
+
+    async def scenario():
+        manager = object.__new__(module.SessionManager)
+        manager.persist = True
+        manager._transcript = SimpleNamespace(
+            revision=1,
+            leaf_id="left",
+            active_path=lambda: (),
+            header=SimpleNamespace(conversation_id="session-1"),
+        )
+        entered, release = asyncio.Event(), asyncio.Event()
+        selected = []
+
+        async def held(records, *, current_session_id):
+            selected.append((manager._transcript.revision, manager._transcript.leaf_id))
+            entered.set()
+            await release.wait()
+            return _project(records)
+
+        monkeypatch.setattr(
+            module,
+            "project_coding_activation_attempt_path_v2_async",
+            held,
+            raising=False,
+        )
+        job = asyncio.create_task(manager.prepare_resume_activation_guard())
+        await entered.wait()
+        assert manager._activation_guard_snapshot is None
+        if change == "cancel":
+            job.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await job
+            assert manager._activation_guard_snapshot is None
+        else:
+            if change == "branch":
+                manager._transcript.leaf_id = "right"
+                manager._transcript.revision = 2
+            elif change == "publication":
+                manager._resume_runtime_publication_pending = True
+            release.set()
+            if change == "publication":
+                with pytest.raises(
+                    CodingResumeRecoveryRequired, match="publication_pending"
+                ):
+                    await job
+                assert manager._activation_guard_snapshot is None
+            else:
+                await job
+                expected = (2, "right") if change == "branch" else (1, "left")
+                assert manager._activation_guard_snapshot == expected
+                assert selected == (
+                    [(1, "left"), (2, "right")] if change == "branch" else [(1, "left")]
+                )
+
+                def unexpected(*args, **kwargs):
+                    raise AssertionError("completed guard replayed the entire history")
+
+                monkeypatch.setattr(
+                    module, "project_coding_activation_attempt_path_v2", unexpected
+                )
+                manager.require_no_unsettled_resume_activation()
+        assert not [
+            task
+            for task in asyncio.all_tasks()
+            if task is not asyncio.current_task() and not task.done()
+        ]
+
+    asyncio.run(scenario())

@@ -237,6 +237,157 @@ observation limit, and no requested cancellation in its 25 completed turns was
 acknowledged as a cancellation. Missing observations are censored failures, not
 zero-latency samples; a baseline Esc p95 cannot be reported from that run.
 
+## Real Product turn investigation (2026-10-21)
+
+A second private probe restores the writable isolated session copy through
+`SessionManager.open`, uses the real `AgentSession`, file persistence, context
+meter and cooperative screen listener, and runs a synthetic model transport.
+Only a new probe tool call is allowed; it executes a known local Python child.
+The synthetic transport explicitly skips new durable Model Input commits; this
+probe covers recovery/preparation and durable message/tool records, and does not
+establish the cost of the provider commit-before-send barrier.
+No historical tool call or external model request is executed. Runtime settings,
+platform data and scratch files are redirected outside the repository.
+
+This distinguishes the actual Product turn from the earlier memory-store screen
+matrix. Single-round exploratory measurements on the normal resumed window were:
+
+| Candidate stage | Input p95 | Tool completion to Worked | Maximum loop delay |
+| --- | ---: | ---: | ---: |
+| First local commit (`816f162d`) | 470.20ms | 608.69ms | 772.28ms |
+| Cooperative evidence recovery | 527.33ms | 673.08ms | 515.59ms |
+| Recovery plus context replay cache | 339.22ms | 437.06ms | 395.16ms |
+
+These are diagnostic runs on a continuing isolated copy, not five matched
+before/after rounds or acceptance evidence. Profiling timings are excluded from
+latency acceptance. A path-cache run overlapped a static typecheck and is also
+excluded from performance comparisons. No target has been relaxed.
+
+### Durable evidence recovery occupied the model-call boundary
+
+The first actual-turn profile found 2,976 indexed Model Input bundle reads during
+evidence recovery. Recovery ran synchronously while preparing a model call.
+The new async preparation drives the same checked recovery steps and yields
+between records/snapshots after an eight-millisecond work budget. Staged caches
+publish only after complete recovery; cancellation, closure and corruption do
+not publish partial results. The final synchronous boundary still checks the
+current path, message bindings and Session ownership before binding a committer.
+A single opaque snapshot rebuild can still exceed the budget; this is not a
+universal eight-millisecond bound on arbitrary histories.
+
+### Context bindings repeatedly folded unchanged history
+
+Model-call preparation also requested context bindings repeatedly, causing full
+history folds. The UnitOfWork now retains one verified default-profile projection
+and folds eligible suffix records. The cache key includes repository identity,
+selected leaf and profile generation. Explicit record selections, custom
+semantics, non-prefix branch changes and compaction checkpoints retain full
+validation. Histories with mutable nested annotation/metadata state also retain
+fresh replay. Background reads capture their selected leaf; a concurrent branch
+selection cannot label an old path as the new one. Publication remains after
+the durable receipt, including the existing cancellation settlement behavior.
+
+### Repeated path walks and initial activation validation
+
+The graph now retains one immutable path, reuses it for repeat reads, and walks
+only new suffix links when a strict extension descends from that path. Compatible
+repairs create a fresh graph and path. Record objects, branch membership and
+old graph snapshots retain their existing meaning; the cache is bounded to one
+path per graph.
+
+A lightweight actual-turn trace also identified an initial 428.70ms synchronous
+Coding activation-history check. Its async driver now shares the exact selected
+path validator with the synchronous API. Cancellation publishes no guard;
+commits/branch changes during a yield restart validation, and pending runtime
+publication still rejects admission. The Coding preparation entry awaits this
+check before ordinary execution. Later synchronous admission fences remain in
+place and reuse only a completed matching revision/leaf check.
+
+Blob reference collection also skips non-blob-bearing payload classes before
+extracting references and avoids constructing repeated union-type checks. It
+still scans relevant mutable message content/details on every call, preserves
+stable deduplication order, accepts supported subclasses, and rejects foreign
+Session references. No reference cache hides mutations or ownership checks.
+
+### UTF-8 truncation could turn successful output into a tool error
+
+The actual Product probe exposed a correctness failure hidden by the earlier
+screen-only matrix: clipping a valid multibyte character could introduce lone
+surrogates, which the transcript JSON boundary rejects. The byte-suffix helper
+used `surrogateescape` inside a retry loop, so invalid leading bytes never raised
+the exception intended to advance to a character boundary. The old boundary
+example happened to cut exactly between characters.
+
+The helper now uses a strict fast decode and, when necessary, finds the bounded
+suffix in the original string. Valid UTF-8 stays valid; genuinely escaped source
+bytes retain their previous byte meaning. Raw artifacts and original byte/line
+counts remain unchanged. Four newly covered split-character cases and the real
+ExecService-to-Bash preview check failed before the change and passed after it.
+The focused truncation, execution and Bash suite passed 45 tests; the integration
+case checks incremental and final JSON projection and exact full artifact bytes.
+
+The first large-output probe failed because its private output directory was
+missing. After fixing that setup, strict assertions exposed the Product JSON
+failure above. Neither failed probe is latency acceptance evidence.
+
+A later four-case diagnostic on frozen phase-two source (before the UTF-8 fix)
+reported the following valid quiet/cancel observations. Input was sampled during
+preparation and tool/completion windows, rather than continuously across all work:
+
+| Scenario | Input p95 | Esc visible | Tool/cancel to Worked |
+| --- | ---: | ---: | ---: |
+| Quiet, normal completion | 107.70ms | — | 318.31ms |
+| Cancel during preparation | 748.54ms | 187.09ms | No tool had started |
+| Cancel during tool execution | 519.39ms | 35.79ms | 980.21ms |
+
+These single rounds still fail the response targets and show long pauses remain.
+The source was frozen separately from the earlier candidate, no static/test run
+was concurrent, and no transcript/tool correctness failure was accepted as a
+successful normal turn. Full matched rounds and continuous-input observation
+remain outstanding.
+
+After the UTF-8 fix, the strict large-Unicode Product probe completed with one
+successful output, preserved the input draft and left no asyncio tasks after
+disposal. Diagnostic input p95/p99 were 87.15/111.67ms and Worked was 312.23ms.
+The latter still exceeds the 250ms target. This probe retained the earlier
+windowed key schedule, so the input percentiles cannot establish uninterrupted
+responsiveness throughout the turn.
+
+GC observation recorded a 221.14ms generation-two collection on a background
+thread at turn offset 1.49s; maximum event-loop delay was 247.06ms. The key
+windows did not cover that entire pause. The exact allocation owner still needs
+thread profiling; moving a computation to a thread alone does not prove that it
+cannot pause input. The next private probe schedules absolute key deadlines
+continuously through completion and records timer-frame gaps as well. No GC
+threshold, timeout or acceptance target was changed. Original session size/mtime
+and the read-only copy's 0400 mode were checked again, and current Product source
+hashes match the separately frozen UTF-8 candidate.
+
+Focused validation after these changes: 325 passed, 24 skipped. Changed-source
+Ruff passed and mypy passed for nine source files. Deterministic
+regressions observe work before completion, cancellation without publication,
+branch changes while suspended, compatible repairs, and receipt-confirmed
+publication. Full response acceptance remains pending.
+
+The required phase-two `make check-changed` run passed documentation and source
+dependency validation, then stopped in Coding: 3,357 passed, 283 skipped,
+55 deselected, 128 failed and 39 errors (977.25s). The 167 failing node IDs exactly
+match the prior diagnostic list: known platform failures plus the recurring grep
+500ms timing check, which observed 604.17ms in this run. This is not a green gate
+or proof that all failures are environmental. In the isolated exact-case rerun,
+the frozen baseline failed at 521.01ms and the current candidate passed. Both
+launchers verified their imported source before pytest configuration, and neither
+Product timeouts nor the 500ms assertion were changed.
+
+The complete affected Harness offline route passed 5,133 tests, skipped 724 and
+deselected three, with the same 25 previously reproduced Linux-rooted-I/O failures
+on macOS (392.14s); no new failing node appeared. The earlier TUI-library routes
+remain evidence for unchanged source. Repeated consumer UI validation passed
+1,656 tests, with 153 deselected and the same two macOS PTY mode-restoration
+failures (282.43s). Its Ruff and 164-source mypy checks passed. Hosting offline
+regression passed 257 tests, with 193 skipped and four deselected; the two real
+Product persistence/cancellation E2E smoke cases passed as well.
+
 ## Verification so far
 
 - Conversation/UnitOfWork regressions after batch extension: 118 passed, 24 skipped.
@@ -279,10 +430,11 @@ are not a final green gate.
 - Complete five matched actual-screen rounds for quiet commands, sustained
   output, consecutive tools, large ASCII and Unicode results, with normal
   completion and cancellation. Verify output/truncation metadata and drafts.
-- Measure file-backed persistence and actual Product completion/context
-  projection separately; the in-memory probe cannot establish those bounds.
+- Complete matched file-backed Product measurements and measure new durable
+  Model Input commits through a conformant offline transport. The memory-store
+  probe and synthetic transport do not establish the full provider barrier cost.
 - Investigate cold full-window rendering and resize. Its uninstrumented first
-  frame still took about 17 seconds before ASCII wrapping. The bounded resume
+  frame still took 15.18 seconds with the first committed candidate. The bounded resume
   window and warm-cache improvement do not prove long-running resize is safe.
 - Verify multiple history scales and rerun affected offline/native routes
   against the final source, reporting known environment baseline failures.

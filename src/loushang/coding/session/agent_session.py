@@ -1375,7 +1375,7 @@ class AgentSession(AgentProductSession):
             )
 
     async def prepare_model_call_runtime(self) -> None:
-        self._coding_session_manager.require_no_unsettled_resume_activation()
+        await self._coding_session_manager.prepare_resume_activation_guard()
         publication = self._coding_resume_publication
         if publication is not None:
             self._require_current_resume_publication(publication)

@@ -98,6 +98,16 @@ AgentTranscriptOpenDiagnostic = ConversationSourceDiagnostic | ConversationDiagn
 MaterializationPolicy = Callable[[AgentTranscriptRecord], bool]
 
 
+@dataclass(frozen=True)
+class _CachedTranscriptReplay:
+    profile: AgentTranscriptProfile
+    profile_revision: int
+    repository: ConversationRepository[ConversationHeader, AgentTranscriptRecord]
+    leaf_id: str | None
+    records: tuple[AgentTranscriptRecord, ...]
+    projection: ConversationReplayProjection[AgentMessage, AgentTranscriptState]
+
+
 class AgentTranscriptUnitOfWork:
     """One Agent transcript stream with optional deferred materialization."""
 
@@ -135,6 +145,7 @@ class AgentTranscriptUnitOfWork:
         )
         self._clock = clock or _utc_now
         self._commit_lock = asyncio.Lock()
+        self._replay_cache: _CachedTranscriptReplay | None = None
 
     @classmethod
     async def create(
@@ -343,7 +354,10 @@ class AgentTranscriptUnitOfWork:
         return self._repository.branch_delta(from_id, target_id)
 
     def replay_context(self) -> AgentTranscriptContext:
-        return self._profile.replay(self.active_path())
+        if not self._profile.has_default_replay_semantics:
+            return self._profile.replay(self.active_path())
+        projection = self.replay_projection()
+        return AgentTranscriptContext(projection.items, projection.state)
 
     def replay_projection(
         self,
@@ -351,8 +365,62 @@ class AgentTranscriptUnitOfWork:
     ) -> ConversationReplayProjection[AgentMessage, AgentTranscriptState]:
         """Return the selected context items with exact transcript record ids."""
 
-        selected = self.active_path() if records is None else tuple(records)
-        return self._profile.replay_projection(selected)
+        profile = self._profile
+        if records is not None:
+            return profile.replay_projection(tuple(records))
+        if not profile.has_default_replay_semantics:
+            self._replay_cache = None
+            return profile.replay_projection(self.active_path())
+        repository = self._repository
+        leaf_id = repository.leaf_id
+        policy_revision = profile.replay_revision
+        cache = self._replay_cache
+        same_policy = (
+            cache is not None
+            and cache.profile is profile
+            and cache.profile_revision == policy_revision
+        )
+        if same_policy and cache is not None and (
+            cache.repository is repository and cache.leaf_id == leaf_id
+        ):
+            return cache.projection
+        # Capture the leaf explicitly: a read-only background observer may
+        # overlap a later branch selection on the same repository object.
+        selected = repository.records_to(leaf_id) if leaf_id is not None else ()
+        suffix = (
+            selected[len(cache.records) :]
+            if same_policy and cache is not None
+            and len(selected) >= len(cache.records)
+            and all(old is new for old, new in zip(cache.records, selected))
+            else None
+        )
+        if suffix is not None and cache is not None and (
+            profile.supports_incremental_replay(suffix)
+            and not any(profile.resolve_checkpoint(record) is not None for record in suffix)
+        ):
+            state = cache.projection.state
+            items = list(cache.projection.items)
+            item_record_ids = list(cache.projection.item_record_ids)
+            for record in suffix:
+                state = profile.reduce_state(state, record)
+                item = profile.record_to_context_item(record)
+                if item is not None:
+                    items.append(item)
+                    item_record_ids.append(record.record_id)
+            projection = ConversationReplayProjection(
+                items=tuple(items), state=state, item_record_ids=tuple(item_record_ids)
+            )
+            cacheable = True
+        else:
+            projection = profile.replay_projection(selected)
+            cacheable = profile.supports_incremental_replay(selected)
+        if cacheable and profile.replay_revision == policy_revision:
+            self._replay_cache = _CachedTranscriptReplay(
+                profile, policy_revision, repository, leaf_id, selected, projection
+            )
+        else:
+            self._replay_cache = None
+        return projection
 
     async def commit(self, record: AgentTranscriptRecord) -> AgentTranscriptCommit:
         """Durably append one prebuilt record, then advance runtime state."""

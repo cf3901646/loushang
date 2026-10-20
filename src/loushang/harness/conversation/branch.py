@@ -43,6 +43,9 @@ class BranchGraph(Generic[R]):
         self._build_lookup()
         self._parents = self._normalize_parents()
         self._children = self._build_children()
+        # One immutable path per graph bounds retention. Strict extensions may
+        # reuse this prefix; compatible repairs construct a fresh graph.
+        self._path_cache: tuple[str, tuple[R, ...]] | None = None
 
     @property
     def diagnostics(self) -> tuple[ConversationDiagnostic, ...]:
@@ -163,15 +166,24 @@ class BranchGraph(Generic[R]):
 
     def path(self, record_id: str) -> tuple[R, ...]:
         self._require_record(record_id)
+        cached = self._path_cache
+        if cached is not None and cached[0] == record_id:
+            return cached[1]
         ids: list[str] = []
         seen: set[str] = set()
         current_id: str | None = record_id
+        prefix: tuple[R, ...] = ()
         while current_id is not None and current_id not in seen:
+            if cached is not None and current_id == cached[0]:
+                prefix = cached[1]
+                break
             seen.add(current_id)
             ids.append(current_id)
             current_id = self._parents[current_id]
         ids.reverse()
-        return tuple(self._by_id[item_id] for item_id in ids)
+        result = (*prefix, *(self._by_id[item_id] for item_id in ids))
+        self._path_cache = (record_id, result)
+        return result
 
     def ancestors(self, record_id: str) -> tuple[R, ...]:
         path = self.path(record_id)

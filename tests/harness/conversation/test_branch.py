@@ -21,6 +21,50 @@ def _graph(records, *, mode="strict"):
     )
 
 
+def test_repeated_paths_and_strict_extensions_do_not_walk_the_old_prefix() -> None:
+    class ParentReads(dict):
+        reads = 0
+
+        def __getitem__(self, key):
+            self.reads += 1
+            return super().__getitem__(key)
+
+    records = tuple(
+        _Record(str(index), str(index - 1) if index else None)
+        for index in range(2000)
+    )
+    graph = _graph(records)
+    parents = ParentReads(graph._parents)
+    graph._parents = parents
+    assert graph.path("1999") == records
+    parents.reads = 0
+    assert graph.path("1999") == records
+    assert parents.reads == 0, "repeated path walked the complete history"
+
+    extended = graph.with_appended(_Record("tail", "1999"))
+    extended_parents = ParentReads(extended._parents)
+    extended._parents = extended_parents
+    assert extended.path("tail") == (*records, _Record("tail", "1999"))
+    assert extended_parents.reads == 1, "append walked the unchanged prefix"
+    assert graph.path("1999") == records
+    assert graph.get("tail") is None
+    right = extended.with_appended(_Record("right", "0"))
+    assert right.path("right") == (records[0], _Record("right", "0"))
+    assert right.path("tail") == extended.path("tail")
+
+
+def test_compatible_extension_rebuilds_a_previously_cached_repaired_path() -> None:
+    graph = _graph((_Record("tail", "missing"),), mode="compatible")
+    assert graph.path("tail") == (_Record("tail", "missing"),)
+    repaired = graph.with_appended(_Record("missing", None))
+    assert repaired.path("tail") == (
+        _Record("missing", None), _Record("tail", "missing")
+    )
+    replaced = repaired.with_appended(_Record("tail", None, "replacement"))
+    assert replaced.path("tail") == (_Record("tail", None, "replacement"),)
+    assert graph.path("tail") == (_Record("tail", "missing"),)
+
+
 def test_branch_graph_paths_children_lca_and_fork_plan() -> None:
     records = (
         _Record("root", None),

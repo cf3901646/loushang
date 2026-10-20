@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
-from collections.abc import Callable, Mapping, Sequence
+import time
+from collections.abc import Callable, Generator, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Protocol, cast
@@ -283,6 +285,46 @@ class SessionRequestEvidenceRuntime:
         self._legacy_sources.clear()
         self._hydrated_record_ids = None
 
+    async def prepare_model_input_async(self) -> None:
+        """Recover durable evidence cooperatively, without granting authority.
+
+        Recovery stages its caches until the captured path is fully checked.
+        The subsequent synchronous projection still reads the current path and
+        validates its message bindings before a request can be committed.
+        """
+
+        self._require_open()
+        deadline = time.monotonic() + 0.008
+        records = tuple(self._get_active_records())
+        record_ids = tuple(record.record_id for record in records)
+        previous = self._hydrated_record_ids
+        if record_ids == previous:
+            return
+        start = (
+            len(previous)
+            if previous is not None and record_ids[: len(previous)] == previous
+            else 0
+        )
+        # A suffix without snapshots only adds metadata anchors. Avoid replaying
+        # the full context twice for ordinary tool/message appends.
+        context_ids = (
+            {record_id for record_id, _ in self._get_context_message_bindings()}
+            if any(
+                isinstance(record.payload, ModelInputSnapshot | ModelInputSnapshotV2)
+                for record in records[start:]
+            )
+            else set()
+        )
+        steps = self._hydrate_selected_path_steps(records, context_ids)
+        try:
+            for _ in steps:
+                if time.monotonic() >= deadline:
+                    await asyncio.sleep(0)
+                    self._require_open()
+                    deadline = time.monotonic() + 0.008
+        finally:
+            steps.close()
+
     def project_model_input(
         self,
         preparation: ModelCallPreparation,
@@ -424,6 +466,14 @@ class SessionRequestEvidenceRuntime:
         active_records: tuple[AgentTranscriptRecord, ...],
         context_record_ids: set[str],
     ) -> None:
+        for _ in self._hydrate_selected_path_steps(active_records, context_record_ids):
+            pass
+
+    def _hydrate_selected_path_steps(
+        self,
+        active_records: tuple[AgentTranscriptRecord, ...],
+        context_record_ids: set[str],
+    ) -> Generator[None, None, None]:
         record_ids = tuple(record.record_id for record in active_records)
         if record_ids == self._hydrated_record_ids:
             return
@@ -440,6 +490,7 @@ class SessionRequestEvidenceRuntime:
         selected_ids = set(record_ids)
 
         for record in active_records[start:]:
+            yield
             component = record.metadata.get(RESOURCE_EVIDENCE_METADATA_KEY)
             if component is None:
                 continue
@@ -473,6 +524,7 @@ class SessionRequestEvidenceRuntime:
             reader = ModelInputLogicalComponentReader(active_records)
             covered = anchors | (set(self._committed) & selected_ids)
             for record_index, record in reversed(snapshots):
+                yield
                 component = reader.read(record, RESOURCE_EVIDENCE_COMPONENT)
                 if component is None:
                     continue
@@ -530,6 +582,7 @@ class SessionRequestEvidenceRuntime:
                 raise RequestEvidenceIntegrityError(
                     "Resource evidence source snapshot is outside selected ancestry"
                 )
+        self._require_open()
         self._recovered = staged
         self._anchor_record_ids = anchors
         self._legacy_sources = sources

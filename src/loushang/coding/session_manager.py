@@ -70,7 +70,11 @@ from .resume_activation_plan import (
     require_current_resume_plan_inputs,
     require_current_resume_plan_source,
 )
-from .resume_activation_projection_v2 import project_coding_activation_attempt_path_v2
+from .resume_activation_projection_v2 import (
+    CodingActivationAttemptProjectionV2,
+    project_coding_activation_attempt_path_v2,
+    project_coding_activation_attempt_path_v2_async,
+)
 from .resume_binding import (
     CODING_RUNTIME_BINDING_METADATA_KEY,
     CodingRuntimeBindingV1,
@@ -1035,6 +1039,34 @@ class SessionManager(
             raise ValueError("Coding Session startup receipt differs from its header")
         self._coding_composition_ready = True
 
+    async def prepare_resume_activation_guard(self) -> None:
+        """Check a captured history cooperatively before ordinary admission.
+
+        A branch/commit during a yield requires a fresh check. No partial
+        projection is published, and the existing synchronous fence remains
+        authoritative for every later execution boundary.
+        """
+
+        while self.persist:
+            if self._resume_runtime_publication_pending:
+                raise CodingResumeRecoveryRequired("runtime.publication_pending")
+            snapshot = (self._transcript.revision, self._transcript.leaf_id)
+            if self._activation_guard_snapshot == snapshot:
+                return
+            records = self._transcript.active_path()
+            try:
+                projection = await project_coding_activation_attempt_path_v2_async(
+                    records, current_session_id=self.get_header().conversation_id
+                )
+            except ValueError as error:
+                raise CodingResumeRecoveryRequired("history.activation_invalid") from error
+            if self._resume_runtime_publication_pending:
+                raise CodingResumeRecoveryRequired("runtime.publication_pending")
+            if snapshot != (self._transcript.revision, self._transcript.leaf_id):
+                continue
+            self._accept_activation_guard_projection(snapshot, projection)
+            return
+
     def require_no_unsettled_resume_activation(self) -> None:
         """Fence ordinary bootstrap before Product runtime selection.
 
@@ -1055,10 +1087,17 @@ class SessionManager(
         )
         except ValueError as error:
             raise CodingResumeRecoveryRequired("history.activation_invalid") from error
+        self._accept_activation_guard_projection(snapshot, projection)
+
+    def _accept_activation_guard_projection(
+        self,
+        snapshot: tuple[int, str | None],
+        projection: CodingActivationAttemptProjectionV2,
+    ) -> None:
         if projection.status != "none":
             raise CodingResumeRecoveryRequired(
                 f"history.activation_{projection.status}"
-        )
+            )
         if projection.binding_status == "unknown_version":
             raise CodingResumeRecoveryRequired("history.activation_unknown_version")
         if projection.binding_status == "bound":

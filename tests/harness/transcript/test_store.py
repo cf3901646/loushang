@@ -708,3 +708,244 @@ def test_initial_records_are_validated_before_backend_create() -> None:
         assert await backend.scan("test") == ()
 
     asyncio.run(scenario())
+
+
+def test_context_projection_reuses_prefix_and_preserves_branch_checkpoint_and_state(
+    monkeypatch,
+) -> None:
+    from loushang.harness.conversation import ConversationRecord
+    from loushang.harness.conversation.replay import ConversationReplayFolder
+    from loushang.harness.transcript import AgentTranscriptProfile
+
+    async def scenario():
+        records = tuple(
+            ConversationRecord(
+                record_id=f"history-{index}",
+                parent_id=f"history-{index - 1}" if index else None,
+                kind=AGENT_MESSAGE_KIND,
+                payload_version=1,
+                created_at="2026-10-21T00:00:00Z",
+                payload=UserMessage(
+                    role="user", content=f"history {index}", timestamp=1.0
+                ),
+                metadata={},
+            )
+            for index in range(2000)
+        )
+        store = await AgentTranscriptUnitOfWork.create(
+            MemoryConversationStore(record_id=lambda r: r.record_id),
+            _key(),
+            _header(),
+            records=records,
+            id_factory=_id_factory(),
+        )
+        original = ConversationReplayFolder.replay
+        folds = []
+
+        def fold(folder, selected):
+            folds.append(len(selected))
+            return original(folder, selected)
+
+        monkeypatch.setattr(ConversationReplayFolder, "replay", fold)
+        first = store.replay_projection()
+        assert len(first.items) == 2000
+        assert store.replay_projection() is first
+        await store.append_agent_message(
+            UserMessage(role="user", content="tail", timestamp=2.0)
+        )
+        await store.append_metadata_patch(
+            ConversationMetadataPatch(values={"name": "named"})
+        )
+        await store.append_annotation_patch(
+            RecordAnnotationPatch(
+                target_record_id=records[0].record_id,
+                namespace="display.label",
+                operation="set",
+                value="root",
+            )
+        )
+        actual = store.replay_projection()
+        assert folds == [2000], "ordinary commits replayed the entire history"
+        assert actual.items[-1].content == "tail"
+        assert actual.state.conversation_metadata["name"] == "named"
+        assert actual.state.annotations[records[0].record_id]["display.label"] == "root"
+        expected = AgentTranscriptProfile.default().replay_projection(
+            store.active_path()
+        )
+        assert actual == expected
+        left = store.leaf_id
+        store.branch(records[0].record_id)
+        await store.append_agent_message(
+            UserMessage(role="user", content="right", timestamp=3.0)
+        )
+        assert [m.content for m in store.replay_context().messages] == [
+            "history 0",
+            "right",
+        ]
+        assert "name" not in store.replay_context().state.conversation_metadata
+        store.reset_branch()
+        assert store.replay_projection().items == ()
+        store.branch(left)
+        assert store.replay_projection() == expected
+        await store.append_compaction_checkpoint(
+            ContextCompactionCheckpoint(
+                summary="summary",
+                first_kept_record_id=records[-1].record_id,
+                tokens_before=1234,
+            )
+        )
+        assert (
+            store.replay_projection()
+            == AgentTranscriptProfile.default().replay_projection(store.active_path())
+        )
+        explicit = store.active_path()[:1]
+        assert store.replay_projection(
+            explicit
+        ) == AgentTranscriptProfile.default().replay_projection(explicit)
+        with pytest.raises(ValueError, match="missing record"):
+            store.replay_projection(store.active_path()[-1:])
+
+    asyncio.run(scenario())
+
+
+def test_context_projection_observes_replaced_custom_semantics_without_caching() -> (
+    None
+):
+    from loushang.harness.transcript.profile import RecordSemantics
+
+    async def scenario():
+        store = await _create()
+        await store.append_agent_message(
+            UserMessage(role="user", content="original", timestamp=1.0)
+        )
+        assert store.replay_context().messages[0].content == "original"
+        label = ["mapped"]
+        store._profile.register_record_profile(
+            AGENT_MESSAGE_KIND,
+            RecordSemantics(
+                payload_types=(UserMessage,),
+                project_context=lambda _record: UserMessage(
+                    role="user", content=label[0], timestamp=1.0
+                ),
+            ),
+            replace=True,
+        )
+        assert store.replay_context().messages[0].content == "mapped"
+        label[0] = "changed externally"
+        assert store.replay_context().messages[0].content == "changed externally"
+
+    asyncio.run(scenario())
+
+
+def test_context_projection_keeps_nested_json_snapshots_detached() -> None:
+    async def scenario():
+        store = await _create()
+        await store.append_metadata_patch(
+            ConversationMetadataPatch(values={"nested": {"items": [1]}})
+        )
+        first = store.replay_context()
+        first.state.conversation_metadata["nested"]["items"].append(2)
+        assert store.replay_context().state.conversation_metadata["nested"] == {
+            "items": [1]
+        }
+        store.records[-1].payload.values["nested"]["items"].append(3)
+        assert store.replay_context().state.conversation_metadata["nested"] == {
+            "items": [1, 3]
+        }
+        await store.append_annotation_patch(
+            RecordAnnotationPatch(
+                target_record_id=store.records[0].record_id,
+                namespace="nested",
+                operation="set",
+                value=["original"],
+            )
+        )
+        projected = store.replay_projection()
+        projected.state.annotations[store.records[0].record_id]["nested"].append(
+            "changed"
+        )
+        assert store.replay_projection().state.annotations[store.records[0].record_id][
+            "nested"
+        ] == ["original"]
+
+    asyncio.run(scenario())
+
+
+def test_projection_cache_publishes_only_receipt_confirmed_commits_after_cancel() -> (
+    None
+):
+    async def scenario():
+        backend = BlockingAppendMemoryStore()
+        store = await _create(backend)
+        assert store.replay_projection().items == ()
+        job = asyncio.create_task(
+            store.append_agent_message(
+                UserMessage(role="user", content="durable", timestamp=1.0)
+            )
+        )
+        await backend.committed.wait()
+        assert store.replay_projection().items == ()
+        job.cancel()
+        await asyncio.sleep(0)
+        assert not job.done()
+        assert store.replay_projection().items == ()
+        backend.release.set()
+        committed = await job
+        assert committed.receipt is not None and committed.receipt.revision == 1
+        assert job.cancelling() == 0
+        assert [m.content for m in store.replay_context().messages] == ["durable"]
+
+    asyncio.run(scenario())
+
+
+def test_projection_cache_keeps_captured_leaf_when_background_read_overlaps_branch_change(
+    monkeypatch,
+) -> None:
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    async def scenario():
+        store = await _create()
+        root = (
+            await store.append_agent_message(
+                UserMessage(role="user", content="root", timestamp=1.0)
+            )
+        ).record
+        left = (
+            await store.append_agent_message(
+                UserMessage(role="user", content="left", timestamp=1.0)
+            )
+        ).record
+        store.branch(root.record_id)
+        right = (
+            await store.append_agent_message(
+                UserMessage(role="user", content="right", timestamp=1.0)
+            )
+        ).record
+        store.branch(left.record_id)
+        entered, release = threading.Event(), threading.Event()
+        original = store._repository.records_to
+
+        def read(record_id):
+            if not entered.is_set():
+                entered.set()
+                assert release.wait(2)
+            return original(record_id)
+
+        monkeypatch.setattr(store._repository, "records_to", read)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            pending = executor.submit(store.replay_projection)
+            try:
+                assert entered.wait(2)
+                store.branch(right.record_id)
+            finally:
+                release.set()
+            assert [m.content for m in pending.result(timeout=2).items] == [
+                "root",
+                "left",
+            ]
+        assert [m.content for m in store.replay_context().messages] == ["root", "right"]
+        store.branch(left.record_id)
+        assert [m.content for m in store.replay_context().messages] == ["root", "left"]
+
+    asyncio.run(scenario())
