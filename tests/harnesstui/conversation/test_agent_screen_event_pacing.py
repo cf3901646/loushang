@@ -327,6 +327,69 @@ def test_small_deltas_wait_for_worker_without_blocking_working_loop(
     asyncio.run(scenario())
 
 
+def test_cancelled_small_delta_completion_does_not_commit_late_worked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    original = agent_binding.render_prepared_atomic_markdown
+
+    def blocked_render(*args: Any) -> Any:
+        started.set()
+        assert release.wait(5)
+        try:
+            return original(*args)
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(agent_binding, "render_prepared_atomic_markdown", blocked_render)
+
+    async def scenario() -> None:
+        app = ScreenCodingTuiApp(
+            model_label="test", cwd="/repo", branch="main", session_label="paced"
+        )
+        app.begin_run(started_at=0.0)
+        app.render(RenderConstraints(width=80, max_height=18, visible_height=18))
+        listener = cooperative_agent_screen_event_listener(
+            build_agent_screen_conversation_projection(app)
+        )
+        listener({"type": "message_start", "message": _assistant()})
+        chunks = [
+            f"- **Line {index}**: [link](https://example.com/{index})\n"
+            for index in range(512)
+        ]
+        for chunk in chunks:
+            listener(
+                {
+                    "type": "message_update",
+                    "message": _assistant(chunk),
+                    "assistant_message_event": {"type": "text_delta", "delta": chunk},
+                }
+            )
+        pending = listener(
+            {"type": "message_end", "message": _assistant("".join(chunks))}
+        )
+        assert inspect.isawaitable(pending)
+        task = asyncio.create_task(pending)
+        try:
+            assert await asyncio.to_thread(started.wait, 5)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(task, 1)
+        finally:
+            release.set()
+        assert await asyncio.to_thread(finished.wait, 5)
+        await asyncio.sleep(0)
+        assert app.state.assistant_draft is not None
+        assert not app._transcript_region.has_prepared_assistant_markdown_render
+        assert not any(
+            isinstance(record, WorkedDividerRecord) for record in app.state.records
+        )
+
+    asyncio.run(scenario())
+
+
 def test_cancelled_large_screen_delta_does_not_project_remaining_batches() -> None:
     async def scenario() -> None:
         app = ScreenCodingTuiApp(
