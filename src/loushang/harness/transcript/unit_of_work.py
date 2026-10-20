@@ -875,11 +875,7 @@ class AgentTranscriptUnitOfWork:
                 "transcript record parent must match the selected leaf: "
                 f"expected {self.leaf_id!r}, got {record.parent_id!r}"
             )
-        candidate = _create_repository(
-            header=self.header,
-            records=(*self.records, record),
-            leaf_id=record.record_id,
-        )
+        candidate = self._repository.with_appended(record)
         if not self._materialized:
             if not self._materialization_policy(record):
                 self._repository = candidate
@@ -949,11 +945,7 @@ class AgentTranscriptUnitOfWork:
                 commits.append(await self._commit_locked(record))
             return tuple(commits)
 
-        candidate = _create_repository(
-            header=self.header,
-            records=(*self.records, *records),
-            leaf_id=records[-1].record_id,
-        )
+        candidate = self._repository.with_appended_records(records)
         expected_revision = self._revision
         operation_ids = tuple(record.record_id for record in records)
         commit_uncertainty: StoreCommitOutcomeUnknown | None = None

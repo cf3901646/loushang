@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
+from contextlib import nullcontext
+from io import StringIO
 
 import pytest
 
@@ -43,6 +45,204 @@ def _app() -> _TestScreenConversationApp:
         session_label="session",
         now=lambda: 2.0,
     )
+
+
+def test_input_frame_does_not_flatten_long_screen_history(monkeypatch) -> None:
+    from loushang.tui.core import RenderLine
+
+    app = _app()
+    app.state.records = [UserPromptRecord(f"history {i}") for i in range(2000)]
+    app.state.mark_records_changed()
+    constraints = RenderConstraints(width=80, max_height=1_000_000, visible_height=24)
+    app.render(constraints)
+    reads = 0
+    original_getattribute = RenderLine.__getattribute__
+
+    def count_text_reads(line, name):
+        nonlocal reads
+        if name == "text":
+            reads += 1
+        return original_getattribute(line, name)
+
+    monkeypatch.setattr(RenderLine, "__getattribute__", count_text_reads)
+    app.composer.set_text("draft")
+    app.render(constraints)
+    assert reads <= 40
+    # Selection and detail hit testing still have access to every logical row.
+    assert "history 0" in strip_control_sequences(app._screen_rows[0])
+    assert any("draft" in row for row in app._screen_rows[-24:])
+    assert len(app._screen_rows) > 4000
+
+
+@pytest.mark.parametrize("interrupt", [False, True])
+def test_long_history_keeps_running_and_stopping_input_live(
+    monkeypatch, interrupt: bool
+) -> None:
+    from loushang.harnesstui.conversation.screen_runner import run_conversation_screen
+    from loushang.tui import TerminalSize
+    from loushang.tui.runtime import TuiRuntime
+
+    async def scenario() -> None:
+        clock = [10.0]
+        app = _TestScreenConversationApp(
+            model_label="offline",
+            cwd="/workspace",
+            branch=None,
+            session_label="long-history",
+            now=lambda: clock[0],
+        )
+        history = [UserPromptRecord(f"history {i}") for i in range(2000)]
+        app.state.records = list(history)
+        app.state.mark_records_changed()
+        started, advance, updated, finish, cancelled, cleanup = (
+            asyncio.Event() for _ in range(6)
+        )
+        first_frame, second_frame, stopping, edited, third_frame, settled = (
+            asyncio.Event() for _ in range(6)
+        )
+        worker = None
+        materialized: list[int] = []
+        render_now = TuiRuntime.render_now
+
+        def measure_render(runtime):
+            step = render_now(runtime)
+            if step.diagnostics.previous_rendered_lines:
+                materialized.append(step.diagnostics.materialized_logical_line_count)
+            return step
+
+        monkeypatch.setattr(TuiRuntime, "render_now", measure_render)
+
+        class Output(StringIO):
+            def write(self, text):
+                return len(text)
+
+            def flush(self):
+                visible = strip_control_sequences("\n".join(app._screen_rows[-24:]))
+                if "draft" in visible and "Running 1.00s" in visible:
+                    first_frame.set()
+                if "Running 2.00s" in visible:
+                    second_frame.set()
+                if "Stopping…" in visible:
+                    stopping.set()
+                if "draft after Esc" in visible:
+                    edited.set()
+                if "Stopping… 3.00s" in visible:
+                    third_frame.set()
+                if "Worked for" in visible:
+                    settled.set()
+
+        def tool(state, output):
+            app.state.upsert_tool_record(
+                "live",
+                ToolExecutionRecord(
+                    name="bash",
+                    state=state,
+                    elapsed_seconds=app.elapsed_seconds(),
+                    output=output,
+                    expanded_output=output,
+                ),
+            )
+            app.request_render("product")
+
+        async def prompt(_text):
+            nonlocal worker
+            worker = asyncio.current_task()
+            try:
+                tool("running", "first")
+                started.set()
+                await advance.wait()
+                tool("running", "update")
+                updated.set()
+                await finish.wait()
+                tool("completed", "done")
+            except asyncio.CancelledError:
+                cancelled.set()
+                await cleanup.wait()
+                tool("error", "cancelled")
+                raise
+
+        async def abort():
+            assert worker is not None
+            worker.cancel()
+
+        queue = asyncio.Queue()
+
+        async def read(_stdin):
+            return await queue.get()
+
+        async def drive():
+            queue.put_nowait("run\r")
+            await started.wait()
+            clock[0] = 11.0
+            queue.put_nowait("draft")
+            await first_frame.wait()
+            advance.set()
+            await updated.wait()
+            clock[0] = 12.0
+            app.request_render("product")
+            await second_frame.wait()
+            if interrupt:
+                queue.put_nowait("\x1b")
+                await stopping.wait()
+                await cancelled.wait()
+                queue.put_nowait(" after Esc")
+                await edited.wait()
+                assert not cleanup.is_set()
+                clock[0] = 13.0
+                app.request_render("product")
+                await third_frame.wait()
+                cleanup.set()
+            else:
+                finish.set()
+            await settled.wait()
+            assert app.composer.value == ("draft after Esc" if interrupt else "draft")
+            queue.put_nowait("\x15/quit\r")
+
+        driver = asyncio.create_task(drive())
+        try:
+            async with asyncio.timeout(10):
+                assert (
+                    await run_conversation_screen(
+                        app=app,
+                        stdin=StringIO(),
+                        stdout=Output(),
+                        handle_prompt=prompt,
+                        on_abort=abort,
+                        should_exit=lambda text: text == "/quit",
+                        terminal_mode_factory=lambda *_: nullcontext(),
+                        terminal_size_provider=lambda: TerminalSize(
+                            columns=80, rows=24
+                        ),
+                        input_chunk_reader=read,
+                        interruption_message="Interrupted",
+                        cancellation_message="Cancelled",
+                    )
+                    == 0
+                )
+                await driver
+            assert materialized and max(materialized) <= 40
+            assert all(
+                current is original
+                for current, original in zip(
+                    app.state.records[: len(history)], history, strict=True
+                )
+            )
+            assert (
+                sum(isinstance(r, WorkedDividerRecord) for r in app.state.records) == 1
+            )
+            assert not app.state.running
+            assert not [
+                task
+                for task in asyncio.all_tasks()
+                if task is not asyncio.current_task() and not task.done()
+            ]
+        finally:
+            cleanup.set()
+            finish.set()
+            driver.cancel()
+            await asyncio.gather(driver, return_exceptions=True)
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.tui_render_contract

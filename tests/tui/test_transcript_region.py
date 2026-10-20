@@ -198,7 +198,9 @@ def test_transcript_region_stable_frame_reuses_projection_and_lines() -> None:
 
 
 @pytest.mark.tui_render_contract
-def test_committed_blocks_reuse_unchanged_records_and_invalidate_changed_context() -> None:
+def test_committed_blocks_reuse_unchanged_records_and_invalidate_changed_context() -> (
+    None
+):
     presentation = _SpyPresentation()
     records = [UserPromptRecord(f"record {index}") for index in range(3)]
     region = TranscriptRegion(
@@ -226,9 +228,7 @@ def test_committed_blocks_reuse_unchanged_records_and_invalidate_changed_context
 
     region.presentation = _TokenPresentation("changed")
     rendered = region.render(constraints)
-    assert all(
-        "changed:" in line.text for line in rendered.lines if line.text
-    )
+    assert all("changed:" in line.text for line in rendered.lines if line.text)
 
 
 @pytest.mark.tui_render_contract
@@ -280,6 +280,154 @@ def test_append_assistant_and_worked_reuses_committed_line_objects() -> None:
 
 
 @pytest.mark.tui_render_contract
+def test_tool_updates_reuse_history_lines_and_keep_detail_controls_current() -> None:
+    history = [UserPromptRecord(f"history {index}") for index in range(200)]
+    tool = ToolExecutionRecord(
+        name="bash",
+        state="running",
+        elapsed_seconds=0.0,
+        output="preview",
+        expanded_output="detail",
+    )
+    records: list[DisplayRecord] = [*history, tool]
+    region = TranscriptRegion(records=records, records_revision=1)
+    constraints = RenderConstraints(width=80, max_height=1000)
+    region.render(constraints)
+    previous = region._committed_segment
+    assert previous is not None
+    previous_blocks = region._committed_record_blocks
+    old_history_lines = {
+        line.text: line for line in previous.lines if "history " in line.text
+    }
+
+    records[-1] = replace(tool, state="completed", elapsed_seconds=1.0, output="done")
+    region.records_revision += 1
+    region.focused_tool_index = len(history)
+    region.expanded_tool_indices = frozenset({len(history)})
+    rendered = region.render(constraints)
+    current = region._committed_segment
+    assert current is not None
+    assert all(
+        line is old_history_lines[line.text]
+        for line in current.lines
+        if line.text in old_history_lines
+    )
+    assert all(
+        region._committed_record_blocks[index] is previous_blocks[index]
+        for index in range(len(history))
+    )
+    fresh = TranscriptRegion(
+        records=list(records),
+        focused_tool_index=len(history),
+        expanded_tool_indices=frozenset({len(history)}),
+    ).render(constraints)
+    assert rendered.lines == fresh.lines
+    assert region.visible_controls == {len(rendered.lines) - 1: len(history)}
+
+    # Completion's suffix fast path must populate the same per-record cache
+    # before a later tool update takes the general replacement path.
+    records.extend((AssistantMessageRecord("final"), WorkedDividerRecord(1.0)))
+    region.records_revision += 1
+    region.render(constraints)
+    records[len(history)] = replace(tool, output="changed after completion")
+    region.records_revision += 1
+    assert (
+        region.render(constraints).lines
+        == TranscriptRegion(
+            records=list(records),
+            focused_tool_index=len(history),
+            expanded_tool_indices=frozenset({len(history)}),
+        )
+        .render(constraints)
+        .lines
+    )
+
+
+@pytest.mark.tui_render_contract
+def test_cached_layout_tracks_anchor_changes_without_changing_tool_focus() -> None:
+    records: list[DisplayRecord] = [
+        ToolExecutionRecord(
+            name="bash",
+            state="completed",
+            elapsed_seconds=1.0,
+            output="first",
+            expanded_output="detail",
+        ),
+        *(UserPromptRecord(f"prompt {i}") for i in range(100)),
+    ]
+    region = TranscriptRegion(
+        records=records, focused_tool_index=0, anchor_tool_index=0
+    )
+    constraints = RenderConstraints(width=80, max_height=5)
+    region.render(constraints)
+    region.anchor_tool_index = None
+    assert (
+        region.render(constraints).lines
+        == TranscriptRegion(
+            records=records,
+            focused_tool_index=0,
+        )
+        .render(constraints)
+        .lines
+    )
+
+
+@pytest.mark.tui_render_contract
+@pytest.mark.parametrize("width", [28, 80])
+@pytest.mark.parametrize("height", [1, 4, 10, 30])
+@pytest.mark.parametrize("anchor", [None, 0, 3, 18])
+@pytest.mark.parametrize(
+    "draft", [None, AssistantMessageRecord("draft\n\nlast", stable=False)]
+)
+def test_segmented_layout_matches_full_layout_with_anchor_and_draft(
+    width: int, height: int, anchor: int | None, draft: AssistantMessageRecord | None
+) -> None:
+    records: list[DisplayRecord] = []
+    for index in range(20):
+        records.append(
+            ToolExecutionRecord(
+                name="bash",
+                state="completed",
+                elapsed_seconds=1.0,
+                command=f"command {index}",
+                output="short output\n" + "wrapped output " * 5,
+                expanded_output="detail\n" * 4,
+            )
+            if index % 3 == 0
+            else UserPromptRecord(f"prompt {index}")
+        )
+    options = dict(
+        records=records,
+        draft=draft,
+        expanded_tool_indices=frozenset({0, 3, 18}),
+        focused_tool_index=anchor,
+        anchor_tool_index=anchor,
+    )
+    reference = TranscriptRegion(**options)
+    full = reference.render(RenderConstraints(width=width, max_height=10000))
+    start = max(0, len(full.lines) - height)
+    anchor_row = reference._committed_control_by_index.get(anchor)
+    if anchor_row is not None and not start <= anchor_row < start + height:
+        start = max(0, min(anchor_row - height + 1, len(full.lines) - height))
+    committed = reference._committed_segment
+    if start in reference._committed_separator_rows or (
+        draft is not None and committed is not None and start == committed.line_count
+    ):
+        start += 1
+    expected = full.lines[start : start + height]
+    expected_controls = {
+        row - start: index
+        for row, index in reference._committed_control_rows.items()
+        if start <= row < start + len(expected)
+    }
+
+    region = TranscriptRegion(**options)
+    actual = region.render(RenderConstraints(width=width, max_height=height))
+    assert actual.lines == expected
+    assert region.visible_controls == expected_controls
+
+
+@pytest.mark.tui_render_contract
 def test_worked_append_finalizes_only_new_lines_in_render_loop() -> None:
     records: list[DisplayRecord] = [
         UserPromptRecord(f"history {index}") for index in range(200)
@@ -302,8 +450,34 @@ def test_worked_append_finalizes_only_new_lines_in_render_loop() -> None:
     records[5] = UserPromptRecord("replaced history")
     region.records_revision += 1
     changed = loop.plan(size)
-    assert changed.materialized_logical_line_count > 6
+    assert changed.materialized_logical_line_count <= 6
     assert any("replaced history" in line for line in changed.current_logical_lines)
+
+
+@pytest.mark.tui_render_contract
+def test_tool_update_keeps_history_segments_in_complete_logical_frame() -> None:
+    records: list[DisplayRecord] = [
+        *(UserPromptRecord(f"history {index}") for index in range(2000)),
+        ToolExecutionRecord(name="bash", state="running", elapsed_seconds=0.0),
+    ]
+    region = TranscriptRegion(records=records, records_revision=1)
+    loop = RenderLoop(region)
+    size = TerminalSize(columns=80, rows=24)
+    first = loop.plan(size)
+    loop.commit(first, size=size)
+
+    records[-1] = ToolExecutionRecord(
+        name="bash", state="completed", elapsed_seconds=1.0, output="done"
+    )
+    region.records_revision += 1
+    updated = loop.plan(size)
+
+    assert updated.materialized_logical_line_count <= 5
+    assert updated.reused_render_segment_count >= 2000
+    assert updated.flattened_logical_line_count == 0
+    assert len(updated.current_logical_lines) >= 4000
+    assert any("history 0" in line for line in updated.current_logical_lines)
+    assert any("history 1999" in line for line in updated.current_logical_lines)
 
 
 @pytest.mark.tui_render_contract

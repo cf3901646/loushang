@@ -150,6 +150,17 @@ async def read_input_chunk_or_render_tick(
     return_on_render_wakeup: bool = False,
 ) -> str | None:
     read_chunk = input_chunk_reader or read_input_chunk
+    started_at = time.monotonic()
+    pending_input_deadline = (
+        started_at + max(0, pending_input_idle_ms) / 1000
+        if pending_input_idle_ms is not None
+        else None
+    )
+    idle_wakeup_deadline = (
+        started_at + max(0, idle_wakeup_ms) / 1000
+        if idle_wakeup_ms is not None
+        else None
+    )
     input_task = asyncio.create_task(read_chunk(stdin))
     try:
         while True:
@@ -159,21 +170,29 @@ async def read_input_chunk_or_render_tick(
             if active_task is not None and active_task.done():
                 return None
 
-            decision = runtime.request_next_animation_frame()
+            now = time.monotonic()
+            # Tool output and immediate animation frames must not restart
+            # terminal deadlines. In particular, an Esc prefix must expire
+            # even when render wakeups arrive more often than its idle window.
+            deadline_expired = (
+                pending_input_deadline is not None and now >= pending_input_deadline
+            ) or (idle_wakeup_deadline is not None and now >= idle_wakeup_deadline)
             timeout = None
             timeout_reason = "render"
-            if decision.render_now:
-                runtime.render_now()
-                continue
-            if decision.delay_ms > 0:
-                timeout = decision.delay_ms / 1000
-            if pending_input_idle_ms is not None:
-                pending_timeout = max(0, pending_input_idle_ms) / 1000
+            if not deadline_expired:
+                decision = runtime.request_next_animation_frame()
+                if decision.render_now:
+                    runtime.render_now()
+                    continue
+                if decision.delay_ms > 0:
+                    timeout = decision.delay_ms / 1000
+            if pending_input_deadline is not None:
+                pending_timeout = max(0, pending_input_deadline - time.monotonic())
                 if timeout is None or pending_timeout <= timeout:
                     timeout = pending_timeout
                     timeout_reason = "pending_input"
-            if idle_wakeup_ms is not None:
-                idle_timeout = max(0, idle_wakeup_ms) / 1000
+            if idle_wakeup_deadline is not None:
+                idle_timeout = max(0, idle_wakeup_deadline - time.monotonic())
                 if timeout is None or idle_timeout <= timeout:
                     timeout = idle_timeout
                     timeout_reason = "idle_wakeup"
@@ -210,7 +229,8 @@ async def read_input_chunk_or_render_tick(
                 if return_on_render_wakeup:
                     # A state transition may require input-owner admission work.
                     return None
-                continue
+                if not deadline_expired:
+                    continue
             if timeout_reason == "pending_input":
                 # A terminal tail can become readable on the same event-loop
                 # turn as its idle deadline. Give the read task one final

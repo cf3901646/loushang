@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from copy import copy
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
@@ -127,6 +128,30 @@ class ConversationRepository(Generic[H, R]):
         self._graph = candidate_graph
         self._leaf_id = record_id
         return record_id
+
+    def with_appended(self, record: R) -> ConversationRepository[H, R]:
+        return self.with_appended_records((record,))
+
+    def with_appended_records(
+        self, records: Sequence[R]
+    ) -> ConversationRepository[H, R]:
+        """Validate a detached append without rebuilding stable prefix links.
+
+        Callers keep record identities and parent links immutable, as required
+        by the graph lookups. The original repository and its selected branch
+        stay unchanged until a durable owner chooses to publish the result.
+        """
+
+        appended = tuple(records)
+        graph = self._graph.with_appended_records(appended)
+        record_id = self._record_id(appended[-1]) if appended else self._leaf_id
+        if appended and (not isinstance(record_id, str) or not record_id):
+            raise ValueError("Conversation record id must be a non-empty string")
+        candidate = copy(self)
+        candidate._records = [*self._records, *appended]
+        candidate._graph = graph
+        candidate._leaf_id = record_id
+        return candidate
 
     def set_header(self, header: H) -> None:
         self._header = header
