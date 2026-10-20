@@ -199,16 +199,16 @@ async def read_input_chunk_or_render_tick(
             render_wakeup_fired = render_task is not None and render_task in done
             if render_wakeup_fired and render_wakeup is not None:
                 render_wakeup.clear()
-            if input_task in done:
+            # Joining the render waiter can complete a terminal read after
+            # asyncio.wait captured its result. Deliver that input before
+            # returning a turn-completion or terminal-deadline wakeup.
+            if input_task.done():
                 return input_task.result()
             if active_task is not None and active_task in done:
                 return None
             if render_wakeup_fired:
                 if return_on_render_wakeup:
                     # A state transition may require input-owner admission work.
-                    # Collect a read completed while joining the render waiter.
-                    if input_task.done():
-                        return input_task.result()
                     return None
                 continue
             if timeout_reason == "pending_input":

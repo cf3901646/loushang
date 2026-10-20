@@ -224,6 +224,57 @@ def test_read_input_chunk_or_render_tick_wakes_for_terminal_runtime_deadline() -
     assert rendered == 0
 
 
+@pytest.mark.parametrize("wake", ["turn_completed", "terminal_deadline"])
+@pytest.mark.parametrize("chunk", ["\x1b", "next prompt", ""])
+def test_input_completed_during_render_waiter_cleanup_is_delivered(
+    wake: str, chunk: str
+) -> None:
+    async def run() -> None:
+        existing = asyncio.all_tasks()
+        render_waiting = asyncio.Event()
+        input_ready = asyncio.Event()
+        input_completed = asyncio.Event()
+
+        class RenderWakeup(asyncio.Event):
+            async def wait(self) -> bool:
+                render_waiting.set()
+                try:
+                    return await super().wait()
+                finally:
+                    # A real terminal read can finish while the cancelled
+                    # render waiter is being joined. Coordinate that ordering
+                    # without relying on wall-clock delays or asyncio.wait mocks.
+                    input_ready.set()
+                    await input_completed.wait()
+
+        async def read(_stdin: object) -> str:
+            await input_ready.wait()
+            input_completed.set()
+            return chunk
+
+        async def turn() -> None:
+            await render_waiting.wait()
+
+        active = asyncio.create_task(turn()) if wake == "turn_completed" else None
+        try:
+            assert await read_input_chunk_or_render_tick(
+                StringIO(),
+                runtime=_Runtime(),
+                active_task=active,
+                input_chunk_reader=read,
+                render_wakeup=RenderWakeup(),
+                idle_wakeup_ms=0 if wake == "terminal_deadline" else None,
+            ) == chunk
+            assert input_completed.is_set()
+            assert not asyncio.all_tasks() - existing
+        finally:
+            if active is not None:
+                active.cancel()
+                await asyncio.gather(active, return_exceptions=True)
+
+    asyncio.run(run())
+
+
 def test_drain_input_consumes_buffered_stringio_text() -> None:
     stdin = StringIO("leftover")
 

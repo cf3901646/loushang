@@ -11,7 +11,7 @@ from loushang.harnesstui.conversation.screen_frame import (
     ScreenFrameCopy,
     ScreenFramePresentation,
 )
-from loushang.tui import RenderBaselineReset, RenderConstraints
+from loushang.tui import RenderBaselineReset, RenderConstraints, strip_control_sequences
 from loushang.tui.transcript import (
     AssistantMessageRecord,
     ContextCompactionRecord,
@@ -43,6 +43,38 @@ def _app() -> _TestScreenConversationApp:
         session_label="session",
         now=lambda: 2.0,
     )
+
+
+@pytest.mark.tui_render_contract
+@pytest.mark.parametrize("statusline_visible", [False, True])
+@pytest.mark.parametrize("width", [30, 80])
+def test_stopping_acknowledgement_survives_crowded_or_hidden_statusline(
+    statusline_visible: bool, width: int
+) -> None:
+    app = _app()
+    app.state.model_label = "long-model-name-" * 20
+    app.state.cwd = "/workspace/" + "long-project-name-" * 20
+    app.state.statusline_visible = statusline_visible
+    constraints = RenderConstraints(width=width, max_height=24, visible_height=24)
+
+    def visible() -> str:
+        return strip_control_sequences(
+            "\n".join(line.text for line in app.render(constraints).lines)
+        )
+
+    app.start_prompt("run", started_at=1.0)
+    app.begin_stopping()
+    assert "Stopping…" in visible()
+    assert "1.00s" in visible()
+    app.complete_run()
+    assert "Stopping…" not in visible()
+    app.start_prompt("next", started_at=1.0)
+    assert "Running" in visible() and "Stopping…" not in visible()
+
+    app.begin_stopping()
+    app.state.abort(message="Interrupted", elapsed_seconds=1.0)
+    app.begin_run(started_at=1.0)
+    assert "Running" in visible() and "Stopping…" not in visible()
 
 
 @pytest.mark.tui_render_contract

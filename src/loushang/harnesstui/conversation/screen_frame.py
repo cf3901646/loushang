@@ -33,6 +33,7 @@ class ScreenFrameCopy:
     followup_label: str
     followup_hint: str
     interruption_marker: str = "■"
+    stopping_label: str = "Stopping…"
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,7 +120,9 @@ class ScreenFramePresentation:
         if not state.running:
             return None
         return WorkingLine(
-            label=self.copy.working_label,
+            label=(
+                self.copy.stopping_label if state.stopping else self.copy.working_label
+            ),
             elapsed_seconds=elapsed_seconds,
         )
 
