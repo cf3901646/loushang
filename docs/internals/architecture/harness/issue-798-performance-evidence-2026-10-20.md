@@ -128,6 +128,34 @@ node separately, without another test process, passed on both revisions.
 The broad local gate is therefore **not green**; this record does not turn
 unsupported-host failures or a timing rerun into full-suite acceptance.
 
+## Visible Escape acknowledgement during deferred activation
+
+An additional real Coding action-host regression holds LSP composition in a
+controlled worker thread. It observes editable draft text and Working timer
+frames at one and two seconds before releasing composition. The successful
+activation path passed; the Escape variant initially failed because its
+`Stopping…` acknowledgement was dropped from the crowded status footer. The
+runner had received Escape, but the user could not see its acknowledgement.
+
+The screen now retains an explicit presentation-only `stopping` state and
+renders the stopping label in the elapsed-time line. Footer priority and
+visibility no longer determine whether the acknowledgement is visible. The
+state resets on completion, interruption, and the next run; cancellation and
+Provider ownership still use their existing settlement paths.
+
+Both action-host cases now pass. The Escape case also observes further draft
+editing while composition is still held, and both cases finish with exactly
+one Worked divider and a closed LSP slot. Four render regressions cover 30/80
+columns, long labels, and visible/hidden status footers. The final focused
+selection passed 26 cases; Coding UI passed 602, TUI units passed 1312, and
+render contracts passed 244. Native-platform evidence for this later change
+remains required.
+
+The later broad Coding run passed 3353 cases, skipped 283 and deselected 55;
+its 127 failures and 39 fixture errors matched the baseline's failing/error
+node IDs exactly. The grep timing case passed in this full run. HarnessTUI
+passed 1051 cases, with 18 deselections and the same two macOS PTY failures.
+
 ## Remaining acceptance work
 
 1. Establish the requested whole-CLI startup reduction with sufficiently stable
@@ -136,8 +164,9 @@ unsupported-host failures or a timing rerun into full-suite acceptance.
    test on Linux. The Product pre-fence registration owner explicitly rejects
    macOS; a macOS skip does not prove Linux behavior. The local legacy-route
    vertical suite passed five cases, with the new Linux case skipped.
-3. Validate `3f0be917` through the existing native terminal Actions routes.
-   Earlier green PR checks do not cover this later commit.
+3. Validate `3f0be917` and the later visible stopping-phase change through the
+   existing native terminal Actions routes. Earlier green PR checks do not
+   cover these changes.
 4. Complete the Product/resume acceptance review for
    [ARD-010](../decisions/draft/ARD-010-deferred-capability-provider-slot.md).
    Its draft/partial status is retained.

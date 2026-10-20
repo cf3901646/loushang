@@ -337,6 +337,13 @@ class ScreenConversationApp:
     ) -> None:
         self.state.sync_queues(steers=steers, followups=followups)
 
+    def begin_stopping(self) -> None:
+        """Keep interruption acknowledgement visible beside the elapsed timer."""
+
+        if self.state.running:
+            self.state.stopping = True
+            self.set_status("Stopping…")
+
     def set_status(self, message: str | None) -> None:
         self.state.set_status(message)
         self._request_render("product")

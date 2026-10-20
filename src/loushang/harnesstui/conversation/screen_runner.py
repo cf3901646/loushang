@@ -565,7 +565,11 @@ async def run_conversation_screen(
                         interrupt_pending_steer = pop_interrupt_pending_steer(app)
                         # Show acknowledgement before the Product waits for a
                         # tool process and the active turn to settle.
-                        app.set_status("Stopping…")
+                        begin_stopping = getattr(app, "begin_stopping", None)
+                        if callable(begin_stopping):
+                            begin_stopping()
+                        else:
+                            app.set_status("Stopping…")
                         runtime.render_now()
                         pause_submissions = getattr(
                             router, "set_submission_paused", None
