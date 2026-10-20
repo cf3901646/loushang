@@ -77,6 +77,23 @@ class _StartupRouter:
             if callable(setter):
                 setter(paused)
 
+    def resume_paused_submission(self) -> ConversationInputResult | None:
+        """Resume the attached Product's deferred Enter in its own context."""
+
+        if (
+            not self.disposed
+            and self.startup.submission_armed
+            and not self.startup.closing
+        ):
+            resume = getattr(self.ready, "resume_paused_submission", None)
+            if callable(resume):
+                self._submission_paused = False
+                self.loading.set_submission_paused(False)
+                assert self.startup.context is not None
+                return self.startup.context.copy().run(resume)
+        self.set_submission_paused(False)
+        return None
+
     def handle(self, event: InputEvent) -> ConversationInputResult:
         if event.kind == "resize":
             if event.columns:
