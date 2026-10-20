@@ -1876,14 +1876,19 @@ def _create_agent_session(
             return _prepare_package_product_catalog_projection(
                 loader, resolved_cwd, product_runtime
             )
-        except CodingResourceCatalogAdmissionError as error:
-            services.diagnostics_service.capture_failure(
-                code=error.code,
-                error=str(error),
-                phase="startup",
-                source="bootstrap",
-                session_id=session_id,
-                details={"reasons": list(error.reasons)},
+        except BaseException as error:
+            if isinstance(error, CodingResourceCatalogAdmissionError):
+                services.diagnostics_service.capture_failure(
+                    code=error.code,
+                    error=str(error),
+                    phase="startup",
+                    source="bootstrap",
+                    session_id=session_id,
+                    details={"reasons": list(error.reasons)},
+                )
+            run_cleanup_steps(
+                error,
+                (("Coding Product runtime bootstrap cleanup", product_runtime.dispose_runtime),),
             )
             raise
 
