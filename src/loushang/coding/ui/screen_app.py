@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import ClassVar
 
-from loushang.harness.tools.workspace.output_preview import (
+from loushang.harness.tools.output_preview import (
     drop_tool_timing_tail_line,
     prefers_tail_tool_output,
 )
@@ -28,11 +28,7 @@ from loushang.harnesstui.conversation.transcript_presentation import (
 from loushang.harnesstui.conversation.transcript_style import (
     apply_transcript_style as apply_coding_transcript_style,
 )
-from loushang.tui import (
-    Composer,
-    LoushangWelcomePanel,
-    loushang_welcome_theme,
-)
+from loushang.tui import Composer, LoushangWelcomePanel, loushang_welcome_theme
 from loushang.tui.cell_width import (
     TAB_WIDTH,
     strip_control_sequences,
@@ -191,8 +187,8 @@ def _collapse_coding_tool_preview(
     if marker_rows == max_rows:
         return "\n".join(wrap_cells(marker, width=width))
     head = head_rows[:head_budget]
-    tail = tail_rows[-tail_budget:] if tail_budget else []
-    return "\n".join([*head, *wrap_cells(marker, width=width), *tail])
+    tail_lines = tail_rows[-tail_budget:] if tail_budget else []
+    return "\n".join([*head, *wrap_cells(marker, width=width), *tail_lines])
 
 
 def _preview_wrapped_rows(
