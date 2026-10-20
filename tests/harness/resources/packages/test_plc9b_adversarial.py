@@ -9030,7 +9030,15 @@ while True:
                 except PackageEpochRuntimeLeaseRegistryError as released:
                     assert released.code == "package_epoch_lease_absent"
                 else:
-                    raise AssertionError(f"unexpected live epoch leases: {unexpected!r}")
+                    scope = locals()
+                    owner_ids = {
+                        name: sha256(value.get_header().conversation_id.encode()).hexdigest()
+                        for name, value in scope.items()
+                        if isinstance(value, SessionManager)
+                    }
+                    raise AssertionError(
+                        f"unexpected live epoch leases: {unexpected!r}; owners={owner_ids!r}"
+                    )
             if not runtime_lease_released:
                 runtime_lease.release()
         assert pre_b_tree() == frozen_pre_b_tree
