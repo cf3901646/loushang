@@ -7,7 +7,7 @@
 - Parent: Loushang
 - Authority: normative candidate
 - Design status: draft
-- Implementation status: partial (new Coding Sessions wired; resume and Product audit pending)
+- Implementation status: partial (default and receipt-backed resume wired; Linux Product vertical verified; acceptance audit pending)
 - Owner: Loushang architecture
 - Tracking: [#798](https://github.com/zhnt/loushang/issues/798)
 - Method revision reviewed: `0f9bd3ff51afabeaaf76cc38dff1ceb279b7d37e`
@@ -155,8 +155,15 @@ persisted Session to reopen dormant, including after deferred activation.
 Historical eager receipts and history without a startup receipt keep the eager
 route to preserve their owner evidence. A Product-selected deferred generation
 captures Desired State and selected-manifest evidence at activation and rechecks
-both before publication and during later Session preparation. Product-selected
-paths still need a supported-platform end-to-end test.
+both before publication and during later Session preparation. The Linux
+Product-selected activation and persisted-resume vertical case passed in
+[PR #801](https://github.com/zhnt/loushang/pull/801): the targeted report has
+six passing LSP cases with no skips. The new case executes the selected Provider
+before and after reopening a dormant receipt, preserves the parent graph
+snapshot, and retires both server generations. See the
+[measurement and native verification record](../../harness/issue-798-performance-evidence-2026-10-20.md#native-actions-verification).
+This supported-platform evidence does not by itself complete the publication,
+freshness, and lifecycle acceptance review; draft/partial status is retained.
 
 In an isolated local A/B, the previous default `on_demand` path took
 4.50–4.97 seconds to construct and prepare a Session; the deferred path took
