@@ -541,6 +541,11 @@ def test_screen_coding_tui_atomic_table_uses_worker_parse_before_worked(
                 "parse",
                 lambda *_args, **_kwargs: pytest.fail("table parsed on input loop"),
             )
+            patch.setattr(
+                markdown_renderer,
+                "_render_table",
+                lambda *_args, **_kwargs: pytest.fail("table rendered on input loop"),
+            )
             step = runtime.render_now()
 
         terminal_text = strip_control_sequences(

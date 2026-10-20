@@ -94,6 +94,7 @@ from loushang.harnesstui.conversation.tool_transcript import (
 )
 from loushang.tui.markdown.renderer import (
     analyze_large_markdown_delta,
+    render_prepared_atomic_markdown,
     split_independent_flat_bullet_delta,
 )
 from loushang.tui.transcript import DisplayRecord, ToolExecutionRecord
@@ -745,18 +746,39 @@ def cooperative_agent_screen_event_listener(
             return None
 
         async def project_large_markdown() -> None:
+            target = projection.projector.target
             analysis = await asyncio.to_thread(
                 analyze_large_markdown_delta, delta
             )
             if analysis.chunks is None:
+                rendered = None
+                spec = (
+                    target.atomic_markdown_render_spec(delta)
+                    if analysis.prepared_table_blocks is not None
+                    and isinstance(target, ScreenConversationProjectionTarget)
+                    else None
+                )
+                if analysis.prepared_table_blocks is not None and spec is not None:
+                    try:
+                        result = await asyncio.to_thread(
+                            render_prepared_atomic_markdown,
+                            delta,
+                            analysis.prepared_table_blocks,
+                            spec,
+                        )
+                    except Exception:
+                        # Keep the parsed handoff; the normal renderer remains
+                        # authoritative if speculative preparation fails.
+                        pass
+                    else:
+                        rendered = (spec, result)
                 projection.handle(event)
-                target = projection.projector.target
                 if (
                     analysis.prepared_table_blocks is not None
                     and isinstance(target, ScreenConversationProjectionTarget)
                 ):
                     target.prepare_assistant_markdown(
-                        delta, analysis.prepared_table_blocks
+                        delta, analysis.prepared_table_blocks, rendered=rendered
                     )
             else:
                 await project_chunks(analysis.chunks)

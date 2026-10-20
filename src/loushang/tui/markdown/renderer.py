@@ -4,6 +4,7 @@ import importlib
 import inspect
 import re
 from collections.abc import Callable, Sequence
+from copy import deepcopy
 from dataclasses import dataclass, field
 from functools import lru_cache, partial
 from typing import Protocol, TypeAlias, cast
@@ -353,6 +354,8 @@ class MarkdownRenderCache:
     _stable_blocks: dict[tuple[object, ...], tuple[str, ...]] = field(default_factory=dict, init=False, repr=False)
     _prepared_source: str | None = field(default=None, init=False, repr=False)
     _prepared_blocks: tuple[_MarkdownBlock, ...] | None = field(default=None, init=False, repr=False)
+    _prepared_result_key: tuple[object, ...] | None = field(default=None, init=False, repr=False)
+    _prepared_result: RenderResult | None = field(default=None, init=False, repr=False)
     _streaming_key: object | None = field(default=None, init=False, repr=False)
     _streaming_parse_state: _StreamingMarkdownParseState | None = field(default=None, init=False, repr=False)
     _streaming_render_context: tuple[object, ...] | None = field(default=None, init=False, repr=False)
@@ -363,6 +366,10 @@ class MarkdownRenderCache:
     @property
     def stable_entry_count(self) -> int:
         return len(self._stable_blocks)
+
+    @property
+    def has_prepared_result(self) -> bool:
+        return self._prepared_result is not None
 
     @property
     def stable_line_count(self) -> int:
@@ -376,6 +383,8 @@ class MarkdownRenderCache:
         self._stable_blocks.clear()
         self._prepared_source = None
         self._prepared_blocks = None
+        self._prepared_result_key = None
+        self._prepared_result = None
         self.clear_streaming()
 
     def prepare_blocks(self, markdown: str, blocks: tuple[_MarkdownBlock, ...]) -> None:
@@ -390,7 +399,24 @@ class MarkdownRenderCache:
         blocks = self._prepared_blocks
         self._prepared_source = None
         self._prepared_blocks = None
+        self._prepared_result_key = None
+        self._prepared_result = None
         return blocks
+
+    def prepare_result(self, key: tuple[object, ...], result: RenderResult) -> None:
+        self._prepared_result_key = key
+        self._prepared_result = result
+
+    def take_prepared_result(self, key: tuple[object, ...]) -> RenderResult | None:
+        if key != self._prepared_result_key:
+            return None
+        result = self._prepared_result
+        self._prepared_source = None
+        self._prepared_blocks = None
+        self._prepared_result_key = None
+        self._prepared_result = None
+        return result
+
 
     def clear_streaming(self) -> None:
         self._streaming_key = None
@@ -432,6 +458,49 @@ class MarkdownRenderCache:
         while len(self._stable_blocks) > limit:
             self._stable_blocks.pop(next(iter(self._stable_blocks)))
         return rendered
+
+
+@dataclass(frozen=True, slots=True)
+class AtomicMarkdownRenderSpec:
+    """Capture the exact screen style and width before a worker renders a table."""
+
+    constraints: RenderConstraints
+    theme: ThemeResolver
+    capabilities: TerminalCapabilities | None
+    cache_key: tuple[object, ...]
+
+
+def atomic_markdown_render_spec(
+    markdown: str,
+    *,
+    width: int,
+    theme: ThemeResolver,
+    capabilities: TerminalCapabilities | None,
+) -> AtomicMarkdownRenderSpec:
+    constraints = RenderConstraints(width=max(1, width) + 1, max_height=1_000_000)
+    return AtomicMarkdownRenderSpec(
+        constraints=constraints,
+        theme=deepcopy(theme),
+        capabilities=capabilities,
+        cache_key=_atomic_result_key(markdown, constraints, theme, capabilities),
+    )
+
+
+def render_prepared_atomic_markdown(
+    markdown: str,
+    blocks: tuple[_MarkdownBlock, ...],
+    spec: AtomicMarkdownRenderSpec,
+) -> RenderResult:
+    """Render one worker-parsed table without touching the live screen cache."""
+
+    cache = MarkdownRenderCache()
+    cache.prepare_blocks(markdown, blocks)
+    return MarkdownRenderer(
+        markdown,
+        theme=spec.theme,
+        capabilities=spec.capabilities,
+        render_cache=cache,
+    ).render(spec.constraints)
 
 
 @dataclass(frozen=True, slots=True)
@@ -479,6 +548,19 @@ class MarkdownRenderer:
             raise ValueError("padding_y must be non-negative")
 
     def render(self, constraints: RenderConstraints) -> RenderResult:
+        if (
+            self.render_cache is not None
+            and self.render_cache.has_prepared_result
+            and self.streaming_key is None
+            and self.padding_x == self.padding_y == 0
+            and self.code_highlighter is None
+            and self.default_style is None
+        ):
+            prepared_result = self.render_cache.take_prepared_result(
+                _atomic_result_key(self.markdown, constraints, self.theme, self.capabilities)
+            )
+            if prepared_result is not None:
+                return prepared_result
         target_width = autowrap_safe_width(constraints.width)
         frame_style = _resolve_style(self.theme, "markdown.background", self.capabilities)
         framed = self.padding_x > 0 or self.padding_y > 0 or _has_background_style(frame_style)
@@ -707,6 +789,22 @@ def _theme_cache_signature(theme: ThemeResolver | None) -> tuple[object, ...] | 
         theme.version,
         _style_mapping_cache_signature(theme.defaults),
         _style_mapping_cache_signature(theme.overrides),
+    )
+
+
+def _atomic_result_key(
+    markdown: str,
+    constraints: RenderConstraints,
+    theme: ThemeResolver | None,
+    capabilities: TerminalCapabilities | None,
+) -> tuple[object, ...]:
+    return (
+        markdown,
+        constraints.width,
+        constraints.max_height,
+        ambiguous_width(),
+        _theme_cache_signature(theme),
+        _capabilities_cache_signature(capabilities),
     )
 
 

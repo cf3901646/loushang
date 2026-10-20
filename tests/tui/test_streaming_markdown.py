@@ -10,6 +10,7 @@ from loushang.tui import (
     strip_control_sequences,
 )
 from loushang.tui.markdown import renderer as markdown_renderer
+from loushang.tui.theme import ThemeResolver
 
 pytestmark = pytest.mark.tui_render_contract
 
@@ -280,6 +281,57 @@ def test_atomic_large_table_worker_parse_matches_committed_renderer() -> None:
     cache.prepare_blocks(source, analysis.prepared_table_blocks)
     cache.clear()
     assert cache.take_prepared_blocks(source) is None
+
+
+def test_prepared_table_render_reuses_exact_context_and_falls_back_after_resize(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = "| Name | Value |\n| --- | --- |\n| first | **bold** |\n"
+    blocks = markdown_renderer._parse_markdown_blocks(source)
+    theme = ThemeResolver()
+    spec = markdown_renderer.atomic_markdown_render_spec(
+        source, width=78, theme=theme, capabilities=None
+    )
+    prepared = markdown_renderer.render_prepared_atomic_markdown(source, blocks, spec)
+    assert prepared == markdown_renderer.MarkdownRenderer(
+        source, theme=theme
+    ).render(spec.constraints)
+    cache = markdown_renderer.MarkdownRenderCache()
+    cache.prepare_blocks(source, blocks)
+    cache.prepare_result(spec.cache_key, prepared)
+    renderer = markdown_renderer.MarkdownRenderer(
+        source, theme=theme, render_cache=cache
+    )
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            markdown_renderer,
+            "_render_table",
+            lambda *_args, **_kwargs: pytest.fail("prepared table was rerendered"),
+        )
+        assert renderer.render(spec.constraints) == prepared
+
+    cache.prepare_blocks(source, blocks)
+    cache.prepare_result(spec.cache_key, prepared)
+    resized = RenderConstraints(
+        width=spec.constraints.width - 10, max_height=spec.constraints.max_height
+    )
+    actual = renderer.render(resized)
+    expected = markdown_renderer.MarkdownRenderer(
+        source, theme=theme
+    ).render(resized)
+    assert actual == expected
+    assert cache.take_prepared_result(spec.cache_key) is None
+
+    cache.prepare_blocks(source, blocks)
+    cache.prepare_result(spec.cache_key, prepared)
+    theme.update_overrides({"markdown.table.header": {"foreground": "red"}})
+    restyled = renderer.render(spec.constraints)
+    canonical = markdown_renderer.MarkdownRenderer(
+        source, theme=theme
+    ).render(spec.constraints)
+    assert restyled == canonical
+    assert restyled != prepared
 
 
 def test_streaming_plain_bullet_burst_matches_commonmark_without_bulk_parse(

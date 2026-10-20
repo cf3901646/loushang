@@ -220,6 +220,11 @@ class TranscriptRegion:
     ) -> None:
         self._markdown_render_cache.prepare_blocks(markdown, blocks)
 
+    def prepare_assistant_markdown_render(
+        self, key: tuple[object, ...], result: RenderResult
+    ) -> None:
+        self._markdown_render_cache.prepare_result(key, result)
+
     def render(self, constraints: RenderConstraints) -> RenderResult:
         self._reset_cache_if_window_changed()
         style_signature = (

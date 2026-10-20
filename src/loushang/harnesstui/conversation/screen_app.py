@@ -46,12 +46,17 @@ from loushang.tui import (
     theme_capabilities_from_runtime,
 )
 from loushang.tui.cell_width import (
+    autowrap_safe_width,
     slice_by_column,
     strip_control_sequences,
     visible_width,
 )
 from loushang.tui.core import RenderLine
 from loushang.tui.keybindings import KeybindingManager
+from loushang.tui.markdown.renderer import (
+    AtomicMarkdownRenderSpec,
+    atomic_markdown_render_spec,
+)
 from loushang.tui.markdown.types import _MarkdownBlock
 from loushang.tui.theme import ThemeResolver
 from loushang.tui.transcript import (
@@ -128,6 +133,7 @@ class ScreenConversationApp:
     _focused_tool_index: int | None = field(default=None, init=False, repr=False)
     _focused_tool_key: str | int | None = field(default=None, init=False, repr=False)
     _screen_rows: tuple[str, ...] = field(default=(), init=False, repr=False)
+    _last_render_width: int | None = field(default=None, init=False, repr=False)
     _selection_anchor: tuple[int, int] | None = field(
         default=None, init=False, repr=False
     )
@@ -212,11 +218,48 @@ class ScreenConversationApp:
         self._request_render("stream")
 
     def prepare_assistant_markdown(
-        self, markdown: str, blocks: tuple[_MarkdownBlock, ...]
+        self,
+        markdown: str,
+        blocks: tuple[_MarkdownBlock, ...],
+        *,
+        rendered: tuple[AtomicMarkdownRenderSpec, RenderResult] | None = None,
     ) -> None:
         draft = self.state.assistant_draft
         if draft is not None and draft.text == markdown:
             self._transcript_region.prepare_assistant_markdown(markdown, blocks)
+            if rendered is not None:
+                spec, result = rendered
+                self._transcript_region.prepare_assistant_markdown_render(
+                    spec.cache_key, result
+                )
+
+    def atomic_markdown_render_spec(
+        self, markdown: str
+    ) -> AtomicMarkdownRenderSpec | None:
+        width = self._last_render_width
+        theme = self.transcript_theme
+        if width is None or theme is None:
+            return None
+        record = self._transcript_presentation.project_record(
+            AssistantMessageRecord(markdown), width=width
+        )
+        if not isinstance(record, AssistantMessageRecord) or record.text != markdown:
+            return None
+        render_width = self._transcript_presentation.record_render_width(
+            record, width=width
+        )
+        markdown_width = autowrap_safe_width(render_width) - 2
+        capabilities = (
+            theme_capabilities_from_runtime(self.terminal_capabilities)
+            if self.terminal_capabilities is not None
+            else None
+        )
+        return atomic_markdown_render_spec(
+            markdown,
+            width=markdown_width,
+            theme=theme,
+            capabilities=capabilities,
+        )
 
     def end_assistant(self, final_text: str | None = None) -> None:
         draft_buffer = self.state.assistant_draft_buffer
@@ -442,6 +485,7 @@ class ScreenConversationApp:
         return min(active_due_ms, completion_due_ms)
 
     def render(self, constraints: RenderConstraints) -> RenderResult:
+        self._last_render_width = constraints.width
         if (
             self._selection_revision is not None
             and self._selection_revision != self.state.records_revision
