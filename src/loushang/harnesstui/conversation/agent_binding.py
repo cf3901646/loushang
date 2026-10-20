@@ -726,6 +726,23 @@ def cooperative_agent_screen_event_listener(
         ):
             projection.handle(event)
             return None
+
+        async def prepare_unrendered_draft() -> None:
+            target = projection.projector.target
+            if not isinstance(target, ScreenConversationProjectionTarget):
+                return
+            captured = target.unrendered_assistant_markdown_spec()
+            if captured is None:
+                return
+            markdown, spec = captured
+            try:
+                result = await asyncio.to_thread(
+                    render_prepared_atomic_markdown, markdown, None, spec
+                )
+            except Exception:
+                return
+            target.prepare_assistant_markdown_render(markdown, spec, result)
+
         async def project_chunks(chunks: tuple[str, ...]) -> None:
             for index, chunk in enumerate(chunks):
                 projection.handle(
@@ -736,6 +753,8 @@ def cooperative_agent_screen_event_listener(
                 )
                 if index + 1 < len(chunks):
                     await pause_frame()
+            if len(delta) >= 16_384:
+                await prepare_unrendered_draft()
 
         delta = update["delta"]
         chunks = split_independent_flat_bullet_delta(delta)
@@ -780,6 +799,7 @@ def cooperative_agent_screen_event_listener(
                     target.prepare_assistant_markdown(
                         delta, analysis.prepared_table_blocks, rendered=rendered
                     )
+                await prepare_unrendered_draft()
             else:
                 await project_chunks(analysis.chunks)
 

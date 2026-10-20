@@ -407,6 +407,10 @@ class MarkdownRenderCache:
         self._prepared_result_key = key
         self._prepared_result = result
 
+    def clear_prepared_result(self) -> None:
+        self._prepared_result_key = None
+        self._prepared_result = None
+
     def take_prepared_result(self, key: tuple[object, ...]) -> RenderResult | None:
         if key != self._prepared_result_key:
             return None
@@ -462,7 +466,7 @@ class MarkdownRenderCache:
 
 @dataclass(frozen=True, slots=True)
 class AtomicMarkdownRenderSpec:
-    """Capture the exact screen style and width before a worker renders a table."""
+    """Capture the exact screen style and width for one completed draft."""
 
     constraints: RenderConstraints
     theme: ThemeResolver
@@ -488,13 +492,14 @@ def atomic_markdown_render_spec(
 
 def render_prepared_atomic_markdown(
     markdown: str,
-    blocks: tuple[_MarkdownBlock, ...],
+    blocks: tuple[_MarkdownBlock, ...] | None,
     spec: AtomicMarkdownRenderSpec,
 ) -> RenderResult:
-    """Render one worker-parsed table without touching the live screen cache."""
+    """Render a completed draft without touching the live screen cache."""
 
     cache = MarkdownRenderCache()
-    cache.prepare_blocks(markdown, blocks)
+    if blocks is not None:
+        cache.prepare_blocks(markdown, blocks)
     return MarkdownRenderer(
         markdown,
         theme=spec.theme,

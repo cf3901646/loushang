@@ -452,6 +452,73 @@ def test_screen_coding_tui_unrendered_final_delta_reuses_streamed_body(
     assert "Final line" in _visible_text(port)
 
 
+@pytest.mark.parametrize("kind", ("bullets", "paragraphs", "code"))
+def test_large_unrendered_final_markdown_prepares_worked_off_input_loop(
+    kind: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from loushang.harnesstui.conversation.agent_binding import (
+        build_agent_screen_conversation_projection,
+        cooperative_agent_screen_event_listener,
+    )
+    from loushang.tui.markdown import renderer as markdown_renderer
+
+    async def scenario() -> None:
+        app = _app()
+        runtime, _port = _runtime(app, width=80, height=18)
+        app.start_prompt(kind, started_at=0.0)
+        runtime.render_now()
+        if kind == "bullets":
+            answer = "".join(
+                f"- **Line {index}**: [link](https://example.com/{index})\n"
+                for index in range(512)
+            )
+        elif kind == "paragraphs":
+            answer = "".join(
+                f"Paragraph {index} with **bold** and [link](https://example.com/{index}).\n\n"
+                for index in range(300)
+            )
+        else:
+            answer = "```python\n" + "".join(
+                f'print("line {index}: {"x" * 30}")\n'
+                for index in range(600)
+            ) + "```\n"
+        listener = cooperative_agent_screen_event_listener(
+            build_agent_screen_conversation_projection(app),
+            pause=lambda: asyncio.sleep(0),
+        )
+        listener({"type": "message_start", "message": _assistant()})
+        pending = listener(
+            {
+                "type": "message_update",
+                "message": _assistant(answer),
+                "assistant_message_event": {"type": "text_delta", "delta": answer},
+            }
+        )
+        assert pending is not None
+        await pending
+        assert app._transcript_region.has_prepared_assistant_markdown_render
+
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                markdown_renderer,
+                "_render_markdown_blocks",
+                lambda *_args, **_kwargs: pytest.fail("final markdown rendered on input loop"),
+            )
+            listener({"type": "message_end", "message": _assistant(answer)})
+            app.complete_run(elapsed_seconds=1.0)
+            step = runtime.render_loop.plan(TerminalSize(columns=80, rows=18))
+
+        assert sum("Worked for 1.00s" in line for line in step.current_logical_lines) == 1
+        sentinel = {
+            "bullets": "Line 511",
+            "paragraphs": "Paragraph 299",
+            "code": "line 599",
+        }[kind]
+        assert any(sentinel in line for line in step.current_logical_lines)
+
+    asyncio.run(scenario())
+
+
 def test_screen_coding_tui_paced_large_delta_preserves_terminal_scrollback() -> None:
     from loushang.harnesstui.conversation.agent_binding import (
         build_agent_screen_conversation_projection,

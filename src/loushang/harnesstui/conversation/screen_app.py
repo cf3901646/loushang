@@ -210,6 +210,7 @@ class ScreenConversationApp:
 
     def begin_assistant(self) -> None:
         self.state.begin_assistant()
+        self._transcript_region.clear_prepared_assistant_markdown_render()
         self._transcript_region.clear_transient_cache()
         self._request_render("product")
 
@@ -232,6 +233,43 @@ class ScreenConversationApp:
                 self._transcript_region.prepare_assistant_markdown_render(
                     spec.cache_key, result
                 )
+
+    def prepare_assistant_markdown_render(
+        self,
+        markdown: str,
+        spec: AtomicMarkdownRenderSpec,
+        result: RenderResult,
+    ) -> None:
+        draft = self.state.assistant_draft
+        if draft is not None and draft.text == markdown:
+            self._transcript_region.prepare_assistant_markdown_render(
+                spec.cache_key, result
+            )
+
+    def unrendered_assistant_markdown_spec(
+        self,
+    ) -> tuple[str, AtomicMarkdownRenderSpec] | None:
+        buffer = self.state.assistant_draft_buffer
+        width = self._last_render_width
+        theme = self.transcript_theme
+        if buffer is None or width is None or theme is None:
+            return None
+        if self._transcript_region.has_prepared_assistant_markdown_render:
+            return None
+        capabilities = (
+            theme_capabilities_from_runtime(self.terminal_capabilities)
+            if self.terminal_capabilities is not None
+            else None
+        )
+        if self._transcript_region.has_complete_streaming_draft(
+            buffer, width=width, theme=theme, capabilities=capabilities
+        ):
+            return None
+        markdown = buffer.text
+        if len(markdown) < 16_384:
+            return None
+        spec = self.atomic_markdown_render_spec(markdown)
+        return (markdown, spec) if spec is not None else None
 
     def atomic_markdown_render_spec(
         self, markdown: str
@@ -271,6 +309,7 @@ class ScreenConversationApp:
         if (
             isinstance(committed, AssistantMessageRecord)
             and committed.text == draft_text
+            and not self._transcript_region.has_prepared_assistant_markdown_render
         ):
             self._transcript_region.promote_transient_cache(
                 committed,

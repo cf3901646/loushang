@@ -225,6 +225,33 @@ class TranscriptRegion:
     ) -> None:
         self._markdown_render_cache.prepare_result(key, result)
 
+    def clear_prepared_assistant_markdown_render(self) -> None:
+        self._markdown_render_cache.clear_prepared_result()
+
+    @property
+    def has_prepared_assistant_markdown_render(self) -> bool:
+        return self._markdown_render_cache.has_prepared_result
+
+    def has_complete_streaming_draft(
+        self,
+        buffer: StreamingTextBuffer,
+        *,
+        width: int,
+        theme: ThemeResolver,
+        capabilities: Any | None,
+    ) -> bool:
+        style_signature = (
+            *_transcript_style_signature(theme, capabilities),
+            self.presentation.cache_token,
+        )
+        return (
+            bool(self._segmented_transient_content_segments)
+            and self._segmented_transient_buffer_id == id(buffer)
+            and self._segmented_transient_buffer_version == buffer.version
+            and self._segmented_transient_width == width
+            and self._segmented_transient_style_signature == style_signature
+        )
+
     def render(self, constraints: RenderConstraints) -> RenderResult:
         self._reset_cache_if_window_changed()
         style_signature = (

@@ -190,6 +190,22 @@ class ScreenConversationProjectionTarget:
         capture = getattr(self.app, "atomic_markdown_render_spec", None)
         return capture(markdown) if callable(capture) else None
 
+    def unrendered_assistant_markdown_spec(
+        self,
+    ) -> tuple[str, AtomicMarkdownRenderSpec] | None:
+        capture = getattr(self.app, "unrendered_assistant_markdown_spec", None)
+        return capture() if callable(capture) else None
+
+    def prepare_assistant_markdown_render(
+        self,
+        markdown: str,
+        spec: AtomicMarkdownRenderSpec,
+        result: RenderResult,
+    ) -> None:
+        prepare = getattr(self.app, "prepare_assistant_markdown_render", None)
+        if callable(prepare):
+            prepare(markdown, spec, result)
+
     def assistant_finished(
         self,
         final_text: str,
