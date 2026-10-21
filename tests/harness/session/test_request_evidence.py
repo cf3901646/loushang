@@ -98,8 +98,11 @@ def test_evidence_free_resume_does_not_rebuild_historical_requests() -> None:
     def unexpected_rebuild(snapshot_id: str) -> None:
         pytest.fail(f"unrelated historical request was rebuilt: {snapshot_id}")
 
+    def unexpected_bindings():
+        pytest.fail("evidence-free request replayed the full context")
+
     runtime = SessionRequestEvidenceRuntime(
-        get_context_message_bindings=lambda records=None: (),
+        get_context_message_bindings=unexpected_bindings,
         get_active_records=lambda: records,
         rebuild_model_input=unexpected_rebuild,
     )

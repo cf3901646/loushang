@@ -333,13 +333,26 @@ class SessionRequestEvidenceRuntime:
             raise RequestEvidenceIntegrityError(
                 "selected transcript path contains duplicate record ids"
             )
-        bindings = tuple(self._get_context_message_bindings())
-        binding_record_ids = tuple(record_id for record_id, _message in bindings)
-        if len(set(binding_record_ids)) != len(binding_record_ids):
-            raise RequestEvidenceIntegrityError(
-                "transcript context contains duplicate message record ids"
-            )
-        self._hydrate_selected_path(active_records, set(binding_record_ids))
+        bindings: tuple[tuple[str, object], ...] | None = None
+
+        def current_bindings() -> tuple[tuple[str, object], ...]:
+            nonlocal bindings
+            if bindings is None:
+                bindings = tuple(self._get_context_message_bindings())
+                binding_record_ids = tuple(record_id for record_id, _ in bindings)
+                if len(set(binding_record_ids)) != len(binding_record_ids):
+                    raise RequestEvidenceIntegrityError(
+                        "transcript context contains duplicate message record ids"
+                    )
+            return bindings
+
+        self._hydrate_selected_path(
+            active_records,
+            lambda: {record_id for record_id, _ in current_bindings()},
+        )
+        if not self._committed and not self._recovered:
+            return None
+        bindings = current_bindings()
         selected: list[tuple[int, str, PreparedResourceEvidence]] = []
         for index, (record_id, message) in enumerate(bindings):
             recovered = self._recovered.get(record_id)
@@ -457,7 +470,7 @@ class SessionRequestEvidenceRuntime:
     def _hydrate_selected_path(
         self,
         active_records: tuple[AgentTranscriptRecord, ...],
-        context_record_ids: set[str],
+        context_record_ids: set[str] | Callable[[], set[str]],
     ) -> None:
         for _ in self._hydrate_selected_path_steps(active_records, context_record_ids):
             pass

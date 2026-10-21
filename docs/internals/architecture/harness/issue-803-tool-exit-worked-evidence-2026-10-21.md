@@ -320,6 +320,22 @@ tool output, with original authority unchanged and no historical tool calls.
 Ruff and focused mypy passed. `make check-harness` stopped at six mypy errors
 in the unchanged sandbox package legacy runtime, before running its test target.
 
+The user requested no transcript replay in the ordinary live tool path. A
+second regression test first failed because evidence-free request projection
+still requested context bindings despite having no committed or recovered
+Resource evidence. Projection now validates selected-path records and hydrates
+new evidence first, then skips context binding when both evidence maps are
+empty. Evidence-bearing requests retain their exact record-to-message checks.
+The existing transcript Unit of Work already caches ordinary append-only
+context projection; branch changes and resumed sessions use the checkpoint
+aware replay path. One later sequential native-PTY turn on the same long copy
+recorded no context-binding call in post-tool Resource evidence projection,
+which took 16.18ms; Session preparation took 145.37ms and tool exit to Worked
+was 1,682.45ms. This remains diagnostic only. The focused evidence, Agent
+Product, and Coding Model Input suites passed 70 tests; native reopening
+verified two snapshots with terminal usage and one output without modifying
+the original authority or executing historical tools.
+
 A private candidate indexed only record types that might carry blob references
 while still rechecking their mutable contents on every sampling. This history
 had 7,839 such messages among 29,321 selected records. The candidate reduced
