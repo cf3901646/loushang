@@ -2733,6 +2733,60 @@ def test_logical_context_freeze_reuses_only_an_exact_immutable_prefix() -> None:
     ) != canonical_model_input_json(zero.logical_input["messages"][0], name="zero")
 
 
+def test_logical_canonical_reuses_only_verified_message_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    messages = [
+        {"role": "user", "content": ["same", {"value": index}]}
+        for index in range(80)
+    ]
+    logical = {
+        "system_prompt": "system",
+        "messages": messages,
+        "tools": [{"name": "tool"}],
+        "request_options": {},
+        "resource_evidence": {"enabled": True},
+    }
+    first = ModelInputCommitContext(
+        purpose="main_turn", source_leaf_id="first", source_revision=1,
+        logical_input=logical,
+    )
+    first._canonical_logical_input_json(thaw_model_input_json(first.logical_input))
+    second = ModelInputCommitContext(
+        purpose="main_turn", source_leaf_id="second", source_revision=2,
+        logical_input={**logical, "messages": [*messages, {"role": "tool", "content": "done"}]},
+        reuse_from=first,
+    )
+    exact = thaw_model_input_json(second.logical_input)
+    expected = canonical_model_input_json(exact, name="logical Model Input")
+    original = model_input_module.canonical_model_input_json
+    historical_calls = 0
+
+    def counted(value: object, *, name: str) -> str:
+        nonlocal historical_calls
+        if name.startswith("logical Model Input.messages["):
+            historical_calls += 1
+        return original(value, name=name)
+
+    monkeypatch.setattr(model_input_module, "canonical_model_input_json", counted)
+    assert second._canonical_logical_input_json(exact) == expected
+    assert historical_calls <= 2
+
+    messages[10]["content"][1]["value"] = -0.0
+    changed = ModelInputCommitContext(
+        purpose="main_turn", source_leaf_id="changed", source_revision=3,
+        logical_input={**logical, "messages": [*messages, {"role": "tool", "content": "done"}]},
+        reuse_from=second,
+    )
+    changed_value = thaw_model_input_json(changed.logical_input)
+    assert changed._canonical_logical_input_json(changed_value) == original(
+        changed_value, name="logical Model Input"
+    )
+    assert changed.logical_input["messages"][10] is not second.logical_input[
+        "messages"
+    ][10]
+
+
 def test_session_append_reuses_verified_logical_prefix_at_writer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

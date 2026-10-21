@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import InitVar, dataclass, field, replace
@@ -75,6 +76,12 @@ class ModelInputCommitContext:
     source_revision: int
     logical_input: Mapping[str, object] = field(repr=False)
     reuse_from: InitVar[ModelInputCommitContext | None] = None
+    _message_canonical_prefix: tuple[str, ...] = field(
+        default=(), init=False, repr=False, compare=False
+    )
+    _message_canonical_parts: tuple[str, ...] | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
 
     def __post_init__(self, reuse_from: ModelInputCommitContext | None) -> None:
         _require_text(self.purpose, name="Model Input purpose")
@@ -99,6 +106,69 @@ class ModelInputCommitContext:
         if not isinstance(frozen["request_options"], Mapping):
             raise TypeError("Model Input request options must be an object")
         object.__setattr__(self, "logical_input", frozen)
+        if reuse_from is not None and reuse_from._message_canonical_parts is not None:
+            previous_messages = reuse_from.logical_input.get("messages")
+            if isinstance(previous_messages, tuple):
+                reused = 0
+                for current, prior in zip(
+                    frozen["messages"], previous_messages, strict=False
+                ):
+                    if current is not prior:
+                        break
+                    reused += 1
+                object.__setattr__(
+                    self,
+                    "_message_canonical_prefix",
+                    reuse_from._message_canonical_parts[:reused],
+                )
+
+    def _canonical_logical_input_json(self, value: dict[str, JSONValue]) -> str:
+        """Encode an owned thaw, reusing only the freeze-proven message prefix."""
+
+        name = "logical Model Input"
+        prefix = self._message_canonical_prefix
+        frozen_messages = self.logical_input["messages"]
+        if (
+            not prefix
+            or not isinstance(frozen_messages, tuple)
+            or len(prefix) > len(frozen_messages)
+            or any(type(key) is not str for key in self.logical_input)
+        ):
+            canonical = canonical_model_input_json(value, name=name)
+            messages = value["messages"]
+            if isinstance(messages, list):
+                parts = tuple(
+                    json.dumps(
+                        message,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        allow_nan=False,
+                    )
+                    for message in messages
+                )
+                object.__setattr__(self, "_message_canonical_parts", parts)
+            return canonical
+
+        parts = prefix + tuple(
+            canonical_model_input_json(message, name=f"{name}.messages[{index}]")
+            for index, message in enumerate(
+                frozen_messages[len(prefix) :], len(prefix)
+            )
+        )
+        fields = []
+        for key in sorted(self.logical_input):
+            encoded = (
+                "[" + ",".join(parts) + "]"
+                if key == "messages"
+                else canonical_model_input_json(
+                    self.logical_input[key], name=f"{name}.{key}"
+                )
+            )
+            fields.append(json.dumps(key, ensure_ascii=False) + ":" + encoded)
+        canonical = "{" + ",".join(fields) + "}"
+        object.__setattr__(self, "_message_canonical_parts", parts)
+        return canonical
 
 
 def _freeze_logical_input_with_prefix(
@@ -121,7 +191,7 @@ def _freeze_logical_input_with_prefix(
         if not _raw_matches_frozen_json(raw, frozen, seen=set()):
             break
         reused += 1
-    fields = {}
+    fields: dict[str, object] = {}
     for key, item in value.items():
         if not isinstance(key, str):
             raise TypeError(f"{name} keys must be strings")
@@ -413,9 +483,8 @@ class ModelInputTranscriptCommitter(
                     # the snapshot hash anyway; use that immutable text to avoid
                     # two more full-tree copies and an avoidable GC pause.
                     logical_canonical = await asyncio.to_thread(
-                        canonical_model_input_json,
+                        self._context._canonical_logical_input_json,
                         logical_input,
-                        name="logical Model Input",
                     )
                     logical_input_hash = (
                         "sha256:"
