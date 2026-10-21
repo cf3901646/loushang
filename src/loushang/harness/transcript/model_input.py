@@ -490,7 +490,8 @@ class ModelInputTranscriptCommitter(
                 # Validation can consume an entire input frame on a long
                 # request. Service cancellation before allocating or writing
                 # its durable graph, and reject a Session changed meanwhile.
-                await _yield_preparation()
+                with timer.phase("post_validation_yield"):
+                    await _yield_preparation()
                 self._require_current_transcript()
                 self._latest_metrics = request.metrics
                 logical_shared_prefix = bool(
@@ -527,10 +528,11 @@ class ModelInputTranscriptCommitter(
                     # A plain request needs its canonical logical encoding for
                     # the snapshot hash anyway; use that immutable text to avoid
                     # two more full-tree copies and an avoidable GC pause.
-                    logical_canonical = await asyncio.to_thread(
-                        self._context._canonical_logical_input_json,
-                        logical_input,
-                    )
+                    with timer.phase("logical_canonical"):
+                        logical_canonical = await asyncio.to_thread(
+                            self._context._canonical_logical_input_json,
+                            logical_input,
+                        )
                     logical_input_hash = (
                         "sha256:"
                         + hashlib.sha256(logical_canonical.encode("utf-8")).hexdigest()
@@ -601,7 +603,8 @@ class ModelInputTranscriptCommitter(
                         logical_input,
                         name="logical Model Input",
                     )
-                await _yield_preparation()
+                with timer.phase("pre_writer_yield"):
+                    await _yield_preparation()
                 self._require_current_transcript()
                 writer = await ModelInputV2Writer.prepare(
                     transcript=self._transcript,
@@ -714,16 +717,17 @@ class ModelInputTranscriptCommitter(
                             raise ModelInputIntegrityError(
                                 "committed Model Input v2 prepared payload changed"
                             )
-                writer.publish_committed_graph()
-                self._advance(commit.record.record_id, receipt.revision)
-                self._commits.append(
-                    ModelInputCommitResult(
-                        snapshot_id=snapshot.snapshot_id,
-                        record_id=commit.record.record_id,
-                        source_revision=self._context.source_revision,
-                        commit_revision=receipt.revision,
+                with timer.phase("publish_commit"):
+                    writer.publish_committed_graph()
+                    self._advance(commit.record.record_id, receipt.revision)
+                    self._commits.append(
+                        ModelInputCommitResult(
+                            snapshot_id=snapshot.snapshot_id,
+                            record_id=commit.record.record_id,
+                            source_revision=self._context.source_revision,
+                            commit_revision=receipt.revision,
+                        )
                     )
-                )
             outcome = "completed"
         finally:
             _emit_model_input_commit_timing(

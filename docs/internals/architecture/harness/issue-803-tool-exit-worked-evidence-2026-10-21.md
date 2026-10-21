@@ -917,3 +917,20 @@ turn, the post-tool evidence stage took 152ms and tool exit to Worked took
 an end-to-end gain. Native reopening verified both snapshots, terminal usage,
 exact tool output, unchanged authority and zero historical tool executions.
 The 500ms target remains open.
+
+## Commit phase and GC attribution, 2026-10-22
+
+Model Input commit timing now covers the logical canonical encoding, the two
+cooperative yield points, and publication of a committed graph. In one later
+29,769-record offline continuation, the hot post-tool commit took 397ms:
+logical canonical encoding 64ms, resolver build 37ms, materialization 102ms,
+snapshot append 57ms, and publication 15ms. The complete tool-exit-to-Worked
+transition was 1,991ms. The first cold request in the same turn was much
+slower; its roughly 4.4s commit included 518ms logical encoding, 913ms node
+index build and 2.6s materialization. A separate generation-2 garbage
+collection ran on the main thread for 2,604ms during that cold request and
+corresponded to a 3,532ms maximum event-loop delay. This is evidence of a
+distinct responsiveness problem in cold long-session preparation, not proof
+that the hot Worked path improved. Exact native reopening again verified both
+snapshots, terminal usage and tool output, unchanged authority and zero
+historical tool executions.

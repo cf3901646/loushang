@@ -973,7 +973,9 @@ def test_model_input_commit_emits_one_aggregate_performance_event(
         assert set(phases) == {
             "preconditions",
             "validate_prepared_request",
+            "post_validation_yield",
             "logical_input_thaw",
+            "pre_writer_yield",
             "active_path",
             "node_index_build",
             "resolver_build",
@@ -981,6 +983,7 @@ def test_model_input_commit_emits_one_aggregate_performance_event(
             "snapshot_build",
             "append_snapshot",
             "incremental_verify",
+            "publish_commit",
         }
         assert all(
             isinstance(value, dict)
