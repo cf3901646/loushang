@@ -115,6 +115,63 @@ the same two known macOS PTY EXTPROC restoration failures listed below. No new
 failure node was added. All 13 native terminal contracts passed. Documentation
 governance passed nine checks.
 
+#### Follow-up experiments rejected after `c1aa405d`
+
+The Product implementation remains at `c1aa405d` while these alternatives are
+evaluated. None of the following experiments is included in that implementation.
+
+A fused copy/strict-validation walk passed 203 focused checks with 18 host skips
+and the complete AI route (879 passed, seven deselected, 90.67% coverage). Its
+five alternating live pairs did not establish lower CPU cost: the committer's
+validation phase median changed from 38.73ms to 39.24ms, and a no-generation-2
+completion CPU pair measured 609.65ms versus 609.75ms. Tail differences coincided
+with three collections on baseline turns and none on candidate turns. All 12
+reports, 24 snapshots/terminal usage and 12 outputs passed native reopening.
+The extra copy implementation was withdrawn.
+
+A second alternative runs only the native immutable envelope's pure validation
+in a worker thread. Transcript revision/leaf checks, allocation and writes stay
+on the event loop; custom ports retain their original thread. Four regression
+cases failed before the change, then five worker/cancellation/source-change and
+custom-port cases passed. The related selection passed 159 tests with 18 host
+skips. Five quiet-command pairs improved preparation input p99 from 659.29ms to
+396.41ms, but completion input p99 worsened from 338.00ms to 452.97ms and Worked
+p95 from 1,028.34ms to 1,291.62ms. Five further pairs with three actual commands
+per turn changed preparation input p99 from 207.54ms to 422.93ms, completion p99
+from 437.52ms to 412.07ms and Worked p95 from 1,232.17ms to 1,022.66ms. These
+mixed results do not establish a stable response improvement. Both matrices
+passed native reopening: 24 reports, 48 snapshots/terminal usage and 48 tool
+outputs in total, with unchanged authority bytes/mtime. The worker alternative
+was withdrawn as well.
+
+A third alternative shares stateless read-only empty metadata. A private native
+session with 26,710 records and 9,787 deferred bundles was opened, its writer
+index prepared and its latest snapshot rebuilt. Sharing removed approximately
+26,700 retained wrappers: tracked objects changed from 311,011 to 284,222.
+Repeated explicit full collections in this diagnostic changed only slightly,
+approximately 117ms to 114ms. These diagnostic collections are neither Product
+policy changes nor UI response acceptance measurements.
+
+The initial metadata selection passed 220 tests with 43 existing host skips.
+A stronger ownership check then found a correctness regression: batch deepcopy
+memoizes the shared empty value's mutable dictionary result, so changing one
+copied record/header can also change another copy. Both new ownership cases fail
+with sharing and pass with the original implementation. The sharing experiment
+was withdrawn and those ownership cases are retained as regression guards.
+The process-pair matrix was stopped after three complete pairs and one unpaired
+candidate; it is not five-pair acceptance. The next child was interrupted after
+loading, before its first prompt. Native reopening verified all 14 completed
+reports, 28 snapshots/terminal usage and 14 outputs without changing authority
+bytes/mtime. Historical commands were never executed.
+
+The same snapshot-rebuild diagnostic found 11,835 materialized reference objects
+but only 1,661 distinct reference values across 719 expanded bundles. This is
+cross-bundle duplication; the eight mapping entries in that sample are all
+distinct. It motivates investigating Source-scoped sharing of immutable node
+references, with unchanged reference validation, copy behavior and authority
+checks. No such sharing is implemented or accepted yet. The snapshot-rebuild
+heap is not a substitute for a full live-runtime latency matrix.
+
 #### Private experiments retained outside Product
 
 Batching Model Input component bundles reduced materialization work but removed
