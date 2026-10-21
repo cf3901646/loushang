@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import time
 from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
@@ -728,6 +729,8 @@ def _same_model_input_json(left: object, right: object) -> bool:
             _same_model_input_json(left_item, right_item)
             for left_item, right_item in zip(left_items, right_items, strict=True)
         )
+    if type(left) is float and type(right) is float and left == right == 0.0:
+        return math.copysign(1.0, left) == math.copysign(1.0, right)
     return left == right
 
 

@@ -2121,6 +2121,10 @@ def test_model_input_v2_sequence_prefix_comparison_preserves_json_types() -> Non
         {"content": 1},
         {"content": 1.0},
     )
+    assert not model_input_v2_module._same_model_input_json(
+        {"content": -0.0},
+        {"content": 0.0},
+    )
     assert model_input_v2_module._same_model_input_json(
         {"content": ["same", {"nested": None}]},
         {"content": ["same", {"nested": None}]},

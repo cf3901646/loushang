@@ -425,6 +425,12 @@ execution. This single noisy pair does not establish a p95 improvement or the
 250ms target. The complete AI gate passed 875 offline tests with 90.64%
 coverage; the focused Session/Model Input selection passed 104 tests.
 
+Review of the adjacent v2 sequence cache found that its type-sensitive prefix
+comparator still treated `-0.0` and `0.0` as equal although their canonical
+JSON differs. A regression failed first; the comparator now distinguishes the
+two signs so a changed prefix is replanned. The prefix and append tests pass.
+This is a correctness guard for later writer reuse, not a latency claim.
+
 Extend the exact prefix proof into the transcript writer and remove other
 repeated full-context work while preserving the durable-before-send order.
 Measure with five
