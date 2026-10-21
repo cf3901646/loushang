@@ -365,6 +365,13 @@ class ModelInputTranscriptCommitter(
                         logical_input=stored_logical_input,
                         prepared_payload=stored_prepared_payload,
                         model_visible_headers=model_visible_headers,
+                        prepared_source=(
+                            request.payload
+                            if type(request) is PreparedModelRequest
+                            and stored_prepared_payload is prepared_payload
+                            and request._owned_envelope_is_current()
+                            else None
+                        ),
                     )
                 materialization_timing = writer.materialization_timing
                 materialization_stats = writer.materialization_stats

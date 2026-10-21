@@ -648,6 +648,7 @@ class _ModelInputV2IndexCache:
     records: tuple[AgentTranscriptRecord, ...]
     index: ModelInputV2NodeIndex
     sequence_plans: dict[tuple[int, str], _SequencePlan]
+    immutable_sequence_sources: dict[tuple[int, str], tuple[object, ...]]
 
     def resolve(
         self,
@@ -662,6 +663,7 @@ class _ModelInputV2IndexCache:
             self.records = records
             self.index = ModelInputV2NodeIndex(records)
             self.sequence_plans.clear()
+            self.immutable_sequence_sources.clear()
             return self.index, "rebuilt"
 
         previous_count = len(self.records)
@@ -714,6 +716,7 @@ def _cached_node_index(
             records=records,
             index=index,
             sequence_plans={},
+            immutable_sequence_sources={},
         )
         _MODEL_INPUT_V2_INDEX_CACHES[transcript] = cached
         return index, cached, "rebuilt"
@@ -815,6 +818,7 @@ class ModelInputV2Writer:
                     records=records,
                     index=index,
                     sequence_plans={},
+                    immutable_sequence_sources={},
                 )
                 _MODEL_INPUT_V2_INDEX_CACHES[transcript] = cached
                 status: ModelInputV2IndexCacheStatus = "rebuilt"
@@ -888,6 +892,9 @@ class ModelInputV2Writer:
         self._value_references: dict[str, ModelInputNodeReference] = {}
         self._materialization_timing: PhaseTimingSnapshot | None = None
         self._sequence_plan_updates: dict[tuple[int, str], _SequencePlan] = {}
+        self._immutable_sequence_source_updates: dict[
+            tuple[int, str], tuple[object, ...]
+        ] = {}
         self._sequence_count = 0
         self._sequence_item_count = 0
         self._reused_prefix_item_count = 0
@@ -935,6 +942,12 @@ class ModelInputV2Writer:
         self._index_cache.mark_writer_extension(active_records)
         self._index_cache.index = self._index
         self._index_cache.sequence_plans.update(plans)
+        for key in plans:
+            source = self._immutable_sequence_source_updates.get(key)
+            if source is None:
+                self._index_cache.immutable_sequence_sources.pop(key, None)
+            else:
+                self._index_cache.immutable_sequence_sources[key] = source
 
     async def materialize(
         self,
@@ -942,6 +955,7 @@ class ModelInputV2Writer:
         logical_input: Mapping[str, JSONValue],
         prepared_payload: Mapping[str, JSONValue],
         model_visible_headers: Mapping[str, str],
+        prepared_source: Mapping[str, object] | None = None,
     ) -> ModelInputV2Materialization:
         timing = PhaseTimer()
         self._work_deadline = time.monotonic() + 0.008
@@ -950,6 +964,17 @@ class ModelInputV2Writer:
             prepared = dict(prepared_payload)
             headers = dict(model_visible_headers)
             mapping_values = (logical, prepared)
+            immutable_prepared_sequences = (
+                {
+                    (1, name): value
+                    for name, value in prepared_source.items()
+                    if type(value) is tuple
+                    and type(prepared.get(name)) is list
+                    and len(value) == len(prepared[name])
+                }
+                if prepared_source is not None
+                else {}
+            )
             (
                 sequence_plans,
                 mapping_sequences,
@@ -960,6 +985,8 @@ class ModelInputV2Writer:
                 mapping_values,
                 headers,
                 dict(self._index_cache.sequence_plans),
+                dict(self._index_cache.immutable_sequence_sources),
+                immutable_prepared_sequences,
             )
             # The worker owns only request-local plans. A cancellation discards
             # them; a branch or external append must be rejected before writes.
@@ -1204,6 +1231,8 @@ class ModelInputV2Writer:
         mapping_values: tuple[dict[str, JSONValue], dict[str, JSONValue]],
         headers: dict[str, str],
         cached_plans: Mapping[tuple[int, str], _SequencePlan],
+        cached_sources: Mapping[tuple[int, str], tuple[object, ...]],
+        immutable_sources: Mapping[tuple[int, str], tuple[object, ...]],
     ) -> tuple[
         dict[tuple[int, str], _SequencePlan],
         dict[tuple[int, str], tuple[int, str]],
@@ -1221,6 +1250,8 @@ class ModelInputV2Writer:
                         value,
                         cache_key=cache_key,
                         cached=cached_plans.get(cache_key),
+                        cached_source=cached_sources.get(cache_key),
+                        immutable_source=immutable_sources.get(cache_key),
                     )
                     state = (len(plan.values), plan.final_hash)
                     prior_plan = sequence_plans.get(state)
@@ -1257,6 +1288,8 @@ class ModelInputV2Writer:
         *,
         cache_key: tuple[int, str],
         cached: _SequencePlan | None,
+        cached_source: tuple[object, ...] | None,
+        immutable_source: tuple[object, ...] | None,
     ) -> _SequencePlan:
         if len(values) > MODEL_INPUT_V2_MAX_SEQUENCE_ITEMS:
             raise ModelInputRecordSizeError(
@@ -1265,6 +1298,19 @@ class ModelInputV2Writer:
         reused_count = 0
         if cached is not None:
             reusable_count = min(len(values), len(cached.item_plans))
+            if (
+                cached.item_references is not None
+                and cached_source is not None
+                and immutable_source is not None
+                and len(immutable_source) == len(values)
+            ):
+                while (
+                    reused_count < reusable_count
+                    and reused_count < len(cached_source)
+                    and immutable_source[reused_count]
+                    is cached_source[reused_count]
+                ):
+                    reused_count += 1
             while reused_count < reusable_count and (
                 canonical_model_input_json(
                     values[reused_count],
@@ -1307,6 +1353,8 @@ class ModelInputV2Writer:
             tuple(prefix_hashes),
         )
         self._sequence_plan_updates[cache_key] = sequence_plan
+        if immutable_source is not None:
+            self._immutable_sequence_source_updates[cache_key] = immutable_source
         self._sequence_count += 1
         self._sequence_item_count += len(values)
         self._reused_prefix_item_count += reused_count

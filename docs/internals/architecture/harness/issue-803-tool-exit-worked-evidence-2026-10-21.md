@@ -514,6 +514,27 @@ pair is not a p95 estimate, nor evidence that the 500ms goal is met. The
 remaining full-history canonical prefix proof and request/terminal chain
 still dominate the path.
 
+## Sealed prepared prefix reuse
+
+The AI `PreparedModelRequest` already seals its payload and, when an append is
+verified, carries the exact same frozen message objects into the next request.
+The transcript writer now retains those frozen source identities alongside
+its ancestry-bound value plans after a durable commit. For an owned request
+whose stored payload needs no binary replacement, identity proves the reused
+prefix without a second per-item JSON encoding. Any fresh object, unsealed
+request or changed item still takes the canonical comparison path. A
+first-failing 50-message regression observed 52 redundant canonical prefix
+checks; it passes below ten after this change and also proves a later changed
+prefix rebuilds to the new content. The 149-test focused Model Input, Session
+and thaw selection passed with one existing skip.
+
+An isolated 1,545-message in-memory append measured the second writer plan
+at 10.63ms before and 1.54ms after, with 1,547 versus two canonical prefix
+checks; the complete second commit measured 18.16ms versus 8.61ms. This
+short-message micro sample establishes the eliminated duplicate work, not
+the long-session Worked latency. Logical Model Input is frozen separately on
+each turn and still needs its own provenance-backed incremental proof.
+
 Measure with five
 matched before/after PTY rounds across the required tool cases and history
 scales. A faster Worked display before the final model call and terminal

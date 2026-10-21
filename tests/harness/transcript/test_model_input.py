@@ -2329,6 +2329,63 @@ def test_model_input_v2_reuses_the_previous_message_prefix_and_appends_suffix(
     asyncio.run(scenario())
 
 
+def test_v2_writer_reuses_sealed_prepared_message_prefix_without_reencoding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        transcript = await _memory_transcript()
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript),
+            runtime_references=_runtime_references(),
+        )
+        messages = [{"role": "user", "content": str(index)} for index in range(50)]
+        payload = {"messages": messages, "tools": [], "model": "model-input-model"}
+        first = _prepared(payload=payload)
+        await committer.commit_prepared_request(first)
+
+        model = _model(api="model-input-test")
+        request = ProviderRequest(
+            model=model,
+            context=NormalizedContext(system_prompt=None),
+            options=None,
+            base_url=model.base_url,
+            invocation_id=first.invocation_id,
+            attempt=2,
+        )
+        second = PreparedModelRequest.from_provider_request(
+            request,
+            payload={**payload, "messages": [*messages, {"role": "user", "content": "tail"}]},
+            model_visible_headers={"anthropic-beta": "feature-1"},
+            reuse_from=first,
+        )
+        assert second.payload["messages"][0] is first.payload["messages"][0]
+        count = 0
+        original = model_input_v2_module.canonical_model_input_json
+
+        def canonical(value, *, name):
+            nonlocal count
+            if name == "Model Input v2 cached sequence item":
+                count += 1
+            return original(value, name=name)
+
+        monkeypatch.setattr(model_input_v2_module, "canonical_model_input_json", canonical)
+        await committer.commit_prepared_request(second)
+        assert count < 10
+        assert verify_model_input(transcript, committer.commits[-1].snapshot_id).verified
+        changed = [{"role": "user", "content": "changed"}, *messages[1:]]
+        await committer.commit_prepared_request(
+            _prepared(
+                attempt=3,
+                payload={**payload, "messages": changed},
+            )
+        )
+        rebuilt = rebuild_model_input(transcript, committer.commits[-1].snapshot_id)
+        assert rebuilt.prepared_payload["messages"][0] == changed[0]
+
+    asyncio.run(scenario())
+
+
 def test_model_input_v2_sequence_prefix_comparison_preserves_json_types() -> None:
     assert not model_input_v2_module._same_model_input_json(
         {"content": 1},
