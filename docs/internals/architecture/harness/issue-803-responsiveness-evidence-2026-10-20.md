@@ -1189,6 +1189,25 @@ observed the known macOS `EXTPROC` mode restoration delta (`2**29`); all
 control characters restored. The final TUI unit route passed 1,550 cases with
 seven skipped; changed-source Ruff and mypy passed.
 
+The same real PTY setup also sent Escape 200ms after the silent command ended,
+while the final model-input commit and Working state were still active. One
+pilot and 12 more continuous turns completed valid cancellation; the latter
+included two warmups and five alternating before/after pairs. Formal-pair
+Escape acknowledgement p95 was 686.07ms before and 642.32ms after; the medians
+were 369.93ms and 468.17ms. Tool exit to Worked p95 was 1,677.31ms and
+1,676.14ms. Input echo p99 was 531.93ms and 469.12ms. The pilot's 663.09ms
+Escape delay overlapped a 417.28ms synchronous prepared-request validation,
+including a 343.78ms generation-two collection. The formal pairs also saw
+generation-two collections of roughly 300–350ms. This establishes a separate
+long-session CPU/GC stall that the input waiter change cannot remove.
+
+All 13 cancellations were acknowledged during Working and retained draft input
+and one Worked event. Native reopening checked all 13 new snapshots, terminal
+usage, successful tool outputs and cancellation outcomes, including snapshots
+that did not reach transport (none in this run). No historical tool executed;
+the authority file was unchanged during verification. These cancellation
+results also miss the 100ms Escape and 250ms Worked targets.
+
 ## Remaining acceptance work
 
 - Complete five matched actual-screen rounds for quiet commands, sustained
