@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from loushang.agent import Agent
+from loushang.ai import prepared_request as prepared_request_module
 from loushang.ai.api_registry import get_default_api_registry
 from loushang.ai.context import NormalizedContext
 from loushang.ai.json_codec import serialize_message
@@ -509,6 +510,37 @@ def test_prepared_payload_projection_does_not_hold_two_complete_container_trees(
     )
 
 
+def test_owned_prepared_request_commits_without_recanonicalizing_payload(
+    monkeypatch,
+):
+    async def scenario():
+        transcript = await _memory_transcript()
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript),
+            runtime_references=_runtime_references(),
+        )
+        request = _prepared()
+
+        def unexpected_recanonicalization(*_args, **_kwargs):
+            raise AssertionError("sealed prepared payload was recanonicalized")
+
+        monkeypatch.setattr(
+            model_input_module,
+            "canonical_model_input_json",
+            unexpected_recanonicalization,
+        )
+        monkeypatch.setattr(
+            prepared_request_module,
+            "validate_json_value",
+            unexpected_recanonicalization,
+        )
+        await committer.commit_prepared_request(request)
+        assert len(committer.commits) == 1
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("invalid", ["cycle", "nan", "surrogate", "non_string_key"])
 def test_invalid_prepared_payload_is_rejected_before_any_model_input_write(invalid):
     async def scenario():
@@ -531,6 +563,36 @@ def test_invalid_prepared_payload_is_rejected_before_any_model_input_write(inval
         object.__setattr__(request, "payload", payload)
         before = transcript.records
         with pytest.raises(TypeError):
+            await committer.commit_prepared_request(request)
+        assert transcript.records == before
+        assert not committer.commits
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "attribute,replacement",
+    [
+        ("payload", {"messages": []}),
+        ("model_visible_headers", {"anthropic-beta": "changed"}),
+        ("canonical_payload", "{}"),
+        ("payload_hash", "sha256:" + "0" * 64),
+    ],
+)
+def test_changed_prepared_envelope_is_rejected_before_model_input_write(
+    attribute, replacement
+):
+    async def scenario():
+        transcript = await _memory_transcript()
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript),
+            runtime_references=_runtime_references(),
+        )
+        request = _prepared()
+        object.__setattr__(request, attribute, replacement)
+        before = transcript.records
+        with pytest.raises(ModelInputIntegrityError):
             await committer.commit_prepared_request(request)
         assert transcript.records == before
         assert not committer.commits

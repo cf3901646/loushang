@@ -888,6 +888,10 @@ def _validate_rebuilt_logical_input(value: Mapping[str, JSONValue]) -> None:
 def _validate_prepared_request(
     request: PreparedModelRequest,
 ) -> tuple[dict[str, JSONValue], dict[str, str], str]:
+    if type(request) is PreparedModelRequest:
+        owned = request.owned_commit_projection()
+        if owned is not None:
+            return owned
     payload = _prepared_json_mapping(request, "payload")
     raw_headers = getattr(request, "model_visible_headers", None)
     if not isinstance(raw_headers, Mapping) or any(

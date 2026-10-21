@@ -71,6 +71,15 @@ usage and tool output were rebuilt on native reopening without historical tool
 execution or authority changes. Its extra identity logging is excluded from
 latency acceptance.
 
+Native reconstruction of two further ordinary silent-command continuations
+checked the exact serialized requests. In the shorter history, both logical
+and prepared message lists grew from 231 to 233; in the longer history they
+grew from 1,459 to 1,461. In each case the entire earlier message list was an
+equal prefix and every non-message field was equal. Both authorities stayed
+unchanged. This establishes that an append-only reuse path is applicable to
+these turns; it does not establish a safe cache key for conversions, mutation,
+branch changes, provider options or other tool cases.
+
 ## Post-commit work
 
 A further instrumented turn located work after the prepared-request snapshot
@@ -89,6 +98,39 @@ attempt usage and model outcome durability. Moving the Worked divider ahead of
 those outcomes would violate the completion boundary. Native reopening of
 this turn verified both snapshots, terminal usage and its tool output without
 executing historical tools or changing the authority.
+
+## Owned prepared envelope
+
+The AI-prepared request now retains the original recursively frozen payload,
+headers, canonical JSON and digest as one owned envelope. The committer checks
+that these exact fields still belong to that envelope, thaws the immutable
+payload once, and uses the already computed canonical identity. A replaced
+field follows the existing full-validation path; malformed or changed
+payloads are still rejected before any Model Input write. A regression test
+forbids a second canonicalization and JSON validation of an untouched envelope,
+and four tests cover changes to its payload, headers, canonical string and
+digest. Transport projection also rejects a replaced payload or visible header,
+so it cannot send a different envelope after the committed snapshot. Transport
+now copies the same frozen tree without another JSON validation scan or digest
+recalculation. The focused AI/Model Input suites passed with 119 tests and one
+skip; `make check-ai` passed with 871 offline tests.
+
+In one 29,193-record native PTY diagnostic, the post-tool prepared-request
+validation phase was 13.47ms, compared with 94.79ms in the earlier long-session
+trace. These are separate turns, not a matched p95. The same new turn still
+took 1,467.38ms from tool exit to Worked; other post-tool phases and scheduling
+remain substantial. Native reopening verified its two snapshots, terminal
+usage and tool output, with zero historical tool executions and no change to
+the original authority. The broader Harness typecheck currently reports six
+errors in unrelated sandbox PID-namespace typing; the changed transcript
+module passes focused mypy.
+
+One final-code 24,459-record native PTY turn completed and showed one Worked
+after 1,046.33ms. Its prepared-request validation took 2.51ms. A 495.55ms
+logical-input thaw in that turn is anomalous against earlier turns and needs
+separate attribution; this single run cannot establish an end-to-end
+improvement. Native reopening again verified both snapshots, terminal usage and
+the tool result without executing history or changing the original authority.
 
 ## Next work
 

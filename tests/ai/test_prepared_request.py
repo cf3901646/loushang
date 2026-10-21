@@ -263,6 +263,52 @@ def test_transport_payload_copies_remain_independent_of_source_and_each_other() 
     assert prepared.payload_hash == digest
 
 
+def test_transport_rejects_replaced_owned_envelope_fields() -> None:
+    prepared = PreparedModelRequest.from_provider_request(
+        _request(),
+        payload={"messages": [{"content": "hello"}]},
+        model_visible_headers={"anthropic-beta": "feature-1"},
+    )
+    object.__setattr__(prepared, "payload", {"messages": [{"content": "changed"}]})
+    with pytest.raises(RuntimeError, match="envelope changed"):
+        prepared.payload_for_transport()
+
+    prepared = PreparedModelRequest.from_provider_request(
+        _request(),
+        payload={"messages": [{"content": "hello"}]},
+        model_visible_headers={"anthropic-beta": "feature-1"},
+    )
+    object.__setattr__(prepared, "model_visible_headers", {"anthropic-beta": "changed"})
+    with pytest.raises(RuntimeError, match="envelope changed"):
+        prepared.model_visible_headers_for_transport()
+
+    prepared = PreparedModelRequest.from_provider_request(
+        _request(), payload={"messages": [{"content": "hello"}]}
+    )
+    object.__setattr__(prepared, "payload_hash", "sha256:" + "0" * 64)
+    with pytest.raises(RuntimeError, match="envelope changed"):
+        prepared.payload_for_transport()
+
+
+def test_transport_uses_the_validated_owned_payload_without_another_scan(
+    monkeypatch,
+) -> None:
+    from loushang.ai import prepared_request as module
+
+    prepared = PreparedModelRequest.from_provider_request(
+        _request(), payload={"messages": [{"content": "hello"}]}
+    )
+
+    def unexpected_validation(*_args, **_kwargs):
+        raise AssertionError("sealed transport payload was revalidated")
+
+    monkeypatch.setattr(module, "validate_json_value", unexpected_validation)
+    monkeypatch.setattr(module.hashlib, "sha256", unexpected_validation)
+    assert prepared.payload_for_transport() == {
+        "messages": [{"content": "hello"}]
+    }
+
+
 def test_prepared_request_freezes_its_owned_projection_without_another_tree_copy(
     monkeypatch,
 ) -> None:

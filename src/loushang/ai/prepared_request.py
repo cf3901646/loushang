@@ -264,6 +264,9 @@ class PreparedModelRequest:
         init=False,
         repr=False,
     )
+    _owned_envelope: tuple[
+        Mapping[str, FrozenJSONValue], Mapping[str, str], str, str
+    ] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         for name in (
@@ -331,7 +334,20 @@ class PreparedModelRequest:
         )
         # Projection already detached the entire tree from the caller. Inspect
         # its native containers first, then freeze those owned containers.
-        object.__setattr__(self, "payload", _freeze_owned_json(projected))
+        frozen_payload = cast(
+            Mapping[str, FrozenJSONValue], _freeze_owned_json(projected)
+        )
+        object.__setattr__(self, "payload", frozen_payload)
+        object.__setattr__(
+            self,
+            "_owned_envelope",
+            (
+                frozen_payload,
+                self.model_visible_headers,
+                canonical_payload,
+                self.payload_hash,
+            ),
+        )
 
     @classmethod
     def from_provider_request(
@@ -361,16 +377,46 @@ class PreparedModelRequest:
     def payload_for_transport(self) -> dict[str, JSONValue]:
         """Return a fresh transport object without reordering adapter mappings."""
 
-        digest = (
-            "sha256:"
-            + hashlib.sha256(self.canonical_payload.encode("utf-8")).hexdigest()
-        )
-        if digest != self.payload_hash:
-            raise RuntimeError("prepared model request payload hash mismatch")
-        return _project_payload(self.payload)
+        if not self._owned_envelope_is_current():
+            raise RuntimeError("prepared model request envelope changed before transport")
+        # The sealed digest was calculated from this owned tree at creation.
+        # Frozen containers and the envelope identity check keep it unchanged.
+        return self._owned_payload_copy()
+
+    def owned_commit_projection(
+        self,
+    ) -> tuple[dict[str, JSONValue], dict[str, str], str] | None:
+        """Project the originally sealed payload without repeating its JSON scan.
+
+        The owned mappings contain only recursively frozen JSON values. If a
+        caller replaced any envelope field after construction, the committer
+        must use its full validation path instead.
+        """
+
+        if not self._owned_envelope_is_current():
+            return None
+        _payload, headers, canonical, _digest = self._owned_envelope
+        return self._owned_payload_copy(), dict(headers), canonical
 
     def model_visible_headers_for_transport(self) -> dict[str, str]:
+        if not self._owned_envelope_is_current():
+            raise RuntimeError("prepared model request envelope changed before transport")
         return dict(self.model_visible_headers)
+
+    def _owned_envelope_is_current(self) -> bool:
+        payload, headers, canonical, digest = self._owned_envelope
+        return (
+            self.payload is payload
+            and self.model_visible_headers is headers
+            and self.canonical_payload is canonical
+            and self.payload_hash == digest
+        )
+
+    def _owned_payload_copy(self) -> dict[str, JSONValue]:
+        projected = _thaw_json(self.payload)
+        if not isinstance(projected, dict):
+            raise RuntimeError("sealed prepared payload is not an object")
+        return projected
 
 
 @runtime_checkable
