@@ -981,3 +981,28 @@ validation plus canonical JSON comparison (seven repeats each). Native
 equality alone also conflates booleans with integers and opposite signed
 zeros, so the 40ms diagnostic advantage does not justify replacing the exact
 check without an additional correctness proof. The candidate was not applied.
+
+## Sealed logical encoding overlapped with provider preparation, 2026-10-22
+
+After Session model-call preparation freezes the logical request, its canonical
+encoding and hash can be computed without reading provider output or mutating
+the transcript. The durable prepared-request path now starts that computation
+alongside an opted-in provider's worker preparation and joins both before the
+Model Input commit barrier. The committer reuses the canonical bytes and hash
+in the binary-codec path; direct commits join an unfinished worker, including
+one left running after caller cancellation, before touching the same context.
+A cancellation regression first observed concurrent encoding during direct
+commit and then passed with this join. No transport can start before durable
+snapshot publication.
+
+Three successive growing-session, no-keyboard offline turns measured tool
+exit to Worked at 2,536ms with prewarm disabled, 1,701ms with it enabled, and
+4,546ms with it disabled again. Hot Model Input commits were 869ms, 245ms and
+969ms respectively; the logical encoding phase fell from 210/155ms to below
+1ms when prewarmed. Provider and Session preparation also varied between
+runs, so the end-to-end difference is directional, not an isolated effect
+estimate or p95. Native reopening verified all six Model Input snapshots and
+terminal usage records, three exact tool outputs, unchanged source authority
+and zero historical tools. The selected AI, Model Call and Model Input tests
+passed: 169 passed, one existing skip; Ruff and focused mypy passed. The
+500ms Worked objective remains open.

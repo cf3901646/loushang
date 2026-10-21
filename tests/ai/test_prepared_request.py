@@ -430,6 +430,60 @@ def test_trace_callback_keeps_preparation_on_the_caller_thread() -> None:
     asyncio.run(scenario())
 
 
+def test_worker_adapter_overlaps_committer_prewarm_before_durable_commit() -> None:
+    async def scenario() -> None:
+        both_started = threading.Event()
+        release = threading.Event()
+        started: set[str] = set()
+        events: list[str] = []
+
+        def mark(name: str) -> None:
+            started.add(name)
+            if len(started) == 2:
+                both_started.set()
+            assert release.wait(1.0)
+
+        class WarmCommitter(_RecordingCommitter):
+            async def prewarm_logical_input(self) -> None:
+                await asyncio.to_thread(mark, "logical")
+                events.append("prewarm")
+
+            async def commit_prepared_request(
+                self, request: PreparedModelRequest
+            ) -> None:
+                assert "prewarm" in events
+                await super().commit_prepared_request(request)
+
+        class WorkerAdapter(_PreparedAdapter):
+            prepare_request_in_worker = True
+
+            def prepare_request(self, request: ProviderRequest) -> PreparedModelRequest:
+                mark("provider")
+                return super().prepare_request(request)
+
+        committer = WarmCommitter()
+        adapter = WorkerAdapter(committer.events)
+        source = invoke_prepared_request(
+            adapter, _request(options=CallOptions(prepared_request_committer=committer))
+        )
+        timer = threading.Timer(0.5, release.set)
+        timer.start()
+        task = asyncio.create_task(anext(source))
+        try:
+            assert await asyncio.to_thread(both_started.wait, 1.0)
+            assert not release.is_set(), "preparation stages did not overlap"
+            assert committer.events == []
+        finally:
+            release.set()
+            timer.cancel()
+        assert (await task)["type"] == "response_start"
+        await source.aclose()
+        assert events == ["prewarm"]
+        assert committer.events == ["commit:1", "transport:1"]
+
+    asyncio.run(scenario())
+
+
 def test_transport_payload_copies_remain_independent_of_source_and_each_other() -> None:
     original = {"messages": [{"content": ["hello"]}]}
     prepared = PreparedModelRequest.from_provider_request(_request(), payload=original)

@@ -530,14 +530,30 @@ async def invoke_prepared_request(
     # Built-in, stateless adapters opt in explicitly. A trace callback keeps
     # its existing event-loop thread affinity. Custom adapters stay on the
     # caller thread unless their concrete class declares worker safety.
-    if (
+    prepare_in_worker = (
         committer is not None
         and type(adapter).__dict__.get("prepare_request_in_worker") is True
         and (request.options is None or request.options.trace is None)
-    ):
-        prepared = await asyncio.to_thread(adapter.prepare_request, request)
-    else:
-        prepared = adapter.prepare_request(request)
+    )
+    prewarm = getattr(committer, "prewarm_logical_input", None)
+    warm_task: asyncio.Task[None] | None = None
+    if prepare_in_worker and callable(prewarm):
+        # Both jobs read sealed request inputs. The commit barrier below waits
+        # for both, so cancellation cannot publish a partial preparation.
+        warm_task = asyncio.create_task(prewarm())
+        warm_task.add_done_callback(_consume_speculative_preparation)
+    try:
+        prepared = (
+            await asyncio.to_thread(adapter.prepare_request, request)
+            if prepare_in_worker
+            else adapter.prepare_request(request)
+        )
+        if warm_task is not None:
+            await warm_task
+    except BaseException:
+        if warm_task is not None:
+            warm_task.cancel()
+        raise
     limits = request.options.request_limits if request.options is not None else None
     validate_prepared_request_capacity(prepared, limits)
     if committer is not None:
@@ -551,6 +567,11 @@ async def invoke_prepared_request(
             yield part
     finally:
         await close_async_source(source)
+
+
+def _consume_speculative_preparation(task: asyncio.Task[None]) -> None:
+    if not task.cancelled():
+        task.exception()
 
 
 def validate_prepared_request_capacity(

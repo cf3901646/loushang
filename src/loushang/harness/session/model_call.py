@@ -263,6 +263,15 @@ class _CurrentSessionCommitter(
         if self._turn_performance is not None:
             self._turn_performance.transport_ready(request)
 
+    async def prewarm_logical_input(self) -> None:
+        """Overlap immutable logical encoding with provider request sealing."""
+
+        self._require_current()
+        prewarm = getattr(self._committer, "prewarm_logical_input", None)
+        if callable(prewarm):
+            await prewarm()
+        self._require_current()
+
     async def record_prepared_model_call_attempt_usage(
         self,
         observation: PreparedModelCallAttemptUsage,

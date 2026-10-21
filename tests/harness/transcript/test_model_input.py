@@ -599,6 +599,109 @@ def test_owned_prepared_request_commits_without_copying_sealed_payload(
     asyncio.run(scenario())
 
 
+def test_prewarmed_logical_canonical_is_committed_without_reencoding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def scenario() -> None:
+        transcript = await _memory_transcript()
+        logical = {
+            "system_prompt": "system",
+            "messages": [{"role": "user", "content": "hello"}],
+            "tools": [],
+            "request_options": {},
+        }
+        context = _context(transcript, logical_input=logical)
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=context,
+            runtime_references=_runtime_references(),
+            binary_codec=SessionModelInputBlobCodec(
+                SessionBlobStore(tmp_path / "data", "model-input-conversation")
+            ),
+        )
+        await committer.prewarm_logical_input()
+        prewarmed = committer._prewarmed_logical_canonical
+        assert prewarmed is not None
+        canonical, digest = prewarmed
+
+        def unexpected_reencode(_context: object, _value: object) -> str:
+            pytest.fail("prewarmed logical input was encoded again during commit")
+
+        monkeypatch.setattr(
+            ModelInputCommitContext,
+            "_canonical_logical_input_json",
+            unexpected_reencode,
+        )
+        await committer.commit_prepared_request(_prepared())
+        rebuilt = rebuild_model_input(
+            transcript,
+            committer.commits[-1].snapshot_id,
+            binary_codec=SessionModelInputBlobCodec(
+                SessionBlobStore(tmp_path / "data", "model-input-conversation")
+            ),
+        )
+        assert rebuilt.logical_input == logical
+        assert rebuilt.snapshot.logical_input_hash == digest
+        assert canonical == model_input_module.canonical_model_input_json(
+            logical, name="logical Model Input"
+        )
+
+    asyncio.run(scenario())
+
+
+def test_cancelled_prewarm_worker_settles_before_direct_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+
+    async def scenario() -> None:
+        transcript = await _memory_transcript()
+        context = _context(transcript)
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=context,
+            runtime_references=_runtime_references(),
+            binary_codec=SessionModelInputBlobCodec(
+                SessionBlobStore(tmp_path / "data", "model-input-conversation")
+            ),
+        )
+        started = threading.Event()
+        release = threading.Event()
+        original_prepare = committer._prepare_logical_canonical
+        original_canonical = ModelInputCommitContext._canonical_logical_input_json
+
+        def held_prepare() -> tuple[str, str]:
+            started.set()
+            assert release.wait(1.0)
+            return original_prepare()
+
+        def guarded_canonical(self, value):
+            assert release.is_set(), "commit encoded while cancelled prewarm was active"
+            return original_canonical(self, value)
+
+        monkeypatch.setattr(committer, "_prepare_logical_canonical", held_prepare)
+        monkeypatch.setattr(
+            ModelInputCommitContext,
+            "_canonical_logical_input_json",
+            guarded_canonical,
+        )
+        prewarm = asyncio.create_task(committer.prewarm_logical_input())
+        assert await asyncio.to_thread(started.wait, 1.0)
+        prewarm.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await prewarm
+        try:
+            commit = asyncio.create_task(committer.commit_prepared_request(_prepared()))
+            await asyncio.sleep(0.05)
+            assert not commit.done(), "commit did not wait for the existing worker"
+        finally:
+            release.set()
+        await commit
+        assert len(committer.commits) == 1
+
+    asyncio.run(scenario())
+
+
 def test_model_input_omits_plain_builtin_binary_projection(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

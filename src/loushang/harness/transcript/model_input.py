@@ -444,10 +444,45 @@ class ModelInputTranscriptCommitter(
         self._attempt_usage_observations: set[ModelCallAttemptUsage] = set()
         self._terminal_attempt_usage_keys: set[tuple[str, int, str]] = set()
         self._lock = asyncio.Lock()
+        self._logical_prewarm_task: asyncio.Task[tuple[str, str]] | None = None
+        self._prewarmed_logical_canonical: tuple[str, str] | None = None
 
     @property
     def commits(self) -> tuple[ModelInputCommitResult, ...]:
         return tuple(self._commits)
+
+    def _prepare_logical_canonical(self) -> tuple[str, str]:
+        frozen = self._context.logical_input
+        logical = cast(
+            dict[str, JSONValue],
+            (
+                _logical_input_for_materialization(frozen)
+                if self._context._reused_message_prefix_count
+                else thaw_model_input_json(frozen)
+            ),
+        )
+        canonical = self._context._canonical_logical_input_json(logical)
+        digest = "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        return canonical, digest
+
+    async def prewarm_logical_input(self) -> None:
+        """Prepare the sealed logical hash while provider payloads are built."""
+
+        self._require_current_transcript()
+        if self._prewarmed_logical_canonical is not None:
+            return
+        task = self._logical_prewarm_task
+        if task is None:
+            task = asyncio.create_task(asyncio.to_thread(self._prepare_logical_canonical))
+            self._logical_prewarm_task = task
+            task.add_done_callback(self._finish_logical_prewarm)
+        prepared = await asyncio.shield(task)
+        self._require_current_transcript()
+        self._prewarmed_logical_canonical = prepared
+
+    def _finish_logical_prewarm(self, task: asyncio.Task[tuple[str, str]]) -> None:
+        if not task.cancelled():
+            task.exception()
 
     async def commit_prepared_request(
         self,
@@ -473,6 +508,12 @@ class ModelInputTranscriptCommitter(
                         raise ModelInputIntegrityError(
                             "Model Input attempts changed logical invocation identity"
                         )
+                if self._logical_prewarm_task is not None:
+                    with timer.phase("join_logical_prewarm"):
+                        self._prewarmed_logical_canonical = await asyncio.shield(
+                            self._logical_prewarm_task
+                        )
+                    self._require_current_transcript()
                 with timer.phase("validate_prepared_request"):
                     if (
                         type(request) is PreparedModelRequest
@@ -529,14 +570,21 @@ class ModelInputTranscriptCommitter(
                     # the snapshot hash anyway; use that immutable text to avoid
                     # two more full-tree copies and an avoidable GC pause.
                     with timer.phase("logical_canonical"):
-                        logical_canonical = await asyncio.to_thread(
-                            self._context._canonical_logical_input_json,
-                            logical_input,
-                        )
-                    logical_input_hash = (
-                        "sha256:"
-                        + hashlib.sha256(logical_canonical.encode("utf-8")).hexdigest()
-                    )
+                        if self._prewarmed_logical_canonical is not None:
+                            logical_canonical, logical_input_hash = (
+                                self._prewarmed_logical_canonical
+                            )
+                        else:
+                            logical_canonical = await asyncio.to_thread(
+                                self._context._canonical_logical_input_json,
+                                logical_input,
+                            )
+                            logical_input_hash = (
+                                "sha256:"
+                                + hashlib.sha256(
+                                    logical_canonical.encode("utf-8")
+                                ).hexdigest()
+                            )
                     needs_binary_projection = bool(request.binary_fields) or any(
                         marker in logical_canonical or marker in canonical
                         for marker in (
@@ -598,11 +646,18 @@ class ModelInputTranscriptCommitter(
                     # by stored_logical_input/stored_prepared_payload above.
                     del projected_logical, projected_prepared
                 if logical_input_hash is None:
-                    logical_input_hash = await asyncio.to_thread(
-                        hash_model_input_json,
-                        logical_input,
-                        name="logical Model Input",
-                    )
+                    if (
+                        self._prewarmed_logical_canonical is not None
+                        and self._binary_codec is None
+                        and self._binary_codec_factory is None
+                    ):
+                        logical_input_hash = self._prewarmed_logical_canonical[1]
+                    else:
+                        logical_input_hash = await asyncio.to_thread(
+                            hash_model_input_json,
+                            logical_input,
+                            name="logical Model Input",
+                        )
                 with timer.phase("pre_writer_yield"):
                     await _yield_preparation()
                 self._require_current_transcript()
