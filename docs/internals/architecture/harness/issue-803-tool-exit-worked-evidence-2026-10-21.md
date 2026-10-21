@@ -270,6 +270,20 @@ were unchanged. The focused AI suite passed 41 tests, and `make check-ai`
 passed 874 offline tests with 90.63% coverage. These are local stage results,
 not a matched real-PTY Worked p95 or evidence of the 250ms target.
 
+## Streaming mapping-root hash
+
+The v2 mapping-root hash now consumes canonical sequence items directly,
+without joining the full historical list into an intermediate string. On the
+same isolated long-session copy, seven read-only micro samples of the 1,485-item
+prepared sequence measured 25.30ms median for the former join-and-hash path
+and 10.67ms for streaming, with identical SHA-256 results. One instrumented
+real-PTY continuation measured its post-tool root phase at 71.39ms before and
+59.56ms after; overall Worked times were 1,281.22ms and 1,401.89ms. These
+are different sequential turns, not matched pairs, and the total does not
+establish an improvement. Native reopening verified four snapshots with
+terminal usage and two outputs, with unchanged authority and zero historical
+tool calls. The Model Input and Session model-call suites passed 132 tests.
+
 ## Next work
 
 An incremental receipt lookup replaced the usage recorder's full active-path

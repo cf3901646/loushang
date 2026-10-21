@@ -1013,18 +1013,14 @@ class ModelInputV2Writer:
             for mapping_index, mapping in enumerate(mapping_values):
                 await self._yield_if_needed()
                 entries = []
-                canonical_fields: dict[str, str] = {}
+                canonical_fields: dict[str, str | tuple[str, ...]] = {}
                 for name in mapping:
                     field_state = mapping_sequences.get((mapping_index, name))
                     if field_state is not None:
                         reference = sequence_refs[field_state]
-                        canonical_fields[name] = (
-                            "["
-                            + ",".join(
-                                item.canonical
-                                for item in sequence_plans[field_state].item_plans
-                            )
-                            + "]"
+                        canonical_fields[name] = tuple(
+                            item.canonical
+                            for item in sequence_plans[field_state].item_plans
                         )
                     else:
                         value_hash = mapping_value_hashes[(mapping_index, name)]
@@ -1398,18 +1394,32 @@ class ModelInputV2Writer:
         )
 
 
-def _hash_canonical_mapping_fields(fields: Mapping[str, str]) -> str:
-    canonical = (
-        "{"
-        + ",".join(
-            canonical_model_input_json(name, name="Model Input v2 mapping field")
-            + ":"
-            + fields[name]
-            for name in sorted(fields)
+def _hash_canonical_mapping_fields(
+    fields: Mapping[str, str | tuple[str, ...]],
+) -> str:
+    digest = hashlib.sha256()
+    digest.update(b"{")
+    for field_index, name in enumerate(sorted(fields)):
+        if field_index:
+            digest.update(b",")
+        digest.update(
+            canonical_model_input_json(
+                name, name="Model Input v2 mapping field"
+            ).encode("utf-8")
         )
-        + "}"
-    )
-    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        digest.update(b":")
+        value = fields[name]
+        if isinstance(value, str):
+            digest.update(value.encode("utf-8"))
+            continue
+        digest.update(b"[")
+        for item_index, canonical in enumerate(value):
+            if item_index:
+                digest.update(b",")
+            digest.update(canonical.encode("utf-8"))
+        digest.update(b"]")
+    digest.update(b"}")
+    return "sha256:" + digest.hexdigest()
 
 
 def _bundle_model_input_nodes(

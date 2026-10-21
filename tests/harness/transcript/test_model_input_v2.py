@@ -28,7 +28,10 @@ from loushang.harness.transcript.model_input_types import (
     canonical_model_input_json,
     hash_model_input_json,
 )
-from loushang.harness.transcript.model_input_v2 import ModelInputV2Resolver
+from loushang.harness.transcript.model_input_v2 import (
+    ModelInputV2Resolver,
+    _hash_canonical_mapping_fields,
+)
 from loushang.harness.transcript.model_input_v2_types import (
     MODEL_INPUT_V2_PAYLOAD_VERSION,
     ModelInputMappingEntry,
@@ -77,6 +80,26 @@ def test_inline_model_input_keeps_float_unicode_and_control_canonical_bytes():
     node = create_model_input_json_value(value)
     assert node.inline_json == canonical_model_input_json(value, name="test")
     assert replace(node) == node
+
+
+def test_mapping_root_hash_streams_sequence_without_changing_canonical_identity():
+    messages = [
+        {"role": "user", "content": '中\\n"文'},
+        {"role": "assistant", "content": [1e300, -0.0, True, None]},
+    ]
+    mapping = {"messages": messages, "empty": [], "meta": {"z": 2, "a": "🚀"}}
+    fields = {
+        "messages": tuple(
+            canonical_model_input_json(item, name="test message")
+            for item in messages
+        ),
+        "empty": (),
+        "meta": canonical_model_input_json(mapping["meta"], name="test metadata"),
+    }
+
+    assert _hash_canonical_mapping_fields(fields) == hash_model_input_json(
+        mapping, name="test mapping"
+    )
 
 
 @pytest.mark.parametrize(
