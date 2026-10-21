@@ -722,3 +722,29 @@ also varied from about 250ms to 578ms. The new authority independently
 reopened with exact snapshots, usage and tool output and no historical tool
 execution. This direct encoding improvement has not produced a measured
 end-to-end improvement or met the 500ms goal.
+
+## Follow-up prepared-request allocation, 2026-10-22
+
+The offline PTY probe was split around its own provider payload construction
+and transport assertion. On a continuation of the same roughly 29,500-record
+history, tool exit to Worked took 3,018ms in one run. The post-tool prepared
+request took 291ms: serializing 1,553 messages took 70ms and sealing the
+prepared payload took 221ms. The Model Input commit took 610ms, including
+91ms prepared-request validation, 54ms logical-input thaw, 100ms incremental
+materialization and 124ms snapshot append. The standard transport payload
+copy took 90ms; the probe's extra snapshot lookup took only 3ms. The maximum
+observed input echo was 185ms, while the maximum loop delay reached 1,264ms.
+These are one-run measurements, not p95 values or additive critical-path
+totals; phase wall times include scheduling and machine contention.
+
+A separate nine-repetition comparison on 1,549 rebuilt logical messages
+found a 61ms median for both recursive exact comparison and a single native
+JSON encoding comparison. Replacing the existing mutation proof with JSON
+encoding would therefore have no demonstrated material speed benefit and
+would need additional strict-type proof. No Product change was made for it.
+
+The run's native reopen verified its two snapshots and terminal usage, the
+exact output and unchanged source authority, with zero historical tool
+executions. The adapter's full serialization and prepared-request sealing,
+ordered Model Input commit, tool-result append and final assistant append
+remain on the post-tool critical path. The 500ms acceptance remains open.
