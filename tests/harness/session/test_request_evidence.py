@@ -215,6 +215,72 @@ def test_append_recovery_scans_only_new_snapshot_records(monkeypatch) -> None:
     assert len(scanned) <= 1
 
 
+def test_certified_evidence_free_append_skips_historical_path_recovery() -> None:
+    import asyncio
+
+    template = _snapshot(snapshot_id="snapshot-0")
+    records = [
+        ConversationRecord(
+            record_id=f"record-{index}",
+            parent_id=f"record-{index - 1}" if index else None,
+            kind="model.input.prepared",
+            payload_version=1,
+            created_at="2026-10-22T00:00:00Z",
+            payload=replace(template, snapshot_id=f"snapshot-{index}"),
+            metadata={},
+        )
+        for index in range(100)
+    ]
+    reads = 0
+
+    def active_records():
+        nonlocal reads
+        reads += 1
+        return records
+
+    def append_suffix(previous_id: str):
+        positions = [
+            index for index, record in enumerate(records) if record.record_id == previous_id
+        ]
+        return tuple(records[positions[0] + 1 :]) if len(positions) == 1 else None
+
+    runtime = SessionRequestEvidenceRuntime(
+        get_context_message_bindings=lambda: pytest.fail("no Resource evidence"),
+        get_active_records=active_records,
+        get_append_only_records_since=append_suffix,
+        rebuild_model_input=lambda snapshot_id: pytest.fail(
+            f"evidence-free snapshot was rebuilt: {snapshot_id}"
+        ),
+    )
+    assert runtime.project_model_input(_preparation([])) is None
+    before = reads
+    records.append(
+        replace(
+            records[-1],
+            record_id="certified-record",
+            parent_id=records[-1].record_id,
+            payload=replace(template, snapshot_id="certified-snapshot"),
+        )
+    )
+    runtime.note_committed_model_input(
+        "certified-snapshot", has_resource_evidence=False
+    )
+    asyncio.run(runtime.prepare_model_input_async())
+    assert runtime.project_model_input(_preparation([])) is None
+    assert reads == before
+
+    records.append(
+        replace(
+            records[-1],
+            record_id="unknown-record",
+            parent_id=records[-1].record_id,
+            payload=replace(template, snapshot_id="unknown-snapshot"),
+        )
+    )
+    asyncio.run(runtime.prepare_model_input_async())
+    assert reads > before
+
+
 @pytest.mark.parametrize(
     "outcome", ["complete", "cancel", "close", "corrupt", "append_corrupt"]
 )
