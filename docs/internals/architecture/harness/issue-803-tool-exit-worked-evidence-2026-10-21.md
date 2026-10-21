@@ -71,6 +71,25 @@ usage and tool output were rebuilt on native reopening without historical tool
 execution or authority changes. Its extra identity logging is excluded from
 latency acceptance.
 
+## Post-commit work
+
+A further instrumented turn located work after the prepared-request snapshot
+was durably committed. Its adapter began offline invocation about 5ms after
+the commit. The attempt-usage recorder then took 63.66ms, including a 50.04ms
+durable append. The terminal-outcome recorder took 33.00ms, including a
+32.85ms durable append. The final Session check took 10.32ms, followed by
+prompt completion and the Worked flush. The interval from snapshot commit to
+visible Worked was about 207ms in this diagnostic turn. It includes transport
+payload projection and model event processing in addition to the named phases.
+The extra tracing makes this a stage-location result, not a comparable p95.
+
+The success path therefore has little room for post-commit work under a
+250ms end-to-end target. Any prefix-staging design must also preserve terminal
+attempt usage and model outcome durability. Moving the Worked divider ahead of
+those outcomes would violate the completion boundary. Native reopening of
+this turn verified both snapshots, terminal usage and its tool output without
+executing historical tools or changing the authority.
+
 ## Next work
 
 Investigate an incremental, provenance-checked prepared-request and transcript
