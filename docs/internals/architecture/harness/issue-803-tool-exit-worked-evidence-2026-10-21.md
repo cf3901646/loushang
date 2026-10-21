@@ -93,9 +93,12 @@ payload projection and model event processing in addition to the named phases.
 The extra tracing makes this a stage-location result, not a comparable p95.
 
 The success path therefore has little room for post-commit work under a
-250ms end-to-end target. Any prefix-staging design must also preserve terminal
-attempt usage and model outcome durability. Moving the Worked divider ahead of
-those outcomes would violate the completion boundary. Native reopening of
+250ms end-to-end target. Any prefix-staging design must preserve terminal
+attempt usage and model outcome recovery semantics. The current implementation
+awaits their append attempts before Worked. Whether Worked must await successful
+terminal-observation durability is a separate design choice: ordinary recorder
+failures are already traced and swallowed, and recovery classifies a missing
+terminal outcome as unknown. Native reopening of
 this turn verified both snapshots, terminal usage and its tool output without
 executing historical tools or changing the authority.
 

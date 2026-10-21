@@ -28,7 +28,8 @@ about 578ms: roughly 129ms before Session preparation, 72ms in that preparation,
 usage/outcome appends and 45ms in final presentation. These are diagnostic
 intervals, not a proposed latency budget. The required target is p95 at most
 250ms from actual tool exit to the matching visible Worked, with no early
-Worked, missing durable facts or input freeze.
+Worked, missing durable facts or input freeze. The separate terminal-observation
+contract question below does not relax this issue's acceptance target.
 
 The two reconstructed ordinary continuations in the evidence have exact
 append-only logical and prepared message prefixes. This is evidence of a
@@ -81,9 +82,24 @@ Input snapshot is durable.
    actual suffix, checks exact final logical/prepared hashes, and commits new
    nodes and the snapshot through the current unit of work. Current-Session,
    revision/leaf and cancellation checks run again at the final barrier.
-6. Terminal attempt usage and model outcome stay durable before Worked. This
-   staging direction alone does not claim the 250ms goal: the result-publication
-   and postcommit intervals also require measured reductions.
+6. The current Provider path awaits terminal attempt usage and model outcome
+   recording before returning to the Agent, and therefore before Worked. Those
+   recorder interfaces are optional and ordinary recording failures are traced
+   without failing the model call. The recovery contract already represents a
+   prepared attempt with no terminal outcome as `unknown` after a crash. Treat
+   "terminal observations durable before Worked" as a separate candidate UI
+   guarantee, not as a prerequisite for the next provider request. Issue #803
+   still forbids moving these appends behind Worked to report an improved p95.
+   A future change to that completion contract would need an owned, ordered
+   writer, a flush boundary for the next transcript mutation and Session
+   shutdown, and crash/reopen and cancellation evidence. It cannot merely
+   detach unowned tasks or allow a later append to overtake the outcome.
+
+The current 29,209-record diagnostic assigns about 106ms to the two terminal
+appends and about 599ms to provider preparation plus Model Input commit after
+Session preparation. Moving only terminal recording off the UI path would
+therefore leave the long-session target far out of reach. Prefix staging and
+incremental finalization remain necessary if this option is selected.
 
 ## Consequences And Validation
 
