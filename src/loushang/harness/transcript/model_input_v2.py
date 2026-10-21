@@ -9,7 +9,7 @@ import math
 import time
 from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal, Self, cast
 from weakref import WeakKeyDictionary
 
@@ -191,6 +191,7 @@ class _SequencePlan:
     values: tuple[JSONValue, ...]
     item_plans: tuple[_ValuePlan, ...]
     prefix_hashes: tuple[str, ...]
+    item_references: tuple[ModelInputNodeReference, ...] | None = None
 
     @property
     def final_hash(self) -> str:
@@ -1028,7 +1029,18 @@ class ModelInputV2Writer:
                 root_refs.append(indexed.reference)
 
         self._materialization_timing = timing.snapshot()
-        self._index_cache.sequence_plans.update(self._sequence_plan_updates)
+        self._index_cache.sequence_plans.update(
+            {
+                key: replace(
+                    plan,
+                    item_references=tuple(
+                        self._value_references[item.value_hash]
+                        for item in plan.item_plans
+                    ),
+                )
+                for key, plan in self._sequence_plan_updates.items()
+            }
+        )
         return ModelInputV2Materialization(
             logical_root=root_refs[0],
             prepared_payload_root=root_refs[1],
@@ -1210,15 +1222,30 @@ class ModelInputV2Writer:
         reused_count = 0
         if cached is not None:
             reusable_count = min(len(values), len(cached.item_plans))
-            while reused_count < reusable_count and _same_model_input_json(
-                values[reused_count],
-                cached.item_plans[reused_count].value,
+            while reused_count < reusable_count and (
+                canonical_model_input_json(
+                    values[reused_count],
+                    name="Model Input v2 cached sequence item",
+                )
+                == cached.item_plans[reused_count].canonical
+                if cached.item_references is not None
+                else _same_model_input_json(
+                    values[reused_count],
+                    cached.item_plans[reused_count].value,
+                )
             ):
                 reused_count += 1
 
         item_plans = []
-        for plan in () if cached is None else cached.item_plans[:reused_count]:
+        for index, plan in enumerate(
+            () if cached is None else cached.item_plans[:reused_count]
+        ):
             item_plans.append(self._reuse_value_plan(plan))
+            if cached is not None and cached.item_references is not None:
+                self._value_references.setdefault(
+                    plan.value_hash,
+                    cached.item_references[index],
+                )
         prefix_hashes = (
             [model_input_empty_sequence_hash()]
             if cached is None
@@ -1263,6 +1290,8 @@ class ModelInputV2Writer:
         missing_plans: list[_ValuePlan] = []
         for plan in self._value_plans.values():
             await self._yield_if_needed()
+            if plan.value_hash in self._value_references:
+                continue
             existing = self._index.find_value(plan.value_hash)
             if existing is None:
                 missing_plans.append(plan)

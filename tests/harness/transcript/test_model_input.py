@@ -487,6 +487,38 @@ def test_model_input_releases_unused_binary_projection_before_indexing(
     asyncio.run(scenario())
 
 
+def test_model_input_omits_plain_builtin_binary_projection(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def scenario() -> None:
+        transcript = await _memory_transcript()
+        codec = SessionModelInputBlobCodec(
+            SessionBlobStore(tmp_path / "data", "model-input-conversation")
+        )
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript),
+            runtime_references=_runtime_references(),
+            binary_codec=codec,
+        )
+
+        def unnecessary_projection(*args, **kwargs):
+            raise AssertionError("plain request copied through blob projection")
+
+        monkeypatch.setattr(
+            SessionModelInputBlobCodec,
+            "externalize_mapping",
+            unnecessary_projection,
+        )
+        request = _prepared()
+        await committer.commit_prepared_request(request)
+        rebuilt = rebuild_model_input(transcript, committer.commits[-1].snapshot_id)
+        assert rebuilt.prepared_payload == request.payload_for_transport()
+        assert rebuilt.snapshot.binary_projection_version == 0
+
+    asyncio.run(scenario())
+
+
 def test_prepared_payload_projection_does_not_hold_two_complete_container_trees():
     import tracemalloc
 
@@ -1098,6 +1130,56 @@ def test_model_input_planning_services_input_before_finishing(
             assert not committer.commits
             cache = model_input_v2_module._MODEL_INPUT_V2_INDEX_CACHES.get(transcript)
             assert cache is None or cache.sequence_plans == prior_plans
+
+    asyncio.run(scenario())
+
+
+def test_model_input_append_reuses_verified_prefix_value_references(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        transcript = await _memory_transcript()
+        messages = [{"role": "user", "content": str(index)} for index in range(50)]
+        logical = dict(thaw_model_input_json(_context(transcript).logical_input))
+        logical["messages"] = messages
+        first = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript, logical_input=logical),
+            runtime_references=_runtime_references(),
+        )
+        await first.commit_prepared_request(_prepared(payload={"messages": messages}))
+
+        await transcript.append_agent_message(
+            UserMessage(role="user", content="continue", timestamp=3.0)
+        )
+        next_messages = [*messages, {"role": "user", "content": "new"}]
+        next_logical = dict(thaw_model_input_json(_context(transcript).logical_input))
+        next_logical["messages"] = next_messages
+        second = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript, logical_input=next_logical),
+            runtime_references=_runtime_references(),
+        )
+        value_lookups = 0
+        original_find = model_input_v2_module.ModelInputV2NodeIndex.find_value
+
+        def find_value(index, value_hash):
+            nonlocal value_lookups
+            value_lookups += 1
+            return original_find(index, value_hash)
+
+        monkeypatch.setattr(
+            model_input_v2_module.ModelInputV2NodeIndex,
+            "find_value",
+            find_value,
+        )
+        request = _prepared(payload={"messages": next_messages})
+        await second.commit_prepared_request(request)
+
+        assert value_lookups < 10, "append rechecked every verified old value"
+        rebuilt = rebuild_model_input(transcript, second.commits[-1].snapshot_id)
+        assert rebuilt.logical_input == next_logical
+        assert rebuilt.prepared_payload == request.payload_for_transport()
 
     asyncio.run(scenario())
 

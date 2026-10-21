@@ -433,6 +433,61 @@ This is a correctness guard for later writer reuse, not a latency claim.
 
 Extend the exact prefix proof into the transcript writer and remove other
 repeated full-context work while preserving the durable-before-send order.
+
+## Background planning and verified value references
+
+The writer's v2 plan previously compared and reused every historical JSON
+message in the TUI event loop, yielding periodically. A regression first
+showed that the event loop could not process input while the first items were
+being collected. Planning now runs in a background thread over request-local
+copies of the cached sequence plans; the writer checks the transcript
+revision and leaf again before any write. Cancellation, branch replacement and
+concurrent append regressions pass in both warm and cold cache states. The
+focused Model Input and Session model-call selection passed 104 tests.
+
+The first four native-PTY matched pairs used the same 29,465-record seed and
+ran sequentially, alternating old and new order. A fifth baseline completed,
+but the candidate was stopped when the goal was paused; this is not a five-pair
+p95 result. The old/new tool-exit-to-Worked times in the four complete pairs
+were 2,016/2,096ms, 2,162/2,051ms, 1,850/1,980ms and 2,044/2,058ms.
+Threaded planning shortened its own phase from roughly 347–490ms to
+152–167ms, but did not establish an end-to-end improvement. Maximum keyboard
+echo in those pairs remained about 697–926ms. All nine completed authorities
+were reopened read-only and verified: 18 snapshots with terminal usage, nine
+tool-output fingerprints and truncation results, unchanged authority and no
+historical tool execution. The background-planning change is an intermediate
+input-loop responsiveness fix, not acceptance of the Worked target.
+
+A second regression first found 55 value-index lookups after appending one
+message to a 50-message request. The writer now retains verified value
+references with an ancestry-bound sequence plan. It canonicalizes each
+candidate prefix item before reusing a reference, so nested changes,
+boolean/integer changes and signed floating zero cannot inherit an old node.
+The changed suffix still uses the normal materialization and integrity path.
+This reduced the regression's old-value lookups below ten; 138 Model Input,
+v2 and Session tests plus 32 file-index/image/thaw tests passed. One bounded
+native-PTY candidate reopened with two exact snapshots, terminal usage and
+one output; its value-materialization phase was 67ms versus 102ms in the
+separate baseline turn. The pair had unrelated phase variance and does not
+prove a Worked improvement.
+
+The built-in binary projection copied both full JSON trees even for text-only
+requests. The committer now uses the logical canonical encoding it already
+needs for the hash to check for declared images, logical image objects and
+reserved literal marker keys. Only a plain request with the exact built-in
+codec skips projection; custom codecs, images and markers retain the existing
+path. A first-failing regression and 99 Model Input/image tests passed. A
+bounded native-PTY turn confirmed the binary-externalization phase was absent
+and reopened with two snapshots and exact tool output. Its Worked latency was
+2,663ms because a 538ms generation-two collection moved into prepared-request
+validation. This is a stage reduction, not an end-to-end tail result.
+
+The current long-session critical path remains about two seconds: tool result
+append, next call preparation, prepared request construction, multiple v2
+graph writes and snapshot append, then usage/outcome/assistant writes and
+terminal projection. Meeting 500ms requires shortening that serial chain and
+controlling full-history allocations and GC pauses; the current changes alone
+do not meet the goal.
 Measure with five
 matched before/after PTY rounds across the required tool cases and history
 scales. A faster Worked display before the final model call and terminal

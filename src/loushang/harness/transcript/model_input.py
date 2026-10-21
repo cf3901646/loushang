@@ -300,7 +300,30 @@ class ModelInputTranscriptCommitter(
                 stored_logical_input = logical_input
                 stored_prepared_payload = prepared_payload
                 binary_projection_version = 0
-                if self._binary_codec is not None:
+                logical_input_hash: str | None = None
+                needs_binary_projection = self._binary_codec is not None
+                if type(self._binary_codec) is SessionModelInputBlobCodec:
+                    # The built-in codec only changes declared prepared images,
+                    # logical image objects, and reserved literal marker keys.
+                    # A plain request needs its canonical logical encoding for
+                    # the snapshot hash anyway; use that immutable text to avoid
+                    # two more full-tree copies and an avoidable GC pause.
+                    logical_canonical = canonical_model_input_json(
+                        logical_input,
+                        name="logical Model Input",
+                    )
+                    logical_input_hash = (
+                        "sha256:"
+                        + hashlib.sha256(logical_canonical.encode("utf-8")).hexdigest()
+                    )
+                    needs_binary_projection = bool(request.binary_fields) or any(
+                        marker in logical_canonical or marker in canonical
+                        for marker in (
+                            '"$loushang.sessionBlob"',
+                            '"$loushang.literal"',
+                        )
+                    ) or '"type":"image"' in logical_canonical
+                if needs_binary_projection and self._binary_codec is not None:
                     with timer.phase("binary_externalize"):
                         projected_logical = self._binary_codec.externalize_mapping(
                             logical_input
@@ -322,10 +345,11 @@ class ModelInputTranscriptCommitter(
                     # Release them before indexing; changed trees remain owned
                     # by stored_logical_input/stored_prepared_payload above.
                     del projected_logical, projected_prepared
-                logical_input_hash = hash_model_input_json(
-                    logical_input,
-                    name="logical Model Input",
-                )
+                if logical_input_hash is None:
+                    logical_input_hash = hash_model_input_json(
+                        logical_input,
+                        name="logical Model Input",
+                    )
                 await _yield_preparation()
                 self._require_current_transcript()
                 writer = await ModelInputV2Writer.prepare(
