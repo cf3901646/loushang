@@ -894,39 +894,20 @@ class ModelInputV2Writer:
             prepared = dict(prepared_payload)
             headers = dict(model_visible_headers)
             mapping_values = (logical, prepared)
-            sequence_plans: dict[tuple[int, str], _SequencePlan] = {}
-            mapping_sequences: dict[tuple[int, str], tuple[int, str]] = {}
-            mapping_value_hashes: dict[tuple[int, str], str] = {}
-
-            for mapping_index, mapping in enumerate(mapping_values):
-                for name, value in mapping.items():
-                    if isinstance(value, list):
-                        cache_key = (mapping_index, name)
-                        plan = await self._sequence_plan(value, cache_key=cache_key)
-                        state = (len(plan.values), plan.final_hash)
-                        prior_plan = sequence_plans.get(state)
-                        if prior_plan is not None and (
-                            len(prior_plan.values) != len(plan.values)
-                            or any(
-                                not _same_model_input_json(left, right)
-                                for left, right in zip(
-                                    prior_plan.values,
-                                    plan.values,
-                                    strict=True,
-                                )
-                            )
-                        ):
-                            raise ModelInputIntegrityError(
-                                "Model Input v2 sequence hash collision"
-                            )
-                        sequence_plans.setdefault(state, plan)
-                        mapping_sequences[(mapping_index, name)] = state
-                    else:
-                        mapping_value_hashes[(mapping_index, name)] = (
-                            self._collect_value(value).value_hash
-                        )
-                    await self._yield_if_needed()
-            headers_plan = self._collect_value(headers)
+            (
+                sequence_plans,
+                mapping_sequences,
+                mapping_value_hashes,
+                headers_plan,
+            ) = await asyncio.to_thread(
+                self._plan_values,
+                mapping_values,
+                headers,
+                dict(self._index_cache.sequence_plans),
+            )
+            # The worker owns only request-local plans. A cancellation discards
+            # them; a branch or external append must be rejected before writes.
+            self._require_current_transcript()
 
         await self._yield_if_needed()
         with timing.phase("values"):
@@ -1151,6 +1132,10 @@ class ModelInputV2Writer:
             return
         for _ in range(3):
             await asyncio.sleep(0)
+        self._require_current_transcript()
+        self._work_deadline = time.monotonic() + 0.008
+
+    def _require_current_transcript(self) -> None:
         if (
             self._transcript.revision != self._expected_revision
             or self._transcript.leaf_id != self._expected_leaf_id
@@ -1158,19 +1143,70 @@ class ModelInputV2Writer:
             raise ModelInputIntegrityError(
                 "Model Input transcript changed during materialization"
             )
-        self._work_deadline = time.monotonic() + 0.008
 
-    async def _sequence_plan(
+    def _plan_values(
+        self,
+        mapping_values: tuple[dict[str, JSONValue], dict[str, JSONValue]],
+        headers: dict[str, str],
+        cached_plans: Mapping[tuple[int, str], _SequencePlan],
+    ) -> tuple[
+        dict[tuple[int, str], _SequencePlan],
+        dict[tuple[int, str], tuple[int, str]],
+        dict[tuple[int, str], str],
+        _ValuePlan,
+    ]:
+        sequence_plans: dict[tuple[int, str], _SequencePlan] = {}
+        mapping_sequences: dict[tuple[int, str], tuple[int, str]] = {}
+        mapping_value_hashes: dict[tuple[int, str], str] = {}
+        for mapping_index, mapping in enumerate(mapping_values):
+            for name, value in mapping.items():
+                if isinstance(value, list):
+                    cache_key = (mapping_index, name)
+                    plan = self._sequence_plan(
+                        value,
+                        cache_key=cache_key,
+                        cached=cached_plans.get(cache_key),
+                    )
+                    state = (len(plan.values), plan.final_hash)
+                    prior_plan = sequence_plans.get(state)
+                    if prior_plan is not None and (
+                        len(prior_plan.values) != len(plan.values)
+                        or any(
+                            not _same_model_input_json(left, right)
+                            for left, right in zip(
+                                prior_plan.values,
+                                plan.values,
+                                strict=True,
+                            )
+                        )
+                    ):
+                        raise ModelInputIntegrityError(
+                            "Model Input v2 sequence hash collision"
+                        )
+                    sequence_plans.setdefault(state, plan)
+                    mapping_sequences[(mapping_index, name)] = state
+                else:
+                    mapping_value_hashes[(mapping_index, name)] = (
+                        self._collect_value(value).value_hash
+                    )
+        return (
+            sequence_plans,
+            mapping_sequences,
+            mapping_value_hashes,
+            self._collect_value(headers),
+        )
+
+    def _sequence_plan(
         self,
         values: Sequence[JSONValue],
         *,
         cache_key: tuple[int, str],
+        cached: _SequencePlan | None,
     ) -> _SequencePlan:
         if len(values) > MODEL_INPUT_V2_MAX_SEQUENCE_ITEMS:
             raise ModelInputRecordSizeError(
                 "Model Input v2 sequence exceeds the item budget"
             )
-        cached = self._index_cache.sequence_plans.get(cache_key)
         reused_count = 0
         if cached is not None:
             reusable_count = min(len(values), len(cached.item_plans))
@@ -1179,12 +1215,10 @@ class ModelInputV2Writer:
                 cached.item_plans[reused_count].value,
             ):
                 reused_count += 1
-                await self._yield_if_needed()
 
         item_plans = []
         for plan in () if cached is None else cached.item_plans[:reused_count]:
             item_plans.append(self._reuse_value_plan(plan))
-            await self._yield_if_needed()
         prefix_hashes = (
             [model_input_empty_sequence_hash()]
             if cached is None
@@ -1196,7 +1230,6 @@ class ModelInputV2Writer:
             prefix_hashes.append(
                 extend_model_input_sequence_hash(prefix_hashes[-1], plan.value_hash)
             )
-            await self._yield_if_needed()
         resolved_item_plans = tuple(item_plans)
         sequence_plan = _SequencePlan(
             tuple(item.value for item in resolved_item_plans),

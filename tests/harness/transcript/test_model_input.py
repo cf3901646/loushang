@@ -1011,7 +1011,7 @@ def test_model_input_validation_yields_before_writing(monkeypatch, change):
 def test_model_input_planning_services_input_before_finishing(
     monkeypatch, change, warm
 ):
-    from types import SimpleNamespace
+    import threading
 
     async def scenario():
         transcript = await _memory_transcript()
@@ -1039,36 +1039,44 @@ def test_model_input_planning_services_input_before_finishing(
         prior_cache = model_input_v2_module._MODEL_INPUT_V2_INDEX_CACHES.get(transcript)
         prior_plans = {} if prior_cache is None else dict(prior_cache.sequence_plans)
         planning = asyncio.Event()
+        release_planning = threading.Event()
+        loop = asyncio.get_running_loop()
+        loop_thread = threading.get_ident()
+        planning_thread = None
         collected = []
-        clock = [0.0]
         original = model_input_v2_module.ModelInputV2Writer._collect_value
 
         def collect(writer, value):
+            nonlocal planning_thread
             result = original(writer, value)
             collected.append(value)
-            clock[0] += 0.005
             if len(collected) == 3:
-                planning.set()
+                planning_thread = threading.get_ident()
+                if planning_thread == loop_thread:
+                    planning.set()
+                else:
+                    loop.call_soon_threadsafe(planning.set)
+                    release_planning.wait(timeout=10)
             return result
 
         monkeypatch.setattr(
             model_input_v2_module.ModelInputV2Writer, "_collect_value", collect
         )
-        monkeypatch.setattr(
-            model_input_v2_module, "time", SimpleNamespace(monotonic=lambda: clock[0])
-        )
         job = asyncio.create_task(committer.commit_prepared_request(request))
         await planning.wait()
+        assert planning_thread != loop_thread, "planning occupied the input event loop"
         assert not job.done()
         assert len(collected) < 30, "planning a long request blocked pending input"
         assert transcript.records == before
         if change == "cancel":
             job.cancel()
+            release_planning.set()
             with pytest.raises(asyncio.CancelledError):
                 await job
             assert transcript.records == before
         elif change == "branch":
             transcript.branch(root)
+            release_planning.set()
             with pytest.raises(ModelInputIntegrityError, match="changed"):
                 await job
             assert transcript.records == before
@@ -1076,10 +1084,12 @@ def test_model_input_planning_services_input_before_finishing(
             await transcript.append_agent_message(
                 UserMessage(role="user", content="other", timestamp=4.0)
             )
+            release_planning.set()
             with pytest.raises(ModelInputIntegrityError, match="changed"):
                 await job
             assert len(transcript.records) == len(before) + 1
         else:
+            release_planning.set()
             await job
             rebuilt = rebuild_model_input(transcript, committer.commits[0].snapshot_id)
             assert rebuilt.prepared_payload_hash == request.payload_hash
