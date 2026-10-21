@@ -934,3 +934,16 @@ distinct responsiveness problem in cold long-session preparation, not proof
 that the hot Worked path improved. Exact native reopening again verified both
 snapshots, terminal usage and tool output, unchanged authority and zero
 historical tool executions.
+
+A separate post-tool `cProfile` run on the same growing offline session
+attributed 0.87s of instrumented CPU to `PreparedModelRequest` prefix reuse,
+including 0.66s in strict recursive raw-to-frozen JSON comparison; 0.59s to
+creating a detached provider transport payload; and 1.70s across 15 rendered
+frames, including 0.74s across 30 common-segment-prefix comparisons. The
+profiler substantially inflated the path (6.9s of sampled execution), so
+these figures identify code paths but are not user-facing latency estimates.
+The request-prefix comparison must still distinguish types and signed zero,
+and the transport copy must protect the sealed durable payload from SDK
+mutation. Native reopening of this profiled run verified both Model Input
+snapshots and terminal usage, exact tool output, unchanged source authority
+and zero historical tool executions.
