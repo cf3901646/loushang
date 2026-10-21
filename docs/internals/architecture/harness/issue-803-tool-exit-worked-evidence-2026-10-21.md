@@ -672,3 +672,30 @@ The measured post-tool sequence still waits for the tool-result append
 (135ms), and the final flush. Moving graph copies off-loop does not remove
 these ordered durability and model-call boundaries. The 500ms end-to-end
 acceptance remains open.
+
+## Incremental Store head reuse
+
+An instrumented follow-up separated one tool-result append: the native
+FileStore operation took 254ms, including 53ms to decode and validate the
+advisory Store head, 41ms to append the authoritative JSONL fact and 76ms to
+rewrite the head. The asynchronous append awaited 434ms in all, and the
+message route took 526ms. The 2,567ms Worked result is one noisy diagnostic
+turn; its copy reopened with exact snapshots, usage and output.
+
+The same FileStore writer now retains its validated head after an accepted
+append and checks the journal and sidecar file identities under the existing
+exclusive lock before reuse. A changed sidecar falls back to authoritative
+replay; another writer's journal update forces a fresh head read. The cache is
+bounded to sixteen keys. Three regressions cover a cache hit, sidecar mutation
+and a second writer; the selected Store, settlement, Model Input index and
+writer lifecycle suites passed with 70 tests and 17 platform skips before the
+third regression was added. Ruff and focused mypy passed.
+
+On the same long-session seed, the next single PTY turn skipped head decoding
+at the tool-result append. Its native Store operation took 207ms and the
+message route 439ms; Worked appeared after 2,478ms versus 2,567ms in the
+preceding instrumented run. The head rewrite still took 112ms in this run.
+Native reopening again verified both snapshots, terminal usage and output,
+with unchanged source authority and no historical tool execution. This
+demonstrates the intended skipped read, but the difference is not a matched
+p95 estimate and the 500ms target remains unmet.
