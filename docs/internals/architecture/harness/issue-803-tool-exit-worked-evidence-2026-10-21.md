@@ -902,3 +902,18 @@ This single sample does not isolate the prefetch cost from run variation, but
 it does show that speculative recovery cannot replace the required check of
 the new tool result. The candidate was removed; the measurement remains as a
 constraint for the next optimization.
+
+## Incremental evidence recovery scan, 2026-10-22
+
+The append-only recovery path used to enumerate every historical record while
+searching for new Model Input snapshots, and the async entry point rebuilt the
+full record-ID tuple a second time. A regression first observed 101 enumerated
+records and two reads of each historical ID after a single append. The scan
+now starts at the proven append suffix and the async entry point passes its
+already captured ID tuple to recovery. Branch changes still take the full
+path; 19 Resource evidence tests passed. On a subsequent 29,753-record offline
+turn, the post-tool evidence stage took 152ms and tool exit to Worked took
+2,485ms. This is another single growing-session sample, so it does not prove
+an end-to-end gain. Native reopening verified both snapshots, terminal usage,
+exact tool output, unchanged authority and zero historical tool executions.
+The 500ms target remains open.

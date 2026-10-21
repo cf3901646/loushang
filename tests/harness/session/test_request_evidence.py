@@ -140,6 +140,81 @@ def test_evidence_free_async_recovery_skips_context_replay() -> None:
     assert runtime._hydrated_record_ids == ("snapshot-record",)
 
 
+def test_append_recovery_scans_only_new_snapshot_records(monkeypatch) -> None:
+    import loushang.harness.session.request_evidence as evidence_module
+
+    class CountedRecord:
+        def __init__(self, record: ConversationRecord) -> None:
+            self.record = record
+            self.payload_reads = 0
+            self.record_id_reads = 0
+
+        def __getattr__(self, name: str):
+            if name == "payload":
+                self.payload_reads += 1
+            elif name == "record_id":
+                self.record_id_reads += 1
+            return getattr(self.record, name)
+
+    snapshot = _snapshot(snapshot_id="historical")
+    history = [
+        CountedRecord(
+            ConversationRecord(
+                record_id=f"snapshot-{index}",
+                parent_id=f"snapshot-{index - 1}" if index else None,
+                kind="model.input.prepared",
+                payload_version=1,
+                created_at="2026-10-22T00:00:00Z",
+                payload=replace(snapshot, snapshot_id=f"historical-{index}"),
+                metadata={},
+            )
+        )
+        for index in range(100)
+    ]
+    records = list(history)
+    runtime = _runtime(records, [])
+    assert runtime.project_model_input(_preparation([])) is None
+    for record in history:
+        record.payload_reads = 0
+        record.record_id_reads = 0
+    records.append(
+        CountedRecord(
+            ConversationRecord(
+                record_id="tool-result",
+                parent_id="snapshot-99",
+                kind="test.tool-result",
+                payload_version=1,
+                created_at="2026-10-22T00:00:01Z",
+                payload={},
+                metadata={},
+            )
+        )
+    )
+    scanned: list[int] = []
+    original_enumerate = enumerate
+
+    def count_snapshot_scan(items, *args):
+        iterator = original_enumerate(items, *args)
+        if len(items) != len(records) or not isinstance(items[0], CountedRecord):
+            return iterator
+
+        def counted():
+            for index, item in iterator:
+                scanned.append(index)
+                yield index, item
+
+        return counted()
+
+    monkeypatch.setattr(evidence_module, "enumerate", count_snapshot_scan, raising=False)
+    import asyncio
+
+    asyncio.run(runtime.prepare_model_input_async())
+    assert sum(record.record_id_reads for record in history) <= len(history)
+    assert runtime.project_model_input(_preparation([])) is None
+    assert sum(record.payload_reads for record in history) == 0
+    assert len(scanned) <= 1
+
+
 @pytest.mark.parametrize(
     "outcome", ["complete", "cancel", "close", "corrupt", "append_corrupt"]
 )

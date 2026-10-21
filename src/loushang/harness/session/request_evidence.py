@@ -308,6 +308,7 @@ class SessionRequestEvidenceRuntime:
             lambda: {
                 record_id for record_id, _ in self._get_context_message_bindings()
             },
+            record_ids=record_ids,
         )
         try:
             for _ in steps:
@@ -479,8 +480,11 @@ class SessionRequestEvidenceRuntime:
         self,
         active_records: tuple[AgentTranscriptRecord, ...],
         context_record_ids: set[str] | Callable[[], set[str]],
+        *,
+        record_ids: tuple[str, ...] | None = None,
     ) -> Generator[None, None, None]:
-        record_ids = tuple(record.record_id for record in active_records)
+        if record_ids is None:
+            record_ids = tuple(record.record_id for record in active_records)
         if record_ids == self._hydrated_record_ids:
             return
         previous = self._hydrated_record_ids
@@ -524,10 +528,9 @@ class SessionRequestEvidenceRuntime:
             anchors.add(record.record_id)
 
         snapshots = [
-            (index, record)
-            for index, record in enumerate(active_records)
-            if index >= start
-            and isinstance(record.payload, ModelInputSnapshot | ModelInputSnapshotV2)
+            (start + offset, record)
+            for offset, record in enumerate(active_records[start:])
+            if isinstance(record.payload, ModelInputSnapshot | ModelInputSnapshotV2)
         ]
         if snapshots:
             reader = ModelInputLogicalComponentReader(active_records)
