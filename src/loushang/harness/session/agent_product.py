@@ -533,6 +533,9 @@ class AgentProductSession(AgentSessionAdapterMixin):
                 self.session_manager.get_context_message_bindings
             ),
             get_active_records=self.session_manager.get_active_entries,
+            get_append_only_records_since=(
+                self.session_manager.get_append_only_entries_since
+            ),
             rebuild_model_input=self.session_manager.rebuild_model_input,
         )
         if (
@@ -647,6 +650,11 @@ class AgentProductSession(AgentSessionAdapterMixin):
                 turn_performance=self._turn_start_performance,
                 request_evidence_provider=(
                     self._request_evidence_runtime.project_model_input
+                ),
+                on_committed_evidence_free_input=lambda snapshot_id: (
+                    self._request_evidence_runtime.note_committed_model_input(
+                        snapshot_id, has_resource_evidence=False
+                    )
                 ),
             )
         )

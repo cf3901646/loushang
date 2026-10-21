@@ -1213,17 +1213,29 @@ def test_model_input_v2_node_index_cache_extends_selected_ancestry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     builds = 0
+    resolver_builds = 0
     original_init = model_input_v2_module.ModelInputV2NodeIndex.__init__
+    original_resolver_init = model_input_v2_module.ModelInputV2Resolver.__init__
 
     def counting_init(self, records) -> None:
         nonlocal builds
         builds += 1
         original_init(self, records)
 
+    def counting_resolver_init(self, records) -> None:
+        nonlocal resolver_builds
+        resolver_builds += 1
+        original_resolver_init(self, records)
+
     monkeypatch.setattr(
         model_input_v2_module.ModelInputV2NodeIndex,
         "__init__",
         counting_init,
+    )
+    monkeypatch.setattr(
+        model_input_v2_module.ModelInputV2Resolver,
+        "__init__",
+        counting_resolver_init,
     )
 
     async def scenario() -> None:
@@ -1245,6 +1257,7 @@ def test_model_input_v2_node_index_cache_extends_selected_ancestry(
         await second.commit_prepared_request(_prepared(invocation_id="second"))
 
         assert builds == 1
+        assert resolver_builds == 1
 
     asyncio.run(scenario())
 

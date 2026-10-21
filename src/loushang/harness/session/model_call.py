@@ -75,6 +75,7 @@ RegistrationEntriesProvider = Callable[[], tuple[RegistrationInventoryEntry, ...
 CurrentProfileFingerprintProvider = Callable[[], str]
 SourcePublicationProvider = Callable[[], ScopedSourcePublicationReference | None]
 RequestEvidenceProvider = Callable[[ModelCallPreparation], Mapping[str, object] | None]
+CommittedModelInputObserver = Callable[[str], None]
 
 
 class ModelInputTranscriptPort(Protocol):
@@ -130,6 +131,7 @@ class SessionModelCallPreparer:
         profile_fingerprint_provider: CurrentProfileFingerprintProvider,
         turn_performance: TurnStartPerformanceRuntime | None = None,
         request_evidence_provider: RequestEvidenceProvider | None = None,
+        on_committed_evidence_free_input: CommittedModelInputObserver | None = None,
     ) -> None:
         _require_transcript_port(transcript, name="model-call preparation")
         if not isinstance(projector, RuntimeCapabilityGraphProjector):
@@ -151,6 +153,7 @@ class SessionModelCallPreparer:
         self._profile_fingerprint_provider = profile_fingerprint_provider
         self._turn_performance = turn_performance
         self._request_evidence_provider = request_evidence_provider
+        self._on_committed_evidence_free_input = on_committed_evidence_free_input
         self._last_prepared_request: PreparedModelRequest | None = None
 
     def _retain_prepared_request(self, request: PreparedModelRequest) -> None:
@@ -198,6 +201,11 @@ class SessionModelCallPreparer:
                     is_current=self._is_current,
                     turn_performance=self._turn_performance,
                     on_committed_prepared_request=self._retain_prepared_request,
+                    on_committed_model_input=(
+                        self._on_committed_evidence_free_input
+                        if RESOURCE_EVIDENCE_COMPONENT not in logical_input
+                        else None
+                    ),
                     prepared_request_reuse=self._last_prepared_request,
                 ),
             )
@@ -227,12 +235,14 @@ class _CurrentSessionCommitter(
         on_committed_prepared_request: (
             Callable[[PreparedModelRequest], None] | None
         ) = None,
+        on_committed_model_input: CommittedModelInputObserver | None = None,
         prepared_request_reuse: PreparedModelRequest | None = None,
     ) -> None:
         self._committer = committer
         self._is_current = is_current
         self._turn_performance = turn_performance
         self._on_committed_prepared_request = on_committed_prepared_request
+        self._on_committed_model_input = on_committed_model_input
         self.prepared_request_reuse = prepared_request_reuse
         self._latest_attempt_by_invocation: dict[str, tuple[int, str]] = {}
 
@@ -260,6 +270,8 @@ class _CurrentSessionCommitter(
         self.prepared_request_reuse = request
         if self._on_committed_prepared_request is not None:
             self._on_committed_prepared_request(request)
+        if self._on_committed_model_input is not None:
+            self._on_committed_model_input(snapshot_id)
         if self._turn_performance is not None:
             self._turn_performance.transport_ready(request)
 
@@ -408,6 +420,7 @@ def build_session_model_call_capability_binding(
     workspace_provider: CapabilityBundleProvider | None = None,
     turn_performance: TurnStartPerformanceRuntime | None = None,
     request_evidence_provider: RequestEvidenceProvider | None = None,
+    on_committed_evidence_free_input: CommittedModelInputObserver | None = None,
 ) -> SessionModelCallCapabilityBinding:
     """Build data-only graph inputs without acquiring graph lifecycle authority."""
 
@@ -479,6 +492,9 @@ def build_session_model_call_capability_binding(
                         profile_fingerprint_provider=profile_fingerprint_provider,
                         turn_performance=turn_performance,
                         request_evidence_provider=request_evidence_provider,
+                        on_committed_evidence_free_input=(
+                            on_committed_evidence_free_input
+                        ),
                     ),
                 ),
             )

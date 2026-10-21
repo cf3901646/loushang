@@ -57,6 +57,12 @@ def test_agent_transcript_session_owns_standard_commit_and_label_operations() ->
             "application",
         ]
         assert committed == [message_id, "record-2", application_id]
+        suffix = session.get_append_only_entries_since(message_id)
+        assert suffix is not None
+        assert [record.record_id for record in suffix] == ["record-2", application_id]
+        assert session.get_append_only_entries_since(application_id) == ()
+        session.branch(message_id)
+        assert session.get_append_only_entries_since(application_id) is None
 
     asyncio.run(scenario())
 

@@ -139,6 +139,30 @@ class AgentTranscriptSession:
 
         return list(self._transcript.active_path())
 
+    def get_append_only_entries_since(
+        self, record_id: str
+    ) -> tuple[AgentTranscriptRecord, ...] | None:
+        """Return the selected suffix only when record_id remains an ancestor."""
+
+        if not isinstance(record_id, str) or not record_id:
+            raise ValueError("append-only transcript lookup requires a record id")
+        suffix: list[AgentTranscriptRecord] = []
+        seen: set[str] = set()
+        current_id = self._transcript.leaf_id
+        while current_id is not None and current_id != record_id:
+            if current_id in seen:
+                return None
+            seen.add(current_id)
+            record = self._transcript.get(current_id)
+            if record is None:
+                return None
+            suffix.append(record)
+            current_id = record.parent_id
+        if current_id != record_id or self._transcript.get(record_id) is None:
+            return None
+        suffix.reverse()
+        return tuple(suffix)
+
     def get_context_message_bindings(
         self,
         records: Sequence[AgentTranscriptRecord] | None = None,

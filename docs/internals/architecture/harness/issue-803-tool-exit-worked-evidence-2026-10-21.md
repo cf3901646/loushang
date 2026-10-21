@@ -1006,3 +1006,35 @@ terminal usage records, three exact tool outputs, unchanged source authority
 and zero historical tools. The selected AI, Model Call and Model Input tests
 passed: 169 passed, one existing skip; Ruff and focused mypy passed. The
 500ms Worked objective remains open.
+
+## Evidence-free append recovery and resolver reuse, 2026-10-22
+
+The selected Session now proves an append-only suffix by walking parent links
+from its leaf to the last hydrated record. Resource evidence skips historical
+path recovery only when its caches contain no evidence and every new Model
+Input snapshot was certified evidence-free after the durable commit. Unknown
+snapshots, evidence metadata, resumed Sessions and branch changes retain full
+recovery. A red regression covered the evidence-free hot path; additional
+tests covered branch fallback, certification after durable commit, and no
+certification for an evidence-bearing request.
+
+The v2 Model Input index cache now retains the resolver's record-position map
+after successful publication. Subsequent writers extend that map only when
+the previous record objects remain the exact selected prefix; a changed
+object rebuilds the resolver, and branch or compatibility changes invalidate
+the cache. A red regression observed two full resolver builds for two
+successive commits and now observes one. The relevant Model Input, Model Call,
+Request Evidence, Product contract and transcript tests passed: 184 passed,
+one existing skip; Ruff and focused mypy passed.
+
+In two successive growing-session, no-keyboard offline turns, the first
+candidate measured tool exit to Worked at 2,683ms, Resource evidence
+projection below 1ms, hot Model Input commit 748ms and resolver build 237ms.
+With resolver reuse, the next turn measured Worked at 2,237ms, hot commit
+478ms and resolver extension 196ms. The full asynchronous evidence preparation
+was 63ms and 48ms, respectively. These are directional measurements across
+different system loads and Session sizes; they do not isolate a p95 or prove
+the 500ms objective. Native reopening of each result verified both Model
+Input snapshots and terminal usage, exact tool output, unchanged source
+authority and zero historical tool executions. The 500ms Worked target and
+long-session event-loop pauses remain open.

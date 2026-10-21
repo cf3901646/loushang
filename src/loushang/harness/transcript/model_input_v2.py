@@ -667,6 +667,7 @@ class _ModelInputV2IndexCache:
     sequence_plans: dict[tuple[int, str], _SequencePlan]
     immutable_sequence_sources: dict[tuple[int, str], tuple[object, ...]]
     mapping_hash_prefixes: dict[int, _MappingHashPrefix]
+    resolver: ModelInputV2Resolver | None = None
 
     def resolve(
         self,
@@ -683,6 +684,7 @@ class _ModelInputV2IndexCache:
             self.sequence_plans.clear()
             self.immutable_sequence_sources.clear()
             self.mapping_hash_prefixes.clear()
+            self.resolver = None
             return self.index, "rebuilt"
 
         previous_count = len(self.records)
@@ -907,7 +909,17 @@ class ModelInputV2Writer:
         self._staged_path = active_records
         self._max_encoded_record_bytes = max_encoded_record_bytes
         with _optional_phase(phase_timer, "resolver_build"):
-            self._existing_resolver = ModelInputV2Resolver(active_records)
+            cached_resolver = self._index_cache.resolver
+            if cached_resolver is None:
+                self._existing_resolver = ModelInputV2Resolver(active_records)
+            else:
+                try:
+                    self._existing_resolver = (
+                        cached_resolver._with_extended_ancestry(active_records)
+                    )
+                except ModelInputIntegrityError:
+                    # A changed record object cannot inherit cached authority.
+                    self._existing_resolver = ModelInputV2Resolver(active_records)
         self._existing_owner_position = len(active_records)
         self._value_plans: dict[str, _ValuePlan] = {}
         self._value_references: dict[str, ModelInputNodeReference] = {}
@@ -976,6 +988,7 @@ class ModelInputV2Writer:
                 self._index_cache.mapping_hash_prefixes.pop(mapping_index, None)
             else:
                 self._index_cache.mapping_hash_prefixes[mapping_index] = prefix
+        self._index_cache.resolver = self._existing_resolver
 
     async def materialize(
         self,

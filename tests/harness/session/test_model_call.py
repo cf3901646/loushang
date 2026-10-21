@@ -168,6 +168,7 @@ class _ModelCallTestRoot:
         request_evidence_provider: (
             Callable[[ModelCallPreparation], Mapping[str, object] | None] | None
         ) = None,
+        on_committed_evidence_free_input: Callable[[str], None] | None = None,
     ) -> None:
         self._profile = RuntimeProfileResolver().resolve(
             standard_capability_composition_plan(product_id="coding")
@@ -193,6 +194,7 @@ class _ModelCallTestRoot:
             profile_fingerprint_provider=lambda: self.current_profile_fingerprint,
             turn_performance=turn_performance,
             request_evidence_provider=request_evidence_provider,
+            on_committed_evidence_free_input=on_committed_evidence_free_input,
         )
         self._plan = RuntimeCapabilityGraphPlanner().plan(
             CapabilityGraphPlanRequest(
@@ -251,6 +253,7 @@ def _model_call_runtime(
     request_evidence_provider: (
         Callable[[ModelCallPreparation], Mapping[str, object] | None] | None
     ) = None,
+    on_committed_evidence_free_input: Callable[[str], None] | None = None,
 ) -> _ModelCallTestRoot:
     return _ModelCallTestRoot(
         session,
@@ -258,6 +261,7 @@ def _model_call_runtime(
         registrations=registrations,
         turn_performance=turn_performance,
         request_evidence_provider=request_evidence_provider,
+        on_committed_evidence_free_input=on_committed_evidence_free_input,
     )
 
 
@@ -404,6 +408,12 @@ class _PreparedAdapter:
 def test_current_session_prepares_and_rebuilds_main_model_call() -> None:
     async def scenario() -> None:
         session = await _transcript_session()
+        certified: list[str] = []
+
+        def certify(snapshot_id: str) -> None:
+            assert session.rebuild_model_input(snapshot_id).snapshot.snapshot_id == snapshot_id
+            certified.append(snapshot_id)
+
         supplemental_registration = RegistrationInventoryEntry(
             registration_id="extension-tool-registration",
             surface="tool",
@@ -419,6 +429,7 @@ def test_current_session_prepares_and_rebuilds_main_model_call() -> None:
             session,
             is_current=lambda: True,
             registrations=(supplemental_registration,),
+            on_committed_evidence_free_input=certify,
         )
         adapter = _PreparedAdapter()
         registry = get_default_api_registry()
@@ -444,6 +455,7 @@ def test_current_session_prepares_and_rebuilds_main_model_call() -> None:
             if entry.kind == "model.input.prepared"
         ]
         assert len(snapshot_ids) == 1
+        assert certified == snapshot_ids
         rebuilt = session.rebuild_model_input(snapshot_ids[0])
         assert rebuilt.snapshot.purpose == "main"
         assert rebuilt.logical_input["system_prompt"] == "durable system prompt"
@@ -557,6 +569,7 @@ def test_session_reuses_only_a_committed_prepared_request_prefix() -> None:
 def test_resource_evidence_is_request_bound_durable_and_resumable() -> None:
     async def scenario() -> None:
         session = await _transcript_session()
+        certified: list[str] = []
         message_record_id, transcript_message = (
             session.get_context_message_bindings()[0]
         )
@@ -580,6 +593,7 @@ def test_resource_evidence_is_request_bound_durable_and_resumable() -> None:
             session,
             is_current=lambda: True,
             request_evidence_provider=evidence_runtime.project_model_input,
+            on_committed_evidence_free_input=certified.append,
         )
         adapter = _PreparedAdapter()
         registry = get_default_api_registry()
@@ -597,6 +611,7 @@ def test_resource_evidence_is_request_bound_durable_and_resumable() -> None:
             await agent.prompt("hello")
         finally:
             registry.unregister_api_adapters(source_id)
+        assert certified == []
 
         snapshot_id = next(
             entry.payload.snapshot_id
