@@ -367,6 +367,16 @@ Product, and Coding Model Input suites passed 70 tests; native reopening
 verified two snapshots with terminal usage and one output without modifying
 the original authority or executing historical tools.
 
+For resume, the latest compaction checkpoint is the context boundary: restore
+its summary, the retained records from `first_kept_record_id` up to that
+checkpoint, and records after it. Replaying only records after the checkpoint
+would omit intentionally retained context. The current replay folder still
+reduces state over the whole selected path, because model selection, metadata,
+annotations and similar state may originate before compaction. Any resume
+optimization needs a separate, validated state checkpoint before it can skip
+that reduction. The append-only live path should keep using its incremental
+projection; it does not need to replay the transcript on each tool result.
+
 A private candidate indexed only record types that might carry blob references
 while still rechecking their mutable contents on every sampling. This history
 had 7,839 such messages among 29,321 selected records. The candidate reduced
