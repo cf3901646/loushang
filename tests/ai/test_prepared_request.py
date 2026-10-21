@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
 
 import pytest
@@ -376,6 +377,57 @@ def test_prepared_model_request_measures_messages_tools_and_images() -> None:
     assert metrics.image_bytes == len(b"image-bytes")
     assert metrics.tool_schema_bytes > 0
     assert metrics.estimated_input_tokens == 100
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "z": {"b": "你好\n世界", "a": [1, 2.5, None]},
+            "messages": [{"role": "user", "content": "λ \\\""}],
+            "input": [{"role": "user", "content": "secondary"}],
+            "tools": [{"z": 1, "a": {"type": "object"}}],
+        },
+        {
+            "tools": None,
+            "input": [{"type": "input_text", "text": "é"}],
+            "model": "faux-model",
+        },
+        {"messages": "unstructured", "input": None, "tools": []},
+    ],
+)
+def test_prepared_request_field_sizes_match_full_canonical_encoding(payload) -> None:
+    headers = {"X-Z": "Ω", "X-A": "true"}
+    prepared = PreparedModelRequest.from_provider_request(
+        _request(invocation_id="field-sizes"),
+        payload=payload,
+        model_visible_headers=headers,
+    )
+
+    def encoded(value):
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+
+    assert prepared.canonical_payload == encoded(
+        {"model_visible_headers": headers, "payload": payload}
+    )
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        messages = payload.get("input")
+    assert prepared.metrics.message_bytes == (
+        len(encoded(messages).encode("utf-8"))
+        if isinstance(messages, list)
+        else None
+    )
+    tools = payload.get("tools")
+    assert prepared.metrics.tool_schema_bytes == (
+        len(encoded(tools).encode("utf-8")) if tools is not None else 0
+    )
 
 
 def test_prepared_model_request_measures_openai_data_url_image() -> None:

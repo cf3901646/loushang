@@ -257,6 +257,19 @@ both Model Input snapshots and terminal usage, the one tool-output hash and
 truncation state, an unchanged post-run copy during read-only verification,
 and zero historical tool calls.
 
+## Canonical prepared-envelope metrics
+
+The prepared-request constructor now obtains message and tool-schema byte
+counts from the same canonical encoding used for the full request, avoiding a
+second JSON encoding of the historical message list. On the isolated
+29,209-record continuation's rebuilt 1,481-item payload, seven alternating
+read-only micro samples measured the former canonical-and-size step at 62.51ms
+median and the single-encoding step at 38.31ms median. Their canonical bytes
+and both size metrics were exactly equal; the source authority bytes and mtime
+were unchanged. The focused AI suite passed 41 tests, and `make check-ai`
+passed 874 offline tests with 90.63% coverage. These are local stage results,
+not a matched real-PTY Worked p95 or evidence of the 250ms target.
+
 ## Next work
 
 An incremental receipt lookup replaced the usage recorder's full active-path

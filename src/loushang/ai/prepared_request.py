@@ -296,15 +296,11 @@ class PreparedModelRequest:
         model_visible_headers = _project_model_visible_headers(
             self.model_visible_headers
         )
-        canonical_payload = json.dumps(
-            {
-                "model_visible_headers": model_visible_headers,
-                "payload": projected,
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
+        canonical_payload, message_bytes, tool_schema_bytes = (
+            _canonical_prepared_envelope(
+                projected,
+                model_visible_headers=model_visible_headers,
+            )
         )
         object.__setattr__(
             self,
@@ -323,6 +319,8 @@ class PreparedModelRequest:
             _measure_prepared_request(
                 canonical_payload=canonical_payload,
                 payload=projected,
+                message_bytes=message_bytes,
+                tool_schema_bytes=tool_schema_bytes,
                 estimated_wire_bytes=self.estimated_wire_bytes,
                 estimated_input_tokens=self.estimated_input_tokens,
             ),
@@ -551,6 +549,8 @@ def _measure_prepared_request(
     *,
     canonical_payload: str,
     payload: Mapping[str, JSONValue],
+    message_bytes: int | None,
+    tool_schema_bytes: int,
     estimated_wire_bytes: int | None,
     estimated_input_tokens: int | None,
 ) -> PreparedRequestMetrics:
@@ -558,32 +558,53 @@ def _measure_prepared_request(
     if not isinstance(messages, list):
         messages = payload.get("input")
     message_sequence = messages if isinstance(messages, list) else None
-    tools = payload.get("tools")
     return PreparedRequestMetrics(
         canonical_bytes=len(canonical_payload.encode("utf-8")),
         estimated_wire_bytes=estimated_wire_bytes,
-        message_bytes=(
-            _canonical_json_size(message_sequence)
-            if message_sequence is not None
-            else None
-        ),
+        message_bytes=message_bytes,
         message_count=len(message_sequence) if message_sequence is not None else 0,
         image_bytes=_estimate_image_bytes(payload),
-        tool_schema_bytes=_canonical_json_size(tools) if tools is not None else 0,
+        tool_schema_bytes=tool_schema_bytes,
         estimated_input_tokens=estimated_input_tokens,
     )
 
 
-def _canonical_json_size(value: JSONValue) -> int:
-    return len(
-        json.dumps(
+def _canonical_prepared_envelope(
+    payload: Mapping[str, JSONValue],
+    *,
+    model_visible_headers: Mapping[str, str],
+) -> tuple[str, int | None, int]:
+    """Encode each top-level field once and retain its exact canonical size."""
+
+    def encode(value: JSONValue) -> str:
+        return json.dumps(
             value,
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
             allow_nan=False,
-        ).encode("utf-8")
+        )
+
+    messages_key = "messages" if isinstance(payload.get("messages"), list) else "input"
+    message_bytes: int | None = None
+    tool_schema_bytes = 0
+    fields: list[str] = []
+    for name in sorted(payload):
+        value = payload[name]
+        encoded = encode(value)
+        if name == messages_key and isinstance(value, list):
+            message_bytes = len(encoded.encode("utf-8"))
+        if name == "tools" and value is not None:
+            tool_schema_bytes = len(encoded.encode("utf-8"))
+        fields.append(encode(name) + ":" + encoded)
+    canonical = (
+        '{"model_visible_headers":'
+        + encode(dict(model_visible_headers))
+        + ',"payload":{'
+        + ",".join(fields)
+        + "}}"
     )
+    return canonical, message_bytes, tool_schema_bytes
 
 
 def _estimate_image_bytes(value: object) -> int:
