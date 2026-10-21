@@ -53,6 +53,24 @@ executed no historical tools. Native reopening reconstructed four model input
 snapshots with terminal usage and checked both tool results; the authority was
 unchanged by verification.
 
+## Prefix reuse boundary
+
+One later isolated turn counted object identities on both sides of Agent's
+message conversion. After the controlled tool, all 1,467 earlier Agent messages
+were the same objects seen before it. The prepared adapter then received 1,469
+normalized messages, and none of the 1,467 earlier positions retained object
+identity across the two model calls. The converter and normalization boundary
+therefore discards an identity-only cache key before provider preparation.
+
+This is a feasibility observation, not permission to trust object identity:
+message parts can contain mutable containers, and conversion, provider options
+or the selected transcript path can change. Reuse must carry explicit immutable
+provenance from the selected transcript and recheck the final suffix before
+publishing a prepared request. The diagnostic turn's two snapshots, terminal
+usage and tool output were rebuilt on native reopening without historical tool
+execution or authority changes. Its extra identity logging is excluded from
+latency acceptance.
+
 ## Next work
 
 Investigate an incremental, provenance-checked prepared-request and transcript
