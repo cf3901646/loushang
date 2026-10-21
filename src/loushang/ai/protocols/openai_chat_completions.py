@@ -30,6 +30,7 @@ from loushang.ai.utils import sanitize_surrogates
 
 
 class OpenAIChatCompletionsAdapter:
+    prepare_request_in_worker = True
     api = "openai-completions"
     supports_structured_output = True
 

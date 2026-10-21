@@ -238,6 +238,7 @@ def _summarize_tool_args_json(raw: str) -> dict[str, object]:
 
 
 class AnthropicMessagesAdapter(AnthropicMessagesProtocol):
+    prepare_request_in_worker = True
     api = "anthropic-messages"
 
     def __init__(self, *, client: Any | None = None) -> None:

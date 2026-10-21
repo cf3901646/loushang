@@ -947,3 +947,29 @@ and the transport copy must protect the sealed durable payload from SDK
 mutation. Native reopening of this profiled run verified both Model Input
 snapshots and terminal usage, exact tool output, unchanged source authority
 and zero historical tool executions.
+
+## Provider request preparation off the input loop, 2026-10-22
+
+The post-tool profile found that the second long-context preparation, provider
+request serialization and recursive sealing, still ran on the event loop
+after Session model-call preparation had moved to a worker. Built-in OpenAI
+Responses, OpenAI Chat Completions and Anthropic Messages adapters now opt in
+to worker preparation for durable requests when there is no custom trace
+callback. The opt-in belongs to the concrete class; subclass and custom
+adapter behavior remains on the caller thread unless explicitly declared.
+The existing durable commit and cancellation gates still run on the event
+loop. New regressions first observed input-loop blocking, then verified loop
+progress, cancellation without commit or transport, trace callback thread
+affinity, and commit-before-transport order. Selected PreparedRequest,
+ProviderRuntime and ProviderCancellation tests passed: 90 passed; Ruff and
+focused mypy passed.
+
+In successive 20-input offline long-session turns, the opted-in fake adapter
+showed post-tool input echo p95/max of 192/195ms and tool exit to Worked of
+1,949ms. The same adapter with opt-in disabled showed 640/643ms and 2,958ms.
+The source session grew between runs and its load times differed substantially,
+so these are directional responsiveness evidence, not isolated latency or p95
+claims for the Worked transition. Native reopening verified four exact Model
+Input snapshots with terminal usage, both tool outputs, unchanged source
+authority and zero historical tool executions. The 500ms Worked target remains
+open.

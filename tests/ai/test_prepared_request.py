@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 from collections.abc import AsyncIterator
 
 import pytest
@@ -320,6 +321,111 @@ def test_prepared_invocation_services_cancellation_before_commit(boundary) -> No
         await source.aclose()
         assert not committer.requests
         assert adapter.transport_calls == 0
+
+    asyncio.run(scenario())
+
+
+def test_opted_in_prepared_request_keeps_input_loop_responsive_and_commits_first() -> None:
+    async def scenario() -> None:
+        committer = _RecordingCommitter()
+        started = threading.Event()
+        release = threading.Event()
+        worker_names: list[str] = []
+
+        class WorkerAdapter(_PreparedAdapter):
+            prepare_request_in_worker = True
+
+            def prepare_request(self, request: ProviderRequest) -> PreparedModelRequest:
+                worker_names.append(threading.current_thread().name)
+                started.set()
+                assert release.wait(1.0)
+                return super().prepare_request(request)
+
+        adapter = WorkerAdapter(committer.events)
+        source = invoke_prepared_request(
+            adapter, _request(options=CallOptions(prepared_request_committer=committer))
+        )
+        timer = threading.Timer(0.5, release.set)
+        timer.start()
+        task = asyncio.create_task(anext(source))
+        try:
+            assert await asyncio.to_thread(started.wait, 1.0)
+            assert not release.is_set(), "request preparation blocked the input loop"
+            assert committer.events == []
+        finally:
+            release.set()
+            timer.cancel()
+        assert (await task)["type"] == "response_start"
+        await source.aclose()
+        assert worker_names and worker_names[0] != "MainThread"
+        assert committer.events == ["commit:1", "transport:1"]
+
+    asyncio.run(scenario())
+
+
+def test_cancelled_worker_preparation_cannot_commit_or_start_transport() -> None:
+    async def scenario() -> None:
+        committer = _RecordingCommitter()
+        started = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+
+        class WorkerAdapter(_PreparedAdapter):
+            prepare_request_in_worker = True
+
+            def prepare_request(self, request: ProviderRequest) -> PreparedModelRequest:
+                started.set()
+                try:
+                    assert release.wait(1.0)
+                    return super().prepare_request(request)
+                finally:
+                    finished.set()
+
+        adapter = WorkerAdapter(committer.events)
+        source = invoke_prepared_request(
+            adapter, _request(options=CallOptions(prepared_request_committer=committer))
+        )
+        task = asyncio.create_task(anext(source))
+        try:
+            assert await asyncio.to_thread(started.wait, 1.0)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        finally:
+            release.set()
+        assert await asyncio.to_thread(finished.wait, 1.0)
+        await source.aclose()
+        assert committer.events == []
+        assert adapter.transport_calls == 0
+
+    asyncio.run(scenario())
+
+
+def test_trace_callback_keeps_preparation_on_the_caller_thread() -> None:
+    async def scenario() -> None:
+        committer = _RecordingCommitter()
+        thread_names: list[str] = []
+
+        class WorkerAdapter(_PreparedAdapter):
+            prepare_request_in_worker = True
+
+            def prepare_request(self, request: ProviderRequest) -> PreparedModelRequest:
+                thread_names.append(threading.current_thread().name)
+                return super().prepare_request(request)
+
+        source = invoke_prepared_request(
+            WorkerAdapter(committer.events),
+            _request(
+                options=CallOptions(
+                    prepared_request_committer=committer,
+                    trace=lambda _event: None,
+                )
+            ),
+        )
+        assert (await anext(source))["type"] == "response_start"
+        await source.aclose()
+        assert thread_names == ["MainThread"]
+        assert committer.events == ["commit:1", "transport:1"]
 
     asyncio.run(scenario())
 
