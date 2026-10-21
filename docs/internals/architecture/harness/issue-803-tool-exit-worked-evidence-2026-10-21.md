@@ -973,3 +973,11 @@ claims for the Worked transition. Native reopening verified four exact Model
 Input snapshots with terminal usage, both tool outputs, unchanged source
 authority and zero historical tool executions. The 500ms Worked target remains
 open.
+
+An isolated comparison on the native-reopened 1,631-message prepared payload
+found 127ms median for the existing exact raw-to-frozen prefix check, 87ms for
+strict validation followed by native JSON equality, and 180ms for strict
+validation plus canonical JSON comparison (seven repeats each). Native
+equality alone also conflates booleans with integers and opposite signed
+zeros, so the 40ms diagnostic advantage does not justify replacing the exact
+check without an additional correctness proof. The candidate was not applied.
