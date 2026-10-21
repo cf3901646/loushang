@@ -187,6 +187,36 @@ message cache therefore cannot materially reduce the post-tool path. The
 restricted proof is useful only if it authorizes reuse of the larger
 normalization, prepared-request and Model Input prefix work.
 
+## Normalization-only prefix reuse rejected
+
+A temporary AI cache reused a normalized message prefix only after checking
+the prior raw and normalized messages, unchanged model target and pairing mode,
+a closed tool boundary, and disjoint historical/new tool-call IDs. It fell back
+to full normalization after nested mutation, an incomplete tool pair, a model
+change or a potentially late tool result. Six focused cache regressions and
+the existing 59 context tests passed; Ruff and focused mypy passed. The
+candidate was then removed without a Product commit.
+
+Real PTY diagnostics on isolated session copies showed why this seam is too
+small. On 24,459 records, the cache hit spent 21.46ms checking the prefix and
+23.47ms total in normalization; tool exit to Worked was 554.44ms. On a
+29,209-record copy with roughly 1,479 messages, the cache hit spent 111.95ms
+checking the prefix and 117.19ms total in normalization; Worked arrived after
+1,340.09ms. These are diagnostics rather than matched before/after p95s. The
+longer run still spent 299.81ms in adapter preparation, 454.64ms in durable
+Model Input commit, and roughly 200ms after commit. A cache limited to AI
+normalization therefore cannot meet the 250ms end-to-end target and can add
+main-thread work to shorter contexts.
+
+A separate native PTY stage trace on the same long-history scale located
+PreparedModelRequest construction inside adapter preparation: 194.59ms of a
+220.18ms adapter phase. Its projected-payload copy took 44.73ms and metrics
+scan took 60.82ms. The subsequent durable commit took 432.06ms, with
+216.30ms in v2 materialization; its plan and roots phases took 68.29ms and
+84.81ms. The normalizer-only prototype did not reuse any of these stages.
+The next candidate must stage or incrementally prove the prepared payload and
+Model Input prefix together, then verify the total PTY latency.
+
 ## Next work
 
 An incremental receipt lookup replaced the usage recorder's full active-path
