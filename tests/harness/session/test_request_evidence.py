@@ -107,6 +107,36 @@ def test_evidence_free_resume_does_not_rebuild_historical_requests() -> None:
     assert runtime.project_model_input(_preparation([])) is None
 
 
+def test_evidence_free_async_recovery_skips_context_replay() -> None:
+    import asyncio
+
+    snapshot = _snapshot(snapshot_id="snapshot-0")
+    records = [
+        ConversationRecord(
+            record_id="snapshot-record",
+            parent_id=None,
+            kind="model.input.prepared",
+            payload_version=1,
+            created_at="2026-10-21T00:00:00Z",
+            payload=snapshot,
+            metadata={},
+        )
+    ]
+
+    def unexpected_bindings():
+        pytest.fail("evidence-free snapshot replayed the full context")
+
+    runtime = SessionRequestEvidenceRuntime(
+        get_context_message_bindings=unexpected_bindings,
+        get_active_records=lambda: records,
+        rebuild_model_input=lambda snapshot_id: pytest.fail(
+            f"evidence-free snapshot was rebuilt: {snapshot_id}"
+        ),
+    )
+    asyncio.run(runtime.prepare_model_input_async())
+    assert runtime._hydrated_record_ids == ("snapshot-record",)
+
+
 @pytest.mark.parametrize(
     "outcome", ["complete", "cancel", "close", "corrupt", "append_corrupt"]
 )
@@ -201,6 +231,8 @@ def test_evidence_recovery_yields_and_never_publishes_partial_or_stale_state(
 
 
 def test_snapshot_only_evidence_follows_its_source_branch() -> None:
+    import asyncio
+
     message = _user_message("branch message")
     message_record = _message_record("message", message)
     evidence = _runtime([], []).prepare(
@@ -274,6 +306,7 @@ def test_snapshot_only_evidence_follows_its_source_branch() -> None:
         rebuild_model_input=rebuild,
     )
     preparation = _preparation([message])
+    asyncio.run(runtime.prepare_model_input_async())
     assert runtime.project_model_input(preparation) == payload
     active[:] = [message_record]
     assert runtime.project_model_input(preparation) is None

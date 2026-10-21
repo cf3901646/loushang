@@ -300,22 +300,15 @@ class SessionRequestEvidenceRuntime:
         previous = self._hydrated_record_ids
         if record_ids == previous:
             return
-        start = (
-            len(previous)
-            if previous is not None and record_ids[: len(previous)] == previous
-            else 0
+        # Resolve context bindings only if a new snapshot actually carries
+        # Resource evidence. Most model calls have snapshots but no such
+        # component, so replaying their entire context adds no validation.
+        steps = self._hydrate_selected_path_steps(
+            records,
+            lambda: {
+                record_id for record_id, _ in self._get_context_message_bindings()
+            },
         )
-        # A suffix without snapshots only adds metadata anchors. Avoid replaying
-        # the full context twice for ordinary tool/message appends.
-        context_ids = (
-            {record_id for record_id, _ in self._get_context_message_bindings()}
-            if any(
-                isinstance(record.payload, ModelInputSnapshot | ModelInputSnapshotV2)
-                for record in records[start:]
-            )
-            else set()
-        )
-        steps = self._hydrate_selected_path_steps(records, context_ids)
         try:
             for _ in steps:
                 if time.monotonic() >= deadline:
@@ -472,7 +465,7 @@ class SessionRequestEvidenceRuntime:
     def _hydrate_selected_path_steps(
         self,
         active_records: tuple[AgentTranscriptRecord, ...],
-        context_record_ids: set[str],
+        context_record_ids: set[str] | Callable[[], set[str]],
     ) -> Generator[None, None, None]:
         record_ids = tuple(record.record_id for record in active_records)
         if record_ids == self._hydrated_record_ids:
@@ -488,6 +481,9 @@ class SessionRequestEvidenceRuntime:
         anchors = set(self._anchor_record_ids) if append_only else set()
         sources = dict(self._legacy_sources) if append_only else {}
         selected_ids = set(record_ids)
+        resolved_context_record_ids = (
+            context_record_ids if isinstance(context_record_ids, set) else None
+        )
 
         for record in active_records[start:]:
             yield
@@ -548,8 +544,15 @@ class SessionRequestEvidenceRuntime:
                             "Model Input Resource evidence has no message record id"
                         )
                     message_ids.append(message_id)
+                if resolved_context_record_ids is None:
+                    resolved_context_record_ids = (
+                        context_record_ids()
+                        if callable(context_record_ids)
+                        else context_record_ids
+                    )
                 if all(
-                    message_id in covered or message_id not in context_record_ids
+                    message_id in covered
+                    or message_id not in resolved_context_record_ids
                     for message_id in message_ids
                 ):
                     continue

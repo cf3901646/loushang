@@ -304,6 +304,22 @@ messages, so neither transformation explains this interval. This was another
 sequential turn, with 1,922.32ms from tool exit to Worked, and is not a matched
 before/after comparison.
 
+The asynchronous recovery previously replayed all context message bindings
+whenever the appended suffix contained a Model Input snapshot, even when that
+snapshot had no Resource evidence component. A regression test first failed on
+this unnecessary replay. Recovery now obtains the bindings lazily only after
+reading a nonempty Resource evidence component; the final request projection
+still checks its exact message-to-record bindings. The evidence-free and
+snapshot-evidence tests, Agent Product contract tests, and Coding Model Input
+tests passed (70 total). A later sequential, instrumented native-PTY turn on
+the same long-session copy measured recovery at 65.44ms versus 94.56ms in the
+previous turn, and tool-exit-to-Worked at 1,838.89ms versus 1,922.32ms. These
+turns are not matched pairs and establish only the stage attribution, not a
+p95 gain. Native reopening verified two snapshots with terminal usage and the
+tool output, with original authority unchanged and no historical tool calls.
+Ruff and focused mypy passed. `make check-harness` stopped at six mypy errors
+in the unchanged sandbox package legacy runtime, before running its test target.
+
 A private candidate indexed only record types that might carry blob references
 while still rechecking their mutable contents on every sampling. This history
 had 7,839 such messages among 29,321 selected records. The candidate reduced
