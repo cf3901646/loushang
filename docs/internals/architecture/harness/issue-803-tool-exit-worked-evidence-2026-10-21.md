@@ -92,6 +92,15 @@ executing historical tools or changing the authority.
 
 ## Next work
 
+An incremental receipt lookup replaced the usage recorder's full active-path
+scan. Four focused attempt-usage tests and the combined Model Input/session
+model-call suite passed (97 passed, one skipped). One diagnostic native PTY
+turn with the change measured 1,135.40ms from tool exit to Worked. The usage
+recorder took 97.83ms, of which its durable append took 97.74ms. This isolated
+turn is not a matched before/after p95 and does not establish an end-to-end
+gain. Native reopening verified its two snapshots with terminal usage and one
+tool result without changing the authority or executing historical tools.
+
 Investigate an incremental, provenance-checked prepared-request and transcript
 path that can reuse the unchanged historical prefix while preserving the exact
 payload, hashes and durable-before-send order. Measure any prototype with five

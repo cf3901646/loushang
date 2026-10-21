@@ -502,18 +502,31 @@ class ModelInputTranscriptCommitter(
                 raise ModelInputIntegrityError(
                     "model call attempt usage changed logical invocation identity"
                 )
-            matching_snapshots = [
-                record.payload
-                for record in self._transcript.active_path()
-                if isinstance(record.payload, ModelInputSnapshot | ModelInputSnapshotV2)
-                and record.payload.snapshot_id == usage.model_input_snapshot_id
-                and record.payload.invocation_id == usage.invocation_id
-                and record.payload.attempt == usage.attempt
-            ]
-            committed_snapshot_ids = {commit.snapshot_id for commit in self._commits}
+            # This committer owns the append chain from each successful snapshot
+            # through the current leaf. The revision/leaf check above rejects
+            # an outside branch or append, so resolving its receipt directly
+            # avoids walking the entire historical path for every usage event.
+            snapshot_commit = next(
+                (
+                    commit
+                    for commit in self._commits
+                    if commit.snapshot_id == usage.model_input_snapshot_id
+                ),
+                None,
+            )
+            snapshot_record = (
+                self._transcript.get(snapshot_commit.record_id)
+                if snapshot_commit is not None
+                else None
+            )
+            snapshot = (
+                snapshot_record.payload if snapshot_record is not None else None
+            )
             if (
-                len(matching_snapshots) != 1
-                or usage.model_input_snapshot_id not in committed_snapshot_ids
+                not isinstance(snapshot, ModelInputSnapshot | ModelInputSnapshotV2)
+                or snapshot.snapshot_id != usage.model_input_snapshot_id
+                or snapshot.invocation_id != usage.invocation_id
+                or snapshot.attempt != usage.attempt
             ):
                 raise ModelInputIntegrityError(
                     "model call attempt usage does not match a committed attempt"
