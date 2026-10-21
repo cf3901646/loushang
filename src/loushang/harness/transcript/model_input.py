@@ -368,8 +368,6 @@ class ModelInputTranscriptCommitter(
                     )
                 materialization_timing = writer.materialization_timing
                 materialization_stats = writer.materialization_stats
-                self._expected_revision = materialization.expected_revision
-                self._expected_leaf_id = materialization.expected_leaf_id
                 with timer.phase("snapshot_build"):
                     snapshot = ModelInputSnapshotV2(
                         snapshot_id=str(uuid4()),
@@ -384,7 +382,7 @@ class ModelInputTranscriptCommitter(
                         conversation_id=self._transcript.header.conversation_id,
                         source_leaf_id=self._context.source_leaf_id,
                         source_revision=self._context.source_revision,
-                        commit_revision=self._expected_revision + 1,
+                        commit_revision=materialization.expected_revision + 1,
                         provider_id=_prepared_text(request, "provider_id"),
                         model_id=_prepared_text(request, "model_id"),
                         api_id=_prepared_text(request, "api"),
@@ -407,12 +405,14 @@ class ModelInputTranscriptCommitter(
                             "during commit"
                         )
                 with timer.phase("append_snapshot"):
-                    commit = await self._transcript.append_model_input_snapshot(
+                    batch = await self._transcript.append_staged_model_input_snapshot(
+                        writer.staged_records,
                         snapshot,
                         max_encoded_record_bytes=self._max_encoded_record_bytes,
                         expected_revision=self._expected_revision,
                         expected_leaf_id=self._expected_leaf_id,
                     )
+                    commit = batch[-1]
                 receipt = commit.receipt
                 if receipt is None:
                     raise ModelInputIntegrityError(
@@ -451,6 +451,7 @@ class ModelInputTranscriptCommitter(
                             raise ModelInputIntegrityError(
                                 "committed Model Input v2 prepared payload changed"
                             )
+                writer.publish_committed_graph()
                 self._advance(commit.record.record_id, receipt.revision)
                 self._commits.append(
                     ModelInputCommitResult(

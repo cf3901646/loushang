@@ -749,6 +749,69 @@ class AgentTranscriptUnitOfWork:
                 propagate_cancellation=True,
             )
 
+    def stage_model_input_node_bundles(
+        self,
+        bundles: Sequence[ModelInputNodeBundle],
+        *,
+        max_encoded_record_bytes: int,
+        parent_id: str,
+    ) -> tuple[AgentTranscriptRecord, ...]:
+        """Build validated graph facts without publishing them to the Store."""
+
+        records: list[AgentTranscriptRecord] = []
+        for bundle in bundles:
+            record = self._record_factory.create(
+                MODEL_INPUT_COMPONENT_KIND,
+                bundle,
+                parent_id=parent_id,
+                payload_version=MODEL_INPUT_V2_PAYLOAD_VERSION,
+            )
+            self._require_record_size(record, max_encoded_record_bytes)
+            records.append(record)
+            parent_id = record.record_id
+        return tuple(records)
+
+    async def append_staged_model_input_snapshot(
+        self,
+        components: Sequence[AgentTranscriptRecord],
+        snapshot: ModelInputSnapshotV2,
+        *,
+        max_encoded_record_bytes: int,
+        expected_revision: int,
+        expected_leaf_id: str,
+    ) -> tuple[AgentTranscriptCommit, ...]:
+        """Commit a complete, previously validated v2 graph and snapshot."""
+
+        async with self._commit_lock:
+            if self.revision != expected_revision or self.leaf_id != expected_leaf_id:
+                raise ModelInputIntegrityError(
+                    "transcript changed outside the Model Input commit sequence"
+                )
+            parent_id = expected_leaf_id
+            for component in components:
+                if (
+                    component.kind != MODEL_INPUT_COMPONENT_KIND
+                    or component.payload_version != MODEL_INPUT_V2_PAYLOAD_VERSION
+                    or not isinstance(component.payload, ModelInputNodeBundle)
+                    or component.parent_id != parent_id
+                ):
+                    raise ModelInputIntegrityError("staged Model Input graph changed")
+                self._require_record_size(component, max_encoded_record_bytes)
+                parent_id = component.record_id
+            if snapshot.commit_revision != expected_revision + len(components) + 1:
+                raise ModelInputIntegrityError("staged Model Input revision changed")
+            record = self._record_factory.create(
+                MODEL_INPUT_PREPARED_KIND,
+                snapshot,
+                parent_id=parent_id,
+                payload_version=MODEL_INPUT_V2_PAYLOAD_VERSION,
+            )
+            self._require_record_size(record, max_encoded_record_bytes)
+            return await self._finish_batch_commit_atomically(
+                (*components, record),
+                propagate_cancellation=True,
+            )
+
     async def append_model_input_snapshot(
         self,
         snapshot: ModelInputSnapshot | ModelInputSnapshotV2,

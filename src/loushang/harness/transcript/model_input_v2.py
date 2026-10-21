@@ -233,6 +233,30 @@ class ModelInputV2NodeIndex:
         for _ in self._index_records(records):
             pass
 
+    def fork_for_staging(self) -> Self:
+        """Keep speculative graph locations out of the authoritative cache."""
+
+        staged = type(self).__new__(type(self))
+        staged._records = self._records
+        staged._by_identity = self._by_identity.copy()
+        staged._by_location = self._by_location.copy()
+        staged._sequence_states = self._sequence_states.copy()
+        staged._values = self._values.copy()
+        staged._value_hashes_by_location = self._value_hashes_by_location.copy()
+        staged._sequence_nodes_by_location = self._sequence_nodes_by_location.copy()
+        staged._sequence_link_bundles_by_location = (
+            self._sequence_link_bundles_by_location.copy()
+        )
+        staged._verified_value_canonicals = self._verified_value_canonicals.copy()
+        staged._authority_verified_value_hashes = (
+            self._authority_verified_value_hashes.copy()
+        )
+        staged._verified_sequence_states = self._verified_sequence_states.copy()
+        staged._verified_sequence_references = (
+            self._verified_sequence_references.copy()
+        )
+        return staged
+
     @classmethod
     async def build_async(cls, records: Sequence[AgentTranscriptRecord]) -> Self:
         """Build an unpublished index, yielding between the same strict checks."""
@@ -849,8 +873,13 @@ class ModelInputV2Writer:
         active_records: tuple[AgentTranscriptRecord, ...],
     ) -> None:
         self._transcript = transcript
+        self._index = self._index.fork_for_staging()
         self._expected_revision = expected_revision
         self._expected_leaf_id = expected_leaf_id
+        self._base_revision = expected_revision
+        self._base_leaf_id = expected_leaf_id
+        self._staged_records: list[AgentTranscriptRecord] = []
+        self._staged_path = active_records
         self._max_encoded_record_bytes = max_encoded_record_bytes
         with _optional_phase(phase_timer, "resolver_build"):
             self._existing_resolver = ModelInputV2Resolver(active_records)
@@ -880,6 +909,32 @@ class ModelInputV2Writer:
             reused_prefix_item_count=self._reused_prefix_item_count,
             planned_item_count=self._planned_item_count,
         )
+
+    @property
+    def staged_records(self) -> tuple[AgentTranscriptRecord, ...]:
+        return tuple(self._staged_records)
+
+    def publish_committed_graph(self) -> None:
+        """Publish staged index and plans only after the Store accepted the batch."""
+
+        active_records = self._transcript.active_path()
+        if not _path_extends(self._staged_path, active_records):
+            raise ModelInputIntegrityError(
+                "committed Model Input graph left its staged ancestry"
+            )
+        plans = {
+            key: replace(
+                plan,
+                item_references=tuple(
+                    self._value_references[item.value_hash]
+                    for item in plan.item_plans
+                ),
+            )
+            for key, plan in self._sequence_plan_updates.items()
+        }
+        self._index_cache.mark_writer_extension(active_records)
+        self._index_cache.index = self._index
+        self._index_cache.sequence_plans.update(plans)
 
     async def materialize(
         self,
@@ -1029,18 +1084,6 @@ class ModelInputV2Writer:
                 root_refs.append(indexed.reference)
 
         self._materialization_timing = timing.snapshot()
-        self._index_cache.sequence_plans.update(
-            {
-                key: replace(
-                    plan,
-                    item_references=tuple(
-                        self._value_references[item.value_hash]
-                        for item in plan.item_plans
-                    ),
-                )
-                for key, plan in self._sequence_plan_updates.items()
-            }
-        )
         return ModelInputV2Materialization(
             logical_root=root_refs[0],
             prepared_payload_root=root_refs[1],
@@ -1149,8 +1192,8 @@ class ModelInputV2Writer:
 
     def _require_current_transcript(self) -> None:
         if (
-            self._transcript.revision != self._expected_revision
-            or self._transcript.leaf_id != self._expected_leaf_id
+            self._transcript.revision != self._base_revision
+            or self._transcript.leaf_id != self._base_leaf_id
         ):
             raise ModelInputIntegrityError(
                 "Model Input transcript changed during materialization"
@@ -1411,35 +1454,29 @@ class ModelInputV2Writer:
         if not missing:
             return
         bundles = _bundle_model_input_nodes(tuple(missing.values()))
-        commits = await self._transcript.append_model_input_node_bundles(
+        records = self._transcript.stage_model_input_node_bundles(
             bundles,
             max_encoded_record_bytes=self._max_encoded_record_bytes,
-            expected_revision=self._expected_revision,
-            expected_leaf_id=self._expected_leaf_id,
+            parent_id=self._expected_leaf_id,
         )
-        if len(commits) != len(bundles):
+        if len(records) != len(bundles):
             raise ModelInputIntegrityError(
-                "Model Input v2 bundle batch returned an invalid commit count"
+                "Model Input v2 staging returned an invalid record count"
             )
-        first_position = len(self._transcript.active_path()) - len(commits)
-        for offset, commit in enumerate(commits):
-            receipt = commit.receipt
-            if receipt is None:
-                raise ModelInputIntegrityError(
-                    "Model Input v2 bundle did not reach the authoritative Store"
-                )
+        first_position = len(self._staged_path)
+        for offset, record in enumerate(records):
             self._index.add_bundle_record(
-                commit.record,
+                record,
                 record_position=first_position + offset,
             )
-            self._expected_revision = receipt.revision
-            self._expected_leaf_id = commit.record.record_id
-        active_records = self._transcript.active_path()
-        self._index_cache.mark_writer_extension(active_records)
+            self._expected_revision += 1
+            self._expected_leaf_id = record.record_id
+        self._staged_records.extend(records)
+        self._staged_path = (*self._staged_path, *records)
         self._existing_resolver = self._existing_resolver._with_extended_ancestry(
-            active_records
+            self._staged_path
         )
-        self._existing_owner_position = len(active_records)
+        self._existing_owner_position = len(self._staged_path)
 
     @staticmethod
     def _value_plan(value: object) -> _ValuePlan:

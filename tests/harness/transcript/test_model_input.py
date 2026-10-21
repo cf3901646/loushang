@@ -36,6 +36,7 @@ from loushang.harness.conversation import (
     ConversationHeader,
     ConversationKey,
     MemoryConversationStore,
+    StoreCommitOutcomeUnknown,
 )
 from loushang.harness.transcript import (
     MODEL_CALL_ATTEMPT_USAGE_KIND,
@@ -2036,7 +2037,7 @@ def test_loading_a_v1_file_is_byte_stable_before_appending_v2(tmp_path: Path) ->
     asyncio.run(scenario())
 
 
-def test_model_input_materializes_missing_v2_layers_in_bounded_store_batches() -> None:
+def test_model_input_materializes_v2_graph_and_snapshot_in_one_store_batch() -> None:
     async def scenario() -> None:
         backend = _CountingModelInputStore()
         transcript = await _memory_transcript(backend)
@@ -2052,17 +2053,141 @@ def test_model_input_materializes_missing_v2_layers_in_bounded_store_batches() -
         component_count = sum(
             record.kind == MODEL_INPUT_COMPONENT_KIND for record in transcript.records
         )
-        assert sum(backend.batch_sizes) == component_count
-        assert 1 <= len(backend.batch_sizes) <= 4
-        assert backend.append_calls == append_calls_before + 1
+        assert backend.batch_sizes == [component_count + 1]
+        assert backend.append_calls == append_calls_before
         first_batch_sizes = list(backend.batch_sizes)
 
         await committer.commit_prepared_request(
             _prepared(invocation_id="invocation-1", attempt=2)
         )
 
-        assert backend.batch_sizes == first_batch_sizes
-        assert backend.append_calls == append_calls_before + 2
+        assert backend.batch_sizes == [*first_batch_sizes, 1]
+        assert backend.append_calls == append_calls_before
+        assert verify_model_input(transcript, committer.commits[-1].snapshot_id).verified
+
+    asyncio.run(scenario())
+
+
+def test_failed_v2_staging_leaves_no_graph_facts_or_cached_references(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        backend = _CountingModelInputStore()
+        transcript = await _memory_transcript(backend)
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript),
+            runtime_references=_runtime_references(),
+        )
+        before = transcript.records
+        original = transcript.stage_model_input_node_bundles
+        stages = 0
+
+        def fail_after_values(*args, **kwargs):
+            nonlocal stages
+            stages += 1
+            if stages == 2:
+                raise ModelInputIntegrityError("staging failed")
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(
+            transcript, "stage_model_input_node_bundles", fail_after_values
+        )
+        with pytest.raises(ModelInputIntegrityError, match="staging failed"):
+            await committer.commit_prepared_request(_prepared())
+        assert stages == 2
+        assert transcript.records == before
+        assert backend.batch_sizes == []
+        cached = model_input_v2_module._MODEL_INPUT_V2_INDEX_CACHES[transcript]
+        assert cached.records == transcript.active_path()
+        assert cached.index.find_value(
+            model_input_v2_module.ModelInputV2Writer._value_plan(
+                {"role": "user", "content": "hello"}
+            ).value_hash
+        ) is None
+
+        monkeypatch.setattr(transcript, "stage_model_input_node_bundles", original)
+        await committer.commit_prepared_request(_prepared())
+        assert verify_model_input(transcript, committer.commits[-1].snapshot_id).verified
+
+    asyncio.run(scenario())
+
+
+def test_v2_batch_recovers_unknown_store_receipt_without_duplicate_facts() -> None:
+    class UnknownOnceStore(_CountingModelInputStore):
+        def __init__(self) -> None:
+            super().__init__()
+            self.unknown_once = True
+
+        async def append_batch(self, key, records, *, expected_revision, operation_ids):
+            result = await super().append_batch(
+                key,
+                records,
+                expected_revision=expected_revision,
+                operation_ids=operation_ids,
+            )
+            if self.unknown_once:
+                self.unknown_once = False
+                raise StoreCommitOutcomeUnknown("lost batch receipt")
+            return result
+
+    async def scenario() -> None:
+        backend = UnknownOnceStore()
+        transcript = await _memory_transcript(backend)
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript),
+            runtime_references=_runtime_references(),
+        )
+        await committer.commit_prepared_request(_prepared())
+        assert len(backend.batch_sizes) == 2
+        assert backend.batch_sizes[0] == backend.batch_sizes[1]
+        assert sum(
+            record.kind == MODEL_INPUT_PREPARED_KIND
+            for record in transcript.records
+        ) == 1
+        assert verify_model_input(transcript, committer.commits[-1].snapshot_id).verified
+
+    asyncio.run(scenario())
+
+
+def test_branch_during_v2_staging_rejects_the_entire_graph(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        backend = _CountingModelInputStore()
+        transcript = await _memory_transcript(backend)
+        root = transcript.leaf_id
+        await transcript.append_agent_message(
+            UserMessage(role="user", content="second", timestamp=2.0)
+        )
+        selected = transcript.leaf_id
+        before = transcript.records
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript),
+            runtime_references=_runtime_references(),
+        )
+        original = transcript.stage_model_input_node_bundles
+        changed = False
+
+        def branch_after_first_stage(*args, **kwargs):
+            nonlocal changed
+            records = original(*args, **kwargs)
+            if not changed:
+                changed = True
+                transcript.branch(root)
+            return records
+
+        monkeypatch.setattr(
+            transcript, "stage_model_input_node_bundles", branch_after_first_stage
+        )
+        with pytest.raises(ModelInputIntegrityError, match="changed"):
+            await committer.commit_prepared_request(_prepared())
+        assert changed
+        assert transcript.records == before
+        assert backend.batch_sizes == []
+        transcript.branch(selected)
 
     asyncio.run(scenario())
 
@@ -3051,12 +3176,16 @@ def test_model_input_commit_propagates_cancellation_after_safe_append() -> None:
         with pytest.raises(asyncio.CancelledError):
             await task
 
+        snapshots = [
+            record.payload
+            for record in transcript.records
+            if record.kind == MODEL_INPUT_PREPARED_KIND
+        ]
+        assert len(snapshots) == 1
         assert any(
             record.kind == MODEL_INPUT_COMPONENT_KIND for record in transcript.records
         )
-        assert not any(
-            record.kind == MODEL_INPUT_PREPARED_KIND for record in transcript.records
-        )
+        assert verify_model_input(transcript, snapshots[0].snapshot_id).verified
 
         backend.block_appends = False
         resumed = ModelInputTranscriptCommitter(

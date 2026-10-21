@@ -488,6 +488,32 @@ graph writes and snapshot append, then usage/outcome/assistant writes and
 terminal projection. Meeting 500ms requires shortening that serial chain and
 controlling full-history allocations and GC pauses; the current changes alone
 do not meet the goal.
+
+## One ordered v2 graph and snapshot append
+
+The writer now builds its missing value, sequence and root bundles in an
+isolated index, with final record IDs and ancestry known before persistence.
+Batch-capable Stores receive those bundles and the prepared snapshot in one
+ordered append; other Stores retain the existing ordered fallback. The shared
+index and verified prefix plans advance only after the
+durable batch receipt. A staging failure leaves neither graph facts nor
+speculative references behind; an acknowledged write with an uncertain
+receipt retries the exact operation IDs. Cancellation after the Store accepted
+the batch leaves a complete, independently rebuildable snapshot.
+
+The focused Model Input, v2 file index and Session selection passed 141 tests
+with one existing skip before adding the unknown-receipt regression. The
+long-session native PTY diagnostic used a 29,465-record source, separate
+copy-on-write authorities and 20 bounded keyboard samples per run. It measured
+4,977ms before and 3,384ms after from tool exit to Worked; the post-tool v2
+commit fell from 1,841ms to 1,326ms, with the values and sequence phases
+falling from 84/190ms to 20/17ms. The two runs had material phase and GC
+variance: the prior run's maximum echo was 2,729ms versus 785ms in the
+candidate, while prepared planning remained 635/610ms. This one diagnostic
+pair is not a p95 estimate, nor evidence that the 500ms goal is met. The
+remaining full-history canonical prefix proof and request/terminal chain
+still dominate the path.
+
 Measure with five
 matched before/after PTY rounds across the required tool cases and history
 scales. A faster Worked display before the final model call and terminal
