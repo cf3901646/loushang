@@ -72,9 +72,7 @@ CurrentSessionPredicate = Callable[[], bool]
 RegistrationEntriesProvider = Callable[[], tuple[RegistrationInventoryEntry, ...]]
 CurrentProfileFingerprintProvider = Callable[[], str]
 SourcePublicationProvider = Callable[[], ScopedSourcePublicationReference | None]
-RequestEvidenceProvider = Callable[
-    [ModelCallPreparation], Mapping[str, object] | None
-]
+RequestEvidenceProvider = Callable[[ModelCallPreparation], Mapping[str, object] | None]
 
 
 class ModelInputTranscriptPort(Protocol):
@@ -151,6 +149,10 @@ class SessionModelCallPreparer:
         self._profile_fingerprint_provider = profile_fingerprint_provider
         self._turn_performance = turn_performance
         self._request_evidence_provider = request_evidence_provider
+        self._last_prepared_request: PreparedModelRequest | None = None
+
+    def _retain_prepared_request(self, request: PreparedModelRequest) -> None:
+        self._last_prepared_request = request
 
     def __call__(self, preparation: ModelCallPreparation) -> CallOptions:
         if not isinstance(preparation, ModelCallPreparation):
@@ -193,6 +195,8 @@ class SessionModelCallPreparer:
                     committer=committer,
                     is_current=self._is_current,
                     turn_performance=self._turn_performance,
+                    on_committed_prepared_request=self._retain_prepared_request,
+                    prepared_request_reuse=self._last_prepared_request,
                 ),
             )
         except BaseException:
@@ -217,10 +221,16 @@ class _CurrentSessionCommitter(
         committer: PreparedRequestCommitter,
         is_current: CurrentSessionPredicate,
         turn_performance: TurnStartPerformanceRuntime | None = None,
+        on_committed_prepared_request: (
+            Callable[[PreparedModelRequest], None] | None
+        ) = None,
+        prepared_request_reuse: PreparedModelRequest | None = None,
     ) -> None:
         self._committer = committer
         self._is_current = is_current
         self._turn_performance = turn_performance
+        self._on_committed_prepared_request = on_committed_prepared_request
+        self.prepared_request_reuse = prepared_request_reuse
         self._latest_attempt_by_invocation: dict[str, tuple[int, str]] = {}
 
     async def commit_prepared_request(self, request: PreparedModelRequest) -> None:
@@ -244,6 +254,9 @@ class _CurrentSessionCommitter(
             request.attempt,
             snapshot_id,
         )
+        self.prepared_request_reuse = request
+        if self._on_committed_prepared_request is not None:
+            self._on_committed_prepared_request(request)
         if self._turn_performance is not None:
             self._turn_performance.transport_ready(request)
 
@@ -402,6 +415,7 @@ def build_session_model_call_capability_binding(
         source_id="builtin",
         selection_rule="Product durable Model Input selection",
     )
+
     def build_value(
         transcript_port: ModelInputTranscriptPort,
     ) -> CapabilityBundleValue:

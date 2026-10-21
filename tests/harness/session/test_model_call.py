@@ -483,6 +483,74 @@ def test_current_session_prepares_and_rebuilds_main_model_call() -> None:
     asyncio.run(scenario())
 
 
+def test_session_reuses_only_a_committed_prepared_request_prefix() -> None:
+    class ReusingAdapter(_PreparedAdapter):
+        def __init__(self) -> None:
+            super().__init__()
+            self.prepared: list[PreparedModelRequest] = []
+            self.candidates: list[PreparedModelRequest | None] = []
+
+        def prepare_request(self, request: ProviderRequest) -> PreparedModelRequest:
+            candidate = getattr(
+                request.options.prepared_request_committer
+                if request.options is not None
+                else None,
+                "prepared_request_reuse",
+                None,
+            )
+            self.candidates.append(candidate)
+            prepared = PreparedModelRequest.from_provider_request(
+                request,
+                payload={
+                    "model": request.model.id,
+                    "messages": [
+                        serialize_message(message)
+                        for message in request.context.messages
+                    ],
+                },
+            )
+            self.prepared.append(prepared)
+            return prepared
+
+    async def scenario() -> None:
+        session = await _transcript_session()
+        runtime = _model_call_runtime(session, is_current=lambda: True)
+        adapter = ReusingAdapter()
+        registry = get_default_api_registry()
+        source_id = "session-prefix-reuse-test"
+        registry.register_api_adapter(adapter, source_id=source_id)
+        agent = Agent(
+            initial_state={
+                "system_prompt": "durable system prompt",
+                "model": _model(api=adapter.api),
+                "thinking_level": "off",
+            },
+            prepare_model_call=runtime.prepare,
+        )
+        try:
+            await agent.prompt("first")
+            await agent.prompt("second")
+        finally:
+            registry.unregister_api_adapters(source_id)
+        assert adapter.transport_calls == 2
+        assert adapter.candidates == [None, adapter.prepared[0]]
+        first_messages = adapter.prepared[0].payload["messages"]
+        second_messages = adapter.prepared[1].payload["messages"]
+        assert second_messages[0] is first_messages[0]
+        snapshot_ids = [
+            entry.payload.snapshot_id
+            for entry in session.get_entries()
+            if entry.kind == "model.input.prepared"
+        ]
+        assert len(snapshot_ids) == 2
+        for snapshot_id, prepared in zip(snapshot_ids, adapter.prepared, strict=True):
+            rebuilt = session.rebuild_model_input(snapshot_id)
+            assert rebuilt.prepared_payload == prepared.payload_for_transport()
+        await runtime.dispose()
+
+    asyncio.run(scenario())
+
+
 def test_resource_evidence_is_request_bound_durable_and_resumable() -> None:
     async def scenario() -> None:
         session = await _transcript_session()

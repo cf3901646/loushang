@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 from collections.abc import AsyncIterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, cast, runtime_checkable
 from uuid import uuid4
@@ -257,6 +258,7 @@ class PreparedModelRequest:
     estimated_wire_bytes: int | None = field(default=None, repr=False)
     estimated_input_tokens: int | None = field(default=None, repr=False)
     schema_version: int = PREPARED_MODEL_REQUEST_SCHEMA_VERSION
+    reuse_from: InitVar[PreparedModelRequest | None] = None
     canonical_payload: str = field(init=False, repr=False)
     payload_hash: str = field(init=False)
     metrics: PreparedRequestMetrics = field(init=False)
@@ -267,8 +269,14 @@ class PreparedModelRequest:
     _owned_envelope: tuple[
         Mapping[str, FrozenJSONValue], Mapping[str, str], str, str
     ] = field(init=False, repr=False, compare=False)
+    _canonical_fields: Mapping[str, str] = field(init=False, repr=False, compare=False)
+    _owned_reuse: tuple[
+        PreparedRequestMetrics,
+        tuple[PreparedRequestBinaryField, ...],
+        Mapping[str, str],
+    ] = field(init=False, repr=False, compare=False)
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, reuse_from: PreparedModelRequest | None) -> None:
         for name in (
             "invocation_id",
             "provider_id",
@@ -292,11 +300,16 @@ class PreparedModelRequest:
                 f"{self.schema_version}"
             )
 
-        projected = _project_payload(self.payload)
         model_visible_headers = _project_model_visible_headers(
             self.model_visible_headers
         )
-        canonical_payload, message_bytes, tool_schema_bytes = (
+        if reuse_from is not None and _reuse_prepared_prefix(
+            self, reuse_from, model_visible_headers
+        ):
+            return
+
+        projected = _project_payload(self.payload)
+        canonical_payload, message_bytes, tool_schema_bytes, canonical_fields = (
             _canonical_prepared_envelope(
                 projected,
                 model_visible_headers=model_visible_headers,
@@ -346,6 +359,11 @@ class PreparedModelRequest:
                 self.payload_hash,
             ),
         )
+        frozen_fields = MappingProxyType(canonical_fields)
+        object.__setattr__(self, "_canonical_fields", frozen_fields)
+        object.__setattr__(
+            self, "_owned_reuse", (self.metrics, self.binary_fields, frozen_fields)
+        )
 
     @classmethod
     def from_provider_request(
@@ -356,8 +374,17 @@ class PreparedModelRequest:
         model_visible_headers: Mapping[str, str] | None = None,
         estimated_wire_bytes: int | None = None,
         estimated_input_tokens: int | None = None,
+        reuse_from: PreparedModelRequest | None = None,
     ) -> PreparedModelRequest:
         model = request.model
+        if reuse_from is None and request.options is not None:
+            candidate = getattr(
+                request.options.prepared_request_committer,
+                "prepared_request_reuse",
+                None,
+            )
+            if isinstance(candidate, PreparedModelRequest):
+                reuse_from = candidate
         return cls(
             invocation_id=request.invocation_id or uuid4().hex,
             attempt=request.attempt,
@@ -368,6 +395,7 @@ class PreparedModelRequest:
             mode=request.mode,
             payload=cast(Mapping[str, FrozenJSONValue], payload),
             model_visible_headers=model_visible_headers or {},
+            reuse_from=reuse_from,
             estimated_wire_bytes=estimated_wire_bytes,
             estimated_input_tokens=estimated_input_tokens,
         )
@@ -376,7 +404,9 @@ class PreparedModelRequest:
         """Return a fresh transport object without reordering adapter mappings."""
 
         if not self._owned_envelope_is_current():
-            raise RuntimeError("prepared model request envelope changed before transport")
+            raise RuntimeError(
+                "prepared model request envelope changed before transport"
+            )
         # The sealed digest was calculated from this owned tree at creation.
         # Frozen containers and the envelope identity check keep it unchanged.
         return self._owned_payload_copy()
@@ -398,7 +428,9 @@ class PreparedModelRequest:
 
     def model_visible_headers_for_transport(self) -> dict[str, str]:
         if not self._owned_envelope_is_current():
-            raise RuntimeError("prepared model request envelope changed before transport")
+            raise RuntimeError(
+                "prepared model request envelope changed before transport"
+            )
         return dict(self.model_visible_headers)
 
     def _owned_envelope_is_current(self) -> bool:
@@ -545,6 +577,151 @@ def _raise_if_transport_cancelled() -> None:
         raise asyncio.CancelledError
 
 
+def _same_raw_json_as_frozen(raw: object, frozen: object) -> bool:
+    """Prove an untrusted provider value equals one previously sealed value."""
+
+    raw_type = type(raw)
+    if raw_type is dict and type(frozen) is MappingProxyType:
+        raw_mapping = cast(dict[object, object], raw)
+        frozen_mapping = cast(Mapping[str, object], frozen)
+        return tuple(raw_mapping) == tuple(frozen_mapping) and all(
+            type(name) is str
+            and name in frozen_mapping
+            and _same_raw_json_as_frozen(value, frozen_mapping[name])
+            for name, value in raw_mapping.items()
+        )
+    if raw_type is list and type(frozen) is tuple:
+        raw_items = cast(list[object], raw)
+        frozen_items = cast(tuple[object, ...], frozen)
+        return len(raw_items) == len(frozen_items) and all(
+            _same_raw_json_as_frozen(left, right)
+            for left, right in zip(raw_items, frozen_items, strict=True)
+        )
+    if raw_type is float and type(frozen) is float:
+        return raw == frozen and (
+            raw != 0.0 or math.copysign(1.0, raw) == math.copysign(1.0, frozen)
+        )
+    return raw_type in {type(None), str, bool, int} and (
+        type(frozen) is raw_type and raw == frozen
+    )
+
+
+def _reuse_prepared_prefix(
+    request: PreparedModelRequest,
+    previous: PreparedModelRequest,
+    headers: dict[str, str],
+) -> bool:
+    """Reuse only a sealed exact prefix; any uncertain shape takes the full path."""
+
+    if not isinstance(previous, PreparedModelRequest):
+        return False
+    prior_metrics, prior_binary_fields, prior_canonical_fields = previous._owned_reuse
+    if not previous._owned_envelope_is_current() or (
+        previous.metrics is not prior_metrics
+        or previous.binary_fields is not prior_binary_fields
+        or previous._canonical_fields is not prior_canonical_fields
+    ):
+        return False
+    if type(request.payload) is not dict or headers != previous.model_visible_headers:
+        return False
+    raw = cast(dict[str, object], request.payload)
+    old = previous.payload
+    if tuple(raw) != tuple(old) or any(type(name) is not str for name in raw):
+        return False
+    message_key = "messages" if type(raw.get("messages")) is list else "input"
+    messages = raw.get(message_key)
+    prior_messages = old.get(message_key)
+    if type(messages) is not list or type(prior_messages) is not tuple:
+        return False
+    messages = cast(list[object], messages)
+    sealed_messages = cast(tuple[FrozenJSONValue, ...], prior_messages)
+    prior_count = len(sealed_messages)
+    if len(messages) < prior_count or any(
+        not _same_raw_json_as_frozen(current, sealed)
+        for current, sealed in zip(messages[:prior_count], sealed_messages, strict=True)
+    ):
+        return False
+    if any(
+        not _same_raw_json_as_frozen(value, old[name])
+        for name, value in raw.items()
+        if name != message_key
+    ):
+        return False
+
+    suffix = cast(
+        list[JSONValue], [_thaw_json(item) for item in messages[prior_count:]]
+    )
+    validate_json_value(suffix, name="prepared model request message suffix")
+    old_canonical = previous._canonical_fields[message_key]
+    if not old_canonical.startswith("[") or not old_canonical.endswith("]"):
+        return False
+
+    def encode(value: JSONValue | dict[str, str] | str) -> str:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+
+    suffix_canonical = encode(suffix)[1:-1] if suffix else ""
+    message_canonical = (
+        old_canonical[:-1]
+        + ("," if prior_count and suffix else "")
+        + suffix_canonical
+        + "]"
+    )
+    canonical_fields = dict(previous._canonical_fields)
+    canonical_fields[message_key] = message_canonical
+    canonical = (
+        '{"model_visible_headers":'
+        + encode(headers)
+        + ',"payload":{'
+        + ",".join(
+            encode(name) + ":" + canonical_fields[name]
+            for name in sorted(canonical_fields)
+        )
+        + "}}"
+    )
+    digest = "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    suffix_image_bytes = _estimate_image_bytes(suffix)
+    suffix_binary_fields = tuple(
+        field
+        for index, item in enumerate(suffix, start=prior_count)
+        for field in _discover_prepared_binary_fields(item, path=(message_key, index))
+    )
+    owned = dict(old)
+    owned[message_key] = sealed_messages + tuple(
+        _freeze_owned_json(item) for item in suffix
+    )
+    frozen_payload = MappingProxyType(owned)
+    binary_fields = previous.binary_fields + suffix_binary_fields
+    metrics = PreparedRequestMetrics(
+        canonical_bytes=len(canonical.encode("utf-8")),
+        estimated_wire_bytes=request.estimated_wire_bytes,
+        message_bytes=len(message_canonical.encode("utf-8")),
+        message_count=len(messages),
+        image_bytes=previous.metrics.image_bytes + suffix_image_bytes,
+        tool_schema_bytes=previous.metrics.tool_schema_bytes,
+        estimated_input_tokens=request.estimated_input_tokens,
+    )
+    frozen_fields = MappingProxyType(canonical_fields)
+    frozen_headers = MappingProxyType(headers)
+    object.__setattr__(request, "payload", frozen_payload)
+    object.__setattr__(request, "model_visible_headers", frozen_headers)
+    object.__setattr__(request, "canonical_payload", canonical)
+    object.__setattr__(request, "payload_hash", digest)
+    object.__setattr__(request, "binary_fields", binary_fields)
+    object.__setattr__(request, "metrics", metrics)
+    object.__setattr__(
+        request, "_owned_envelope", (frozen_payload, frozen_headers, canonical, digest)
+    )
+    object.__setattr__(request, "_canonical_fields", frozen_fields)
+    object.__setattr__(request, "_owned_reuse", (metrics, binary_fields, frozen_fields))
+    return True
+
+
 def _measure_prepared_request(
     *,
     canonical_payload: str,
@@ -573,7 +750,7 @@ def _canonical_prepared_envelope(
     payload: Mapping[str, JSONValue],
     *,
     model_visible_headers: Mapping[str, str],
-) -> tuple[str, int | None, int]:
+) -> tuple[str, int | None, int, dict[str, str]]:
     """Encode each top-level field once and retain its exact canonical size."""
 
     def encode(value: JSONValue) -> str:
@@ -589,9 +766,11 @@ def _canonical_prepared_envelope(
     message_bytes: int | None = None
     tool_schema_bytes = 0
     fields: list[str] = []
+    canonical_fields: dict[str, str] = {}
     for name in sorted(payload):
         value = payload[name]
         encoded = encode(value)
+        canonical_fields[name] = encoded
         if name == messages_key and isinstance(value, list):
             message_bytes = len(encoded.encode("utf-8"))
         if name == "tools" and value is not None:
@@ -604,7 +783,7 @@ def _canonical_prepared_envelope(
         + ",".join(fields)
         + "}}"
     )
-    return canonical, message_bytes, tool_schema_bytes
+    return canonical, message_bytes, tool_schema_bytes, canonical_fields
 
 
 def _estimate_image_bytes(value: object) -> int:

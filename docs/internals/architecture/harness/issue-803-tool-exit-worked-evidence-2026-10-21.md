@@ -395,9 +395,39 @@ turn is not a matched before/after p95 and does not establish an end-to-end
 gain. Native reopening verified its two snapshots with terminal usage and one
 tool result without changing the authority or executing historical tools.
 
-Investigate an incremental, provenance-checked prepared-request and transcript
-path that can reuse the unchanged historical prefix while preserving the exact
-payload, hashes and durable-before-send order. Measure any prototype with five
+## Prepared-request prefix candidate
+
+The Session now offers the last successfully committed prepared request to the
+next AI request through its existing committer. AI reuses sealed message items
+and their canonical encoding only after a type-sensitive, ordered comparison
+of the entire old prefix and all other payload fields and visible headers.
+Different nested values, signed floating zero, field order or a shortened
+message sequence take the ordinary full-construction path. The new suffix is
+validated and frozen before transport; metrics, binary-field locations, hash
+and canonical bytes are recomputed for the resulting exact request. The
+candidate is retained only after the durable Model Input commit succeeds.
+
+On two isolated snapshots with 1,535 then 1,537 prepared messages, nine
+alternating read-only samples measured full construction at 154.35ms median
+and prefix construction at 64.07ms median. Canonical payload, hash, metrics,
+binary-field locations and copied transport payload matched exactly. A separate
+root-hash-only micro sample saved about 23ms across logical and prepared lists;
+it was not implemented as a separate cache.
+
+One native-PTY diagnostic pair on same-source long-history copies measured
+3,102.55ms baseline and 2,671.32ms candidate from actual tool exit to Worked.
+The copied fixtures lacked their writer-head and Model Input index sidecars,
+causing cold materialization of about 1.06s and 0.95s in the post-tool commits.
+Maximum input echo was worse in the candidate (1,737.58ms versus 1,086.81ms).
+Both copies reopened with two exact snapshots and terminal usage, one correct
+tool-output fingerprint, unchanged read-only authority and no historical tool
+execution. This single noisy pair does not establish a p95 improvement or the
+250ms target. The complete AI gate passed 875 offline tests with 90.64%
+coverage; the focused Session/Model Input selection passed 104 tests.
+
+Extend the exact prefix proof into the transcript writer and remove other
+repeated full-context work while preserving the durable-before-send order.
+Measure with five
 matched before/after PTY rounds across the required tool cases and history
 scales. A faster Worked display before the final model call and terminal
 outcome would change the state contract and cannot satisfy this objective.

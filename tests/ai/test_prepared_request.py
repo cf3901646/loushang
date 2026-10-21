@@ -217,6 +217,78 @@ def test_prepared_model_request_is_canonical_and_deeply_immutable() -> None:
         prepared.payload["messages"][0]["content"] = "changed"  # type: ignore[index]
 
 
+def test_prepared_request_reuses_only_an_exact_immutable_message_prefix() -> None:
+    first_payload = {
+        "messages": [{"role": "user", "content": [{"text": "old", "ok": True}]}],
+        "model": "faux-model",
+        "tools": [{"name": "read", "parameters": {"type": "object"}}],
+    }
+    previous = PreparedModelRequest.from_provider_request(
+        _request(), payload=first_payload
+    )
+    next_payload = {
+        **first_payload,
+        "messages": [
+            {"role": "user", "content": [{"text": "old", "ok": True}]},
+            {
+                "role": "user",
+                "content": ["data:image/png;base64,aGVsbG8="],
+            },
+        ],
+    }
+    expected = PreparedModelRequest.from_provider_request(
+        _request(), payload=next_payload
+    )
+    reused = PreparedModelRequest.from_provider_request(
+        _request(), payload=next_payload, reuse_from=previous
+    )
+    assert reused.canonical_payload == expected.canonical_payload
+    assert reused.payload_hash == expected.payload_hash
+    assert reused.metrics == expected.metrics
+    assert reused.binary_fields == expected.binary_fields
+    assert reused.payload_for_transport() == expected.payload_for_transport()
+    assert reused.payload["messages"][0] is previous.payload["messages"][0]
+
+    changed = {
+        **next_payload,
+        "messages": [
+            {"role": "user", "content": [{"text": "old", "ok": 1}]},
+            *next_payload["messages"][1:],
+        ],
+    }
+    fallback = PreparedModelRequest.from_provider_request(
+        _request(), payload=changed, reuse_from=previous
+    )
+    assert fallback.payload_for_transport() == changed
+    assert fallback.payload["messages"][0] is not previous.payload["messages"][0]
+
+    signed_zero_prior = PreparedModelRequest.from_provider_request(
+        _request(), payload={"messages": [{"number": 0.0}]}
+    )
+    signed_zero = PreparedModelRequest.from_provider_request(
+        _request(),
+        payload={"messages": [{"number": -0.0}, {"number": 1.0}]},
+        reuse_from=signed_zero_prior,
+    )
+    assert '"number":-0.0' in signed_zero.canonical_payload
+    assert (
+        signed_zero.payload["messages"][0]
+        is not signed_zero_prior.payload["messages"][0]
+    )
+
+    reordered = PreparedModelRequest.from_provider_request(
+        _request(),
+        payload={
+            "model": "faux-model",
+            "messages": next_payload["messages"],
+            "tools": next_payload["tools"],
+        },
+        reuse_from=previous,
+    )
+    assert tuple(reordered.payload_for_transport()) == ("model", "messages", "tools")
+    assert reordered.payload["messages"][0] is not previous.payload["messages"][0]
+
+
 @pytest.mark.parametrize("boundary", ["before_preparation", "after_preparation"])
 def test_prepared_invocation_services_cancellation_before_commit(boundary) -> None:
     async def scenario():
