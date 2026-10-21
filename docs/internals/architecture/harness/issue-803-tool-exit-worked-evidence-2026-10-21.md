@@ -132,6 +132,38 @@ separate attribution; this single run cannot establish an end-to-end
 improvement. Native reopening again verified both snapshots, terminal usage and
 the tool result without executing history or changing the original authority.
 
+## Tool-phase allocation experiment rejected
+
+A later GC-instrumented turn located one 695.61ms main-thread generation-two
+collection inside the post-tool binary-externalization phase. That phase took
+708.23ms, while the same phase ordinarily took about 9–12ms in this shorter
+history. The earlier 29,100-record trace had no post-tool generation-two
+collection, so GC is an intermittent tail amplifier rather than the sole cause
+of the slow path.
+
+A private candidate made the built-in blob codec share unchanged subtrees of
+the committer's exclusively owned logical/prepared JSON. The public default
+continued making independent copies, and custom codecs kept the prior call
+route. Image, literal-marker, Model Input and static checks passed. Five
+alternating real-PTY pairs used the same read-only 24,459-record seed, offline
+model transport, a controlled silent command, and a native reopen after every
+turn:
+
+| Measure | Baseline `d3190fcd` | Candidate |
+| --- | ---: | ---: |
+| Tool exit to Worked median | 1,027.36ms | 817.06ms |
+| Tool exit to Worked p95 | 1,102.86ms | 1,635.31ms |
+| Main-thread generation-two collections, five turns | 4 | 3 |
+
+All ten reports, twenty snapshots with terminal usage and ten outputs rebuilt
+successfully; no historical tool ran, drafts and durable-before-send held, and
+the seed authority remained unchanged. The candidate's worst turn had a
+920.67ms main-thread collection and took 1,781.38ms to Worked. Both variants
+still took more than 500ms even in turns without a main-thread generation-two
+collection. The candidate was reverted: sharing unchanged blob subtrees did
+not control the tail or approach the 250ms objective. No Product GC policy or
+threshold was changed.
+
 ## Next work
 
 An incremental receipt lookup replaced the usage recorder's full active-path
