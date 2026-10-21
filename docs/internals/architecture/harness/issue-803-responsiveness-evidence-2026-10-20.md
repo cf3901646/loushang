@@ -1208,6 +1208,31 @@ that did not reach transport (none in this run). No historical tool executed;
 the authority file was unchanged during verification. These cancellation
 results also miss the 100ms Escape and 250ms Worked targets.
 
+Four further five-turn runs kept the real PTY keyboard, prepared offline
+transport, native writer head and same continued long-session authority. The
+session grew from about 28,800 to 29,100 records across these runs, so the rows
+are workload observations, not matched before/after performance comparisons.
+The tool-phase column spans the interval from first tool start to final tool
+exit; preparation and completion are classified by intended physical key time.
+
+| Workload | Preparation echo p99 | Tool-phase echo p99 | Completion echo p99 | Worked p95 |
+| --- | ---: | ---: | ---: | ---: |
+| Streaming command | 482.51ms | 18.32ms | 552.34ms | 1,631.38ms |
+| Three consecutive tools | 511.58ms | 37.55ms | 576.69ms | 1,715.39ms |
+| 1.08MB ASCII result | 466.66ms | 24.25ms | 494.73ms | 1,720.77ms |
+| 2.16MB Unicode result | 402.48ms | 22.24ms | 400.71ms | 1,357.84ms |
+
+The streamed result and both large results were truncated as intended; the
+Unicode truncation retained valid byte boundaries. Each run preserved drafts,
+emitted one Worked event per turn and disposed its async tasks. Native reopening
+verified all 40 snapshots with terminal usage, 30 output hashes and their
+truncation flags, without executing historical tools or changing the authority
+file. Render frames in these four runs were at most 13.22ms, while event-loop
+delays reached 564.16ms and generation-two collections took roughly 242–361ms.
+The main observed freezes occur in preparation and completion, including the
+Working-to-Worked path; these runs do not establish that all tool workloads
+meet the response targets.
+
 ## Remaining acceptance work
 
 - Complete five matched actual-screen rounds for quiet commands, sustained
