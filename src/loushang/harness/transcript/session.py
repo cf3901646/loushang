@@ -85,6 +85,7 @@ class AgentTranscriptSession:
         self._clock = clock or _utc_now
         self._committer = TranscriptCommitter(transcript)
         self._commit_observer: CommitObserver | None = None
+        self._last_model_input_context: _ModelInputCommitContext | None = None
 
     def set_commit_observer(self, observer: CommitObserver | None) -> None:
         """Observe durable commits without participating in commit success."""
@@ -401,17 +402,31 @@ class AgentTranscriptSession:
             raise RuntimeError(
                 "Model Input requires committed logical facts in the transcript"
             )
+        context = _ModelInputCommitContext(
+            purpose=purpose,
+            source_leaf_id=source_leaf_id,
+            source_revision=self._transcript.revision,
+            logical_input=logical_input,
+            reuse_from=self._last_model_input_context,
+        )
+        self._last_model_input_context = context
+        codec_factory = self._model_input_binary_codec_factory()
         return ModelInputTranscriptCommitter(
             transcript=self._transcript,
-            context=_ModelInputCommitContext(
-                purpose=purpose,
-                source_leaf_id=source_leaf_id,
-                source_revision=self._transcript.revision,
-                logical_input=logical_input,
-            ),
+            context=context,
             runtime_references=runtime_references,
-            binary_codec=self._model_input_binary_codec(active_only=True),
+            binary_codec=(
+                None
+                if codec_factory is not None
+                else self._model_input_binary_codec(active_only=True)
+            ),
+            binary_codec_factory=codec_factory,
         )
+
+    def _model_input_binary_codec_factory(
+        self,
+    ) -> Callable[[], SessionModelInputBlobCodec] | None:
+        return None
 
     def rebuild_model_input(self, snapshot_id: str) -> RebuiltModelInput:
         """Reconstruct one committed request through the Session boundary."""

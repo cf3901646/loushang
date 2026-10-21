@@ -46,6 +46,7 @@ from loushang.harness.transcript import (
     MODEL_INPUT_PREPARED_KIND,
     AgentTranscriptFileLayout,
     AgentTranscriptRecordFactory,
+    AgentTranscriptSession,
     AgentTranscriptUnitOfWork,
     BranchContextSummary,
     ModelCallAttemptUsage,
@@ -520,6 +521,33 @@ def test_model_input_omits_plain_builtin_binary_projection(
     asyncio.run(scenario())
 
 
+def test_plain_model_input_does_not_open_deferred_blob_authority(tmp_path) -> None:
+    async def scenario() -> None:
+        transcript = await _memory_transcript()
+        codec = SessionModelInputBlobCodec(
+            SessionBlobStore(tmp_path / "data", "model-input-conversation")
+        )
+        openings = 0
+
+        def open_codec() -> SessionModelInputBlobCodec:
+            nonlocal openings
+            openings += 1
+            return codec
+
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript),
+            runtime_references=_runtime_references(),
+            binary_codec_factory=open_codec,
+        )
+        await committer.commit_prepared_request(_prepared())
+        assert openings == 0
+        rebuilt = rebuild_model_input(transcript, committer.commits[-1].snapshot_id)
+        assert rebuilt.snapshot.binary_projection_version == 0
+
+    asyncio.run(scenario())
+
+
 def test_prepared_payload_projection_does_not_hold_two_complete_container_trees():
     import tracemalloc
 
@@ -680,14 +708,22 @@ def test_model_input_externalizes_session_images_without_losing_exact_rebuild(
             ],
         }
         codec = SessionModelInputBlobCodec(store)
+        openings = 0
+
+        def open_codec() -> SessionModelInputBlobCodec:
+            nonlocal openings
+            openings += 1
+            return codec
+
         committer = ModelInputTranscriptCommitter(
             transcript=transcript,
             context=_context(transcript, logical_input=logical_input),
             runtime_references=_runtime_references(),
-            binary_codec=codec,
+            binary_codec_factory=open_codec,
         )
 
         await committer.commit_prepared_request(_prepared(payload=prepared_payload))
+        assert openings == 1
 
         snapshot_id = committer.commits[0].snapshot_id
         snapshot_record = next(
@@ -2382,6 +2418,115 @@ def test_v2_writer_reuses_sealed_prepared_message_prefix_without_reencoding(
         )
         rebuilt = rebuild_model_input(transcript, committer.commits[-1].snapshot_id)
         assert rebuilt.prepared_payload["messages"][0] == changed[0]
+
+    asyncio.run(scenario())
+
+
+def test_logical_context_freeze_reuses_only_an_exact_immutable_prefix() -> None:
+    messages = [
+        {"role": "user", "content": ["same", {"value": index}]}
+        for index in range(50)
+    ]
+    logical = {
+        "system_prompt": None,
+        "messages": messages,
+        "tools": [],
+        "request_options": {},
+    }
+    first = ModelInputCommitContext(
+        purpose="main_turn",
+        source_leaf_id="first",
+        source_revision=1,
+        logical_input=logical,
+    )
+    next_messages = [*messages, {"role": "user", "content": "tail"}]
+    second = ModelInputCommitContext(
+        purpose="main_turn",
+        source_leaf_id="second",
+        source_revision=2,
+        logical_input={**logical, "messages": next_messages},
+        reuse_from=first,
+    )
+    assert second.logical_input["messages"][0] is first.logical_input["messages"][0]
+    messages[0]["content"][1]["value"] = "changed"
+    third = ModelInputCommitContext(
+        purpose="main_turn",
+        source_leaf_id="third",
+        source_revision=3,
+        logical_input={**logical, "messages": next_messages},
+        reuse_from=second,
+    )
+    assert third.logical_input["messages"][0] is not second.logical_input["messages"][0]
+    assert third.logical_input["messages"][1] == second.logical_input["messages"][1]
+    assert third.logical_input["messages"][0]["content"][1]["value"] == "changed"
+    zero = ModelInputCommitContext(
+        purpose="main_turn",
+        source_leaf_id="zero",
+        source_revision=4,
+        logical_input={**logical, "messages": [{"content": 0.0}]},
+    )
+    negative_zero = ModelInputCommitContext(
+        purpose="main_turn",
+        source_leaf_id="negative-zero",
+        source_revision=5,
+        logical_input={**logical, "messages": [{"content": -0.0}]},
+        reuse_from=zero,
+    )
+    assert negative_zero.logical_input["messages"][0] is not zero.logical_input[
+        "messages"
+    ][0]
+    assert canonical_model_input_json(
+        negative_zero.logical_input["messages"][0], name="negative zero"
+    ) != canonical_model_input_json(zero.logical_input["messages"][0], name="zero")
+
+
+def test_session_append_reuses_verified_logical_prefix_at_writer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        transcript = await _memory_transcript()
+        session = AgentTranscriptSession(transcript=transcript)
+        messages = [{"role": "user", "content": str(index)} for index in range(50)]
+        logical = {
+            "system_prompt": None,
+            "messages": messages,
+            "tools": [],
+            "request_options": {},
+        }
+        first = session.create_model_input_committer(
+            purpose="main_turn",
+            logical_input=logical,
+            runtime_references=_runtime_references(),
+        )
+        await first.commit_prepared_request(_prepared())
+        await transcript.append_agent_message(
+            UserMessage(role="user", content="tail", timestamp=2.0)
+        )
+        second = session.create_model_input_committer(
+            purpose="main_turn",
+            logical_input={
+                **logical,
+                "messages": [*messages, {"role": "user", "content": "tail"}],
+            },
+            runtime_references=_runtime_references(),
+        )
+        assert (
+            second._context.logical_input["messages"][0]
+            is first._context.logical_input["messages"][0]
+        )
+        count = 0
+        original = model_input_v2_module.canonical_model_input_json
+
+        def canonical(value, *, name):
+            nonlocal count
+            if name == "Model Input v2 cached sequence item":
+                count += 1
+            return original(value, name=name)
+
+        monkeypatch.setattr(model_input_v2_module, "canonical_model_input_json", canonical)
+        await second.commit_prepared_request(_prepared(invocation_id="next"))
+        assert count < 10
+        assert verify_model_input(transcript, second.commits[-1].snapshot_id).verified
 
     asyncio.run(scenario())
 

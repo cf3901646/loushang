@@ -535,6 +535,68 @@ short-message micro sample establishes the eliminated duplicate work, not
 the long-session Worked latency. Logical Model Input is frozen separately on
 each turn and still needs its own provenance-backed incremental proof.
 
+One sequential long-session native PTY diagnostic against the previous batch
+commit used the same 29,465-record source and bounded 20-key input. Tool exit
+to Worked was 3,384ms before and 2,850ms after; the post-tool v2 commit was
+1,326ms versus 975ms, and its plan phase was 610ms versus 300ms. Maximum
+keyboard echo was 785ms versus 691ms. The candidate authority reopened
+read-only with two exact snapshots and terminal usage, one exact tool-output
+fingerprint, no history tool execution and unchanged file bytes. This one
+pair demonstrates the intended plan reduction but cannot establish p95 or
+accept the 500ms goal. Session preparation, logical input projection, adapter
+construction, residual v2 work and terminal writes still remain serial.
+
+## Logical prefix sealing and deferred plain-text blob setup
+
+Session now retains its previous frozen logical Model Input. At the next
+projection it checks each raw prefix item against the frozen value, including
+nested shape, strict JSON types and signed zero. Only the exact prefix shares
+immutable objects. The writer then recognizes those verified identities and
+avoids a second JSON encoding. Branches still rebuild or extend their own
+ancestry-bound node index before any reference is reused. An isolated
+1,545-message complex-JSON append measured second writer planning at 21.73ms
+before and 2.33ms after, with 1,547 versus two redundant canonical prefix
+checks; context construction remained about 24ms in both samples. The focused
+selection passed 151 tests with one existing skip before the blob setup change.
+
+One native PTY long-session diagnostic against the previous sealed-prepared
+commit measured post-tool writer planning at 300ms before and 89ms after, and
+v2 commit at 975ms versus 826ms. Tool exit to Worked stayed about 2,850ms in
+both runs; maximum keyboard echo was 691ms versus 737ms. Both sessions were
+independently reopened with exact snapshots, usage and tool output, without
+changing the authority. This is a writer improvement, not a verified Worked
+improvement.
+
+For plain persistent requests, Product now gives the committer a deferred
+blob-codec factory. The committer determines from the already needed logical
+canonical data and sealed prepared binary fields whether an image or reserved
+marker needs projection, opening the blob authority only then. A real image
+still opens the codec and round-trips exactly. This removes an unnecessary
+active-path blob-reference scan from the text-only preparation chain; its
+full-path latency impact remains to be measured.
+
+The first same-source 20-key long-session check removed both per-call blob
+codec constructions: the post-tool `create_model_input_committer` phase fell
+from 221ms to 136ms. Tool exit to Worked nevertheless rose from 2,849ms to
+3,361ms; the post-tool v2 root phase varied from 86ms to 286ms and snapshot
+append from 159ms to 219ms. Maximum echo was 737ms versus 908ms. The
+candidate independently reopened with exact two snapshots, usage and output,
+and unchanged authority. This diagnostic establishes the skipped scan, not
+an end-to-end improvement; GC and Store variability remain material.
+
+The v2 mapping-root hash now stores a digest state at the end of the committed
+messages sequence. When the next plan proves an unchanged prefix and all
+preceding fields match, the writer hashes only the suffix and the remaining
+fields. Otherwise it hashes the full mapping. A 1,545-message direct sample
+measured 1.34ms versus 0.02ms; the focused v2 hash regressions proved exact
+hashes for append, changed item and changed preceding field. In one sequential
+29,465-record PTY diagnostic, the post-tool root phase was 14ms, compared
+with 86ms in the earlier no-cache run and 286ms in the immediately prior
+noisy run. Tool exit to Worked measured 2,457ms; maximum echo was 672ms.
+The copy reopened read-only with two exact snapshots and terminal usage, one
+exact tool-output fingerprint, unchanged authority and no historical tool
+execution. This single result does not establish p95 or the 500ms goal.
+
 Measure with five
 matched before/after PTY rounds across the required tool cases and history
 scales. A faster Worked display before the final model call and terminal

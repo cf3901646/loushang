@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, replace
-from typing import Literal, Self, cast
+from typing import Literal, Protocol, Self, cast
 from weakref import WeakKeyDictionary
 
 from loushang.foundation.json import JSONValue, require_json_value
@@ -192,10 +192,27 @@ class _SequencePlan:
     item_plans: tuple[_ValuePlan, ...]
     prefix_hashes: tuple[str, ...]
     item_references: tuple[ModelInputNodeReference, ...] | None = None
+    reused_prefix_count: int = 0
 
     @property
     def final_hash(self) -> str:
         return self.prefix_hashes[-1]
+
+
+class _HashState(Protocol):
+    def copy(self) -> _HashState: ...
+    def update(self, data: bytes) -> None: ...
+    def hexdigest(self) -> str: ...
+
+
+@dataclass(frozen=True)
+class _MappingHashPrefix:
+    field_names: tuple[str, ...]
+    preceding_fields: tuple[tuple[str, str | tuple[str, ...]], ...]
+    sequence_name: str
+    item_canonicals: tuple[str, ...]
+    digest_before_close: _HashState
+    reused_item_count: int
 
 
 @dataclass(frozen=True)
@@ -649,6 +666,7 @@ class _ModelInputV2IndexCache:
     index: ModelInputV2NodeIndex
     sequence_plans: dict[tuple[int, str], _SequencePlan]
     immutable_sequence_sources: dict[tuple[int, str], tuple[object, ...]]
+    mapping_hash_prefixes: dict[int, _MappingHashPrefix]
 
     def resolve(
         self,
@@ -664,6 +682,7 @@ class _ModelInputV2IndexCache:
             self.index = ModelInputV2NodeIndex(records)
             self.sequence_plans.clear()
             self.immutable_sequence_sources.clear()
+            self.mapping_hash_prefixes.clear()
             return self.index, "rebuilt"
 
         previous_count = len(self.records)
@@ -717,6 +736,7 @@ def _cached_node_index(
             index=index,
             sequence_plans={},
             immutable_sequence_sources={},
+            mapping_hash_prefixes={},
         )
         _MODEL_INPUT_V2_INDEX_CACHES[transcript] = cached
         return index, cached, "rebuilt"
@@ -819,6 +839,7 @@ class ModelInputV2Writer:
                     index=index,
                     sequence_plans={},
                     immutable_sequence_sources={},
+                    mapping_hash_prefixes={},
                 )
                 _MODEL_INPUT_V2_INDEX_CACHES[transcript] = cached
                 status: ModelInputV2IndexCacheStatus = "rebuilt"
@@ -895,6 +916,7 @@ class ModelInputV2Writer:
         self._immutable_sequence_source_updates: dict[
             tuple[int, str], tuple[object, ...]
         ] = {}
+        self._mapping_hash_prefix_updates: dict[int, _MappingHashPrefix] = {}
         self._sequence_count = 0
         self._sequence_item_count = 0
         self._reused_prefix_item_count = 0
@@ -948,6 +970,12 @@ class ModelInputV2Writer:
                 self._index_cache.immutable_sequence_sources.pop(key, None)
             else:
                 self._index_cache.immutable_sequence_sources[key] = source
+        for mapping_index in range(2):
+            prefix = self._mapping_hash_prefix_updates.get(mapping_index)
+            if prefix is None:
+                self._index_cache.mapping_hash_prefixes.pop(mapping_index, None)
+            else:
+                self._index_cache.mapping_hash_prefixes[mapping_index] = prefix
 
     async def materialize(
         self,
@@ -955,6 +983,7 @@ class ModelInputV2Writer:
         logical_input: Mapping[str, JSONValue],
         prepared_payload: Mapping[str, JSONValue],
         model_visible_headers: Mapping[str, str],
+        logical_source: Mapping[str, object] | None = None,
         prepared_source: Mapping[str, object] | None = None,
     ) -> ModelInputV2Materialization:
         timing = PhaseTimer()
@@ -964,17 +993,21 @@ class ModelInputV2Writer:
             prepared = dict(prepared_payload)
             headers = dict(model_visible_headers)
             mapping_values = (logical, prepared)
-            immutable_prepared_sequences = (
-                {
-                    (1, name): value
-                    for name, value in prepared_source.items()
-                    if type(value) is tuple
-                    and type(prepared.get(name)) is list
-                    and len(value) == len(prepared[name])
-                }
-                if prepared_source is not None
-                else {}
-            )
+            immutable_sequences: dict[tuple[int, str], tuple[object, ...]] = {}
+            for mapping_index, source, mapping in (
+                (0, logical_source, logical),
+                (1, prepared_source, prepared),
+            ):
+                if source is None:
+                    continue
+                for name, source_items in source.items():
+                    current_items = mapping.get(name)
+                    if (
+                        type(source_items) is tuple
+                        and type(current_items) is list
+                        and len(source_items) == len(current_items)
+                    ):
+                        immutable_sequences[(mapping_index, name)] = source_items
             (
                 sequence_plans,
                 mapping_sequences,
@@ -986,7 +1019,7 @@ class ModelInputV2Writer:
                 headers,
                 dict(self._index_cache.sequence_plans),
                 dict(self._index_cache.immutable_sequence_sources),
-                immutable_prepared_sequences,
+                immutable_sequences,
             )
             # The worker owns only request-local plans. A cancellation discards
             # them; a branch or external append must be rejected before writes.
@@ -1094,9 +1127,27 @@ class ModelInputV2Writer:
                         reference = self._value_references[value_hash]
                         canonical_fields[name] = self._value_plans[value_hash].canonical
                     entries.append(ModelInputMappingEntry(name, reference))
+                reused_items = {}
+                for name in mapping:
+                    sequence_state = mapping_sequences.get((mapping_index, name))
+                    if sequence_state is not None:
+                        reused_items[name] = sequence_plans[
+                            sequence_state
+                        ].reused_prefix_count
+                mapping_hash, hash_prefix = (
+                    _hash_canonical_mapping_fields_incremental(
+                        canonical_fields,
+                        previous=self._index_cache.mapping_hash_prefixes.get(
+                            mapping_index
+                        ),
+                        reused_items=reused_items,
+                    )
+                )
+                if hash_prefix is not None:
+                    self._mapping_hash_prefix_updates[mapping_index] = hash_prefix
                 roots.append(
                     create_model_input_mapping_root_from_hash(
-                        mapping_hash=_hash_canonical_mapping_fields(canonical_fields),
+                        mapping_hash=mapping_hash,
                         entries=entries,
                     )
                 )
@@ -1351,6 +1402,7 @@ class ModelInputV2Writer:
             tuple(item.value for item in resolved_item_plans),
             resolved_item_plans,
             tuple(prefix_hashes),
+            reused_prefix_count=reused_count,
         )
         self._sequence_plan_updates[cache_key] = sequence_plan
         if immutable_source is not None:
@@ -1547,9 +1599,65 @@ class ModelInputV2Writer:
 def _hash_canonical_mapping_fields(
     fields: Mapping[str, str | tuple[str, ...]],
 ) -> str:
-    digest = hashlib.sha256()
-    digest.update(b"{")
-    for field_index, name in enumerate(sorted(fields)):
+    digest, _prefix = _hash_canonical_mapping_fields_incremental(
+        fields, previous=None, reused_items={}
+    )
+    return digest
+
+
+def _hash_canonical_mapping_fields_incremental(
+    fields: Mapping[str, str | tuple[str, ...]],
+    *,
+    previous: _MappingHashPrefix | None,
+    reused_items: Mapping[str, int],
+) -> tuple[str, _MappingHashPrefix | None]:
+    names = tuple(sorted(fields))
+    sequence_name = next(
+        (
+            name
+            for name in ("messages", "input")
+            if name in fields and isinstance(fields[name], tuple)
+        ),
+        None,
+    )
+    sequence_index = names.index(sequence_name) if sequence_name is not None else -1
+    preceding = tuple((name, fields[name]) for name in names[:sequence_index])
+    sequence_items = (
+        cast(tuple[str, ...], fields[sequence_name])
+        if sequence_name is not None
+        else ()
+    )
+    can_reuse = (
+        previous is not None
+        and sequence_name == previous.sequence_name
+        and names == previous.field_names
+        and preceding == previous.preceding_fields
+        and len(sequence_items) >= len(previous.item_canonicals)
+        and reused_items.get(sequence_name, 0) >= len(previous.item_canonicals)
+        and sequence_items[: len(previous.item_canonicals)]
+        == previous.item_canonicals
+    )
+    if can_reuse and previous is not None:
+        digest = previous.digest_before_close.copy()
+        reused_count = len(previous.item_canonicals)
+        for index, canonical in enumerate(
+            sequence_items[reused_count:], start=reused_count
+        ):
+            if index:
+                digest.update(b",")
+            digest.update(canonical.encode("utf-8"))
+        prefix_digest = digest.copy()
+        digest.update(b"]")
+        start_index = sequence_index + 1
+    else:
+        digest = hashlib.sha256()
+        digest.update(b"{")
+        prefix_digest = None
+        reused_count = 0
+        start_index = 0
+
+    for field_index in range(start_index, len(names)):
+        name = names[field_index]
         if field_index:
             digest.update(b",")
         digest.update(
@@ -1567,9 +1675,23 @@ def _hash_canonical_mapping_fields(
             if item_index:
                 digest.update(b",")
             digest.update(canonical.encode("utf-8"))
+        if name == sequence_name:
+            prefix_digest = digest.copy()
         digest.update(b"]")
     digest.update(b"}")
-    return "sha256:" + digest.hexdigest()
+    prefix = (
+        _MappingHashPrefix(
+            field_names=names,
+            preceding_fields=preceding,
+            sequence_name=sequence_name,
+            item_canonicals=sequence_items,
+            digest_before_close=prefix_digest,
+            reused_item_count=reused_count,
+        )
+        if sequence_name is not None and prefix_digest is not None
+        else None
+    )
+    return "sha256:" + digest.hexdigest(), prefix
 
 
 def _bundle_model_input_nodes(

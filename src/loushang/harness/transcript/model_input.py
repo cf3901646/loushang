@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+import math
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import InitVar, dataclass, field, replace
+from types import MappingProxyType
 from typing import cast
 from uuid import uuid4
 
@@ -72,18 +74,16 @@ class ModelInputCommitContext:
     source_leaf_id: str
     source_revision: int
     logical_input: Mapping[str, object] = field(repr=False)
+    reuse_from: InitVar[ModelInputCommitContext | None] = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, reuse_from: ModelInputCommitContext | None) -> None:
         _require_text(self.purpose, name="Model Input purpose")
         _require_text(self.source_leaf_id, name="Model Input source leaf id")
         _require_non_negative_int(
             self.source_revision,
             name="Model Input source revision",
         )
-        frozen = freeze_model_input_json(
-            self.logical_input,
-            name="Model Input logical projection",
-        )
+        frozen = _freeze_logical_input_with_prefix(self.logical_input, reuse_from)
         if not isinstance(frozen, Mapping):
             raise TypeError("Model Input logical projection must be a mapping")
         required = {"system_prompt", "messages", "tools", "request_options"}
@@ -99,6 +99,90 @@ class ModelInputCommitContext:
         if not isinstance(frozen["request_options"], Mapping):
             raise TypeError("Model Input request options must be an object")
         object.__setattr__(self, "logical_input", frozen)
+
+
+def _freeze_logical_input_with_prefix(
+    value: Mapping[str, object],
+    previous: ModelInputCommitContext | None,
+) -> object:
+    name = "Model Input logical projection"
+    if previous is None or not isinstance(value, Mapping):
+        return freeze_model_input_json(value, name=name)
+    raw_messages = value.get("messages")
+    old_messages = previous.logical_input.get("messages")
+    if (
+        not isinstance(raw_messages, Sequence)
+        or isinstance(raw_messages, str | bytes | bytearray)
+        or not isinstance(old_messages, tuple)
+    ):
+        return freeze_model_input_json(value, name=name)
+    reused = 0
+    for raw, frozen in zip(raw_messages, old_messages, strict=False):
+        if not _raw_matches_frozen_json(raw, frozen, seen=set()):
+            break
+        reused += 1
+    fields = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise TypeError(f"{name} keys must be strings")
+        if key == "messages":
+            fields[key] = old_messages[:reused] + tuple(
+                freeze_model_input_json(
+                    raw,
+                    name=f"{name}.messages[{index}]",
+                )
+                for index, raw in enumerate(raw_messages[reused:], reused)
+            )
+        else:
+            fields[key] = freeze_model_input_json(item, name=f"{name}.{key}")
+    return MappingProxyType(fields)
+
+
+def _raw_matches_frozen_json(
+    raw: object,
+    frozen: object,
+    *,
+    seen: set[int],
+) -> bool:
+    if isinstance(frozen, Mapping):
+        if not isinstance(raw, Mapping) or len(raw) != len(frozen):
+            return False
+        identity = id(raw)
+        if identity in seen:
+            return False
+        seen.add(identity)
+        try:
+            return all(
+                type(key) is str
+                and key in frozen
+                and _raw_matches_frozen_json(item, frozen[key], seen=seen)
+                for key, item in raw.items()
+            )
+        finally:
+            seen.remove(identity)
+    if isinstance(frozen, tuple):
+        if (
+            not isinstance(raw, Sequence)
+            or isinstance(raw, str | bytes | bytearray)
+            or len(raw) != len(frozen)
+        ):
+            return False
+        identity = id(raw)
+        if identity in seen:
+            return False
+        seen.add(identity)
+        try:
+            return all(
+                _raw_matches_frozen_json(item, old, seen=seen)
+                for item, old in zip(raw, frozen, strict=True)
+            )
+        finally:
+            seen.remove(identity)
+    if type(raw) is not type(frozen):
+        return False
+    if type(raw) is float and raw == frozen == 0.0:
+        return math.copysign(1.0, raw) == math.copysign(1.0, frozen)
+    return raw == frozen
 
 
 @dataclass(frozen=True)
@@ -207,6 +291,7 @@ class ModelInputTranscriptCommitter(
         runtime_references: ModelInputRuntimeReferences,
         max_encoded_record_bytes: int = MODEL_INPUT_MAX_ENCODED_RECORD_BYTES,
         binary_codec: SessionModelInputBlobCodec | None = None,
+        binary_codec_factory: Callable[[], SessionModelInputBlobCodec] | None = None,
     ) -> None:
         if not isinstance(transcript, AgentTranscriptUnitOfWork):
             raise TypeError("Model Input committer requires AgentTranscriptUnitOfWork")
@@ -242,7 +327,10 @@ class ModelInputTranscriptCommitter(
             raise TypeError(
                 "Model Input binary codec must be SessionModelInputBlobCodec"
             )
+        if binary_codec is not None and binary_codec_factory is not None:
+            raise ValueError("Model Input binary codec and factory are exclusive")
         self._binary_codec = binary_codec
+        self._binary_codec_factory = binary_codec_factory
         self._max_encoded_record_bytes = max_encoded_record_bytes
         self._expected_revision = transcript.revision
         self._expected_leaf_id = transcript.leaf_id
@@ -302,7 +390,10 @@ class ModelInputTranscriptCommitter(
                 binary_projection_version = 0
                 logical_input_hash: str | None = None
                 needs_binary_projection = self._binary_codec is not None
-                if type(self._binary_codec) is SessionModelInputBlobCodec:
+                if (
+                    type(self._binary_codec) is SessionModelInputBlobCodec
+                    or self._binary_codec_factory is not None
+                ):
                     # The built-in codec only changes declared prepared images,
                     # logical image objects, and reserved literal marker keys.
                     # A plain request needs its canonical logical encoding for
@@ -323,6 +414,17 @@ class ModelInputTranscriptCommitter(
                             '"$loushang.literal"',
                         )
                     ) or '"type":"image"' in logical_canonical
+                    if (
+                        needs_binary_projection
+                        and self._binary_codec_factory is not None
+                    ):
+                        codec = self._binary_codec_factory()
+                        if type(codec) is not SessionModelInputBlobCodec:
+                            raise TypeError(
+                                "deferred Model Input codec must be the built-in codec"
+                            )
+                        self._binary_codec = codec
+                        self._binary_codec_factory = None
                 if needs_binary_projection and self._binary_codec is not None:
                     with timer.phase("binary_externalize"):
                         projected_logical = self._binary_codec.externalize_mapping(
@@ -365,6 +467,11 @@ class ModelInputTranscriptCommitter(
                         logical_input=stored_logical_input,
                         prepared_payload=stored_prepared_payload,
                         model_visible_headers=model_visible_headers,
+                        logical_source=(
+                            self._context.logical_input
+                            if stored_logical_input is logical_input
+                            else None
+                        ),
                         prepared_source=(
                             request.payload
                             if type(request) is PreparedModelRequest

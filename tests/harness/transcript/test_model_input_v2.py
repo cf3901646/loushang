@@ -31,6 +31,7 @@ from loushang.harness.transcript.model_input_types import (
 from loushang.harness.transcript.model_input_v2 import (
     ModelInputV2Resolver,
     _hash_canonical_mapping_fields,
+    _hash_canonical_mapping_fields_incremental,
 )
 from loushang.harness.transcript.model_input_v2_types import (
     MODEL_INPUT_V2_PAYLOAD_VERSION,
@@ -100,6 +101,64 @@ def test_mapping_root_hash_streams_sequence_without_changing_canonical_identity(
     assert _hash_canonical_mapping_fields(fields) == hash_model_input_json(
         mapping, name="test mapping"
     )
+
+
+def test_mapping_root_hash_reuses_only_verified_append_prefix() -> None:
+    messages = tuple(
+        canonical_model_input_json({"role": "user", "content": index}, name="item")
+        for index in range(50)
+    )
+    first_fields = {"messages": messages, "model": '"test"'}
+    first_hash, first_cache = _hash_canonical_mapping_fields_incremental(
+        first_fields, previous=None, reused_items={}
+    )
+    assert first_hash == _hash_canonical_mapping_fields(first_fields)
+    assert first_cache is not None
+
+    appended_fields = {
+        **first_fields,
+        "messages": (*messages, '{"content":"tail","role":"user"}'),
+    }
+    appended_hash, appended_cache = _hash_canonical_mapping_fields_incremental(
+        appended_fields,
+        previous=first_cache,
+        reused_items={"messages": len(messages)},
+    )
+    assert appended_hash == _hash_canonical_mapping_fields(appended_fields)
+    assert appended_cache is not None
+    assert appended_cache.reused_item_count == len(messages)
+
+    changed_fields = {
+        **appended_fields,
+        "messages": ('{"content":"changed","role":"user"}', *messages[1:]),
+    }
+    changed_hash, changed_cache = _hash_canonical_mapping_fields_incremental(
+        changed_fields,
+        previous=first_cache,
+        reused_items={"messages": 0},
+    )
+    assert changed_hash == _hash_canonical_mapping_fields(changed_fields)
+    assert changed_cache is not None
+    assert changed_cache.reused_item_count == 0
+
+    changed_preceding = {
+        "api": '"changed"',
+        "messages": messages,
+        "model": '"test"',
+    }
+    previous_with_api = {**first_fields, "api": '"original"'}
+    _old_hash, previous_cache = _hash_canonical_mapping_fields_incremental(
+        previous_with_api, previous=None, reused_items={}
+    )
+    assert previous_cache is not None
+    changed_hash, changed_cache = _hash_canonical_mapping_fields_incremental(
+        changed_preceding,
+        previous=previous_cache,
+        reused_items={"messages": len(messages)},
+    )
+    assert changed_hash == _hash_canonical_mapping_fields(changed_preceding)
+    assert changed_cache is not None
+    assert changed_cache.reused_item_count == 0
 
 
 @pytest.mark.parametrize(
