@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import threading
+
+import pytest
 
 from loushang.ai.types import UserMessage
 from loushang.harness.conversation import (
@@ -8,6 +11,7 @@ from loushang.harness.conversation import (
     ConversationKey,
     MemoryConversationStore,
 )
+from loushang.harness.conversation.repository import ConversationRepository
 from loushang.harness.transcript import (
     AgentTranscriptSession,
     AgentTranscriptUnitOfWork,
@@ -55,5 +59,52 @@ def test_agent_transcript_session_owns_standard_commit_and_label_operations() ->
             "application",
         ]
         assert committed == [message_id, "record-2", application_id]
+
+    asyncio.run(scenario())
+
+
+def test_graph_append_preparation_does_not_block_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        backend = MemoryConversationStore(record_id=lambda record: record.record_id)
+        transcript = await AgentTranscriptUnitOfWork.create(
+            backend,
+            ConversationKey("test", "responsive-append"),
+            ConversationHeader(
+                conversation_id="responsive-append",
+                version=1,
+                created_at="2026-07-18T00:00:00Z",
+            ),
+        )
+        await transcript.append_agent_message(
+            UserMessage(role="user", content="first", timestamp=1.0)
+        )
+        entered = threading.Event()
+        release = threading.Event()
+        original = ConversationRepository.with_appended
+
+        def held_append(repository, record):
+            entered.set()
+            assert release.wait(2), "graph append was not released"
+            return original(repository, record)
+
+        monkeypatch.setattr(ConversationRepository, "with_appended", held_append)
+        operation = asyncio.create_task(
+            transcript.append_agent_message(
+                UserMessage(role="user", content="second", timestamp=2.0)
+            )
+        )
+        try:
+            assert await asyncio.to_thread(entered.wait, 1)
+            await asyncio.sleep(0)
+            assert not operation.done()
+        finally:
+            release.set()
+            if operation.done():
+                await asyncio.gather(operation, return_exceptions=True)
+        await operation
+        assert transcript.revision == 2
+        assert (await backend.load(transcript.key)).snapshot.revision == 2
 
     asyncio.run(scenario())

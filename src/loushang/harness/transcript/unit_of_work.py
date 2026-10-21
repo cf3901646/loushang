@@ -1061,7 +1061,9 @@ class AgentTranscriptUnitOfWork:
                 "transcript record parent must match the selected leaf: "
                 f"expected {self.leaf_id!r}, got {record.parent_id!r}"
             )
-        candidate = self._repository.with_appended(record)
+        # The commit lock keeps the selected branch fixed while the detached
+        # graph copies its historical indexes. Keep that copy off the UI loop.
+        candidate = await asyncio.to_thread(self._repository.with_appended, record)
         if not self._materialized:
             if not self._materialization_policy(record):
                 self._repository = candidate
@@ -1133,7 +1135,9 @@ class AgentTranscriptUnitOfWork:
                 commits.append(await self._commit_locked(record))
             return tuple(commits)
 
-        candidate = self._repository.with_appended_records(records)
+        candidate = await asyncio.to_thread(
+            self._repository.with_appended_records, records
+        )
         expected_revision = self._revision
         operation_ids = tuple(record.record_id for record in records)
         commit_uncertainty: StoreCommitOutcomeUnknown | None = None
