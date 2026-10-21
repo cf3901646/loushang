@@ -233,6 +233,24 @@ scan took 60.82ms. The subsequent durable commit took 432.06ms, with
 The next candidate must stage or incrementally prove the prepared payload and
 Model Input prefix together, then verify the total PTY latency.
 
+Two further private feasibility checks excluded isolated substitutes for that
+shared prefix. A request-preparation wrapper executed the offline adapter's
+synchronous `prepare_request` in an asyncio worker thread, while retaining the
+same capacity and durable-before-send barriers. One later sequential native
+PTY turn took 1,358.6ms from tool exit to Worked, with a 323.6ms main-thread
+generation-two collection and 503.2ms maximum keyboard echo latency. Native
+reopening verified its two snapshots, terminal usage and one output without
+altering the original authority. This is not a matched comparison, and the
+single turn does not justify a thread-affinity change to all adapters.
+
+On the isolated 1,533-item logical and prepared message arrays, seven warm
+read-only samples compared exact prefix proof mechanisms. Type-sensitive
+recursive equality took 21.60ms and 21.34ms median; native canonical JSON
+encoding and comparison took 28.75ms and 30.05ms; the validated canonical
+encoder took 53.87ms and 53.86ms. Replacing only the v2 writer's existing
+equality proof with canonicalization would add work. A useful prefix cache must
+reuse normalization, adapter payload and Model Input plans as one proven unit.
+
 ## Exact tool-exit-to-Worked allocation
 
 The 1,340.09ms experimental turn above and a fresh 1,099.87ms turn on current
