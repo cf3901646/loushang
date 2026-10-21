@@ -164,6 +164,29 @@ collection. The candidate was reverted: sharing unchanged blob subtrees did
 not control the tail or approach the 250ms objective. No Product GC policy or
 threshold was changed.
 
+## Exact prefix-mutation proof feasibility
+
+A private read-only check timed exact comparison of restored historical Agent
+messages against a copy. It used type-sensitive recursive equality, then a
+restricted byte serialization that accepts only the built-in message, part and
+usage dataclasses and ordinary containers. The latter never deserializes the
+bytes, does not run custom reducers, rejects unknown object types, and detects
+both an altered nested part and a boolean-to-integer change.
+
+| Context | Recursive comparison median | Restricted bytes median | Serialize every message median |
+| --- | ---: | ---: | ---: |
+| 234 messages, 24,475 records | 14.18ms | 3.91ms | 4.43ms |
+| 1,474 messages, 29,193 records | 68.30ms | 22.44ms | 24.69ms |
+
+Seven warm samples formed each median. Both source authorities remained byte-
+and mtime-stable, and no historical tool executed. This checks reconstructed
+messages; it is not an Agent/Provider integration test or a matched PTY result.
+Per-message restricted serialization was 25.77ms in the longer context,
+approximately the same as serializing all messages again. An isolated logical-
+message cache therefore cannot materially reduce the post-tool path. The
+restricted proof is useful only if it authorizes reuse of the larger
+normalization, prepared-request and Model Input prefix work.
+
 ## Next work
 
 An incremental receipt lookup replaced the usage recorder's full active-path

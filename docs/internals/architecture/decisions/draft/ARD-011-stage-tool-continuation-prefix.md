@@ -105,11 +105,22 @@ large ASCII and Unicode results, normal and cancelled turns, at multiple
 history scales. Native reopening must verify snapshots, usage, outcome, output
 hashes/truncation, drafts, exactly one Worked and zero historical tool replay.
 
+A private feasibility check over restored messages found that comparing a
+restricted, never-deserialized byte representation takes about 22ms for 1,474
+messages and rejects an injected object with a custom reducer. It detects a
+nested modification and a boolean-to-integer change. The representation must
+still be tested against the actual in-flight Agent context, and its allowed
+type closure must be specified. Per-message proof costs about as much as full
+logical message serialization, so it is justified only if one proof allows
+reuse of the larger AI and Model Input prefix computations.
+
 ## Review And Acceptance
 
 Draft review by the implementation agent on `d3190fcd` found two blockers to
 acceptance: a cheap exact mutation/provenance proof is not yet implemented, and
 no staged prototype has demonstrated the end-to-end p95 target. The rejected
 copy-on-write experiment also shows that lower allocation alone does not bound
-GC pauses. This record remains a candidate until those findings are closed;
-the existing Session model-call contract continues to govern Product behavior.
+GC pauses. The restricted byte check is preliminary evidence, not closure of
+the mutation finding. This record remains a candidate until those findings
+are closed; the existing Session model-call contract continues to govern
+Product behavior.
