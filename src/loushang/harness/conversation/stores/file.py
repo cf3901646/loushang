@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import hashlib
@@ -219,7 +220,7 @@ class _StoreHead:
 class _CachedStoreHead:
     path: Path
     head: _StoreHead
-    metadata_identity: _JournalIdentity
+    metadata_identity: _JournalIdentity | None
 
 
 class FileConversationStore(Generic[HeaderT, RecordT]):
@@ -258,9 +259,14 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
         read_only: bool = False,
         operation_scope: ConversationOperationScope | None = None,
         file_io: RootedFileIO | None = None,
+        background_head_updates: bool = False,
     ) -> None:
         if type(read_only) is not bool:
             raise TypeError("read_only must be a built-in bool")
+        if type(background_head_updates) is not bool:
+            raise TypeError("background_head_updates must be a built-in bool")
+        if background_head_updates and (read_only or head_compatibility_token is None):
+            raise ValueError("background head updates require a writable indexed Store")
         self._read_only = read_only
         self._operation_scope = operation_scope
         self._file_io = file_io
@@ -280,6 +286,8 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
         )
         self._head_cache: dict[ConversationKey, _CachedStoreHead] = {}
         self._head_cache_lock = threading.Lock()
+        self._background_head_updates = background_head_updates
+        self._pending_head_updates: set[asyncio.Task[None]] = set()
         self._snapshot_loader = snapshot_loader
         self._scan_snapshot_loader = scan_snapshot_loader or snapshot_loader
         self._delete_artifacts = delete_artifacts
@@ -304,8 +312,7 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
             try:
                 metadata_identity = _metadata_identity(path, rooted=rooted)
                 if (
-                    metadata_identity is not None
-                    and metadata_identity == cached.metadata_identity
+                    metadata_identity == cached.metadata_identity
                     and cached.head.identity == _journal_identity(path, rooted=rooted)
                 ):
                     return cached.head
@@ -327,11 +334,10 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
             identity = _journal_identity(path, rooted=rooted)
             metadata_identity = _metadata_identity(path, rooted=rooted)
         except OSError:
-            metadata_identity = None
-        with self._head_cache_lock:
-            if metadata_identity is None:
+            with self._head_cache_lock:
                 self._head_cache.pop(key, None)
-                return
+            return
+        with self._head_cache_lock:
             self._head_cache.pop(key, None)
             if len(self._head_cache) >= 16:
                 self._head_cache.pop(next(iter(self._head_cache)))
@@ -401,14 +407,66 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
         operation_id: str,
     ) -> ConversationCommitResult:
         self._require_writable()
-        return await self._scoped_io(
+        deferred: list[tuple[ConversationKey, Path, _StoreHead]] | None = (
+            [] if self._background_head_updates else None
+        )
+        result = await self._scoped_io(
             key,
             self._append_sync,
             key,
             record,
             expected_revision=expected_revision,
             operation_id=operation_id,
+            deferred_head_update=deferred,
         )
+        if deferred:
+            self._schedule_head_update(*deferred[0])
+        return result
+
+    def _schedule_head_update(
+        self, key: ConversationKey, path: Path, head: _StoreHead
+    ) -> None:
+        async def write() -> None:
+            with suppress(Exception):
+                await asyncio.to_thread(self._write_head_if_current, key, path, head)
+
+        task = asyncio.create_task(write())
+        self._pending_head_updates.add(task)
+        task.add_done_callback(self._pending_head_updates.discard)
+
+    def _write_head_if_current(
+        self, key: ConversationKey, path: Path, head: _StoreHead
+    ) -> None:
+        # The journal is authoritative. Another writer may have appended since
+        # this head was prepared; never publish an index for that newer journal.
+        try:
+            journal = self._new_journal(path, write=True)
+            with _exclusive_lock(journal) as locked:
+                if _journal_identity(path, rooted=locked.bound_file) == head.identity:
+                    _try_write_store_head(path, head, rooted=locked.bound_file)
+                    self._remember_head_after_append(
+                        key, path, head, rooted=locked.bound_file
+                    )
+        except Exception:
+            pass  # A missing sidecar only makes the next writer replay the journal.
+
+    async def drain_advisory_head_updates(self) -> None:
+        """Join optional sidecar writes before releasing their rooted IO owner."""
+
+        cancellation: asyncio.CancelledError | None = None
+        while self._pending_head_updates:
+            for task in tuple(self._pending_head_updates):
+                while not task.done():
+                    try:
+                        await asyncio.shield(task)
+                    except asyncio.CancelledError as error:
+                        cancellation = error
+                try:
+                    task.result()
+                finally:
+                    self._pending_head_updates.discard(task)
+        if cancellation is not None:
+            raise cancellation
 
     async def append_batch(
         self,
@@ -598,6 +656,7 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
         *,
         expected_revision: int,
         operation_id: str,
+        deferred_head_update: list[tuple[ConversationKey, Path, _StoreHead]] | None = None,
     ) -> ConversationCommitResult:
         operation = require_operation_id(operation_id)
         expected = require_revision(expected_revision, name="expected revision")
@@ -713,7 +772,14 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
                         f"append outcome for conversation {key!r} is unknown"
                     ) from exc
                 if advanced_head is not None:
-                    _try_write_store_head(path, advanced_head, refresh_identity=True, rooted=journal.bound_file)
+                    if deferred_head_update is None:
+                        _try_write_store_head(path, advanced_head, refresh_identity=True, rooted=journal.bound_file)
+                    else:
+                        advanced_head = replace(
+                            advanced_head,
+                            identity=_journal_identity(path, rooted=journal.bound_file),
+                        )
+                        deferred_head_update.append((key, path, advanced_head))
                     self._remember_head_after_append(
                         key, path, advanced_head, rooted=journal.bound_file
                     )

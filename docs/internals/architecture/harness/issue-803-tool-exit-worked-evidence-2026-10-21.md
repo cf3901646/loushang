@@ -748,3 +748,33 @@ exact output and unchanged source authority, with zero historical tool
 executions. The adapter's full serialization and prepared-request sealing,
 ordered Model Input commit, tool-result append and final assistant append
 remain on the post-tool critical path. The 500ms acceptance remains open.
+
+## Advisory Store head background publication, 2026-10-22
+
+The persistent transcript Store now returns from an authoritative journal
+append without waiting for that append's advisory Store head sidecar rewrite.
+A background worker checks the journal identity under its exclusive lock
+before publishing the head and refreshes the same writer's bounded head cache.
+Another writer's newer journal prevents a stale head publication. Disposal
+joins submitted sidecar writes before releasing the rooted IO owner; a missing
+or stale sidecar still forces journal replay on a later writer. The Model Input
+snapshot and terminal batches retain their existing durable wait points.
+
+A regression first failed because the background mode was absent. The added
+tests then showed that a deliberately held sidecar write does not delay the
+journal append receipt, a later append reuses the refreshed cache, a stale
+background update does not replace another writer's head, and lifecycle
+disposal waits for the background worker. The selected Store, transcript
+lifecycle and Model Input tests passed: 149 passed, 18 platform skips. Ruff,
+focused mypy and `git diff --check` passed.
+
+Two subsequent long-session offline PTY diagnostics on the same growing copy
+reported 2,748ms and 2,929ms to Worked. The latter overlapped a short test
+run and cannot serve as an uncontended comparison. Its native tool-result
+Store append took 126ms without a synchronous sidecar rewrite; the earlier
+instrumented turn took 277ms with a synchronous write. The first background
+turn still reread a sidecar after an unrelated background update; refreshing
+the writer cache fixed that extra read in the second turn. Both runs reopened
+with exact Model Input snapshots, terminal usage and tool output, unchanged
+source authority and zero historical tool executions. The end-to-end 500ms
+target remains unproven and unmet.

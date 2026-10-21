@@ -469,6 +469,8 @@ class TranscriptWriterPreparation(Generic[InputT, ProductT]):
         self._closing = True
         async with self._cleanup_lock:
             await self._io_drained.wait()
+            if self._runtime is not None and isinstance(self._runtime.store, FileConversationStore):
+                await self._runtime.store.drain_advisory_head_updates()
             await self._dispose_stages()
 
     async def _dispose_runtime(self) -> None:
