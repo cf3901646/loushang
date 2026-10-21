@@ -371,9 +371,19 @@ class ModelInputTranscriptCommitter(
                             "Model Input attempts changed logical invocation identity"
                         )
                 with timer.phase("validate_prepared_request"):
-                    prepared_payload, model_visible_headers, canonical = (
-                        _validate_prepared_request(request)
-                    )
+                    if (
+                        type(request) is PreparedModelRequest
+                        and request._owned_envelope_is_current()
+                    ):
+                        # The exact built-in envelope is recursively frozen.
+                        # Copy it off-loop so a long request cannot stall input.
+                        prepared_payload, model_visible_headers, canonical = (
+                            await asyncio.to_thread(_validate_prepared_request, request)
+                        )
+                    else:
+                        prepared_payload, model_visible_headers, canonical = (
+                            _validate_prepared_request(request)
+                        )
                 # Validation can consume an entire input frame on a long
                 # request. Service cancellation before allocating or writing
                 # its durable graph, and reject a Session changed meanwhile.
@@ -383,7 +393,10 @@ class ModelInputTranscriptCommitter(
                 with timer.phase("logical_input_thaw"):
                     logical_input = cast(
                         dict[str, JSONValue],
-                        thaw_model_input_json(self._context.logical_input),
+                        await asyncio.to_thread(
+                            thaw_model_input_json,
+                            self._context.logical_input,
+                        ),
                     )
                 stored_logical_input = logical_input
                 stored_prepared_payload = prepared_payload
@@ -399,7 +412,8 @@ class ModelInputTranscriptCommitter(
                     # A plain request needs its canonical logical encoding for
                     # the snapshot hash anyway; use that immutable text to avoid
                     # two more full-tree copies and an avoidable GC pause.
-                    logical_canonical = canonical_model_input_json(
+                    logical_canonical = await asyncio.to_thread(
+                        canonical_model_input_json,
                         logical_input,
                         name="logical Model Input",
                     )
@@ -448,7 +462,8 @@ class ModelInputTranscriptCommitter(
                     # by stored_logical_input/stored_prepared_payload above.
                     del projected_logical, projected_prepared
                 if logical_input_hash is None:
-                    logical_input_hash = hash_model_input_json(
+                    logical_input_hash = await asyncio.to_thread(
+                        hash_model_input_json,
                         logical_input,
                         name="logical Model Input",
                     )
