@@ -162,6 +162,12 @@ class TranscriptRegion:
     _committed_render_segments: tuple[RenderLineSegment, ...] = field(
         default=(), init=False, repr=False
     )
+    _committed_render_lines: SegmentedRenderLines = field(
+        default_factory=SegmentedRenderLines, init=False, repr=False
+    )
+    _committed_render_lines_segments: tuple[RenderLineSegment, ...] | None = field(
+        default=None, init=False, repr=False
+    )
     _committed_block_context: tuple[object, ...] | None = field(
         default=None, init=False, repr=False
     )
@@ -460,18 +466,25 @@ class TranscriptRegion:
             style_signature=style_signature,
             has_committed=committed is not None,
         )
-        segments = (*self._committed_render_segments, *draft_segments)
-        lines = SegmentedRenderLines.from_segments(segments)
-        if len(lines) <= max_height:
+        if self._committed_render_lines_segments is not self._committed_render_segments:
+            self._committed_render_lines = SegmentedRenderLines.from_segments(
+                self._committed_render_segments
+            )
+            self._committed_render_lines_segments = self._committed_render_segments
+        committed_lines = self._committed_render_lines
+        draft_lines = SegmentedRenderLines.from_segments(draft_segments)
+        committed_count = len(committed_lines)
+        total_count = committed_count + len(draft_lines)
+        if total_count <= max_height:
             self._tail_start = 0
-            return lines
+            return SegmentedRenderLines.concat(committed_lines, draft_lines)
 
-        start = len(lines) - max_height
+        start = total_count - max_height
         if self.anchor_tool_index is not None:
             anchor_row = self._committed_control_by_index.get(self.anchor_tool_index)
             if anchor_row is not None and not start <= anchor_row < start + max_height:
                 start = max(
-                    0, min(anchor_row - max_height + 1, len(lines) - max_height)
+                    0, min(anchor_row - max_height + 1, total_count - max_height)
                 )
         committed_rows = committed.line_count if committed is not None else 0
         starts_at_draft_separator = (
@@ -483,7 +496,12 @@ class TranscriptRegion:
         if start in self._committed_separator_rows or starts_at_draft_separator:
             start += 1
         self._tail_start = start
-        return lines[start : start + max_height]
+        stop = start + max_height
+        visible_committed = committed_lines[start : min(stop, committed_count)]
+        visible_draft = draft_lines[
+            max(0, start - committed_count) : max(0, stop - committed_count)
+        ]
+        return SegmentedRenderLines.concat(visible_committed, visible_draft)
 
     def _render_committed_segment(
         self,
@@ -895,6 +913,8 @@ class TranscriptRegion:
         self._committed_segment_key = None
         self._committed_segment = None
         self._committed_render_segments = ()
+        self._committed_render_lines = SegmentedRenderLines()
+        self._committed_render_lines_segments = None
         self._committed_block_context = None
         self._committed_record_blocks = ()
         self._committed_record_lines = ()

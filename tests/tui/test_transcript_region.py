@@ -8,6 +8,7 @@ import pytest
 import loushang.tui.markdown.renderer as markdown_renderer
 import loushang.tui.ui_parts.transcript as transcript_region_module
 from loushang.tui import RenderConstraints, RenderLoop, TerminalSize
+from loushang.tui.core import RenderLineSegment
 from loushang.tui.theme import ThemeResolver
 from loushang.tui.transcript import (
     AssistantMessageRecord,
@@ -370,6 +371,33 @@ def test_cached_layout_tracks_anchor_changes_without_changing_tool_focus() -> No
         .render(constraints)
         .lines
     )
+
+
+@pytest.mark.tui_render_contract
+@pytest.mark.parametrize("height", [8, 1_000_000])
+def test_repeated_render_does_not_recount_historical_segments(
+    monkeypatch: pytest.MonkeyPatch,
+    height: int,
+) -> None:
+    records = [UserPromptRecord(f"history {index}") for index in range(200)]
+    region = TranscriptRegion(records=records, records_revision=1)
+    constraints = RenderConstraints(width=80, max_height=height)
+    expected = tuple(line.text for line in region.render(constraints).lines)
+
+    original_count = RenderLineSegment.line_count.fget
+    assert original_count is not None
+    counted = 0
+
+    def count_segment_lines(segment: RenderLineSegment) -> int:
+        nonlocal counted
+        counted += 1
+        return original_count(segment)
+
+    monkeypatch.setattr(RenderLineSegment, "line_count", property(count_segment_lines))
+    actual = region.render(constraints)
+
+    assert tuple(line.text for line in actual.lines) == expected
+    assert counted < 30
 
 
 @pytest.mark.tui_render_contract
