@@ -8,6 +8,7 @@ import json
 import math
 import os
 import stat
+import threading
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager, nullcontext, suppress
 from dataclasses import dataclass, replace
@@ -214,6 +215,13 @@ class _StoreHead:
     recent_records: tuple[_RecentRecord, ...] = ()
 
 
+@dataclass(frozen=True)
+class _CachedStoreHead:
+    path: Path
+    head: _StoreHead
+    metadata_identity: _JournalIdentity
+
+
 class FileConversationStore(Generic[HeaderT, RecordT]):
     """File-backed Store whose layout and codecs are Product supplied.
 
@@ -270,6 +278,8 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
         self._head_compatibility_token = _require_head_compatibility_token(
             head_compatibility_token
         )
+        self._head_cache: dict[ConversationKey, _CachedStoreHead] = {}
+        self._head_cache_lock = threading.Lock()
         self._snapshot_loader = snapshot_loader
         self._scan_snapshot_loader = scan_snapshot_loader or snapshot_loader
         self._delete_artifacts = delete_artifacts
@@ -277,6 +287,57 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
     def _require_writable(self) -> None:
         if self._read_only:
             raise StoreConflictError("conversation store is read-only")
+
+    def _head_for_append(
+        self,
+        key: ConversationKey,
+        path: Path,
+        *,
+        rooted: RootedFile | None,
+    ) -> _StoreHead | None:
+        token = self._head_compatibility_token
+        if token is None:
+            return None
+        with self._head_cache_lock:
+            cached = self._head_cache.get(key)
+        if cached is not None and cached.path == path:
+            try:
+                metadata_identity = _metadata_identity(path, rooted=rooted)
+                if (
+                    metadata_identity is not None
+                    and metadata_identity == cached.metadata_identity
+                    and cached.head.identity == _journal_identity(path, rooted=rooted)
+                ):
+                    return cached.head
+            except OSError:
+                pass
+        return _try_load_store_head(path, compatibility_token=token, rooted=rooted)
+
+    def _remember_head_after_append(
+        self,
+        key: ConversationKey,
+        path: Path,
+        head: _StoreHead,
+        *,
+        rooted: RootedFile | None,
+    ) -> None:
+        # The journal append has settled. If either stat fails, the next append
+        # uses the sidecar/replay path instead of trusting an uncertain cache.
+        try:
+            identity = _journal_identity(path, rooted=rooted)
+            metadata_identity = _metadata_identity(path, rooted=rooted)
+        except OSError:
+            metadata_identity = None
+        with self._head_cache_lock:
+            if metadata_identity is None:
+                self._head_cache.pop(key, None)
+                return
+            self._head_cache.pop(key, None)
+            if len(self._head_cache) >= 16:
+                self._head_cache.pop(next(iter(self._head_cache)))
+            self._head_cache[key] = _CachedStoreHead(
+                path, replace(head, identity=identity), metadata_identity
+            )
 
     def retain_creation_identity(self, key: ConversationKey, operation_id: str) -> None:
         """Arm one original native publication receipt without creating a file."""
@@ -556,14 +617,8 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
                     if projected_id is not None
                     else None
                 )
-                head = (
-                    _try_load_store_head(
-                        path,
-                        compatibility_token=self._head_compatibility_token,
-                        rooted=journal.bound_file,
-                    )
-                    if self._head_compatibility_token is not None
-                    else None
+                head = self._head_for_append(
+                    key, path, rooted=journal.bound_file
                 )
                 needs_full_reconciliation = bool(
                     head is not None
@@ -659,6 +714,9 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
                     ) from exc
                 if advanced_head is not None:
                     _try_write_store_head(path, advanced_head, refresh_identity=True, rooted=journal.bound_file)
+                    self._remember_head_after_append(
+                        key, path, advanced_head, rooted=journal.bound_file
+                    )
         except (
             StoreCommitOutcomeUnknown,
             StoreConflictError,
@@ -711,14 +769,8 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
                 record_digests = tuple(
                     _record_digest(journal, record) for record in durable_records
                 )
-                head = (
-                    _try_load_store_head(
-                        path,
-                        compatibility_token=self._head_compatibility_token,
-                        rooted=journal.bound_file,
-                    )
-                    if self._head_compatibility_token is not None
-                    else None
+                head = self._head_for_append(
+                    key, path, rooted=journal.bound_file
                 )
                 prepared = (
                     self._prepare_batch_from_head(
@@ -787,6 +839,9 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
                             advanced_head,
                             refresh_identity=True,
                             rooted=journal.bound_file,
+                        )
+                        self._remember_head_after_append(
+                            key, path, advanced_head, rooted=journal.bound_file
                         )
                 elif replayed_authority and head is not None:
                     _try_write_store_head(path, head, rooted=journal.bound_file)
@@ -1500,6 +1555,17 @@ def _write_create_operation(
 
 def _metadata_ref(path: Path, rooted: RootedFile | None) -> RootedFile | None:
     return None if rooted is None else rooted.sibling(_metadata_path(path).name)
+
+
+def _metadata_identity(
+    path: Path, *, rooted: RootedFile | None = None
+) -> _JournalIdentity | None:
+    try:
+        return _journal_identity(
+            _metadata_path(path), rooted=_metadata_ref(path, rooted)
+        )
+    except OSError:
+        return None
 
 
 def _load_store_metadata(path: Path, *, rooted: RootedFile | None = None) -> dict[str, object] | None:
