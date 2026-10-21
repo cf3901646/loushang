@@ -1047,3 +1047,21 @@ injection and changing load make this a responsiveness check, not a controlled
 latency comparison. Native reopening again verified both snapshots and
 terminal usage, exact tool output, unchanged authority and zero historical
 tools. The visible input stall and 500ms Worked goal are still unresolved.
+
+## TUI trailing-tool candidate rejected, 2026-10-22
+
+The long-session TUI lane tried a certified dirty-suffix marker and a trailing
+tool-record render path. It preserved exact rendered lines and control rows in
+106 relevant tests; Ruff and focused mypy passed. A synthetic 2,000-record
+tool update fell from a 2.32ms median to 0.93ms, and a 10,000-record update
+fell from 12.01ms to 5.57ms. However, successive real offline long-session
+turns with 20 keyboard inputs measured 4,225ms and 2,136ms from tool exit to
+Worked under changing load. The first had 476ms maximum input echo delay;
+the second had 238ms. Their frame timing did not isolate a useful end-to-end
+gain from the candidate. In the second run, the screen layout consumed 273ms
+across 32 post-tool frames, of which transcript segments consumed 47ms and
+tool indexing 5ms. The largest single layout segment was 45ms. The TUI
+candidate was removed from the worktree because it added change-tracking
+authority and a special render path for only a few milliseconds of local
+gain. Model preparation and durable request materialization remain the next
+targets.
