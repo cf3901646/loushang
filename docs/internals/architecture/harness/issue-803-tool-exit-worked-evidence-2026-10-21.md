@@ -886,3 +886,19 @@ snapshots, terminal usage and exact output, unchanged source authority and no
 historical tool execution. Model Input, PreparedRequest and Model Call tests
 passed: 163 passed, one existing skip. Ruff, focused mypy and diff checks
 passed. The 500ms tool-exit-to-Worked target remains open.
+
+## Speculative Resource evidence prefetch experiment, 2026-10-22
+
+An uncommitted candidate scheduled Resource evidence recovery after the first
+durable Model Input snapshot, while the tool was still running. A regression
+verified that the next request waited for the speculative task, rechecked the
+current path, and cancelled the task on disposal; 82 selected tests passed.
+The offline long-session turn recovered evidence for 103ms before tool exit,
+but still spent 138ms in evidence recovery after the tool result changed the
+selected path. Tool exit to Worked was 2,710ms, with a 1,260ms maximum event
+loop delay. Native reopening verified both snapshots, terminal usage and exact
+tool output, unchanged source authority, and no historical tool execution.
+This single sample does not isolate the prefetch cost from run variation, but
+it does show that speculative recovery cannot replace the required check of
+the new tool result. The candidate was removed; the measurement remains as a
+constraint for the next optimization.
