@@ -167,6 +167,19 @@ collection. The candidate was reverted: sharing unchanged blob subtrees did
 not control the tail or approach the 250ms objective. No Product GC policy or
 threshold was changed.
 
+On a later approximately 29,400-record isolated continuation with the
+evidence-free replay fixes, a 315.15ms main-thread generation-two collection
+fell inside the post-tool prepared-request validation phase (329.5ms). Worked
+arrived after 1,350.52ms; maximum loop delay was 329.1ms and keyboard echo
+latency reached 562.4ms. Native reopening reconstructed its two snapshots,
+terminal usage and output without changing the original authority or invoking
+historical tools. A renewed owned-tree copy-on-write micro check did not
+contradict the five-pair rejection above: on the same isolated history, median
+logical projection was 26.08ms detached versus 26.36ms owned, and prepared
+projection was 26.77ms versus 24.56ms. Its Product candidate was reverted after
+98 focused tests passed; no copy-on-write Product change remains. The repeat
+is diagnostic only and does not justify another latency acceptance claim.
+
 ## Exact prefix-mutation proof feasibility
 
 A private read-only check timed exact comparison of restored historical Agent
