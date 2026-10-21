@@ -729,15 +729,33 @@ def _freeze_owned_json(value: JSONValue) -> FrozenJSONValue:
 
 
 def _thaw_json(value: object) -> JSONValue:
-    if isinstance(value, Mapping):
+    value_type = type(value)
+    # Most nodes in a long request are scalars or native owned/frozen
+    # containers. Avoid generic ABC dispatch for every node in those trees.
+    if (
+        value is None
+        or value_type is str
+        or value_type is bool
+        or value_type is int
+        or value_type is float
+    ):
+        return cast(JSONValue, value)
+    if value_type is list or value_type is tuple:
+        return [_thaw_json(item) for item in cast("Sequence[object]", value)]
+    if (
+        value_type is dict
+        or value_type is MappingProxyType
+        or isinstance(value, Mapping)
+    ):
+        mapping = cast("Mapping[object, object]", value)
         projected: dict[str, JSONValue] = {}
-        for key, item in value.items():
+        for key, item in mapping.items():
             if not isinstance(key, str):
                 raise TypeError("prepared model request payload keys must be strings")
             projected[key] = _thaw_json(item)
         return projected
     if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
-        return [_thaw_json(item) for item in value]
+        return [_thaw_json(item) for item in cast("Sequence[object]", value)]
     return cast(JSONValue, value)
 
 

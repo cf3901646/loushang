@@ -9,6 +9,75 @@
 
 ### Continued measurements on 21 October
 
+#### Native JSON copy dispatch
+
+A later matched experiment isolates native JSON copying from commit batching
+and scheduling experiments. Both sides use the Product writer and unchanged
+strict JSON, canonical-byte, hash and receipt checks. Only the two recursive
+copy functions switch between the frozen `dd80b3b5` implementation and native
+scalar/container dispatch. Custom Mapping/Sequence implementations retain the
+original generic path; copied mutable containers remain independent.
+
+The same application/session runs two warmups and five alternating AB/BA pairs.
+Its private sample has approximately 25,500 historical records and 9,400
+deferred bundles by this stage. Continuing probes have grown the active model
+context, so absolute times are not comparable with earlier experiments.
+
+| Warm paired metric | Original dispatch | Native dispatch |
+| --- | ---: | ---: |
+| Worked median ms | 752.86 | 674.81 |
+| Worked p95 ms | 1,012.31 | 701.91 |
+| Main-thread completion CPU median ms | 632.51 | 575.66 |
+| Completion input p95 ms | 476.57 | 224.03 |
+| Completion input p99 ms | 551.71 | 264.70 |
+| All-phase input p95 ms | 262.02 | 195.57 |
+| All-phase input p99 ms | 523.91 | 226.62 |
+| Maximum timer-frame gap ms | 579.07 | 284.65 |
+
+Each of the five native-dispatch turns has a shorter Worked duration than its
+paired original-dispatch turn. Two generation-2 collections occurred in the
+original-dispatch turns and none in the native-dispatch turns; the entire tail
+improvement cannot therefore be attributed to dispatch. No collection policy
+was changed. The input p95 and Worked targets remain unmet.
+
+Native reopening verified all 12 reports, 24 snapshots with terminal usage and
+12 output/truncation fingerprints, without changing authority bytes/mtime.
+Draft preservation, one Worked per turn and disposal without asynchronous
+task leaks passed. The dispatch budget regression first failed twice on the
+original implementation. The final focused selection passed 132 tests with
+18 existing host skips. Full `make check-ai` passed: 867 tests, seven offline
+deselections, lint/type/catalog/import checks and coverage targets, including
+90.57% runtime-core coverage. Scoped two-source mypy and changed-file Ruff pass.
+
+A new completion-phase Escape probe sends the key at an absolute deadline
+200ms after the controlled child returns. One observed turn delivered it while
+Working was still visible: Stopping appeared 209.41ms after the deadline and
+Worked appeared 1,184.83ms after tool return. Only the first request reached
+transport; the completed tool result was retained. This is a single diagnostic,
+not five-pair cancellation acceptance. An earlier diagnostic was interrupted
+after its observation failed to finish; it is excluded from performance data.
+Thus completion-phase cancellation remains a concrete acceptance gap.
+
+#### Private experiments retained outside Product
+
+Batching Model Input component bundles reduced materialization work but removed
+natural I/O scheduling breaks. Its five-pair experiment worsened preparation
+input p99 from 1,381.28ms to 1,975.87ms. Three zero-delay loop turns at CPU
+boundaries then improved forwarded-input/cancel regression behavior and one
+completion input p99 comparison from 441.57ms to 269.93ms, but preparation
+remained slow and Worked did not improve consistently. Neither experiment is
+included in the Product implementation.
+
+A typed record-membership index was also tested while retaining the original
+lineage predicates and reading mutable fact fields live. Its five pairs used
+identical batching/checkpoints on both sides, toggling only full-history
+scans versus candidate spans. Worked median changed from 628.31ms to 616.53ms,
+while p95 worsened from 641.73ms to 892.64ms, with two approximately 295ms
+generation-2 collections on indexed turns. This does not establish a stable
+responsiveness improvement, so the index remains private. These prototypes
+have separate correctness evidence; they are not evidence that the Product
+meets response targets or that completion-phase Escape is accepted.
+
 The persistent Product-turn objective is still unmet. A bounded decoded-bundle
 cache was tested privately and withdrawn: five alternating cold-process pairs
 reduced retained decoded bundles from over 3,100 to 16, but normal Worked p95

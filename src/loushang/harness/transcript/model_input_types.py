@@ -160,17 +160,31 @@ def freeze_model_input_json(
 
 
 def thaw_model_input_json(value: object) -> JSONValue:
-    if isinstance(value, Mapping):
+    value_type = type(value)
+    if (
+        value is None
+        or value_type is str
+        or value_type is bool
+        or value_type is int
+        or value_type is float
+    ):
+        return cast(JSONValue, value)
+    if value_type is list or value_type is tuple:
+        return [thaw_model_input_json(item) for item in cast("Sequence[object]", value)]
+    if (
+        value_type is dict
+        or value_type is MappingProxyType
+        or isinstance(value, Mapping)
+    ):
+        mapping = cast("Mapping[object, object]", value)
         projected: dict[str, JSONValue] = {}
-        for key, item in value.items():
+        for key, item in mapping.items():
             if not isinstance(key, str):
                 raise TypeError("model-input JSON keys must be strings")
             projected[key] = thaw_model_input_json(item)
         return projected
     if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
-        return [thaw_model_input_json(item) for item in value]
-    if value is None or type(value) in {str, bool, int, float}:
-        return cast(JSONValue, value)
+        return [thaw_model_input_json(item) for item in cast("Sequence[object]", value)]
     raise TypeError(f"model-input value is outside strict JSON: {type(value).__name__}")
 
 
