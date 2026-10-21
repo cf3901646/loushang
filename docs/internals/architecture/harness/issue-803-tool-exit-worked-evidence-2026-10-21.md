@@ -1038,3 +1038,12 @@ the 500ms objective. Native reopening of each result verified both Model
 Input snapshots and terminal usage, exact tool output, unchanged source
 authority and zero historical tool executions. The 500ms Worked target and
 long-session event-loop pauses remain open.
+
+A subsequent 20-keyboard-input run on the same growing offline Session
+measured maximum echo delay of 262ms, tool exit to Worked of 3,422ms and
+maximum event-loop delay of 943ms. Its hot Model Input commit was 1,183ms,
+including 176ms resolver extension and 742ms materialization. Keyboard
+injection and changing load make this a responsiveness check, not a controlled
+latency comparison. Native reopening again verified both snapshots and
+terminal usage, exact tool output, unchanged authority and zero historical
+tools. The visible input stall and 500ms Worked goal are still unresolved.
