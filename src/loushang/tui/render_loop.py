@@ -56,6 +56,20 @@ class _SegmentedTextLines(Sequence[str]):
             ends.append(total)
         object.__setattr__(self, "_segment_ends", tuple(ends))
 
+    @classmethod
+    def _from_known_ends(
+        cls,
+        segments: tuple[_LogicalLineSegment, ...],
+        *,
+        finalized: bool,
+        ends: tuple[int, ...],
+    ) -> _SegmentedTextLines:
+        result = object.__new__(cls)
+        object.__setattr__(result, "segments", segments)
+        object.__setattr__(result, "finalized", finalized)
+        object.__setattr__(result, "_segment_ends", ends)
+        return result
+
     def __len__(self) -> int:
         return self._segment_ends[-1] if self._segment_ends else 0
 
@@ -690,6 +704,22 @@ class RenderLoop:
         init=False,
         repr=False,
     )
+    _previous_render_segments: tuple[RenderLineSegmentLike, ...] = field(
+        default=(), init=False, repr=False
+    )
+    _previous_logical_segments: tuple[_LogicalLineSegment, ...] = field(
+        default=(), init=False, repr=False
+    )
+    _previous_segment_keys: tuple[tuple[object, object] | None, ...] = field(
+        default=(), init=False, repr=False
+    )
+    _previous_segment_ends: tuple[int, ...] = field(
+        default=(), init=False, repr=False
+    )
+    _previous_key_counts: dict[tuple[object, object], int] = field(
+        default_factory=dict, init=False, repr=False
+    )
+    _previous_first_uncacheable: int = field(default=0, init=False, repr=False)
     _planned_reused_segment_count: int = field(default=0, init=False, repr=False)
     _planned_materialized_line_count: int = field(default=0, init=False, repr=False)
     _planned_flattened_line_count: int = field(default=0, init=False, repr=False)
@@ -797,19 +827,52 @@ class RenderLoop:
             flat_raw_lines = tuple(line.text for line in result.lines)
             self._planned_flattened_line_count = len(flat_raw_lines)
             self._planned_materialized_line_count = len(flat_raw_lines)
-            return flat_raw_lines, _finalize_rendered_lines(
+            flat_finalized_lines = _finalize_rendered_lines(
                 flat_raw_lines,
                 previous_raw_lines=self.previous_raw_lines,
                 previous_finalized_lines=self.previous_rendered_lines,
             )
+            self._previous_render_segments = ()
+            self._previous_logical_segments = ()
+            self._previous_segment_keys = ()
+            self._previous_segment_ends = ()
+            self._previous_key_counts = {}
+            self._previous_first_uncacheable = 0
+            return flat_raw_lines, flat_finalized_lines
 
         # Retain only segments from the latest complete segmented materialization.
         # Building off to the side keeps the previous cache intact if finalization fails.
+        rendered_segments = result.lines.segments
+        prefix_count = min(
+            _common_segment_prefix(
+                self._previous_render_segments,
+                rendered_segments,
+            ),
+            self._previous_first_uncacheable,
+        )
         previous_segment_cache = self._finalized_segment_cache
-        current_segment_cache: dict[tuple[object, object], _LogicalLineSegment] = {}
-        segments: list[_LogicalLineSegment] = []
-        for rendered_segment in result.lines.segments:
+        current_segment_cache = (
+            previous_segment_cache.copy() if prefix_count else {}
+        )
+        key_counts = self._previous_key_counts.copy() if prefix_count else {}
+        for key in self._previous_segment_keys[prefix_count:]:
+            if key is None or not prefix_count:
+                continue
+            remaining = key_counts[key] - 1
+            if remaining:
+                key_counts[key] = remaining
+            else:
+                del key_counts[key]
+                current_segment_cache.pop(key, None)
+        segments = list(self._previous_logical_segments[:prefix_count])
+        keys = list(self._previous_segment_keys[:prefix_count])
+        self._planned_reused_segment_count = prefix_count
+        first_uncacheable = len(rendered_segments)
+        for index, rendered_segment in enumerate(rendered_segments[prefix_count:], prefix_count):
             cache_key = _render_segment_cache_key(rendered_segment)
+            keys.append(cache_key)
+            if cache_key is None and first_uncacheable == len(rendered_segments):
+                first_uncacheable = index
             logical_segment = (
                 current_segment_cache.get(cache_key) if cache_key is not None else None
             )
@@ -823,10 +886,27 @@ class RenderLoop:
             segments.append(logical_segment)
             if cache_key is not None:
                 current_segment_cache[cache_key] = logical_segment
+                key_counts[cache_key] = key_counts.get(cache_key, 0) + 1
         logical_segments = tuple(segments)
-        raw_lines = _SegmentedTextLines(logical_segments, finalized=False)
-        finalized_lines = _SegmentedTextLines(logical_segments, finalized=True)
+        ends = list(self._previous_segment_ends[:prefix_count])
+        total = ends[-1] if ends else 0
+        for segment in logical_segments[prefix_count:]:
+            total += len(segment.raw_lines)
+            ends.append(total)
+        segment_ends = tuple(ends)
+        raw_lines = _SegmentedTextLines._from_known_ends(
+            logical_segments, finalized=False, ends=segment_ends
+        )
+        finalized_lines = _SegmentedTextLines._from_known_ends(
+            logical_segments, finalized=True, ends=segment_ends
+        )
         self._finalized_segment_cache = current_segment_cache
+        self._previous_render_segments = rendered_segments
+        self._previous_logical_segments = logical_segments
+        self._previous_segment_keys = tuple(keys)
+        self._previous_segment_ends = segment_ends
+        self._previous_key_counts = key_counts
+        self._previous_first_uncacheable = first_uncacheable
         return raw_lines, finalized_lines
 
     def _plan_runtime(self) -> RenderPlanRuntime:
@@ -1041,15 +1121,25 @@ class RenderLoop:
         )
 
 
+def _common_segment_prefix(previous: tuple[object, ...], current: tuple[object, ...]) -> int:
+    limit = min(len(previous), len(current))
+    # Tuple comparison checks the usual unchanged tail in C without calling Python
+    # once per historical segment. Fall back to a walk for edits farther back.
+    for changed_tail in range(min(limit, 2) + 1):
+        prefix = limit - changed_tail
+        if previous[:prefix] == current[:prefix]:
+            return prefix
+    for index in range(limit):
+        if previous[index] != current[index]:
+            return index
+    return limit
+
+
 def _changed_line_range(previous_lines: Sequence[str], current_lines: Sequence[str]) -> tuple[int, int] | None:
     if isinstance(previous_lines, _SegmentedTextLines) and isinstance(current_lines, _SegmentedTextLines):
-        common_segments = 0
-        common_limit = min(len(previous_lines.segments), len(current_lines.segments))
-        while (
-            common_segments < common_limit
-            and previous_lines.segments[common_segments] is current_lines.segments[common_segments]
-        ):
-            common_segments += 1
+        common_segments = _common_segment_prefix(
+            previous_lines.segments, current_lines.segments
+        )
         if common_segments == len(previous_lines.segments) == len(current_lines.segments):
             return None
         prefix_rows = previous_lines.segment_start(common_segments)
