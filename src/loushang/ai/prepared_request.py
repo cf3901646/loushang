@@ -303,7 +303,6 @@ class PreparedModelRequest:
             separators=(",", ":"),
             allow_nan=False,
         )
-        object.__setattr__(self, "payload", _freeze_json(projected))
         object.__setattr__(
             self,
             "binary_fields",
@@ -330,6 +329,9 @@ class PreparedModelRequest:
             "payload_hash",
             "sha256:" + hashlib.sha256(canonical_payload.encode("utf-8")).hexdigest(),
         )
+        # Projection already detached the entire tree from the caller. Inspect
+        # its native containers first, then freeze those owned containers.
+        object.__setattr__(self, "payload", _freeze_owned_json(projected))
 
     @classmethod
     def from_provider_request(
@@ -710,6 +712,19 @@ def _freeze_json(value: JSONValue) -> FrozenJSONValue:
         )
     if isinstance(value, list):
         return tuple(_freeze_json(item) for item in value)
+    return value
+
+
+def _freeze_owned_json(value: JSONValue) -> FrozenJSONValue:
+    """Freeze an exclusively owned, validated projection without copying dicts."""
+
+    if isinstance(value, dict):
+        owned = cast(dict[str, FrozenJSONValue], value)
+        for key, item in value.items():
+            owned[key] = _freeze_owned_json(item)
+        return MappingProxyType(owned)
+    if isinstance(value, list):
+        return tuple(_freeze_owned_json(item) for item in value)
     return value
 
 

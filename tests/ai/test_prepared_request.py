@@ -263,6 +263,37 @@ def test_transport_payload_copies_remain_independent_of_source_and_each_other() 
     assert prepared.payload_hash == digest
 
 
+def test_prepared_request_freezes_its_owned_projection_without_another_tree_copy(
+    monkeypatch,
+) -> None:
+    import weakref
+
+    from loushang.ai import prepared_request as module
+
+    class WeakMapping(dict):
+        pass
+
+    projected = []
+    project = module._project_payload
+
+    def tracked(payload):
+        value = WeakMapping(project(payload))
+        projected.append(weakref.ref(value))
+        return value
+
+    monkeypatch.setattr(module, "_project_payload", tracked)
+    original = {"messages": [{"role": "user", "content": ["hello"]}]}
+    prepared = PreparedModelRequest.from_provider_request(_request(), payload=original)
+    assert projected[0]() is not None, "freezing discarded an already owned JSON tree"
+    assert isinstance(projected[0]()["messages"], tuple)
+    original["messages"][0]["content"].append("source mutation")
+    first = prepared.payload_for_transport()
+    first["messages"][0]["content"].append("transport mutation")
+    assert prepared.payload_for_transport() == {
+        "messages": [{"role": "user", "content": ["hello"]}]
+    }
+
+
 def test_prepared_model_request_measures_messages_tools_and_images() -> None:
     prepared = PreparedModelRequest.from_provider_request(
         _request(invocation_id="invocation-metrics"),

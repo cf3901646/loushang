@@ -7,6 +7,145 @@
 - Tracking: [#803](https://github.com/zhnt/loushang/issues/803)
 - Baseline: `0adc4199466f67b63abc8ac6a01a72cfdc3c27e0`
 
+### Continued measurements on 21 October
+
+The persistent Product-turn objective is still unmet. A bounded decoded-bundle
+cache was tested privately and withdrawn: five alternating cold-process pairs
+reduced retained decoded bundles from over 3,100 to 16, but normal Worked p95
+worsened from 1,373.80ms to 1,638.11ms. Fewer collections and lower retention
+did not establish a responsiveness improvement. Neither that cache nor the
+experimental 1ms scheduling delays are included in the implementation.
+
+A separate probe now keeps the same Screen application, SessionManager,
+AgentSession and native writer caches across five consecutive prompts. It uses
+controlled new subprocesses and durable prepared requests; historical commands
+are never executed. Each normal turn has two independently rebuilt snapshots,
+terminal usage and output/truncation fingerprints. Both variants passed those
+checks, retained drafts, emitted one Worked per turn and disposed without
+asynchronous task leaks. The original session remains read-only.
+
+On sample A, the first cold prompt and four warm prompts produced the following
+tool-return-to-Worked times. These are one continuous process per variant,
+not five independent matched process pairs, and are not acceptance evidence.
+
+| Variant | Cold prompt ms | Warm prompts ms |
+| --- | ---: | --- |
+| Committed cooperative preparation | 929.90 | 921.27, 922.65, 921.34, 936.28 |
+| Reduced request-container allocation | 966.52 | 962.53, 974.66, 907.76, 1,138.89 |
+
+Warm completion input p99 was 312.85ms and 414.08ms respectively. Allocation
+reductions have focused correctness coverage and the full AI checks pass, but
+they do not yet show a stable end-to-end response improvement. No latency
+target has been relaxed. The warm writer reused all unchanged sequence items
+and planned only four new items per request; the remaining delay therefore
+persists even when prefix reuse is working and no generation-2 collection
+occurs during the warm turn.
+
+Completion-only profiles identify repeated ancestry-position reconstruction:
+the resolver builds the full approximately 24,000-record dictionary at initial
+preparation and after each bundle append. The current candidate reuses its
+own writer's position map when extending the exact same record-object prefix,
+checks every new identity for duplicates and creates fresh resolution caches
+and decode budgets. Shortened paths, replacement prefix objects and duplicate
+suffix identities fail before publishing a new resolver. This change does not
+cache decoded payloads or relax reference, sibling, hash or durable receipt
+validation. Five regression cases failed before the implementation and pass
+with it; the related focused selection passed 130 tests with one existing skip.
+
+One continuing native Product session then ran a warmup followed by five
+alternating pairs of normal quiet-command turns. The frozen candidate was the
+same in both cases; the baseline substituted only the original full resolver
+constructor after bundle appends. Thus this comparison isolates position-map
+reuse, rather than comparing all preceding allocation changes with main.
+Orders alternated AB/BA. Every turn used a new controlled subprocess.
+
+| Warm paired metric | Full reconstruction | Prefix extension |
+| --- | ---: | ---: |
+| Worked median ms | 1,361.08 | 1,266.45 |
+| Worked p95 ms | 1,551.85 | 1,473.24 |
+| Completion input p95 ms | 460.88 | 445.82 |
+| Completion input p99 ms | 526.84 | 514.28 |
+| Tool-running input p99 ms | 55.05 | 49.84 |
+
+Native reopen verification checked all 11 reports, 22 prepared snapshots and
+their terminal usage, plus all 11 output/truncation fingerprints. The private
+authority file was unchanged by verification. Drafts, one Worked per turn and
+task cleanup passed. These data show a small improvement for this component;
+both completion response and input targets remain unmet. Different tool cases,
+cancellation and other historical scales have not yet been reaccepted for this
+candidate. Selected consumer gates are complete with the baseline failures
+listed below.
+
+The allocation changes freeze only a tree already detached by request
+projection, keep immutable payload views and preserve fresh transport copies.
+The transcript edge avoids a frozen intermediate while retaining strict JSON,
+canonical-byte and hash checks; malformed cycles take the original rejection
+path. Unused zero-replacement binary projections are released before indexing;
+actual image replacements stay owned until durable storage and reconstruction.
+Caller mutation, transport mutation, malformed payloads, actual image hydration
+and retained-allocation regressions cover these ownership boundaries. Full AI
+validation passed 867 tests with seven offline deselections, including its lint,
+type, import/catalog and coverage gates.
+
+The selected full Coding consumer run passed 3,387 tests, skipped 283 and
+deselected 55, with 127 failures and 39 setup errors. All 166 failing node IDs
+exactly match the previously recorded macOS baseline: no added or missing node.
+Dependency checks and the 153-test Agent consumer selection also passed. The
+Harnesstui selection passed 1,054 tests with 85 deselections and the same two
+known macOS PTY EXTPROC restoration failures. Its lint and 140-source type check
+passed. Coding UI passed 602 tests with 68 deselections; the render-contract
+route passed 311 tests with 7,649 deselections. Full Harness passed 5,173 tests
+with 724 skips and three deselections. Its 25 failures exactly match all 25
+previous baseline node IDs, with none added or missing. Full Harness lint
+passed; its 775-source type route still reports the same six errors in the
+unchanged `package_legacy_runtime.py` PID-namespace attributes. Source hashes
+matched the frozen tested candidate after all routes completed. The redundant
+unit-Coding invocation was stopped because the completed Coding run uses the
+identical command with a strictly broader marker selection; no CI route or
+test selector was changed. Host-runtime platform checks remain pending. This
+is not a fully green gate claim.
+
+### Private batch experiment: faster completion, worse input
+
+A subsequent isolated prototype stages new graph identities in a private
+planning index and submits the missing bundles to the existing native atomic
+batch owner once. The planning index reuses the existing strict reference and
+sequence validators; new locations and verification caches reach the shared
+index only after actual durable receipts. The snapshot still commits before
+transport. No provisional receipt is used as storage authority.
+
+The prototype passed 128 focused tests with 18 existing skips, including write
+rejection, wrong receipts, invalid record kinds, cancellation before/after
+publication and recovery. File-backed diagnostic runs verified three actual
+consecutive tools per prompt, cancellation, shared index reuse and 2.16MB Unicode
+output, with snapshot/usage and result hash/truncation checks. Those concurrent
+diagnostic runs are correctness evidence only.
+
+After consumer tests finished, one continuing sample-A session ran two warmups
+and five AB/BA pairs. The unchanged index/cache implementation was verified
+byte-identical and shared between the two writer variants to avoid retaining
+two full history indexes. All 12 turns passed native verification of 24
+snapshots and terminal usage plus 12 converted outputs. Preparation and tool
+continuation were both measured with typing continuing through completion.
+
+| Warm paired metric | Existing writer | Private batch writer |
+| --- | ---: | ---: |
+| Worked median ms | 2,153.86 | 2,029.07 |
+| Worked p95 ms | 2,614.55 | 2,445.52 |
+| Preparation input p99 ms | 1,381.28 | 1,975.87 |
+| Completion input p99 ms | 979.62 | 982.94 |
+| Tool-running input p99 ms | 67.15 | 74.14 |
+
+Continuation materialization median fell from 460.73ms to 305.32ms. This did
+not improve input responsiveness: the candidate had a 694.88ms main-thread
+generation-2 collection and removes some natural scheduling breaks from the
+old multi-write path. No collection policy or threshold was changed. This is
+a later, larger continued context than the earlier position-map comparison,
+so absolute values across those two experiments are not matched comparisons.
+The batch prototype remains outside the Product candidate. Further cooperative
+scheduling and allocation work must pass the input criteria as well as improve
+completion time before it can be adopted.
+
 ## Architecture review scope
 
 The implementation agent reviewed this change using the existing local

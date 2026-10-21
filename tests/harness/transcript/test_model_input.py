@@ -413,6 +413,131 @@ def test_model_input_records_are_hidden_deduplicated_and_hash_verified() -> None
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("has_image", [False, True])
+def test_model_input_releases_unused_binary_projection_before_indexing(
+    tmp_path, monkeypatch, has_image
+):
+    import weakref
+
+    class WeakMapping(dict):
+        pass
+
+    class TrackingCodec(SessionModelInputBlobCodec):
+        roots = []
+
+        def externalize_mapping(self, value, **kwargs):
+            projected = super().externalize_mapping(value, **kwargs)
+            root = WeakMapping(projected.value)
+            self.roots.append(weakref.ref(root))
+            return replace(projected, value=root)
+
+    async def scenario():
+        transcript = await _memory_transcript()
+        store = SessionBlobStore(tmp_path / "data", "model-input-conversation")
+        codec = TrackingCodec(store)
+        logical = dict(thaw_model_input_json(_context(transcript).logical_input))
+        if has_image:
+            image = b"projection-lifetime-image"
+            store.put_bytes(
+                image,
+                logical_name="images/input.png",
+                kind="image",
+                media_type="image/png",
+                source="test",
+            )
+            logical["messages"] = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "mimeType": "image/png",
+                            "data": base64.b64encode(image).decode("ascii"),
+                        }
+                    ],
+                }
+            ]
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript, logical_input=logical),
+            runtime_references=_runtime_references(),
+            binary_codec=codec,
+        )
+        original = model_input_v2_module.ModelInputV2Writer.prepare
+
+        async def prepare(cls, **kwargs):
+            assert len(codec.roots) == 2
+            assert all(
+                (reference() is not None) == has_image for reference in codec.roots
+            ), "unused full request copies survived into cold index construction"
+            return await original(**kwargs)
+
+        monkeypatch.setattr(
+            model_input_v2_module.ModelInputV2Writer, "prepare", classmethod(prepare)
+        )
+        request = _prepared()
+        await committer.commit_prepared_request(request)
+        rebuilt = rebuild_model_input(
+            transcript, committer.commits[0].snapshot_id, binary_codec=codec
+        )
+        assert rebuilt.logical_input == logical
+        assert rebuilt.prepared_payload_hash == request.payload_hash
+
+    asyncio.run(scenario())
+
+
+def test_prepared_payload_projection_does_not_hold_two_complete_container_trees():
+    import tracemalloc
+
+    request = _prepared(
+        payload={
+            "rows": [
+                {"index": i, "text": "message", "flags": [True, None]}
+                for i in range(2500)
+            ]
+        }
+    )
+    tracemalloc.start()
+    try:
+        projected = model_input_module._prepared_json_mapping(request, "payload")
+        retained, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert len(projected["rows"]) == 2500
+    assert peak < retained * 1.5, (
+        "projection retained an extra frozen tree while copying"
+    )
+
+
+@pytest.mark.parametrize("invalid", ["cycle", "nan", "surrogate", "non_string_key"])
+def test_invalid_prepared_payload_is_rejected_before_any_model_input_write(invalid):
+    async def scenario():
+        transcript = await _memory_transcript()
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript),
+            runtime_references=_runtime_references(),
+        )
+        request = _prepared()
+        if invalid == "cycle":
+            payload = {}
+            payload["self"] = payload
+        elif invalid == "nan":
+            payload = {"nested": [float("nan")]}
+        elif invalid == "surrogate":
+            payload = {"nested": ["\ud800"]}
+        else:
+            payload = {1: "invalid key"}
+        object.__setattr__(request, "payload", payload)
+        before = transcript.records
+        with pytest.raises(TypeError):
+            await committer.commit_prepared_request(request)
+        assert transcript.records == before
+        assert not committer.commits
+
+    asyncio.run(scenario())
+
+
 def test_model_input_externalizes_session_images_without_losing_exact_rebuild(
     tmp_path,
 ) -> None:

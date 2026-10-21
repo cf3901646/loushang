@@ -1374,7 +1374,9 @@ class ModelInputV2Writer:
             self._expected_leaf_id = commit.record.record_id
         active_records = self._transcript.active_path()
         self._index_cache.mark_writer_extension(active_records)
-        self._existing_resolver = ModelInputV2Resolver(active_records)
+        self._existing_resolver = self._existing_resolver._with_extended_ancestry(
+            active_records
+        )
         self._existing_owner_position = len(active_records)
 
     @staticmethod
@@ -1440,6 +1442,41 @@ class ModelInputV2Resolver:
             raise ModelInputIntegrityError(
                 "Model Input v2 ancestry contains duplicate record ids"
             )
+        self._reset_resolution_state()
+
+    def _with_extended_ancestry(
+        self, records: Sequence[AgentTranscriptRecord]
+    ) -> ModelInputV2Resolver:
+        """Reuse positions after this writer's immutable prefix gains commits.
+
+        Check prefix object identity rather than payload equality: a replacement
+        record must not inherit authority, or expand deferred historical nodes.
+        Resolution caches and budgets belong to the new resolver alone.
+        """
+
+        current = tuple(records)
+        previous_count = len(self._records)
+        if len(current) < previous_count or any(
+            old is not new
+            for old, new in zip(self._records, current, strict=False)
+        ):
+            raise ModelInputIntegrityError(
+                "Model Input v2 resolver left its selected ancestry"
+            )
+        positions = self._positions.copy()
+        for position, record in enumerate(current[previous_count:], previous_count):
+            if record.record_id in positions:
+                raise ModelInputIntegrityError(
+                    "Model Input v2 ancestry contains duplicate record ids"
+                )
+            positions[record.record_id] = position
+        extended = type(self).__new__(type(self))
+        extended._records = current
+        extended._positions = positions
+        extended._reset_resolution_state()
+        return extended
+
+    def _reset_resolution_state(self) -> None:
         self._value_cache: dict[tuple[str, int], JSONValue] = {}
         self._sequence_cache: dict[
             tuple[str, int],

@@ -469,3 +469,86 @@ def test_v2_resolver_rebuilds_a_tail_chain_beyond_python_recursion_depth() -> No
     )
     assert len(values) == 1_100
     assert rebuilt_hash == sequence_hash
+
+
+def test_resolver_extension_reuses_ancestry_without_reindexing_old_ids(monkeypatch):
+    factory = AgentTranscriptRecordFactory()
+    node = create_model_input_json_value({"text": "unchanged"})
+    records = []
+    for _ in range(1_000):
+        records.append(
+            factory.create(
+                MODEL_INPUT_COMPONENT_KIND,
+                ModelInputNodeBundle((node,)),
+                parent_id=records[-1].record_id if records else None,
+                payload_version=MODEL_INPUT_V2_PAYLOAD_VERSION,
+            )
+        )
+    resolver = ModelInputV2Resolver(records)
+    reference = _reference(records[0].record_id, 0, node)
+    assert resolver.resolve_value_reference(reference, owner_position=len(records)) == {
+        "text": "unchanged"
+    }
+    suffix = factory.create(
+        MODEL_INPUT_COMPONENT_KIND,
+        ModelInputNodeBundle((node,)),
+        parent_id=records[-1].record_id,
+        payload_version=MODEL_INPUT_V2_PAYLOAD_VERSION,
+    )
+    record_type = type(records[0])
+    original_getattribute = record_type.__getattribute__
+    old_records = {id(record) for record in records}
+    old_id_reads = []
+
+    def counted_getattribute(record, name):
+        if name == "record_id" and id(record) in old_records:
+            old_id_reads.append(id(record))
+        return original_getattribute(record, name)
+
+    monkeypatch.setattr(record_type, "__getattribute__", counted_getattribute)
+    extended = resolver._with_extended_ancestry((*records, suffix))
+    assert not old_id_reads
+    assert extended._value_cache == {}
+    assert extended._sequence_cache == {}
+    assert extended._mapping_cache == {}
+    assert extended._resolved_nodes == set()
+    assert extended._decoded_bytes == 0
+    assert extended.position_of(suffix.record_id) == len(records)
+    assert resolver.position_of(suffix.record_id) is None
+    assert resolver._value_cache
+    value = extended.resolve_value_reference(reference, owner_position=len(records) + 1)
+    value["text"] = "caller mutation"
+    assert resolver.resolve_value_reference(reference, owner_position=len(records)) == {
+        "text": "unchanged"
+    }
+
+
+@pytest.mark.parametrize(
+    "change", ["shortened", "replaced_prefix", "duplicate_old", "duplicate_suffix"]
+)
+def test_resolver_extension_rejects_changed_ancestry_atomically(change):
+    factory = AgentTranscriptRecordFactory()
+    node = create_model_input_json_value("value")
+    first = factory.create(
+        MODEL_INPUT_COMPONENT_KIND, ModelInputNodeBundle((node,)), parent_id=None
+    )
+    second = factory.create(
+        MODEL_INPUT_COMPONENT_KIND,
+        ModelInputNodeBundle((node,)),
+        parent_id=first.record_id,
+    )
+    resolver = ModelInputV2Resolver((first, second))
+    if change == "shortened":
+        changed = (first,)
+    elif change == "replaced_prefix":
+        changed = (replace(first), second)
+    elif change == "duplicate_old":
+        changed = (first, second, first)
+    else:
+        suffix = replace(second, record_id="suffix")
+        changed = (first, second, suffix, suffix)
+    with pytest.raises(ModelInputIntegrityError):
+        resolver._with_extended_ancestry(changed)
+    assert resolver.position_of(first.record_id) == 0
+    assert resolver.position_of(second.record_id) == 1
+    assert resolver.position_of("suffix") is None

@@ -17,7 +17,7 @@ from loushang.ai.prepared_request import (
     PreparedRequestCommitter,
     PreparedRequestMetrics,
 )
-from loushang.foundation.json import JSONValue
+from loushang.foundation.json import JSONValue, validate_json_value
 from loushang.foundation.observability import get_log
 from loushang.harness.capabilities import (
     MountGraphSnapshot,
@@ -318,6 +318,10 @@ class ModelInputTranscriptCommitter(
                         binary_projection_version = (
                             MODEL_INPUT_BINARY_PROJECTION_VERSION
                         )
+                    # Zero-replacement projections are unused full tree copies.
+                    # Release them before indexing; changed trees remain owned
+                    # by stored_logical_input/stored_prepared_payload above.
+                    del projected_logical, projected_prepared
                 logical_input_hash = hash_model_input_json(
                     logical_input,
                     name="logical Model Input",
@@ -896,11 +900,19 @@ def _prepared_json_mapping(
     value = getattr(request, attribute, None)
     if not isinstance(value, Mapping):
         raise ModelInputIntegrityError(f"prepared request {attribute} is not a mapping")
-    thawed = thaw_model_input_json(
-        freeze_model_input_json(value, name=f"prepared request {attribute}")
-    )
+    try:
+        thawed = thaw_model_input_json(value)
+    except RecursionError:
+        # Retain the original cycle/depth rejection contract on malformed
+        # inputs, without building a frozen intermediate for valid requests.
+        try:
+            freeze_model_input_json(value, name=f"prepared request {attribute}")
+        except (TypeError, ValueError, RecursionError) as error:
+            raise error from None
+        raise
     if not isinstance(thawed, dict):
         raise ModelInputIntegrityError(f"prepared request {attribute} is not an object")
+    validate_json_value(thawed, name=f"prepared request {attribute}")
     return thawed
 
 
