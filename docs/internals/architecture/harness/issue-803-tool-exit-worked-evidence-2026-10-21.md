@@ -699,3 +699,26 @@ Native reopening again verified both snapshots, terminal usage and output,
 with unchanged source authority and no historical tool execution. This
 demonstrates the intended skipped read, but the difference is not a matched
 p95 estimate and the 500ms target remains unmet.
+
+## Canonical logical-message prefix
+
+The built-in Model Input commit now caches per-message canonical JSON only
+after the full logical input has passed its existing validation. A later
+context reuses those strings only for the exact frozen message objects that
+the context-freeze pass already proved against the previous raw values.
+Changed messages, additional components, tools and request options are
+encoded from the current context. Custom codec commits keep their previous
+full-hash path. A regression first failed for the absent reuse path, then
+proved exact canonical bytes for an appended message and a nested mutation;
+the focused Model Input, canonical, v2 and Session suites passed with 152 tests
+and one existing skip. Ruff and focused mypy passed.
+
+A direct comparison on a rebuilt 1,549-message logical input measured full
+canonical encoding at 104.52ms median versus 22.42ms with the proven prefix,
+with byte-identical output in seven repetitions. A single full PTY turn on
+the same long-session seed still took 3,193ms from tool exit to Worked,
+versus 2,478ms in the preceding head-cache turn; the prepared-request phase
+also varied from about 250ms to 578ms. The new authority independently
+reopened with exact snapshots, usage and tool output and no historical tool
+execution. This direct encoding improvement has not produced a measured
+end-to-end improvement or met the 500ms goal.
