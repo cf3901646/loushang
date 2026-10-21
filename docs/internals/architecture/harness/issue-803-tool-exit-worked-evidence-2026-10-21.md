@@ -1,7 +1,7 @@
 # Tool exit to Worked: focused latency evidence
 
-Status: measured; the 250ms p95 target is unmet. This note narrows the new
-tool-completion objective. The broader responsiveness experiments are recorded
+Status: measured; the current 500ms p95 goal is unmet. The original focused
+tool-completion investigation targeted 250ms. Broader experiments are recorded
 in `issue-803-responsiveness-evidence-2026-10-20.md`.
 
 ## Measurement boundary
@@ -626,7 +626,49 @@ work but neither a reliable latency reduction nor acceptance of the 500ms
 goal. The post-tool preparation and Model Input commit remain the larger
 serial costs.
 
-Measure with five
-matched before/after PTY rounds across the required tool cases and history
-scales. A faster Worked display before the final model call and terminal
-outcome would change the state contract and cannot satisfy this objective.
+Acceptance still requires five matched before/after PTY rounds across the
+required tool cases and history scales. A faster Worked display before the
+final model call and terminal outcome would change the state contract and
+cannot satisfy this objective.
+
+## Post-tool input and long-history frame work
+
+The post-tool keyboard probe places twenty keys at 40ms intervals starting
+when the controlled tool service returns, so it measures input while the
+continuation persists and publishes Worked. On one 29,465-record continuation
+after terminal batching and lineage changes, tool exit to Worked was 3,682ms,
+maximum echo 1,179ms and maximum event-loop delay 723ms. After moving exact
+sealed prepared-request validation, logical thaw and canonical encoding to a
+worker, a comparable single turn measured 3,259ms, 856ms and 633ms. Both
+copies reopened with exact snapshots, terminal usage and tool output. These
+samples show responsive input is still at risk and do not estimate p95.
+
+A profiled post-tool turn found that 28 screen refreshes repeatedly traversed
+thousands of stable historical render segments. Profiling inflated total work,
+so its timings are diagnostic only. The render loop now reuses the unchanged
+cacheable segment prefix, cumulative line offsets and a per-frame Kitty image
+index. The first changed or uncacheable segment and all later segments remain
+subject to normal validation and finalization. A 6,000-segment, changing-editor
+micro sample fell from 11.26ms median per frame before these changes to
+2.37ms after both. A failed-finalization test, uncacheable-boundary test and
+145 TUI/transcript tests passed. The first full PTY sample after both changes
+showed 2,909ms to Worked and 580ms maximum echo; its authority reopened
+exactly. This one sample does not establish a Worked improvement or the goal.
+
+The transcript unit of work also now prepares detached conversation graph
+appends in a worker while retaining its commit lock and existing durable
+publication barrier. A deliberately held graph-append test first demonstrated
+an event-loop stall, then passed after the change; the selected 75 transcript,
+model-input and Session tests passed. In one later long-session PTY sample,
+tool exit to Worked was 2,965ms, maximum echo 180ms and maximum loop delay
+898ms. The original authority remained unchanged; native reopening verified
+the two snapshots with terminal usage and the exact tool output without
+running historical tools. The lower echo maximum is promising but is a noisy
+single observation, not a responsiveness p95. Worked remains around 3s.
+
+The measured post-tool sequence still waits for the tool-result append
+(about 580ms in that turn), Session/model-input preparation and commit
+(roughly 1.8s together), terminal observations (96ms), final assistant append
+(135ms), and the final flush. Moving graph copies off-loop does not remove
+these ordered durability and model-call boundaries. The 500ms end-to-end
+acceptance remains open.
