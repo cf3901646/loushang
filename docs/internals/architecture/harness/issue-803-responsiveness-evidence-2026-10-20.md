@@ -167,10 +167,110 @@ bytes/mtime. Historical commands were never executed.
 The same snapshot-rebuild diagnostic found 11,835 materialized reference objects
 but only 1,661 distinct reference values across 719 expanded bundles. This is
 cross-bundle duplication; the eight mapping entries in that sample are all
-distinct. It motivates investigating Source-scoped sharing of immutable node
-references, with unchanged reference validation, copy behavior and authority
-checks. No such sharing is implemented or accepted yet. The snapshot-rebuild
-heap is not a substitute for a full live-runtime latency matrix.
+distinct. Source-scoped reference sharing was subsequently tested after all
+existing journal, identity and hash checks. It reduced 12,003 reference objects
+to 1,759 distinct objects in a later diagnostic. Five alternating process pairs
+nevertheless worsened warm Worked median from 1,704.62ms to 2,199.22ms and
+completion input p99 from 690.62ms to 964.39ms. The related selection passed
+125 checks with one skip. Native reopening verified 20 reports, 40 snapshots
+with terminal usage and 20 outputs. Sharing was withdrawn. Different continued
+history sizes and process protocols prevent comparing these absolute times
+with other experiments as though they were matched runs.
+
+Deferring the context-usage thread launch from inside rendering to the next
+event-loop callback passed 143 focused checks, including render ordering and
+obsolete-launch cancellation. Five alternating pairs in one application showed
+no stable response benefit: Worked median changed from 889.89ms to 874.00ms,
+but p95 worsened from 1,170.72ms to 1,449.98ms. All-phase input p99 worsened
+from 408.78ms to 642.97ms, and idle input p99 from 57.66ms to 263.64ms. Native
+reopening verified 12 reports, 24 snapshots/terminal usage and 12 outputs.
+That launch change and its candidate-specific tests were withdrawn.
+
+Two further alternatives retain exact builtin tuples for validated deferred
+node metadata; public reads still produce the original DTO type. The second
+also creates indexed-node wrappers only when requested, keeping stable public
+wrapper identity and the existing ancestry/hash checks. Each alternative used
+five alternating process pairs with two actual prompts per application/session
+process. Both cold and warm turns were measured, including 1.2 seconds of input
+after Worked. The private authority had approximately 27,000–28,000 records.
+
+| Metric ms | Scalar rows baseline | Scalar rows candidate | Rows + lazy wrappers baseline | Rows + lazy wrappers candidate |
+| --- | ---: | ---: | ---: | ---: |
+| Cold Worked median | 858.30 | 1,159.16 | 877.01 | 1,113.52 |
+| Cold Worked p95 | 883.31 | 1,601.09 | 888.97 | 1,323.67 |
+| Cold all-phase input p99 | 268.63 | 537.36 | 356.08 | 430.30 |
+| Warm Worked median | 881.27 | 876.52 | 860.68 | 864.15 |
+| Warm all-phase input p99 | 559.24 | 236.10 | 415.54 | 220.84 |
+
+The second alternative reduced GC-tracked objects from 320,820 to 260,100 in
+a separate writer-index/latest-snapshot diagnostic, and eliminated 30,372
+unused wrappers. Repeated manual full collections decreased from approximately
+122ms to 87ms. These are diagnostic results only. Actual cold turns still
+incurred approximately 200–375ms collections, often later in the completion
+phase. Neither alternative improved overall cold/warm responsiveness reliably;
+both were withdrawn without changing Product GC policy or scheduling delays.
+
+The scalar-row selection passed 39 checks. The lazy-wrapper version passed
+375 transcript checks with 370 existing host skips, then 41 focused checks
+including two additional reference-identity/ancestry guards. Ruff and the
+three-source mypy check passed. The two independent integrity guards also pass
+on the restored Product implementation and remain as regressions. Native
+reopening verified both complete matrices: 40 reports, 80 snapshots with
+terminal usage and 40 outputs in total. Authority bytes/mtime were unchanged;
+drafts, one Worked per turn and async-task disposal checks passed.
+
+These last two matrices attribute input phases to each key's intended absolute
+deadline, rather than its potentially delayed callback delivery. This corrects
+phase attribution across a blocked transition; all-phase latency remains
+comparable within each pair. Input still uses the existing single-character
+fake reader. Real PTY buffering and physical Escape timing remain a separate
+acceptance requirement. The static heap diagnostic does not represent the
+complete live-runtime heap at a collection boundary.
+
+A subsequent diagnostic samples the actual runtime at generation-2 collection
+entry and at the first controlled tool. It is explicitly excluded from latency
+acceptance because inventory collection perturbs execution. The first tool had
+504,724 tracked objects, including 60,230 node references, 32,775 mapping entries
+and 6,846 mapping-root nodes. The latest-snapshot-only diagnostic therefore
+understates live retention. The recorded stacks identify initial context-usage
+snapshot reconstruction on its worker thread and Resource-evidence recovery's
+historical logical-root lookups on the event loop. The next turn's collection
+starts while serializing the logical input. Neither thread placement nor static
+retention alone establishes a UI response improvement.
+
+An alternative then validates each complete bundle with the existing decoder,
+journal-line hash and index checks, but retains only a requested node. Historical
+logical-component inspection can also read a root transiently without publishing
+a body cache. Full-bundle callers and legacy sources retain their existing
+contracts; failed sibling decoding cannot publish a usable selected-node cache.
+The independent retention regression failed on the original implementation.
+The deferred-component inspection guard also failed when pytest's `pythonpath`
+was explicitly set to the frozen baseline. An earlier environment-variable-only
+attempt still selected repository source and is excluded from red evidence.
+
+The alternative passed 399 transcript/Resource-evidence checks with 370 existing
+host skips, 46 focused checks and four-source mypy/Ruff. Five alternating process
+pairs again included two actual prompts per application/session and post-Worked
+input observation. They showed the following mixed result:
+
+| Metric ms | Original cache | Selective/transient bodies |
+| --- | ---: | ---: |
+| Cold Worked median | 949.55 | 963.65 |
+| Cold Worked p95 | 1,003.43 | 1,302.96 |
+| Cold tool-start median | 5,341.41 | 6,500.59 |
+| Warm Worked median | 1,279.24 | 957.97 |
+| Warm preparation input p99 | 498.84 | 820.83 |
+| Warm completion input p99 | 636.19 | 281.99 |
+| Warm all-phase input p99 | 592.39 | 728.90 |
+
+Collections moved from completion toward preparation rather than disappearing.
+The alternative was withdrawn because the overall response objective did not
+improve reliably. Native reopening verified all 20 reports, 40 snapshots with
+terminal usage and 20 outputs without changing authority bytes/mtime. The
+diagnostic's two reports, four snapshots/terminal usage and two outputs were also
+verified separately. No historical command was executed. A sibling-validation
+regression that passes on the original implementation is retained alongside
+the two reference-integrity guards. The runtime source remains `c1aa405d`.
 
 #### Private experiments retained outside Product
 
