@@ -409,6 +409,13 @@ class PreparedRequestAdapter(Protocol):
     def invoke_raw(self, request: ProviderRequest) -> AsyncIterator[RawPart]: ...
 
 
+async def _yield_preparation() -> None:
+    # Input passes through reader and consumer callbacks. Let queued forwarding
+    # finish before entering another CPU-heavy preparation stage.
+    for _ in range(3):
+        await asyncio.sleep(0)
+
+
 async def commit_prepared_request(
     request: PreparedModelRequest,
     committer: PreparedRequestCommitter | None,
@@ -430,13 +437,13 @@ async def invoke_prepared_request(
     # materialization and the durable commit barrier. These stages can each
     # traverse a long context even when no transport has started yet.
     if committer is not None:
-        await asyncio.sleep(0)
+        await _yield_preparation()
         _raise_if_transport_cancelled()
     prepared = adapter.prepare_request(request)
     limits = request.options.request_limits if request.options is not None else None
     validate_prepared_request_capacity(prepared, limits)
     if committer is not None:
-        await asyncio.sleep(0)
+        await _yield_preparation()
         _raise_if_transport_cancelled()
     await commit_prepared_request(prepared, committer)
     _raise_if_transport_cancelled()

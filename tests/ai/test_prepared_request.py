@@ -795,3 +795,44 @@ def _request(
         invocation_id=invocation_id,
         attempt=attempt,
     )
+
+
+@pytest.mark.parametrize("boundary", ["before_preparation", "after_preparation"])
+def test_forwarded_cancellation_precedes_the_next_prepared_stage(boundary):
+    async def scenario():
+        committer = _RecordingCommitter()
+        adapter = _PreparedAdapter(committer.events)
+        original = adapter.prepare_request
+        prepared = []
+        loop = asyncio.get_running_loop()
+
+        def queue_read_completion():
+            loop.call_soon(lambda: loop.call_soon(job.cancel))
+
+        def prepare(request):
+            value = original(request)
+            prepared.append(True)
+            if boundary == "after_preparation":
+                queue_read_completion()
+            return value
+
+        adapter.prepare_request = prepare
+        source = invoke_prepared_request(
+            adapter, _request(options=CallOptions(prepared_request_committer=committer))
+        )
+        job = asyncio.create_task(anext(source))
+        if boundary == "before_preparation":
+            queue_read_completion()
+        with pytest.raises(asyncio.CancelledError):
+            await job
+        await source.aclose()
+        if boundary == "before_preparation":
+            assert not prepared, (
+                "provider preparation ran before queued cancellation forwarding"
+            )
+        assert not committer.requests, (
+            "commit started before queued cancellation forwarding"
+        )
+        assert adapter.transport_calls == 0
+
+    asyncio.run(scenario())

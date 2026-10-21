@@ -289,7 +289,7 @@ class ModelInputTranscriptCommitter(
                 # Validation can consume an entire input frame on a long
                 # request. Service cancellation before allocating or writing
                 # its durable graph, and reject a Session changed meanwhile.
-                await asyncio.sleep(0)
+                await _yield_preparation()
                 self._require_current_transcript()
                 self._latest_metrics = request.metrics
                 with timer.phase("logical_input_thaw"):
@@ -326,7 +326,7 @@ class ModelInputTranscriptCommitter(
                     logical_input,
                     name="logical Model Input",
                 )
-                await asyncio.sleep(0)
+                await _yield_preparation()
                 self._require_current_transcript()
                 writer = await ModelInputV2Writer.prepare(
                     transcript=self._transcript,
@@ -558,6 +558,12 @@ class ModelInputTranscriptCommitter(
     def _advance(self, record_id: str, revision: int) -> None:
         self._expected_leaf_id = record_id
         self._expected_revision = revision
+
+
+async def _yield_preparation() -> None:
+    # Service the queued reader/consumer chain before another full projection.
+    for _ in range(3):
+        await asyncio.sleep(0)
 
 
 def _emit_model_input_commit_timing(

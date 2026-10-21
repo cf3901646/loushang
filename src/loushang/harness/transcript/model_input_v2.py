@@ -1150,7 +1150,8 @@ class ModelInputV2Writer:
     async def _yield_if_needed(self) -> None:
         if time.monotonic() < self._work_deadline:
             return
-        await asyncio.sleep(0)
+        for _ in range(3):
+            await asyncio.sleep(0)
         if (
             self._transcript.revision != self._expected_revision
             or self._transcript.leaf_id != self._expected_leaf_id

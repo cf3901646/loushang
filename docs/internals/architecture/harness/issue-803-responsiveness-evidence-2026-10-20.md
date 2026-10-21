@@ -58,6 +58,63 @@ not five-pair cancellation acceptance. An earlier diagnostic was interrupted
 after its observation failed to finish; it is excluded from performance data.
 Thus completion-phase cancellation remains a concrete acceptance gap.
 
+#### Input forwarding and an expired Escape prefix
+
+The scheduling checkpoints were subsequently isolated from bundle batching.
+Both variants keep the Product writer and native JSON dispatch. Five alternating
+pairs switch only the existing preparation checkpoints and the writer's 8ms
+budget checkpoint between one and three zero-delay loop turns. No timer sleep,
+GC policy, durable barrier or post-yield revision/leaf check changes.
+
+| Warm paired metric | One loop turn | Three loop turns |
+| --- | ---: | ---: |
+| Worked median ms | 704.08 | 680.50 |
+| Worked p95 ms | 999.02 | 773.17 |
+| Completion input p95 ms | 322.22 | 156.28 |
+| Completion input p99 ms | 383.37 | 193.98 |
+| All-phase input p95 ms | 352.01 | 130.73 |
+| All-phase input p99 ms | 501.43 | 156.49 |
+
+Three baseline turns had main-thread generation-2 collections; the candidate
+turns had none. This limits attribution of tail differences. Native verification
+passed all 12 reports, 24 snapshots with terminal usage and 12 results. Three
+deterministic regressions fail with one loop turn: already queued cancellation
+forwarding loses priority to provider preparation, commit or a complete logical
+copy. They pass with the candidate. The focused selection passed 161 tests with
+18 existing host skips. Full AI checks passed 869 tests with seven deselections,
+90.64% total coverage and all lint/type/catalog/import/coverage-target checks.
+An earlier private probe incorrectly limited the entire 12-turn matrix to 20
+seconds; that interrupted run is excluded. The complete paired probe uses a
+120-second observation budget, without changing Product timeouts.
+
+Continuous completion cancellation exposed a separate input correctness bug.
+Four turns stopped, but the fifth accepted a late following character as the
+tail of an already expired Escape. Cancellation was missed and that character
+did not enter the draft. A deterministic screen-loop regression reproduces this
+without wall-clock sleeps: a tail read after the 30ms idle deadline becomes
+Alt+key. The runner now records read completion time and flushes an expired
+prefix before feeding a late chunk. A timely tail still forms its original key,
+including when its consumer resumes late. Four deterministic ordering cases
+and the related terminal/screen/loading selection pass: 61 tests.
+
+After both changes, five consecutive completion cancellations in the same
+long session retained drafts, emitted one Worked per turn and disposed without
+asynchronous task leaks. All five reached Stopping while still Working, with
+acknowledgement times 181.85, 389.77, 195.94, 178.44 and 199.00ms. Tool return
+to Worked remained 888.28–1,477.43ms. This is cancellation correctness evidence,
+not a matched speed comparison or response acceptance. Reopening verified five
+transmitted snapshots and terminal usage, five completed output/truncation
+fingerprints and five cancellations without changing authority bytes/mtime.
+Input p95, Escape and Worked targets remain unmet.
+
+A wider native reopen rebuilt all five new snapshots, including a check for
+untransmitted snapshots (none), and checked all ten new call outcomes, five of
+which are cancelled with stop reason `aborted`. Full HarnessTUI/Coding UI checks
+passed lint and 164-source mypy, then reported 1,660 passed, 153 deselected and
+the same two known macOS PTY EXTPROC restoration failures listed below. No new
+failure node was added. All 13 native terminal contracts passed. Documentation
+governance passed nine checks.
+
 #### Private experiments retained outside Product
 
 Batching Model Input component bundles reduced materialization work but removed
@@ -65,8 +122,9 @@ natural I/O scheduling breaks. Its five-pair experiment worsened preparation
 input p99 from 1,381.28ms to 1,975.87ms. Three zero-delay loop turns at CPU
 boundaries then improved forwarded-input/cancel regression behavior and one
 completion input p99 comparison from 441.57ms to 269.93ms, but preparation
-remained slow and Worked did not improve consistently. Neither experiment is
-included in the Product implementation.
+remained slow and Worked did not improve consistently. That combined prototype
+remains private. The later isolated scheduling change described above retains
+the existing Product commit boundaries.
 
 A typed record-membership index was also tested while retaining the original
 lineage predicates and reading mutable fact fields live. Its five pairs used

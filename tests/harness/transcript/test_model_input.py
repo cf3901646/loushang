@@ -3070,3 +3070,44 @@ def test_main_agent_turn_rebuilds_after_restart_and_source_deletion(
                 assert len((line + "\n").encode("utf-8")) <= 1024 * 1024
 
     asyncio.run(scenario())
+
+
+def test_forwarded_cancel_runs_before_the_next_logical_projection(monkeypatch):
+    async def scenario():
+        transcript = await _memory_transcript()
+        before = transcript.records
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript),
+            runtime_references=_runtime_references(),
+        )
+        original_validate = model_input_module._validate_prepared_request
+        original_thaw = model_input_module.thaw_model_input_json
+        validated = False
+        logical_projections = []
+
+        def validate(request):
+            nonlocal validated
+            value = original_validate(request)
+            validated = True
+            loop.call_soon(lambda: loop.call_soon(job.cancel))
+            return value
+
+        def thaw(value):
+            if validated:
+                logical_projections.append(value is not None)
+            return original_thaw(value)
+
+        monkeypatch.setattr(model_input_module, "_validate_prepared_request", validate)
+        monkeypatch.setattr(model_input_module, "thaw_model_input_json", thaw)
+        loop = asyncio.get_running_loop()
+        job = asyncio.create_task(committer.commit_prepared_request(_prepared()))
+        with pytest.raises(asyncio.CancelledError):
+            await job
+        assert not logical_projections, (
+            "queued cancel forwarding lost priority to another full request clone"
+        )
+        assert transcript.records == before
+        assert not committer.commits
+
+    asyncio.run(scenario())
