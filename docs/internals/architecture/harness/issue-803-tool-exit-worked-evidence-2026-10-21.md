@@ -286,6 +286,33 @@ tool calls. The Model Input and Session model-call suites passed 132 tests.
 
 ## Next work
 
+An event-path timing probe on the same long-session scale measured one
+post-tool continuation with 111.86ms in the awaited Tool-result append,
+approximately 91ms between the following turn start and Session preparation
+before the synchronous Session preparer, and 238.29ms in Session
+preparation. That preparation included 57.23ms of logical-input serialization,
+32.35ms of request-evidence projection, and 143.88ms creating the committer;
+the latter included 48.25ms constructing its blob codec. Instrumentation and
+turn-to-turn variation make these diagnostic allocations, not comparable p95s.
+
+Subsequent direct timing of the same path attributed a 94.56ms pre-preparer
+interval to `prepare_model_input_async`, which cooperatively recovers Resource
+evidence. Session-graph preparation was 0.10ms in that turn. The extension
+context transformer and its deep copy were not invoked. A separate read-only
+micro sample found context-to-model conversion below 2ms for roughly 1,500
+messages, so neither transformation explains this interval. This was another
+sequential turn, with 1,922.32ms from tool exit to Worked, and is not a matched
+before/after comparison.
+
+A private candidate indexed only record types that might carry blob references
+while still rechecking their mutable contents on every sampling. This history
+had 7,839 such messages among 29,321 selected records. The candidate reduced
+one observed reference-collection interval from 43.66ms to 32.08ms, while
+Worked was slower in the separate sequential turn. It was reverted: a 12ms
+stage reduction does not justify the extra selected-path cache and mutation
+surface while the full target remains far away. The focused Product/session
+tests passed, and the original history remained read-only.
+
 An incremental receipt lookup replaced the usage recorder's full active-path
 scan. Four focused attempt-usage tests and the combined Model Input/session
 model-call suite passed (97 passed, one skipped). One diagnostic native PTY
