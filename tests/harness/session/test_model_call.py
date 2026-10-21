@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from collections.abc import AsyncIterator, Callable, Mapping
 from copy import deepcopy
 from dataclasses import replace
@@ -1336,6 +1337,59 @@ def test_concurrent_session_model_inputs_allow_only_one_transport() -> None:
             == (snapshots[0])
         )
         await runtime.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_cancelled_model_preparation_keeps_input_responsive_and_serializes_workers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    calls = 0
+    original = SessionModelCallCapabilityConsumer.prepare
+
+    def slow_prepare(
+        consumer: SessionModelCallCapabilityConsumer,
+        preparation: ModelCallPreparation,
+    ) -> CallOptions:
+        nonlocal calls
+        calls += 1
+        entered.set()
+        assert release.wait(1)
+        return original(consumer, preparation)
+
+    monkeypatch.setattr(SessionModelCallCapabilityConsumer, "prepare", slow_prepare)
+
+    async def scenario() -> None:
+        session = await _transcript_session()
+        runtime = _model_call_runtime(session, is_current=lambda: True)
+        preparation = ModelCallPreparation(
+            purpose="main",
+            sequence=1,
+            model=_model(api="test-api"),
+            context=Context(
+                system_prompt="system",
+                messages=[UserMessage(role="user", content="hello", timestamp=1.0)],
+            ),
+            options=CallOptions(),
+        )
+        try:
+            first = asyncio.create_task(runtime.prepare(preparation))
+            assert await asyncio.wait_for(asyncio.to_thread(entered.wait), 0.5)
+            first.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(first, 0.1)
+            second = asyncio.create_task(runtime.prepare(preparation))
+            await asyncio.sleep(0)
+            assert calls == 1
+            release.set()
+            options = await asyncio.wait_for(second, 2)
+            assert options.prepared_request_committer is not None
+            assert calls == 2
+        finally:
+            release.set()
+            await runtime.dispose()
 
     asyncio.run(scenario())
 

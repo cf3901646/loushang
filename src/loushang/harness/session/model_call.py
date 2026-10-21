@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from collections.abc import Awaitable, Callable, Iterable, Mapping
@@ -541,6 +542,7 @@ class SessionModelCallRuntime:
         self._source_publication_provider = source_publication_provider or (
             lambda: None
         )
+        self._prepare_lock = asyncio.Lock()
 
     def effective_view(
         self,
@@ -618,7 +620,24 @@ class SessionModelCallRuntime:
 
     async def prepare(self, preparation: ModelCallPreparation) -> CallOptions:
         consumer = await self._ensure_consumer()
-        return consumer.prepare(preparation)
+        # Preparation serializes and seals the full logical request. Keep the
+        # event loop available for input and cancellation while preserving the
+        # old single-consumer ordering if a cancelled worker is still running.
+        await self._prepare_lock.acquire()
+        try:
+            worker = asyncio.create_task(
+                asyncio.to_thread(consumer.prepare, preparation)
+            )
+        except BaseException:
+            self._prepare_lock.release()
+            raise
+        worker.add_done_callback(self._finish_prepare_worker)
+        return await asyncio.shield(worker)
+
+    def _finish_prepare_worker(self, worker: asyncio.Task[CallOptions]) -> None:
+        self._prepare_lock.release()
+        if not worker.cancelled():
+            worker.exception()
 
     def _registration_inventory(self) -> RegistrationInventorySnapshot:
         return compose_registration_inventory(

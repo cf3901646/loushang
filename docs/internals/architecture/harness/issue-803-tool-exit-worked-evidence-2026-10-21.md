@@ -815,3 +815,46 @@ process comparison on 1,561 messages, its median was 118ms versus 123ms for
 the existing exact comparison. That small gain did not justify extra memory
 and complexity; the candidate and its regression were removed without a
 Product change.
+
+## Long transcript render and model preparation, 2026-10-22
+
+An offline completion profile of a roughly 29,600-record session showed that
+26 TUI frames spent 3.16s in `SegmentedRenderLines` cumulative-line rebuilding
+under profiler overhead. The transcript and screen layout both recounted the
+same long historical prefix. The TUI now caches the committed segment index,
+uses binary search for visible slices, and concatenates already indexed parts
+without recounting them. A regression first observed 415 historical line-count
+reads on a repeated 200-record tail frame and 402 in the screen layout; both
+paths now make fewer than 30. The render tests passed: 156 passed. In a
+successive pair of offline PTY turns with 20 post-tool input samples, whole-turn
+frame-render sums were 3,327ms and 1,242ms, maximum input echo was 899ms and
+738ms, and tool exit to Worked was 2,468ms and 2,071ms. These are single
+growing-session samples, not a p95 or a clean isolated effect estimate.
+
+The broad TUI/HarnessTUI run passed 2,364 tests with seven skips and two
+macOS PTY terminal-attribute restoration failures. Both failures reproduced
+unchanged on the preceding code branch; they are not evidence of this TUI
+change. Native reopening of the faster PTY turn verified exact Model Input
+snapshots, terminal usage and output, unchanged authority, and no historical
+tool execution.
+
+Without keyboard input, the updated TUI still took 1,782ms from tool exit to
+Worked. The post-tool path included about 449ms in Resource evidence and
+Session preparation and 499ms in Model Input commit, plus prepared-request
+construction, transport-payload copy, terminal settlement, final append and
+event-loop scheduling. Its source authority and two snapshots reopened
+exactly. Render work alone cannot meet the 500ms target.
+
+A private, unmodified-Product experiment moved the synchronous Session model
+preparer to a worker thread. Its one-run maximum post-tool input echo fell
+from 738ms to 234ms while Worked remained about 2.09s. The Product runtime now
+does this work off the event loop while serializing workers. Cancellation
+returns immediately; a cancelled worker retains the preparation lock until it
+finishes, so the next request cannot race the previous Session context cache.
+A regression first failed on the synchronous implementation and then passed
+for cancellation and serialization. The selected Model Call and Resource
+evidence tests passed: 41 passed. A subsequent Product PTY turn reported
+177ms maximum input echo and 2,189ms to Worked; native reopening verified the
+two snapshots, terminal usage, output and unchanged authority with zero
+historical tool executions. This improves input response, not the 500ms
+Worked goal, which remains open.
