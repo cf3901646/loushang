@@ -47,6 +47,9 @@ class _SegmentedTextLines(Sequence[str]):
     segments: tuple[_LogicalLineSegment, ...] = ()
     finalized: bool = True
     _segment_ends: tuple[int, ...] = field(init=False, repr=False)
+    _kitty_image_events: tuple[tuple[int, int, str], ...] | None = field(
+        default=None, init=False, repr=False
+    )
 
     def __post_init__(self) -> None:
         total = 0
@@ -63,11 +66,13 @@ class _SegmentedTextLines(Sequence[str]):
         *,
         finalized: bool,
         ends: tuple[int, ...],
+        kitty_images: tuple[tuple[int, int, str], ...],
     ) -> _SegmentedTextLines:
         result = object.__new__(cls)
         object.__setattr__(result, "segments", segments)
         object.__setattr__(result, "finalized", finalized)
         object.__setattr__(result, "_segment_ends", ends)
+        object.__setattr__(result, "_kitty_image_events", kitty_images)
         return result
 
     def __len__(self) -> int:
@@ -110,11 +115,19 @@ class _SegmentedTextLines(Sequence[str]):
         return self._segment_ends[index - 1] if index else 0
 
     def iter_kitty_images(self) -> Iterator[tuple[int, int, str]]:
-        row_offset = 0
-        for segment in self.segments:
-            for row, image_id, delete_sequence in segment.kitty_images:
-                yield row_offset + row, image_id, delete_sequence
-            row_offset += len(self._segment_lines(segment))
+        events = self._kitty_image_events
+        if events is None:
+            discovered: list[tuple[int, int, str]] = []
+            row_offset = 0
+            for segment in self.segments:
+                discovered.extend(
+                    (row_offset + row, image_id, delete_sequence)
+                    for row, image_id, delete_sequence in segment.kitty_images
+                )
+                row_offset += len(self._segment_lines(segment))
+            events = tuple(discovered)
+            object.__setattr__(self, "_kitty_image_events", events)
+        yield from events
 
     def _segment_lines(self, segment: _LogicalLineSegment) -> tuple[str, ...]:
         return segment.finalized_lines if self.finalized else segment.raw_lines
@@ -716,6 +729,9 @@ class RenderLoop:
     _previous_segment_ends: tuple[int, ...] = field(
         default=(), init=False, repr=False
     )
+    _previous_kitty_images: tuple[tuple[int, int, str], ...] = field(
+        default=(), init=False, repr=False
+    )
     _previous_key_counts: dict[tuple[object, object], int] = field(
         default_factory=dict, init=False, repr=False
     )
@@ -836,6 +852,7 @@ class RenderLoop:
             self._previous_logical_segments = ()
             self._previous_segment_keys = ()
             self._previous_segment_ends = ()
+            self._previous_kitty_images = ()
             self._previous_key_counts = {}
             self._previous_first_uncacheable = 0
             return flat_raw_lines, flat_finalized_lines
@@ -890,21 +907,32 @@ class RenderLoop:
         logical_segments = tuple(segments)
         ends = list(self._previous_segment_ends[:prefix_count])
         total = ends[-1] if ends else 0
+        kitty_images = [
+            event for event in self._previous_kitty_images if event[0] < total
+        ]
         for segment in logical_segments[prefix_count:]:
+            kitty_images.extend(
+                (total + row, image_id, delete_sequence)
+                for row, image_id, delete_sequence in segment.kitty_images
+            )
             total += len(segment.raw_lines)
             ends.append(total)
         segment_ends = tuple(ends)
+        kitty_image_events = tuple(kitty_images)
         raw_lines = _SegmentedTextLines._from_known_ends(
-            logical_segments, finalized=False, ends=segment_ends
+            logical_segments, finalized=False, ends=segment_ends,
+            kitty_images=kitty_image_events,
         )
         finalized_lines = _SegmentedTextLines._from_known_ends(
-            logical_segments, finalized=True, ends=segment_ends
+            logical_segments, finalized=True, ends=segment_ends,
+            kitty_images=kitty_image_events,
         )
         self._finalized_segment_cache = current_segment_cache
         self._previous_render_segments = rendered_segments
         self._previous_logical_segments = logical_segments
         self._previous_segment_keys = tuple(keys)
         self._previous_segment_ends = segment_ends
+        self._previous_kitty_images = kitty_image_events
         self._previous_key_counts = key_counts
         self._previous_first_uncacheable = first_uncacheable
         return raw_lines, finalized_lines
