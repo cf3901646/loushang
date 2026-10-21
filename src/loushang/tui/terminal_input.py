@@ -202,8 +202,24 @@ async def read_input_chunk_or_render_tick(
                 wait_for.add(active_task)
             render_task: asyncio.Task[bool] | None = None
             if render_wakeup is not None:
-                render_task = asyncio.create_task(render_wakeup.wait())
+                render_waiter = asyncio.create_task(render_wakeup.wait())
+                render_task = render_waiter
                 wait_for.add(render_task)
+
+                def cancel_render_waiter(
+                    _completed: asyncio.Future[Any],
+                    waiter: asyncio.Task[bool] = render_waiter,
+                ) -> None:
+                    if not waiter.done() and not waiter.cancelling():
+                        waiter.cancel()
+
+                # Start owned waiter cleanup as soon as input/turn completion
+                # is ready. Waiting until asyncio.wait resumes adds two loop
+                # turns before a ready key can reach the screen, potentially
+                # stranding it behind the next synchronous preparation phase.
+                input_task.add_done_callback(cancel_render_waiter)
+                if active_task is not None:
+                    active_task.add_done_callback(cancel_render_waiter)
 
             try:
                 done, _pending = await asyncio.wait(
@@ -211,11 +227,18 @@ async def read_input_chunk_or_render_tick(
                 )
             finally:
                 if render_task is not None:
-                    if not render_task.done():
+                    input_task.remove_done_callback(cancel_render_waiter)
+                    if active_task is not None:
+                        active_task.remove_done_callback(cancel_render_waiter)
+                    if not render_task.done() and not render_task.cancelling():
                         render_task.cancel()
                     with suppress(asyncio.CancelledError):
                         await render_task
-            render_wakeup_fired = render_task is not None and render_task in done
+            render_wakeup_fired = (
+                render_task is not None
+                and not render_task.cancelled()
+                and render_task in done
+            )
             if render_wakeup_fired and render_wakeup is not None:
                 render_wakeup.clear()
             # Joining the render waiter can complete a terminal read after

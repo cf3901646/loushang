@@ -1149,6 +1149,46 @@ case then passed once on the clean baseline and once on the candidate. No
 Product timeout was changed. Those results predate the final UI changes and
 are not a final green gate.
 
+## Native PTY input waiter follow-up
+
+An input reader can complete while the screen is waiting for a render wakeup.
+The previous helper then waited for `asyncio.wait` to resume before cancelling
+and joining its owned render waiter. A controlled three-turn scheduling test
+showed a ready key could miss the next synchronous preparation boundary. Three
+new cases (ordinary text, Escape and an empty chunk) failed on the previous
+helper and passed when the input or active-turn completion starts waiter cleanup
+immediately. Cancellation still joins the waiter; existing tests cover input
+completion during that cleanup and terminal deadlines. This is a narrow input
+delivery fix, not a solution to the long-session CPU stalls.
+
+A private probe used a real POSIX PTY, the native terminal reader and a separate
+keyboard process that typed on absolute deadlines. It kept one App, Session,
+writer and cache across 12 turns: two warmups followed by five alternating
+before/after pairs. Each turn ran the same offline prepared transport and one
+silent command. Only the input helper's code object changed between variants;
+keyboard deadlines were identical. The recovered authority had more than
+28,000 records during the formal pairs. Values below exclude warmups.
+
+| Metric | Previous helper | Early waiter cleanup |
+| --- | ---: | ---: |
+| Input echo p95 / p99 | 217.11 / 453.81 ms | 222.61 / 507.55 ms |
+| Completion-phase echo p95 / p99 | 391.46 / 491.46 ms | 229.12 / 376.03 ms |
+| Preparation-phase echo p95 / p99 | 280.99 / 482.59 ms | 467.85 / 688.75 ms |
+| Tool exit to Worked median / p95 | 1,294.55 / 1,329.02 ms | 1,027.44 / 1,276.65 ms |
+| Maximum echo | 549.48 ms | 744.35 ms |
+| Generation-two collections | 3 | 3 |
+
+The longest candidate preparation delay included a 385.22ms generation-two
+collection. The between-variant differences cannot be attributed solely to the
+input helper, and the aggregate input tail and Worked target remain unmet.
+All 12 turns retained drafts and one Worked event, with no remaining asyncio
+tasks at disposal. Native reopening rebuilt 24 snapshots with their terminal
+usage and checked 12 tool outputs, including their hashes and truncation flags.
+It ran no historical tools and left the authority file unchanged. The PTY probe
+observed the known macOS `EXTPROC` mode restoration delta (`2**29`); all
+control characters restored. The final TUI unit route passed 1,550 cases with
+seven skipped; changed-source Ruff and mypy passed.
+
 ## Remaining acceptance work
 
 - Complete five matched actual-screen rounds for quiet commands, sustained
