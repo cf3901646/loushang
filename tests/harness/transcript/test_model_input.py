@@ -323,6 +323,7 @@ def _prepared(
     attempt: int = 1,
     tools: list[dict[str, object]] | None = None,
     payload: dict[str, object] | None = None,
+    reuse_from: PreparedModelRequest | None = None,
 ) -> PreparedModelRequest:
     model = _model(api="model-input-test")
     request = ProviderRequest(
@@ -348,6 +349,7 @@ def _prepared(
             "model": model.id,
         },
         model_visible_headers={"anthropic-beta": "feature-1"},
+        reuse_from=reuse_from,
     )
 
 
@@ -485,6 +487,114 @@ def test_model_input_releases_unused_binary_projection_before_indexing(
         )
         assert rebuilt.logical_input == logical
         assert rebuilt.prepared_payload_hash == request.payload_hash
+
+    asyncio.run(scenario())
+
+
+def test_plain_model_input_materializes_frozen_messages_without_full_thaw(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        transcript = await _memory_transcript()
+        logical = {
+            "system_prompt": "system prompt",
+            "messages": [
+                {"role": "user", "content": f"message {index}"}
+                for index in range(200)
+            ],
+            "tools": [],
+            "request_options": {},
+        }
+        context = _context(transcript, logical_input=logical)
+        first_committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=context,
+            runtime_references=_runtime_references(),
+        )
+        await first_committer.commit_prepared_request(_prepared())
+        await transcript.append_agent_message(
+            UserMessage(role="user", content="latest", timestamp=2.0)
+        )
+        assert transcript.leaf_id is not None
+        logical = {**logical, "messages": [*logical["messages"], {"role": "user", "content": "latest"}]}
+        next_context = ModelInputCommitContext(
+            purpose="main_turn",
+            source_leaf_id=transcript.leaf_id,
+            source_revision=transcript.revision,
+            logical_input=logical,
+            reuse_from=context,
+        )
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=next_context,
+            runtime_references=_runtime_references(),
+        )
+        original_thaw = model_input_module.thaw_model_input_json
+        full_thaws = 0
+
+        def thaw(value):
+            nonlocal full_thaws
+            if value is next_context.logical_input:
+                full_thaws += 1
+            return original_thaw(value)
+
+        monkeypatch.setattr(model_input_module, "thaw_model_input_json", thaw)
+        await committer.commit_prepared_request(_prepared(invocation_id="invocation-2"))
+
+        assert full_thaws == 0
+        assert (
+            rebuild_model_input(transcript, committer.commits[-1].snapshot_id)
+            .logical_input
+            == logical
+        )
+
+    asyncio.run(scenario())
+
+
+def test_owned_prepared_request_commits_without_copying_sealed_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        transcript = await _memory_transcript()
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript),
+            runtime_references=_runtime_references(),
+        )
+        first_request = _prepared()
+        await committer.commit_prepared_request(first_request)
+        await transcript.append_agent_message(
+            UserMessage(role="user", content="latest", timestamp=2.0)
+        )
+        next_committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript),
+            runtime_references=_runtime_references(),
+        )
+        next_payload = first_request.payload_for_transport()
+        next_payload["messages"].append({"role": "user", "content": "latest"})
+        request = _prepared(
+            invocation_id="invocation-2",
+            payload=next_payload,
+            reuse_from=first_request,
+        )
+        copies = 0
+        original_copy = PreparedModelRequest._owned_payload_copy
+
+        def copy(request: PreparedModelRequest):
+            nonlocal copies
+            copies += 1
+            return original_copy(request)
+
+        monkeypatch.setattr(PreparedModelRequest, "_owned_payload_copy", copy)
+        await next_committer.commit_prepared_request(request)
+
+        assert copies == 0
+        assert (
+            rebuild_model_input(transcript, next_committer.commits[-1].snapshot_id)
+            .prepared_payload
+            == thaw_model_input_json(request.payload)
+        )
 
     asyncio.run(scenario())
 
@@ -663,6 +773,7 @@ def test_changed_prepared_envelope_is_rejected_before_model_input_write(
 
 def test_model_input_externalizes_session_images_without_losing_exact_rebuild(
     tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def scenario() -> None:
         transcript = await _memory_transcript()
@@ -715,15 +826,27 @@ def test_model_input_externalizes_session_images_without_losing_exact_rebuild(
             openings += 1
             return codec
 
+        context = _context(transcript, logical_input=logical_input)
         committer = ModelInputTranscriptCommitter(
             transcript=transcript,
-            context=_context(transcript, logical_input=logical_input),
+            context=context,
             runtime_references=_runtime_references(),
             binary_codec_factory=open_codec,
         )
 
+        original_thaw = model_input_module.thaw_model_input_json
+        full_logical_thaws = 0
+
+        def thaw(value):
+            nonlocal full_logical_thaws
+            if value is context.logical_input:
+                full_logical_thaws += 1
+            return original_thaw(value)
+
+        monkeypatch.setattr(model_input_module, "thaw_model_input_json", thaw)
         await committer.commit_prepared_request(_prepared(payload=prepared_payload))
         assert openings == 1
+        assert full_logical_thaws == 1
 
         snapshot_id = committer.commits[0].snapshot_id
         snapshot_record = next(

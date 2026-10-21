@@ -858,3 +858,31 @@ evidence tests passed: 41 passed. A subsequent Product PTY turn reported
 two snapshots, terminal usage, output and unchanged authority with zero
 historical tool executions. This improves input response, not the 500ms
 Worked goal, which remains open.
+
+## Sealed Model Input source reuse, 2026-10-22
+
+The normal Model Input commit previously thawed every already frozen logical
+message and copied every already sealed prepared payload message before its
+v2 writer reused nearly all of those values. A regression first observed the
+full logical thaw and prepared payload copy. The writer now receives a shallow
+native top-level sequence over its sealed values when the preceding Model
+Input context or prepared request proves an exact shared prefix. Its cached
+sequence plan checks immutable source identities and canonicalizes any changed
+suffix; a cache miss still canonicalizes every value. Cold requests retain the
+original native JSON copy path because the frozen-tree encoder made the first
+uncached index build slower in one diagnostic. Binary projection still receives
+a detached native tree and does not duplicate that copy on a cold request.
+
+The long-session normal post-tool commit's logical projection fell from about
+76ms to below 1ms; its prepared-request validation/copy fell from about 55–67ms
+to below 1ms. Across three successive single-run no-keyboard diagnostics,
+tool exit to Worked measured 1,622ms after logical reuse, 1,707ms after both
+reuse paths, and 2,031ms after cold/warm selection. These are not a paired
+p95 comparison and do not establish an end-to-end gain. In the final run the
+hot Model Input commit took 380ms, including 34ms resolver build, 94ms
+incremental materialization and 59ms authoritative snapshot append; the cold
+commit took about 4.05s. Native reopening verified each run's two Model Input
+snapshots, terminal usage and exact output, unchanged source authority and no
+historical tool execution. Model Input, PreparedRequest and Model Call tests
+passed: 163 passed, one existing skip. Ruff, focused mypy and diff checks
+passed. The 500ms tool-exit-to-Worked target remains open.

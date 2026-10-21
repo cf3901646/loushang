@@ -275,8 +275,10 @@ class PreparedModelRequest:
         tuple[PreparedRequestBinaryField, ...],
         Mapping[str, str],
     ] = field(init=False, repr=False, compare=False)
+    _reused_message_prefix_count: int = field(init=False, repr=False, compare=False)
 
     def __post_init__(self, reuse_from: PreparedModelRequest | None) -> None:
+        object.__setattr__(self, "_reused_message_prefix_count", 0)
         for name in (
             "invocation_id",
             "provider_id",
@@ -729,6 +731,7 @@ def _reuse_prepared_prefix(
     )
     object.__setattr__(request, "_canonical_fields", frozen_fields)
     object.__setattr__(request, "_owned_reuse", (metrics, binary_fields, frozen_fields))
+    object.__setattr__(request, "_reused_message_prefix_count", prior_count)
     return True
 
 

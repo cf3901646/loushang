@@ -82,6 +82,9 @@ class ModelInputCommitContext:
     _message_canonical_parts: tuple[str, ...] | None = field(
         default=None, init=False, repr=False, compare=False
     )
+    _reused_message_prefix_count: int = field(
+        default=0, init=False, repr=False, compare=False
+    )
 
     def __post_init__(self, reuse_from: ModelInputCommitContext | None) -> None:
         _require_text(self.purpose, name="Model Input purpose")
@@ -106,7 +109,7 @@ class ModelInputCommitContext:
         if not isinstance(frozen["request_options"], Mapping):
             raise TypeError("Model Input request options must be an object")
         object.__setattr__(self, "logical_input", frozen)
-        if reuse_from is not None and reuse_from._message_canonical_parts is not None:
+        if reuse_from is not None:
             previous_messages = reuse_from.logical_input.get("messages")
             if isinstance(previous_messages, tuple):
                 reused = 0
@@ -116,11 +119,13 @@ class ModelInputCommitContext:
                     if current is not prior:
                         break
                     reused += 1
-                object.__setattr__(
-                    self,
-                    "_message_canonical_prefix",
-                    reuse_from._message_canonical_parts[:reused],
-                )
+                object.__setattr__(self, "_reused_message_prefix_count", reused)
+                if reuse_from._message_canonical_parts is not None:
+                    object.__setattr__(
+                        self,
+                        "_message_canonical_prefix",
+                        reuse_from._message_canonical_parts[:reused],
+                    )
 
     def _canonical_logical_input_json(self, value: dict[str, JSONValue]) -> str:
         """Encode an owned thaw, reusing only the freeze-proven message prefix."""
@@ -138,14 +143,11 @@ class ModelInputCommitContext:
             messages = value["messages"]
             if isinstance(messages, list):
                 parts = tuple(
-                    json.dumps(
+                    canonical_model_input_json(
                         message,
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        separators=(",", ":"),
-                        allow_nan=False,
+                        name=f"{name}.messages[{index}]",
                     )
-                    for message in messages
+                    for index, message in enumerate(messages)
                 )
                 object.__setattr__(self, "_message_canonical_parts", parts)
             return canonical
@@ -206,6 +208,37 @@ def _freeze_logical_input_with_prefix(
         else:
             fields[key] = freeze_model_input_json(item, name=f"{name}.{key}")
     return MappingProxyType(fields)
+
+
+def _logical_input_for_materialization(
+    frozen: Mapping[str, object],
+) -> dict[str, JSONValue]:
+    """Reuse sealed message values until the writer needs a changed item.
+
+    The v2 writer checks the immutable message source against its verified
+    sequence prefix and canonicalizes any unmatched values itself. Only the
+    top-level array must be mutable for sequence planning.
+    """
+
+    projected: dict[str, JSONValue] = {}
+    for name, value in frozen.items():
+        if name == "messages" and isinstance(value, tuple):
+            projected[name] = cast(JSONValue, list(value))
+        else:
+            projected[name] = thaw_model_input_json(value)
+    return projected
+
+
+def _prepared_payload_for_materialization(
+    frozen: Mapping[str, FrozenJSONValue],
+) -> dict[str, JSONValue]:
+    # PreparedModelRequest owns recursively frozen JSON and its canonical
+    # digest. The writer accepts sealed values; only its top-level sequence
+    # planner needs native lists.
+    return {
+        name: cast(JSONValue, list(value) if isinstance(value, tuple) else value)
+        for name, value in frozen.items()
+    }
 
 
 def _raw_matches_frozen_json(
@@ -460,11 +493,23 @@ class ModelInputTranscriptCommitter(
                 await _yield_preparation()
                 self._require_current_transcript()
                 self._latest_metrics = request.metrics
+                logical_shared_prefix = bool(
+                    self._context._reused_message_prefix_count
+                )
+                prepared_shared_prefix = (
+                    type(request) is PreparedModelRequest
+                    and request._reused_message_prefix_count > 0
+                    and request._owned_envelope_is_current()
+                )
                 with timer.phase("logical_input_thaw"):
                     logical_input = cast(
                         dict[str, JSONValue],
                         await asyncio.to_thread(
-                            thaw_model_input_json,
+                            (
+                                _logical_input_for_materialization
+                                if logical_shared_prefix
+                                else thaw_model_input_json
+                            ),
                             self._context.logical_input,
                         ),
                     )
@@ -509,6 +554,26 @@ class ModelInputTranscriptCommitter(
                         self._binary_codec = codec
                         self._binary_codec_factory = None
                 if needs_binary_projection and self._binary_codec is not None:
+                    # Blob rewriting may inspect and replace any nested JSON
+                    # node, so give that path a fully detached native tree.
+                    if logical_shared_prefix:
+                        logical_input = cast(
+                            dict[str, JSONValue],
+                            await asyncio.to_thread(
+                                thaw_model_input_json,
+                                self._context.logical_input,
+                            ),
+                        )
+                        stored_logical_input = logical_input
+                    if prepared_shared_prefix:
+                        prepared_payload = cast(
+                            dict[str, JSONValue],
+                            await asyncio.to_thread(
+                                thaw_model_input_json,
+                                prepared_payload,
+                            ),
+                        )
+                        stored_prepared_payload = prepared_payload
                     with timer.phase("binary_externalize"):
                         projected_logical = self._binary_codec.externalize_mapping(
                             logical_input
@@ -1190,7 +1255,13 @@ def _validate_rebuilt_logical_input(value: Mapping[str, JSONValue]) -> None:
 def _validate_prepared_request(
     request: PreparedModelRequest,
 ) -> tuple[dict[str, JSONValue], dict[str, str], str]:
-    if type(request) is PreparedModelRequest:
+    if type(request) is PreparedModelRequest and request._owned_envelope_is_current():
+        if request._reused_message_prefix_count:
+            return (
+                _prepared_payload_for_materialization(request.payload),
+                dict(request.model_visible_headers),
+                request.canonical_payload,
+            )
         owned = request.owned_commit_projection()
         if owned is not None:
             return owned
