@@ -597,6 +597,35 @@ The copy reopened read-only with two exact snapshots and terminal usage, one
 exact tool-output fingerprint, unchanged authority and no historical tool
 execution. This single result does not establish p95 or the 500ms goal.
 
+## Terminal observation batching and lineage checks
+
+AI's terminal provider callback now sends the observed terminal attempt usage
+and outcome through one Session operation. The transcript commits them in
+that order as one Store batch when the backend supports batches. Legacy
+recorders keep their existing two-call contract. The batch retains the same
+durable receipt, cancellation settlement and uncertain-receipt retry rules.
+Focused regressions cover one ordered batch, exact-once retry, cancellation,
+legacy recorders and Session integration. The transcript also keeps a global
+set of committed outcome invocation ids, built once on open and advanced only
+after a successful local commit. The owning Model Input committer proves the
+current snapshot chain using its receipts and the expected revision and leaf;
+the terminal batch therefore avoids rescanning the entire active path. A
+regression first failed on that scan and now passes. A separate branch/reopen
+test proves a prior outcome still blocks a duplicate invocation.
+
+Two sequential 29,465-record PTY diagnostics on the same source gave
+tool-exit-to-Worked times of 2,532ms with batching alone and 2,426ms after
+removing the redundant terminal lineage scan, versus 2,457ms in the preceding
+root-cache run. Maximum keyboard echo was 775ms and 746ms, versus 672ms.
+The latter run measured a 124ms terminal batch, 246ms tool-result append and
+175ms final assistant-message handling; its post-tool Model Input commit was
+761ms. Both candidates independently reopened with exact snapshots, terminal
+usage and tool output, without changing the source authority or executing
+historical tools. These noisy single samples demonstrate bounded terminal
+work but neither a reliable latency reduction nor acceptance of the 500ms
+goal. The post-tool preparation and Model Input commit remain the larger
+serial costs.
+
 Measure with five
 matched before/after PTY rounds across the required tool cases and history
 scales. A faster Worked display before the final model call and terminal

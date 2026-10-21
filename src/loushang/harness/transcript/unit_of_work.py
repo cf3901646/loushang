@@ -146,6 +146,11 @@ class AgentTranscriptUnitOfWork:
         self._clock = clock or _utc_now
         self._commit_lock = asyncio.Lock()
         self._replay_cache: _CachedTranscriptReplay | None = None
+        self._model_call_outcome_invocation_ids = {
+            record.payload.invocation_id
+            for record in repository.records
+            if isinstance(record.payload, ModelCallOutcome)
+        }
 
     @classmethod
     async def create(
@@ -588,11 +593,7 @@ class AgentTranscriptUnitOfWork:
             )
 
     def _require_model_call_outcome(self, outcome: ModelCallOutcome) -> None:
-        if any(
-            isinstance(record.payload, ModelCallOutcome)
-            and record.payload.invocation_id == outcome.invocation_id
-            for record in self.records
-        ):
+        if outcome.invocation_id in self._model_call_outcome_invocation_ids:
             raise ModelInputIntegrityError(
                 "model call invocation already has a terminal outcome"
             )
@@ -872,7 +873,7 @@ class AgentTranscriptUnitOfWork:
             expected_leaf_id=expected_leaf_id,
         )
 
-    async def append_model_call_terminal_batch(
+    async def _append_model_call_terminal_batch(
         self,
         usage: ModelCallAttemptUsage,
         outcome: ModelCallOutcome,
@@ -881,12 +882,30 @@ class AgentTranscriptUnitOfWork:
         expected_revision: int,
         expected_leaf_id: str,
     ) -> tuple[AgentTranscriptCommit, AgentTranscriptCommit]:
-        """Persist known terminal observations in their existing fact order."""
+        """Persist facts whose lineage the owning Model Input committer proved.
+
+        This private path requires its current-revision and snapshot-identity
+        checks. The global outcome index still rejects duplicates on other
+        branches; the lock closes the gap between proof and append.
+        """
 
         async with self._commit_lock:
             if self.revision != expected_revision or self.leaf_id != expected_leaf_id:
                 raise ModelInputIntegrityError(
                     "transcript changed outside the Model Input commit sequence"
+                )
+            if (
+                usage.invocation_id != outcome.invocation_id
+                or not outcome.model_input_snapshot_ids
+                or outcome.model_input_snapshot_ids[-1]
+                != usage.model_input_snapshot_id
+            ):
+                raise ModelInputIntegrityError(
+                    "terminal usage does not match the final outcome attempt"
+                )
+            if outcome.invocation_id in self._model_call_outcome_invocation_ids:
+                raise ModelInputIntegrityError(
+                    "model call invocation already has a terminal outcome"
                 )
             usage_record = self._record_factory.create(
                 MODEL_CALL_ATTEMPT_USAGE_KIND,
@@ -904,6 +923,7 @@ class AgentTranscriptUnitOfWork:
             commits = await self._finish_batch_commit_atomically(
                 (usage_record, outcome_record),
                 propagate_cancellation=True,
+                lineage_verified=True,
             )
             return commits[0], commits[1]
 
@@ -1045,6 +1065,7 @@ class AgentTranscriptUnitOfWork:
         if not self._materialized:
             if not self._materialization_policy(record):
                 self._repository = candidate
+                self._observe_model_call_outcomes((record,))
                 self._revision += 1
                 return AgentTranscriptCommit(record=record, receipt=None)
             return await self._materialize_locked(record, candidate)
@@ -1081,6 +1102,7 @@ class AgentTranscriptUnitOfWork:
                 "conversation backend returned a different committed record id"
             )
         self._repository = candidate
+        self._observe_model_call_outcomes((record,))
         self._revision = receipt.revision
         self._diagnostics = (*self._diagnostics, *commit_result.diagnostics)
         return AgentTranscriptCommit(
@@ -1159,6 +1181,7 @@ class AgentTranscriptUnitOfWork:
                 )
             )
         self._repository = candidate
+        self._observe_model_call_outcomes(records)
         self._revision = result.receipts[-1].revision
         self._diagnostics = (*self._diagnostics, *result.diagnostics)
         return tuple(batch_commits)
@@ -1205,12 +1228,14 @@ class AgentTranscriptUnitOfWork:
         records: Sequence[AgentTranscriptRecord],
         *,
         propagate_cancellation: bool = False,
+        lineage_verified: bool = False,
     ) -> tuple[AgentTranscriptCommit, ...]:
         durable_records = tuple(records)
         if not durable_records:
             return ()
         for record in durable_records:
-            self._require_record_model_input_lineage(record)
+            if not lineage_verified:
+                self._require_record_model_input_lineage(record)
             _require_model_input_record_size(record, self._profile)
         operation = asyncio.create_task(self._commit_batch_locked(durable_records))
         caller = asyncio.current_task()
@@ -1273,6 +1298,7 @@ class AgentTranscriptUnitOfWork:
             record_id=record.record_id,
         )
         self._repository = candidate
+        self._observe_model_call_outcomes((record,))
         self._revision = snapshot.revision
         self._materialized = True
         self._diagnostics = (*self._diagnostics, *diagnostics)
@@ -1281,6 +1307,16 @@ class AgentTranscriptUnitOfWork:
             receipt=receipt,
             diagnostics=diagnostics,
         )
+
+    def _observe_model_call_outcomes(
+        self,
+        records: Sequence[AgentTranscriptRecord],
+    ) -> None:
+        for record in records:
+            if isinstance(record.payload, ModelCallOutcome):
+                self._model_call_outcome_invocation_ids.add(
+                    record.payload.invocation_id
+                )
 
     def _require_idle_commit(self, operation: str) -> None:
         if self._commit_lock.locked():

@@ -718,7 +718,7 @@ class ModelInputTranscriptCommitter(
                 ),
             )
             usage_commit, outcome_commit = (
-                await self._transcript.append_model_call_terminal_batch(
+                await self._transcript._append_model_call_terminal_batch(
                     usage,
                     fact,
                     max_encoded_record_bytes=self._max_encoded_record_bytes,

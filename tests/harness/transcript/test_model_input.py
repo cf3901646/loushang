@@ -1839,6 +1839,101 @@ def test_terminal_observation_batch_settles_before_cancellation() -> None:
     asyncio.run(scenario())
 
 
+def test_terminal_observation_batch_uses_committed_lineage_without_path_scan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        transcript = await _memory_transcript()
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript),
+            runtime_references=_runtime_references(),
+        )
+        await committer.commit_prepared_request(_prepared())
+        usage = ModelCallAttemptUsage(
+            invocation_id="invocation-1",
+            attempt=1,
+            model_input_snapshot_id=committer.commits[-1].snapshot_id,
+            input=10,
+            output=2,
+            cache_read=0,
+            cache_write=0,
+            total_tokens=12,
+            terminal=True,
+        )
+
+        def unexpected_path_scan():
+            raise AssertionError("terminal commit rescanned the active path")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(transcript, "active_path", unexpected_path_scan)
+            await committer.record_terminal_model_call(
+                PreparedModelCallOutcome(
+                    invocation_id="invocation-1",
+                    disposition="completed",
+                    stop_reason="stop",
+                    usage=Usage(10, 2, 0, 0, 12, None),
+                ),
+                usage=usage,
+            )
+        assert project_model_call_usage(transcript.active_path()).complete
+
+    asyncio.run(scenario())
+
+
+def test_terminal_observation_batch_rejects_prior_outcome_on_other_branch() -> None:
+    async def scenario() -> None:
+        backend = _CountingModelInputStore()
+        transcript = await _memory_transcript(backend)
+        source_leaf_id = transcript.leaf_id
+        assert source_leaf_id is not None
+        first = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript),
+            runtime_references=_runtime_references(),
+        )
+        await first.commit_prepared_request(_prepared())
+        outcome = PreparedModelCallOutcome(
+            invocation_id="invocation-1",
+            disposition="completed",
+            stop_reason="stop",
+            usage=Usage(10, 2, 0, 0, 12, None),
+        )
+        await first.record_model_call_outcome(outcome)
+
+        reopened = await AgentTranscriptUnitOfWork.load(
+            backend,
+            ConversationKey("test", "model-input-conversation"),
+            leaf_id=source_leaf_id,
+        )
+        second = ModelInputTranscriptCommitter(
+            transcript=reopened,
+            context=_context(reopened),
+            runtime_references=_runtime_references(),
+        )
+        await second.commit_prepared_request(_prepared())
+        usage = ModelCallAttemptUsage(
+            invocation_id="invocation-1",
+            attempt=1,
+            model_input_snapshot_id=second.commits[-1].snapshot_id,
+            input=10,
+            output=2,
+            cache_read=0,
+            cache_write=0,
+            total_tokens=12,
+            terminal=True,
+        )
+        with pytest.raises(ModelInputIntegrityError, match="already has"):
+            await second.record_terminal_model_call(outcome, usage=usage)
+        assert not any(
+            record.kind == MODEL_CALL_ATTEMPT_USAGE_KIND
+            and record.payload.model_input_snapshot_id == usage.model_input_snapshot_id
+            for record in reopened.records
+        )
+
+    asyncio.run(scenario())
+
+
 def test_model_call_failure_outcome_persists_only_allowlisted_diagnostics() -> None:
     async def scenario() -> None:
         transcript = await _memory_transcript()
