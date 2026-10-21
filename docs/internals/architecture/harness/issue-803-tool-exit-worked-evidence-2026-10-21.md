@@ -217,6 +217,43 @@ scan took 60.82ms. The subsequent durable commit took 432.06ms, with
 The next candidate must stage or incrementally prove the prepared payload and
 Model Input prefix together, then verify the total PTY latency.
 
+## Exact tool-exit-to-Worked allocation
+
+The 1,340.09ms experimental turn above and a fresh 1,099.87ms turn on current
+`3881eb56` code used separate isolated copies of the same 29,209-record
+history, a real PTY, one silent tool process and offline model transport.
+Both were diagnostic single turns, not matched p95 comparisons. The first
+column includes the reverted normalization cache; the second does not.
+
+| Interval from actual process exit | Experimental 1.34s turn | Current code 1.10s turn |
+| --- | ---: | ---: |
+| Result publication and admission until Session preparation starts | 124.71ms | 133.45ms |
+| Session model-call preparation | 127.14ms | 146.57ms |
+| AI normalization and resolution until adapter preparation starts | 125.65ms | 26.82ms |
+| Adapter prepared-request construction | 299.81ms | 198.14ms |
+| Adapter end through durable Model Input commit | 455.22ms | 401.03ms |
+| Durable commit through first visible Worked frame | 207.57ms | 193.87ms |
+| **Total** | **1,340.09ms** | **1,099.87ms** |
+
+Result conversion itself took under 0.2ms in both traces. The first interval
+also includes result publication, next-call context work and scheduling; those
+substeps need finer instrumentation before assigning their individual costs.
+For the current turn, PreparedModelRequest construction used 175.82ms of the
+198.14ms adapter interval; its payload projection and metrics pass used
+35.53ms and 57.76ms respectively. The 400.52ms commit included 49.59ms of
+binary externalization and 206.27ms of v2 materialization, of which plan and
+roots used 68.32ms and 81.34ms. The remaining phase-timer difference is not
+yet attributed to a single operation. After commit, terminal usage and outcome
+appends took 57.56ms and 48.85ms, the final Session check took 14.94ms, and
+model return, intervening scheduling and visible rendering filled the rest.
+
+The current-code turn recorded a 686.50ms maximum event-loop delay and
+689.76ms maximum input echo latency. Thus the observed freeze is real main-
+loop unavailability, not only slow Worked labeling. Native reopening verified
+both Model Input snapshots and terminal usage, the one tool-output hash and
+truncation state, an unchanged post-run copy during read-only verification,
+and zero historical tool calls.
+
 ## Next work
 
 An incremental receipt lookup replaced the usage recorder's full active-path
