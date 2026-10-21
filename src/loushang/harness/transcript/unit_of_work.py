@@ -1061,10 +1061,20 @@ class AgentTranscriptUnitOfWork:
                 "transcript record parent must match the selected leaf: "
                 f"expected {self.leaf_id!r}, got {record.parent_id!r}"
             )
-        # The commit lock keeps the selected branch fixed while the detached
-        # graph copies its historical indexes. Keep that copy off the UI loop.
-        candidate = await asyncio.to_thread(self._repository.with_appended, record)
+        # A materialized strict transcript can validate the new link without
+        # copying historical indexes. Publish it only after the Store receipt.
+        plan = (
+            self._repository.prepare_incremental_append((record,))
+            if self._materialized
+            else None
+        )
+        candidate = (
+            await asyncio.to_thread(self._repository.with_appended, record)
+            if plan is None
+            else None
+        )
         if not self._materialized:
+            assert candidate is not None
             if not self._materialization_policy(record):
                 self._repository = candidate
                 self._observe_model_call_outcomes((record,))
@@ -1103,7 +1113,11 @@ class AgentTranscriptUnitOfWork:
             raise commit_uncertainty or StoreCommitOutcomeUnknown(
                 "conversation backend returned a different committed record id"
             )
-        self._repository = candidate
+        if plan is None:
+            assert candidate is not None
+            self._repository = candidate
+        else:
+            self._repository.publish_incremental_append(plan)
         self._observe_model_call_outcomes((record,))
         self._revision = receipt.revision
         self._diagnostics = (*self._diagnostics, *commit_result.diagnostics)
@@ -1135,8 +1149,11 @@ class AgentTranscriptUnitOfWork:
                 commits.append(await self._commit_locked(record))
             return tuple(commits)
 
-        candidate = await asyncio.to_thread(
-            self._repository.with_appended_records, records
+        plan = self._repository.prepare_incremental_append(records)
+        candidate = (
+            await asyncio.to_thread(self._repository.with_appended_records, records)
+            if plan is None
+            else None
         )
         expected_revision = self._revision
         operation_ids = tuple(record.record_id for record in records)
@@ -1184,7 +1201,11 @@ class AgentTranscriptUnitOfWork:
                     diagnostics=(result.diagnostics if index == len(records) else ()),
                 )
             )
-        self._repository = candidate
+        if plan is None:
+            assert candidate is not None
+            self._repository = candidate
+        else:
+            self._repository.publish_incremental_append(plan)
         self._observe_model_call_outcomes(records)
         self._revision = result.receipts[-1].revision
         self._diagnostics = (*self._diagnostics, *result.diagnostics)

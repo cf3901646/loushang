@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import threading
 
 import pytest
 
@@ -11,7 +10,6 @@ from loushang.harness.conversation import (
     ConversationKey,
     MemoryConversationStore,
 )
-from loushang.harness.conversation.repository import ConversationRepository
 from loushang.harness.transcript import (
     AgentTranscriptSession,
     AgentTranscriptUnitOfWork,
@@ -63,7 +61,7 @@ def test_agent_transcript_session_owns_standard_commit_and_label_operations() ->
     asyncio.run(scenario())
 
 
-def test_graph_append_preparation_does_not_block_event_loop(
+def test_incremental_graph_append_waits_for_receipt_without_blocking_loop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def scenario() -> None:
@@ -80,25 +78,27 @@ def test_graph_append_preparation_does_not_block_event_loop(
         await transcript.append_agent_message(
             UserMessage(role="user", content="first", timestamp=1.0)
         )
-        entered = threading.Event()
-        release = threading.Event()
-        original = ConversationRepository.with_appended
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        original = backend.append
 
-        def held_append(repository, record):
+        async def held_append(*args, **kwargs):
             entered.set()
-            assert release.wait(2), "graph append was not released"
-            return original(repository, record)
+            await release.wait()
+            return await original(*args, **kwargs)
 
-        monkeypatch.setattr(ConversationRepository, "with_appended", held_append)
+        monkeypatch.setattr(backend, "append", held_append)
         operation = asyncio.create_task(
             transcript.append_agent_message(
                 UserMessage(role="user", content="second", timestamp=2.0)
             )
         )
         try:
-            assert await asyncio.to_thread(entered.wait, 1)
+            await asyncio.wait_for(entered.wait(), 1)
             await asyncio.sleep(0)
             assert not operation.done()
+            assert transcript.revision == 1
+            assert (await backend.load(transcript.key)).snapshot.revision == 1
         finally:
             release.set()
             if operation.done():

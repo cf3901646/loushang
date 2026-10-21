@@ -478,6 +478,43 @@ def test_batch_commit_retries_a_lost_success_response_as_one_operation_set() -> 
     asyncio.run(scenario())
 
 
+def test_materialized_commits_publish_without_cloning_the_historical_graph(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from loushang.harness.conversation.repository import ConversationRepository
+
+    def reject_clone(*args, **kwargs):
+        raise AssertionError("materialized append cloned the historical graph")
+
+    async def scenario() -> None:
+        store = await _create()
+        monkeypatch.setattr(ConversationRepository, "with_appended", reject_clone)
+        monkeypatch.setattr(ConversationRepository, "with_appended_records", reject_clone)
+        first = await store.append_application_message(
+            _application("application-1", "first")
+        )
+        assert first.receipt is not None and first.receipt.revision == 1
+        factory = AgentTranscriptRecordFactory(
+            clock=lambda: datetime(2026, 7, 16, tzinfo=UTC),
+            id_factory=iter(("batch-2", "batch-3")).__next__,
+        )
+        second = factory.create(
+            APPLICATION_MESSAGE_KIND,
+            _application("application-2", "second"),
+            parent_id=first.record.record_id,
+        )
+        third = factory.create(
+            APPLICATION_MESSAGE_KIND,
+            _application("application-3", "third"),
+            parent_id=second.record_id,
+        )
+        commits = await store.commit_batch((second, third))
+        assert tuple(commit.receipt.revision for commit in commits) == (2, 3)
+        assert store.records == (first.record, second, third)
+
+    asyncio.run(scenario())
+
+
 def test_store_prevalidates_graph_and_does_not_advance_on_append_failure() -> None:
     async def scenario() -> None:
         backend = FailingMemoryStore()

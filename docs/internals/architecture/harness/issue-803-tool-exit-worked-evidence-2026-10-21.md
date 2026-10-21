@@ -778,3 +778,40 @@ the writer cache fixed that extra read in the second turn. Both runs reopened
 with exact Model Input snapshots, terminal usage and tool output, unchanged
 source authority and zero historical tool executions. The end-to-end 500ms
 target remains unproven and unmet.
+
+## Receipt-gated incremental conversation graph, 2026-10-22
+
+Strict materialized transcript appends now validate only new record identities,
+parent links and cycles before the Store operation. The existing UOW commit
+lock keeps the selected branch fixed. After the Store receipt has the expected
+revision and record identities, the repository publishes the prevalidated
+records into its existing indexes. Unmaterialized and compatible-mode paths
+retain detached candidates. A retained detached graph still has independent
+child lists; changed lists are replaced during publication.
+
+The new regression first failed because a materialized single append cloned
+the historical repository. It now passes for both single and batched commits.
+Further tests cover a pending Store receipt, failed append, branch selection,
+detached candidates, and an out-of-order strict batch. The selected Branch,
+Repository, Store, Session, Product Session, Model Input, lifecycle, writer,
+maintenance and interaction tests passed: 178 passed, one existing skip across
+the two runs. Ruff and focused mypy passed.
+
+On a separate in-memory repository built from the 29,500-record continuation,
+nine paired appends measured detached graph cloning at 10.68ms median and
+the receipt-gated incremental preparation/publication at 0.85ms median.
+The following offline PTY turn had a 36ms tool-result event route and 2,785ms
+tool exit to Worked. Native journal append in this one run took only about
+2ms, compared with tens of milliseconds in earlier runs, so the entire
+tool-route difference cannot be attributed to the graph change. Maximum
+input echo was 940ms and maximum loop delay 605ms; overall responsiveness
+remains unacceptable. Native reopening verified both Model Input snapshots,
+terminal usage and exact tool output, with unchanged source authority and no
+historical tool executions. The 500ms goal remains open.
+
+A separate prepared-request shortcut used strict JSON validation followed by
+in-memory per-message serialization fingerprints. In an alternating same-
+process comparison on 1,561 messages, its median was 118ms versus 123ms for
+the existing exact comparison. That small gain did not justify extra memory
+and complexity; the candidate and its regression were removed without a
+Product change.

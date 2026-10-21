@@ -5,7 +5,11 @@ from copy import copy
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
-from loushang.harness.conversation.branch import BranchGraph, BranchMode
+from loushang.harness.conversation.branch import (
+    BranchGraph,
+    BranchMode,
+    PreparedBranchAppend,
+)
 from loushang.harness.conversation.diagnostics import ConversationDiagnostic
 from loushang.harness.conversation.ports import ConversationFolder
 from loushang.harness.conversation.store import (
@@ -18,6 +22,14 @@ from loushang.harness.conversation.types import BranchDelta, ConversationTreeNod
 H = TypeVar("H")
 R = TypeVar("R")
 S = TypeVar("S")
+
+
+@dataclass(frozen=True)
+class PreparedRepositoryAppend(Generic[H, R]):
+    source: ConversationRepository[H, R]
+    graph: PreparedBranchAppend[R]
+    selected_leaf_id: str | None
+    last_record_id: str | None
 
 
 class ConversationRepository(Generic[H, R]):
@@ -152,6 +164,30 @@ class ConversationRepository(Generic[H, R]):
         candidate._graph = graph
         candidate._leaf_id = record_id
         return candidate
+
+    def prepare_incremental_append(
+        self, records: Sequence[R]
+    ) -> PreparedRepositoryAppend[H, R] | None:
+        """Prevalidate a strict suffix while keeping all published indexes fixed."""
+
+        if self._mode != "strict":
+            return None
+        graph = self._graph.prepare_strict_append(records)
+        last_id = self._record_id(graph.records[-1]) if graph.records else self._leaf_id
+        if graph.records and (not isinstance(last_id, str) or not last_id):
+            raise ValueError("Conversation record id must be a non-empty string")
+        return PreparedRepositoryAppend(self, graph, self._leaf_id, last_id)
+
+    def publish_incremental_append(
+        self, plan: PreparedRepositoryAppend[H, R]
+    ) -> None:
+        """Publish a prevalidated suffix after the authoritative Store receipt."""
+
+        if plan.source is not self or self._leaf_id != plan.selected_leaf_id:
+            raise RuntimeError("conversation selection changed before publication")
+        self._graph.publish_strict_append(plan.graph)
+        self._records.extend(plan.graph.records)
+        self._leaf_id = plan.last_record_id
 
     def set_header(self, header: H) -> None:
         self._header = header
