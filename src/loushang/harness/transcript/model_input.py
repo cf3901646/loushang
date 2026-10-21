@@ -637,46 +637,9 @@ class ModelInputTranscriptCommitter(
                     "model call attempt usage cannot follow its terminal outcome"
                 )
             self._require_current_transcript()
-            if self._invocation_id != usage.invocation_id:
-                raise ModelInputIntegrityError(
-                    "model call attempt usage changed logical invocation identity"
-                )
-            # This committer owns the append chain from each successful snapshot
-            # through the current leaf. The revision/leaf check above rejects
-            # an outside branch or append, so resolving its receipt directly
-            # avoids walking the entire historical path for every usage event.
-            snapshot_commit = next(
-                (
-                    commit
-                    for commit in self._commits
-                    if commit.snapshot_id == usage.model_input_snapshot_id
-                ),
-                None,
-            )
-            snapshot_record = (
-                self._transcript.get(snapshot_commit.record_id)
-                if snapshot_commit is not None
-                else None
-            )
-            snapshot = (
-                snapshot_record.payload if snapshot_record is not None else None
-            )
-            if (
-                not isinstance(snapshot, ModelInputSnapshot | ModelInputSnapshotV2)
-                or snapshot.snapshot_id != usage.model_input_snapshot_id
-                or snapshot.invocation_id != usage.invocation_id
-                or snapshot.attempt != usage.attempt
-            ):
-                raise ModelInputIntegrityError(
-                    "model call attempt usage does not match a committed attempt"
-                )
+            key = self._require_attempt_usage_identity(usage)
             if usage in self._attempt_usage_observations:
                 return False
-            key = (
-                usage.invocation_id,
-                usage.attempt,
-                usage.model_input_snapshot_id,
-            )
             if key in self._terminal_attempt_usage_keys:
                 raise ModelInputIntegrityError(
                     "model call attempt usage cannot follow its terminal observation"
@@ -697,6 +660,122 @@ class ModelInputTranscriptCommitter(
             if usage.terminal:
                 self._terminal_attempt_usage_keys.add(key)
             return True
+
+    async def record_terminal_model_call(
+        self,
+        outcome: PreparedModelCallOutcome,
+        *,
+        usage: ModelCallAttemptUsage | None,
+    ) -> None:
+        """Commit terminal usage and outcome together once both are known."""
+
+        if usage is None:
+            await self.record_model_call_outcome(outcome)
+            return
+        if not isinstance(usage, ModelCallAttemptUsage) or not usage.terminal:
+            raise TypeError("terminal model call requires terminal attempt usage")
+        async with self._lock:
+            if self._outcome_recorded:
+                raise ModelInputIntegrityError(
+                    "model call invocation already has a terminal outcome"
+                )
+            self._require_current_transcript()
+            if self._invocation_id != outcome.invocation_id:
+                raise ModelInputIntegrityError(
+                    "model call outcome changed logical invocation identity"
+                )
+            key = self._require_attempt_usage_identity(usage)
+            if (
+                usage in self._attempt_usage_observations
+                or key in self._terminal_attempt_usage_keys
+            ):
+                # A provider may already have reported the same terminal usage.
+                # A conflicting terminal observation cannot replace it, but
+                # the independently known outcome must still be recorded.
+                fact = ModelCallOutcome.from_prepared_outcome(
+                    _outcome_with_request_metrics(outcome, self._latest_metrics),
+                    model_input_snapshot_ids=tuple(
+                        commit.snapshot_id for commit in self._commits
+                    ),
+                )
+                commit = await self._transcript.append_model_call_outcome(
+                    fact,
+                    expected_revision=self._expected_revision,
+                    expected_leaf_id=self._expected_leaf_id,
+                )
+                receipt = commit.receipt
+                if receipt is None:
+                    raise ModelInputIntegrityError(
+                        "model call outcome did not reach the authoritative Store"
+                    )
+                self._advance(commit.record.record_id, receipt.revision)
+                self._outcome_recorded = True
+                return
+            fact = ModelCallOutcome.from_prepared_outcome(
+                _outcome_with_request_metrics(outcome, self._latest_metrics),
+                model_input_snapshot_ids=tuple(
+                    commit.snapshot_id for commit in self._commits
+                ),
+            )
+            usage_commit, outcome_commit = (
+                await self._transcript.append_model_call_terminal_batch(
+                    usage,
+                    fact,
+                    max_encoded_record_bytes=self._max_encoded_record_bytes,
+                    expected_revision=self._expected_revision,
+                    expected_leaf_id=self._expected_leaf_id,
+                )
+            )
+            if usage_commit.receipt is None or outcome_commit.receipt is None:
+                raise ModelInputIntegrityError(
+                    "terminal model call did not reach the authoritative Store"
+                )
+            self._advance(
+                outcome_commit.record.record_id,
+                outcome_commit.receipt.revision,
+            )
+            self._attempt_usage_observations.add(usage)
+            self._terminal_attempt_usage_keys.add(key)
+            self._outcome_recorded = True
+
+    def _require_attempt_usage_identity(
+        self,
+        usage: ModelCallAttemptUsage,
+    ) -> tuple[str, int, str]:
+        if self._invocation_id != usage.invocation_id:
+            raise ModelInputIntegrityError(
+                "model call attempt usage changed logical invocation identity"
+            )
+        # A receipt for the current append chain proves ancestry without
+        # rescanning the full historical path for every usage observation.
+        snapshot_commit = next(
+            (
+                commit
+                for commit in self._commits
+                if commit.snapshot_id == usage.model_input_snapshot_id
+            ),
+            None,
+        )
+        snapshot_record = (
+            self._transcript.get(snapshot_commit.record_id)
+            if snapshot_commit is not None
+            else None
+        )
+        snapshot = snapshot_record.payload if snapshot_record is not None else None
+        if (
+            not isinstance(snapshot, ModelInputSnapshot | ModelInputSnapshotV2)
+            or snapshot.snapshot_id != usage.model_input_snapshot_id
+            or snapshot.invocation_id != usage.invocation_id
+            or snapshot.attempt != usage.attempt
+        ):
+            raise ModelInputIntegrityError(
+                "model call attempt usage does not match a committed attempt"
+            )
+        return (
+            usage.invocation_id,
+            usage.attempt,
+            usage.model_input_snapshot_id,
+        )
 
     def _require_current_transcript(self) -> None:
         if (

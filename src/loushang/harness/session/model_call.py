@@ -16,6 +16,7 @@ from loushang.ai.prepared_request import (
     PreparedModelCallAttemptUsageRecorder,
     PreparedModelCallOutcome,
     PreparedModelCallOutcomeRecorder,
+    PreparedModelCallTerminalRecorder,
     PreparedModelRequest,
     PreparedRequestCommitter,
 )
@@ -212,6 +213,7 @@ class _CurrentSessionCommitter(
     PreparedRequestCommitter,
     PreparedModelCallAttemptUsageRecorder,
     PreparedModelCallOutcomeRecorder,
+    PreparedModelCallTerminalRecorder,
 ):
     """Carry current-Session ownership through AI's final commit barrier."""
 
@@ -304,6 +306,42 @@ class _CurrentSessionCommitter(
                 "durable Session Model Input committer cannot record outcomes"
             )
         await self._committer.record_model_call_outcome(outcome)
+        self._require_current()
+
+    async def record_terminal_model_call(
+        self,
+        outcome: PreparedModelCallOutcome,
+        *,
+        usage_observed: bool,
+    ) -> None:
+        self._require_current()
+        if not isinstance(self._committer, ModelInputTranscriptCommitter):
+            raise TypeError(
+                "durable Session Model Input committer cannot record terminal facts"
+            )
+        usage = None
+        if usage_observed:
+            attempt_identity = self._latest_attempt_by_invocation.get(
+                outcome.invocation_id
+            )
+            if attempt_identity is None:
+                raise RuntimeError(
+                    "terminal usage has no committed Model Input snapshot identity"
+                )
+            attempt, snapshot_id = attempt_identity
+            observed = outcome.usage
+            usage = ModelCallAttemptUsage(
+                invocation_id=outcome.invocation_id,
+                attempt=attempt,
+                model_input_snapshot_id=snapshot_id,
+                input=observed.input,
+                output=observed.output,
+                cache_read=observed.cache_read,
+                cache_write=observed.cache_write,
+                total_tokens=observed.total_tokens,
+                terminal=True,
+            )
+        await self._committer.record_terminal_model_call(outcome, usage=usage)
         self._require_current()
 
     @property

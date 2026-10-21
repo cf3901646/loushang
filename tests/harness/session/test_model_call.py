@@ -135,10 +135,12 @@ def _skill_evidence_payload() -> dict[str, JSONValue]:
 
 
 async def _transcript_session(
-    *, message_metadata: Mapping[str, JSONValue] | None = None
+    *,
+    message_metadata: Mapping[str, JSONValue] | None = None,
+    backend: MemoryConversationStore | None = None,
 ) -> AgentTranscriptSession:
     transcript = await AgentTranscriptUnitOfWork.create(
-        MemoryConversationStore(record_id=lambda record: record.record_id),
+        backend or MemoryConversationStore(record_id=lambda record: record.record_id),
         ConversationKey("test", "session-model-call"),
         ConversationHeader(
             conversation_id="session-model-call",
@@ -839,7 +841,24 @@ def test_resource_evidence_recovery_is_strict_and_transactional() -> None:
 
 def test_current_session_persists_observed_attempt_usage_before_outcome() -> None:
     async def scenario() -> None:
-        session = await _transcript_session()
+        class CountingBatchStore(MemoryConversationStore):
+            def __init__(self) -> None:
+                super().__init__(record_id=lambda record: record.record_id)
+                self.batch_sizes: list[int] = []
+
+            async def append_batch(
+                self, key, records, *, expected_revision, operation_ids
+            ):
+                self.batch_sizes.append(len(records))
+                return await super().append_batch(
+                    key,
+                    records,
+                    expected_revision=expected_revision,
+                    operation_ids=operation_ids,
+                )
+
+        backend = CountingBatchStore()
+        session = await _transcript_session(backend=backend)
         runtime = _model_call_runtime(session, is_current=lambda: True)
         adapter = _PreparedAdapter(report_usage=True)
         registry = get_default_api_registry()
@@ -882,6 +901,7 @@ def test_current_session_persists_observed_attempt_usage_before_outcome() -> Non
         assert usage.total_tokens == 15
         assert usage.terminal is True
         assert entries.index(usage_entries[0]) < outcome_index
+        assert backend.batch_sizes[-1] == 2
         inspector = AgentSessionInspector(
             agent=agent,
             session=session,

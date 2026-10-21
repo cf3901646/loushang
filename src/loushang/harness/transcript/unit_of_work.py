@@ -872,6 +872,41 @@ class AgentTranscriptUnitOfWork:
             expected_leaf_id=expected_leaf_id,
         )
 
+    async def append_model_call_terminal_batch(
+        self,
+        usage: ModelCallAttemptUsage,
+        outcome: ModelCallOutcome,
+        *,
+        max_encoded_record_bytes: int,
+        expected_revision: int,
+        expected_leaf_id: str,
+    ) -> tuple[AgentTranscriptCommit, AgentTranscriptCommit]:
+        """Persist known terminal observations in their existing fact order."""
+
+        async with self._commit_lock:
+            if self.revision != expected_revision or self.leaf_id != expected_leaf_id:
+                raise ModelInputIntegrityError(
+                    "transcript changed outside the Model Input commit sequence"
+                )
+            usage_record = self._record_factory.create(
+                MODEL_CALL_ATTEMPT_USAGE_KIND,
+                usage,
+                parent_id=expected_leaf_id,
+                payload_version=STANDARD_PAYLOAD_VERSION,
+            )
+            self._require_record_size(usage_record, max_encoded_record_bytes)
+            outcome_record = self._record_factory.create(
+                MODEL_CALL_OUTCOME_KIND,
+                outcome,
+                parent_id=usage_record.record_id,
+                payload_version=STANDARD_PAYLOAD_VERSION,
+            )
+            commits = await self._finish_batch_commit_atomically(
+                (usage_record, outcome_record),
+                propagate_cancellation=True,
+            )
+            return commits[0], commits[1]
+
     async def _append_model_input_fact(
         self,
         kind: str,

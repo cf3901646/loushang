@@ -471,6 +471,16 @@ class PreparedModelCallAttemptUsageRecorder(Protocol):
 
 
 @runtime_checkable
+class PreparedModelCallTerminalRecorder(Protocol):
+    async def record_terminal_model_call(
+        self,
+        outcome: PreparedModelCallOutcome,
+        *,
+        usage_observed: bool,
+    ) -> None: ...
+
+
+@runtime_checkable
 class PreparedRequestAdapter(Protocol):
     api: str
 
@@ -1020,6 +1030,7 @@ __all__ = [
     "PreparedModelCallAttemptUsageRecorder",
     "PreparedModelCallOutcome",
     "PreparedModelCallOutcomeRecorder",
+    "PreparedModelCallTerminalRecorder",
     "PreparedModelRequest",
     "PreparedRequestLimits",
     "PreparedRequestMetrics",

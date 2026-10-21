@@ -1681,6 +1681,164 @@ def test_attempt_usage_committer_rejects_identity_and_revision_drift() -> None:
     asyncio.run(scenario())
 
 
+def test_terminal_usage_and_outcome_commit_as_one_ordered_batch() -> None:
+    async def scenario() -> None:
+        backend = _CountingModelInputStore()
+        transcript = await _memory_transcript(backend)
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript),
+            runtime_references=_runtime_references(),
+        )
+        await committer.commit_prepared_request(_prepared())
+        before_batches = len(backend.batch_sizes)
+        before_appends = backend.append_calls
+        usage = ModelCallAttemptUsage(
+            invocation_id="invocation-1",
+            attempt=1,
+            model_input_snapshot_id=committer.commits[-1].snapshot_id,
+            input=10,
+            output=2,
+            cache_read=0,
+            cache_write=0,
+            total_tokens=12,
+            terminal=True,
+        )
+        await committer.record_terminal_model_call(
+            PreparedModelCallOutcome(
+                invocation_id="invocation-1",
+                disposition="completed",
+                stop_reason="stop",
+                usage=Usage(10, 2, 0, 0, 12, None),
+            ),
+            usage=usage,
+        )
+        assert backend.batch_sizes[before_batches:] == [2]
+        assert backend.append_calls == before_appends
+        assert [record.kind for record in transcript.records[-2:]] == [
+            MODEL_CALL_ATTEMPT_USAGE_KIND,
+            MODEL_CALL_OUTCOME_KIND,
+        ]
+        assert project_model_call_usage(transcript.active_path()).complete
+
+    asyncio.run(scenario())
+
+
+def test_terminal_observation_batch_recovers_unknown_receipt_once() -> None:
+    class UnknownOnceStore(_CountingModelInputStore):
+        def __init__(self) -> None:
+            super().__init__()
+            self.fail_next_batch = False
+
+        async def append_batch(self, key, records, *, expected_revision, operation_ids):
+            result = await super().append_batch(
+                key,
+                records,
+                expected_revision=expected_revision,
+                operation_ids=operation_ids,
+            )
+            if self.fail_next_batch:
+                self.fail_next_batch = False
+                raise StoreCommitOutcomeUnknown("lost terminal batch receipt")
+            return result
+
+    async def scenario() -> None:
+        backend = UnknownOnceStore()
+        transcript = await _memory_transcript(backend)
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript),
+            runtime_references=_runtime_references(),
+        )
+        await committer.commit_prepared_request(_prepared())
+        usage = ModelCallAttemptUsage(
+            invocation_id="invocation-1",
+            attempt=1,
+            model_input_snapshot_id=committer.commits[-1].snapshot_id,
+            input=10,
+            output=2,
+            cache_read=0,
+            cache_write=0,
+            total_tokens=12,
+            terminal=True,
+        )
+        before_batches = len(backend.batch_sizes)
+        backend.fail_next_batch = True
+        await committer.record_terminal_model_call(
+            PreparedModelCallOutcome(
+                invocation_id="invocation-1",
+                disposition="completed",
+                stop_reason="stop",
+                usage=Usage(10, 2, 0, 0, 12, None),
+            ),
+            usage=usage,
+        )
+        assert backend.batch_sizes[before_batches:] == [2, 2]
+        assert [record.kind for record in transcript.records[-2:]] == [
+            MODEL_CALL_ATTEMPT_USAGE_KIND,
+            MODEL_CALL_OUTCOME_KIND,
+        ]
+        assert sum(
+            record.kind == MODEL_CALL_ATTEMPT_USAGE_KIND
+            for record in transcript.records
+        ) == 1
+        assert sum(
+            record.kind == MODEL_CALL_OUTCOME_KIND for record in transcript.records
+        ) == 1
+        assert project_model_call_usage(transcript.active_path()).complete
+
+    asyncio.run(scenario())
+
+
+def test_terminal_observation_batch_settles_before_cancellation() -> None:
+    async def scenario() -> None:
+        backend = _BlockingModelInputStore()
+        transcript = await _memory_transcript(backend)
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=_context(transcript),
+            runtime_references=_runtime_references(),
+        )
+        await committer.commit_prepared_request(_prepared())
+        usage = ModelCallAttemptUsage(
+            invocation_id="invocation-1",
+            attempt=1,
+            model_input_snapshot_id=committer.commits[-1].snapshot_id,
+            input=10,
+            output=2,
+            cache_read=0,
+            cache_write=0,
+            total_tokens=12,
+            terminal=True,
+        )
+        backend.block_appends = True
+        task = asyncio.create_task(
+            committer.record_terminal_model_call(
+                PreparedModelCallOutcome(
+                    invocation_id="invocation-1",
+                    disposition="completed",
+                    stop_reason="stop",
+                    usage=Usage(10, 2, 0, 0, 12, None),
+                ),
+                usage=usage,
+            )
+        )
+        await backend.committed.wait()
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+        backend.release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert [record.kind for record in transcript.records[-2:]] == [
+            MODEL_CALL_ATTEMPT_USAGE_KIND,
+            MODEL_CALL_OUTCOME_KIND,
+        ]
+        assert project_model_call_usage(transcript.active_path()).complete
+
+    asyncio.run(scenario())
+
+
 def test_model_call_failure_outcome_persists_only_allowlisted_diagnostics() -> None:
     async def scenario() -> None:
         transcript = await _memory_transcript()
