@@ -270,11 +270,16 @@ class PreparedModelRequest:
     _owned_envelope: tuple[
         Mapping[str, FrozenJSONValue], Mapping[str, str], str, str
     ] = field(init=False, repr=False, compare=False)
+    # Retain small non-message fields; the canonical envelope owns message text.
     _canonical_fields: Mapping[str, str] = field(init=False, repr=False, compare=False)
+    _message_array_close_offset: int | None = field(
+        init=False, repr=False, compare=False
+    )
     _owned_reuse: tuple[
         PreparedRequestMetrics,
         tuple[PreparedRequestBinaryField, ...],
         Mapping[str, str],
+        int | None,
     ] = field(init=False, repr=False, compare=False)
     _reused_message_prefix_count: int = field(init=False, repr=False, compare=False)
     _transport_copies: SimpleQueue[dict[str, JSONValue]] = field(
@@ -368,10 +373,24 @@ class PreparedModelRequest:
                 self.payload_hash,
             ),
         )
-        frozen_fields = MappingProxyType(canonical_fields)
+        message_offset = _prepared_message_array_close_offset(
+            canonical_payload,
+            canonical_fields,
+            model_visible_headers,
+        )
+        frozen_fields = MappingProxyType(
+            {
+                name: value
+                for name, value in canonical_fields.items()
+                if name not in {"messages", "input"}
+            }
+        )
         object.__setattr__(self, "_canonical_fields", frozen_fields)
+        object.__setattr__(self, "_message_array_close_offset", message_offset)
         object.__setattr__(
-            self, "_owned_reuse", (self.metrics, self.binary_fields, frozen_fields)
+            self,
+            "_owned_reuse",
+            (self.metrics, self.binary_fields, frozen_fields, message_offset),
         )
 
     @classmethod
@@ -428,7 +447,9 @@ class PreparedModelRequest:
         """Hand one privately prepared copy to the post-commit adapter call."""
 
         if not self._owned_envelope_is_current():
-            raise RuntimeError("prepared model request envelope changed before transport")
+            raise RuntimeError(
+                "prepared model request envelope changed before transport"
+            )
         self._transport_copies.put(payload)
 
     def _retain_adapter_projection_state(self, state: object) -> None:
@@ -713,11 +734,17 @@ def _reuse_prepared_prefix(
 
     if not isinstance(previous, PreparedModelRequest):
         return False
-    prior_metrics, prior_binary_fields, prior_canonical_fields = previous._owned_reuse
+    (
+        prior_metrics,
+        prior_binary_fields,
+        prior_canonical_fields,
+        prior_offset,
+    ) = previous._owned_reuse
     if not previous._owned_envelope_is_current() or (
         previous.metrics is not prior_metrics
         or previous.binary_fields is not prior_binary_fields
         or previous._canonical_fields is not prior_canonical_fields
+        or previous._message_array_close_offset != prior_offset
     ):
         return False
     if type(request.payload) is not dict or headers != previous.model_visible_headers:
@@ -745,14 +772,18 @@ def _reuse_prepared_prefix(
         if name != message_key
     ):
         return False
+    if (
+        type(prior_offset) is not int
+        or not 0 <= prior_offset < len(previous.canonical_payload)
+        or previous.canonical_payload[prior_offset] != "]"
+        or type(prior_metrics.message_bytes) is not int
+    ):
+        return False
 
     suffix = cast(
         list[JSONValue], [_thaw_json(item) for item in messages[prior_count:]]
     )
     validate_json_value(suffix, name="prepared model request message suffix")
-    old_canonical = previous._canonical_fields[message_key]
-    if not old_canonical.startswith("[") or not old_canonical.endswith("]"):
-        return False
 
     def encode(value: JSONValue | dict[str, str] | str) -> str:
         return json.dumps(
@@ -764,25 +795,16 @@ def _reuse_prepared_prefix(
         )
 
     suffix_canonical = encode(suffix)[1:-1] if suffix else ""
-    message_canonical = (
-        old_canonical[:-1]
-        + ("," if prior_count and suffix else "")
-        + suffix_canonical
-        + "]"
-    )
-    canonical_fields = dict(previous._canonical_fields)
-    canonical_fields[message_key] = message_canonical
-    canonical = (
-        '{"model_visible_headers":'
-        + encode(headers)
-        + ',"payload":{'
-        + ",".join(
-            encode(name) + ":" + canonical_fields[name]
-            for name in sorted(canonical_fields)
+    added_messages = ("," if prior_count and suffix else "") + suffix_canonical
+    canonical = "".join(
+        (
+            previous.canonical_payload[:prior_offset],
+            added_messages,
+            previous.canonical_payload[prior_offset:],
         )
-        + "}}"
     )
-    digest = "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    canonical_bytes = canonical.encode("utf-8")
+    digest = "sha256:" + hashlib.sha256(canonical_bytes).hexdigest()
     suffix_image_bytes = _estimate_image_bytes(suffix)
     suffix_binary_fields = tuple(
         field
@@ -796,15 +818,15 @@ def _reuse_prepared_prefix(
     frozen_payload = MappingProxyType(owned)
     binary_fields = previous.binary_fields + suffix_binary_fields
     metrics = PreparedRequestMetrics(
-        canonical_bytes=len(canonical.encode("utf-8")),
+        canonical_bytes=len(canonical_bytes),
         estimated_wire_bytes=request.estimated_wire_bytes,
-        message_bytes=len(message_canonical.encode("utf-8")),
+        message_bytes=prior_metrics.message_bytes + len(added_messages.encode("utf-8")),
         message_count=len(messages),
         image_bytes=previous.metrics.image_bytes + suffix_image_bytes,
         tool_schema_bytes=previous.metrics.tool_schema_bytes,
         estimated_input_tokens=request.estimated_input_tokens,
     )
-    frozen_fields = MappingProxyType(canonical_fields)
+    frozen_fields = previous._canonical_fields
     frozen_headers = MappingProxyType(headers)
     object.__setattr__(request, "payload", frozen_payload)
     object.__setattr__(request, "model_visible_headers", frozen_headers)
@@ -816,7 +838,13 @@ def _reuse_prepared_prefix(
         request, "_owned_envelope", (frozen_payload, frozen_headers, canonical, digest)
     )
     object.__setattr__(request, "_canonical_fields", frozen_fields)
-    object.__setattr__(request, "_owned_reuse", (metrics, binary_fields, frozen_fields))
+    message_offset = prior_offset + len(added_messages)
+    object.__setattr__(request, "_message_array_close_offset", message_offset)
+    object.__setattr__(
+        request,
+        "_owned_reuse",
+        (metrics, binary_fields, frozen_fields, message_offset),
+    )
     object.__setattr__(request, "_reused_message_prefix_count", prior_count)
     return True
 
@@ -883,6 +911,43 @@ def _canonical_prepared_envelope(
         + "}}"
     )
     return canonical, message_bytes, tool_schema_bytes, canonical_fields
+
+
+def _prepared_message_array_close_offset(
+    canonical: str,
+    fields: Mapping[str, str],
+    headers: Mapping[str, str],
+) -> int | None:
+    message_key = next(
+        (
+            name
+            for name in ("messages", "input")
+            if fields.get(name, "").startswith("[")
+        ),
+        None,
+    )
+    if message_key is None:
+        return None
+
+    def encode(value: object) -> str:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+
+    position = len('{"model_visible_headers":') + len(encode(dict(headers)))
+    position += len(',"payload":{')
+    for index, name in enumerate(sorted(fields)):
+        position += (1 if index else 0) + len(encode(name)) + 1
+        value = fields[name]
+        if name == message_key:
+            position += len(value) - 1
+            return position if canonical[position : position + 1] == "]" else None
+        position += len(value)
+    return None
 
 
 def _estimate_image_bytes(value: object) -> int:

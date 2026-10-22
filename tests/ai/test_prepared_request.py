@@ -325,6 +325,48 @@ def test_prepared_request_accepts_its_own_sealed_message_prefix() -> None:
     assert reused.payload_for_transport() == expected.payload_for_transport()
 
 
+@pytest.mark.parametrize("message_key", ["messages", "input"])
+def test_prepared_request_reuses_multiple_large_suffixes_exactly(
+    message_key: str,
+) -> None:
+    messages = [{"role": "user", "content": "history" * 3000}]
+    previous = PreparedModelRequest.from_provider_request(
+        _request(), payload={"model": "faux-model", message_key: messages}
+    )
+    for suffix in (
+        {"role": "assistant", "content": '文\\"\\\\' * 3000},
+        {"role": "tool", "content": "output" * 3000},
+        {"role": "user", "content": "final"},
+    ):
+        messages = [*messages, suffix]
+        payload = {"model": "faux-model", message_key: messages}
+        expected = PreparedModelRequest.from_provider_request(
+            _request(), payload=payload
+        )
+        reused = PreparedModelRequest.from_provider_request(
+            _request(), payload=payload, reuse_from=previous
+        )
+        assert reused._reused_message_prefix_count == len(messages) - 1
+        assert reused.canonical_payload == expected.canonical_payload
+        assert reused.payload_hash == expected.payload_hash
+        assert reused.metrics == expected.metrics
+        assert reused.binary_fields == expected.binary_fields
+        assert reused.payload_for_transport() == expected.payload_for_transport()
+        previous = reused
+
+    object.__setattr__(previous, "_message_array_close_offset", 0)
+    payload = {
+        "model": "faux-model",
+        message_key: [*messages, {"role": "user", "content": "next"}],
+    }
+    fallback = PreparedModelRequest.from_provider_request(
+        _request(), payload=payload, reuse_from=previous
+    )
+    full = PreparedModelRequest.from_provider_request(_request(), payload=payload)
+    assert fallback._reused_message_prefix_count == 0
+    assert fallback.canonical_payload == full.canonical_payload
+
+
 @pytest.mark.parametrize("boundary", ["before_preparation", "after_preparation"])
 def test_prepared_invocation_services_cancellation_before_commit(boundary) -> None:
     async def scenario():
@@ -360,7 +402,9 @@ def test_prepared_invocation_services_cancellation_before_commit(boundary) -> No
     asyncio.run(scenario())
 
 
-def test_opted_in_prepared_request_keeps_input_loop_responsive_and_commits_first() -> None:
+def test_opted_in_prepared_request_keeps_input_loop_responsive_and_commits_first() -> (
+    None
+):
     async def scenario() -> None:
         committer = _RecordingCommitter()
         started = threading.Event()
@@ -600,9 +644,7 @@ def test_prewarmed_transport_copy_is_used_once_and_remains_detached() -> None:
     prepared._adopt_transport_copy(prepared._owned_payload_copy())
     first = prepared.payload_for_transport()
     first["messages"][0]["content"].append("changed")
-    assert prepared.payload_for_transport() == {
-        "messages": [{"content": ["hello"]}]
-    }
+    assert prepared.payload_for_transport() == {"messages": [{"content": ["hello"]}]}
 
 
 def test_transport_rejects_replaced_owned_envelope_fields() -> None:
@@ -646,9 +688,7 @@ def test_transport_uses_the_validated_owned_payload_without_another_scan(
 
     monkeypatch.setattr(module, "validate_json_value", unexpected_validation)
     monkeypatch.setattr(module.hashlib, "sha256", unexpected_validation)
-    assert prepared.payload_for_transport() == {
-        "messages": [{"content": "hello"}]
-    }
+    assert prepared.payload_for_transport() == {"messages": [{"content": "hello"}]}
 
 
 def test_prepared_request_freezes_its_owned_projection_without_another_tree_copy(
@@ -725,7 +765,7 @@ def test_prepared_model_request_measures_messages_tools_and_images() -> None:
     [
         {
             "z": {"b": "你好\n世界", "a": [1, 2.5, None]},
-            "messages": [{"role": "user", "content": "λ \\\""}],
+            "messages": [{"role": "user", "content": 'λ \\"'}],
             "input": [{"role": "user", "content": "secondary"}],
             "tools": [{"z": 1, "a": {"type": "object"}}],
         },
@@ -761,9 +801,7 @@ def test_prepared_request_field_sizes_match_full_canonical_encoding(payload) -> 
     if not isinstance(messages, list):
         messages = payload.get("input")
     assert prepared.metrics.message_bytes == (
-        len(encoded(messages).encode("utf-8"))
-        if isinstance(messages, list)
-        else None
+        len(encoded(messages).encode("utf-8")) if isinstance(messages, list) else None
     )
     tools = payload.get("tools")
     assert prepared.metrics.tool_schema_bytes == (
