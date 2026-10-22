@@ -487,6 +487,17 @@ def test_v2_chunking_aligns_identical_large_json_strings_across_shapes() -> None
     assert "".join(second_chunks) == second
 
 
+def test_v2_chunking_preserves_large_escaped_string_boundaries() -> None:
+    content = "x" * (48 * 1024) + '\\"quoted\\" \\\\ slash' + "文" * 1200
+    canonical = canonical_model_input_json(
+        {"content": content}, name="escaped large value"
+    )
+    chunks = split_model_input_canonical_json(canonical)
+    assert len(chunks) > 1
+    assert "".join(chunks) == canonical
+    assert max(map(len, chunks)) <= MODEL_INPUT_V2_CHUNK_CHARACTERS
+
+
 def test_v2_node_hash_is_stable_across_bundle_locations() -> None:
     item = create_model_input_json_value({"value": 1})
     first_ref = _reference("bundle-a", 0, item)

@@ -714,25 +714,19 @@ def split_model_input_canonical_json(canonical: str) -> tuple[str, ...]:
 def _canonical_json_string_ranges(canonical: str) -> tuple[tuple[int, int], ...]:
     ranges: list[tuple[int, int]] = []
     index = 0
-    while index < len(canonical):
-        if canonical[index] != '"':
-            index += 1
-            continue
-        start = index
-        index += 1
-        escaped = False
-        while index < len(canonical):
-            character = canonical[index]
-            index += 1
-            if escaped:
-                escaped = False
-            elif character == "\\":
-                escaped = True
-            elif character == '"':
-                ranges.append((start, index))
-                break
-        else:
-            raise ValueError("Model Input canonical JSON contains an open string")
+    while (start := canonical.find('"', index)) >= 0:
+        index = start + 1
+        while True:
+            quote = canonical.find('"', index)
+            if quote < 0:
+                raise ValueError("Model Input canonical JSON contains an open string")
+            escape = canonical.find("\\", index)
+            if 0 <= escape < quote:
+                index = escape + 2
+                continue
+            ranges.append((start, quote + 1))
+            index = quote + 1
+            break
     return tuple(ranges)
 
 
