@@ -17,7 +17,14 @@ from loushang.ai.model import Auth, Capabilities, Model
 from loushang.ai.options import CallOptions, RetryOptions
 from loushang.ai.prepared_request import PreparedModelRequest, PreparedRequestLimits
 from loushang.ai.provider.protocol import ProviderRequest
-from loushang.ai.types import AssistantMessage, UserMessage
+from loushang.ai.types import (
+    AssistantMessage,
+    TextPart,
+    ToolCall,
+    ToolResultMessage,
+    Usage,
+    UserMessage,
+)
 from loushang.coding.compaction.profiles import (
     CODING_BRANCH_SUMMARY_PROFILE,
     CODING_COMPACTION_SUMMARY_PROFILE,
@@ -46,6 +53,7 @@ from loushang.harness.conversation import (
 )
 from loushang.harness.runtime import RuntimeProfileResolver
 from loushang.harness.session import AgentSessionInspector
+from loushang.harness.session import model_call as model_call_module
 from loushang.harness.session.model_call import (
     ModelInputTranscriptPort,
     SessionModelCallCapabilityConsumer,
@@ -494,6 +502,289 @@ def test_current_session_prepares_and_rebuilds_main_model_call() -> None:
         assert "durable system prompt" not in repr(projected)
         await runtime.dispose()
         assert runtime.graph_runtime.is_closed
+
+    asyncio.run(scenario())
+
+
+def test_session_reuses_sealed_text_prefix_and_rechecks_mutated_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        session = await _transcript_session()
+        runtime = _model_call_runtime(session, is_current=lambda: True)
+        user = UserMessage(role="user", content="stable", timestamp=1.0)
+        tool = ToolResultMessage(
+            role="toolResult",
+            tool_call_id="call-1",
+            tool_name="read",
+            content=[TextPart(type="text", text="before")],
+            is_error=False,
+            timestamp=2.0,
+        )
+        context = Context(system_prompt="prompt", messages=[user, tool])
+        calls: list[object] = []
+        original = model_call_module.serialize_message
+
+        def count_serialization(message):
+            calls.append(message)
+            return original(message)
+
+        monkeypatch.setattr(model_call_module, "serialize_message", count_serialization)
+        for sequence in (1, 2):
+            await runtime.prepare(
+                ModelCallPreparation(
+                    purpose="main",
+                    sequence=sequence,
+                    model=_model(api="session-model-call-test"),
+                    context=context,
+                    options=CallOptions(),
+                )
+            )
+        assert calls == [user, tool]
+
+        tool.content[0] = TextPart(type="text", text="after")
+        await runtime.prepare(
+            ModelCallPreparation(
+                purpose="main",
+                sequence=3,
+                model=_model(api="session-model-call-test"),
+                context=context,
+                options=CallOptions(),
+            )
+        )
+        assert calls == [user, tool, tool]
+        sealed = session._last_model_input_context
+        assert sealed is not None
+        assert sealed.logical_input["messages"][1]["content"][0]["text"] == "after"
+        await runtime.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_session_rechecks_nested_tool_details(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        session = await _transcript_session()
+        runtime = _model_call_runtime(session, is_current=lambda: True)
+        details = {"nested": ["before"]}
+        tool = ToolResultMessage(
+            role="toolResult",
+            tool_call_id="call-1",
+            tool_name="read",
+            content=[TextPart(type="text", text="done")],
+            is_error=False,
+            timestamp=2.0,
+            details=details,
+        )
+        context = Context(messages=[tool])
+        calls = 0
+        original = model_call_module.serialize_message
+
+        def count_serialization(message):
+            nonlocal calls
+            calls += 1
+            return original(message)
+
+        monkeypatch.setattr(model_call_module, "serialize_message", count_serialization)
+        for sequence in (1, 2):
+            await runtime.prepare(
+                ModelCallPreparation(
+                    purpose="main",
+                    sequence=sequence,
+                    model=_model(api="session-model-call-test"),
+                    context=context,
+                    options=CallOptions(),
+                )
+            )
+        assert calls == 1
+        details["nested"][0] = "after"
+        await runtime.prepare(
+            ModelCallPreparation(
+                purpose="main",
+                sequence=3,
+                model=_model(api="session-model-call-test"),
+                context=context,
+                options=CallOptions(),
+            )
+        )
+        assert calls == 2
+        sealed = session._last_model_input_context
+        assert sealed is not None
+        assert sealed.logical_input["messages"][0]["details"]["nested"][0] == "after"
+        await runtime.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_session_rechecks_assistant_tool_arguments_and_usage_cost(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        session = await _transcript_session()
+        runtime = _model_call_runtime(session, is_current=lambda: True)
+        arguments = {"path": ["before"]}
+        cost = {
+            "input": 0.0,
+            "output": 0.0,
+            "cacheRead": 0.0,
+            "cacheWrite": 0.0,
+            "total": 0.0,
+        }
+        assistant = AssistantMessage(
+            role="assistant",
+            content=[
+                ToolCall(type="toolCall", id="call-1", name="read", arguments=arguments)
+            ],
+            api="test-api",
+            provider="test-provider",
+            endpoint="test-endpoint",
+            model="test-model",
+            response_id=None,
+            usage=Usage(0, 0, 0, 0, 0, cost),
+            stop_reason="toolUse",
+            error_message=None,
+            timestamp=1.0,
+        )
+        context = Context(messages=[assistant])
+        calls = 0
+        original = model_call_module.serialize_message
+
+        def count_serialization(message):
+            nonlocal calls
+            calls += 1
+            return original(message)
+
+        monkeypatch.setattr(model_call_module, "serialize_message", count_serialization)
+        for sequence in (1, 2):
+            await runtime.prepare(
+                ModelCallPreparation(
+                    purpose="main",
+                    sequence=sequence,
+                    model=_model(api="session-model-call-test"),
+                    context=context,
+                    options=CallOptions(),
+                )
+            )
+        assert calls == 1
+        arguments["path"][0] = "after"
+        cost["total"] = 1.0
+        await runtime.prepare(
+            ModelCallPreparation(
+                purpose="main",
+                sequence=3,
+                model=_model(api="session-model-call-test"),
+                context=context,
+                options=CallOptions(),
+            )
+        )
+        assert calls == 2
+        sealed = session._last_model_input_context
+        assert sealed is not None
+        wire = sealed.logical_input["messages"][0]
+        assert wire["content"][0]["arguments"]["path"][0] == "after"
+        assert wire["usage"]["cost"]["total"] == 1.0
+        await runtime.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_session_does_not_reuse_oversized_mutable_tool_details(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        session = await _transcript_session()
+        runtime = _model_call_runtime(session, is_current=lambda: True)
+        tool = ToolResultMessage(
+            role="toolResult",
+            tool_call_id="call-1",
+            tool_name="read",
+            content=[TextPart(type="text", text="done")],
+            is_error=False,
+            timestamp=2.0,
+            details={"values": list(range(128))},
+        )
+        calls = 0
+        original = model_call_module.serialize_message
+
+        def count_serialization(message):
+            nonlocal calls
+            calls += 1
+            return original(message)
+
+        monkeypatch.setattr(model_call_module, "serialize_message", count_serialization)
+        for sequence in (1, 2):
+            await runtime.prepare(
+                ModelCallPreparation(
+                    purpose="main",
+                    sequence=sequence,
+                    model=_model(api="session-model-call-test"),
+                    context=Context(messages=[tool]),
+                    options=CallOptions(),
+                )
+            )
+        assert calls == 2
+        await runtime.dispose()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("change", ["content", "details", "append"])
+def test_sealed_prefix_is_rechecked_before_model_input_capture(
+    monkeypatch: pytest.MonkeyPatch, change: str
+) -> None:
+    async def scenario() -> None:
+        session = await _transcript_session()
+        runtime = _model_call_runtime(session, is_current=lambda: True)
+        tool = ToolResultMessage(
+            role="toolResult",
+            tool_call_id="call-1",
+            tool_name="read",
+            content=[TextPart(type="text", text="before")],
+            is_error=False,
+            timestamp=2.0,
+            details={"nested": ["before"]},
+        )
+        context = Context(messages=[tool])
+        preparation = ModelCallPreparation(
+            purpose="main",
+            sequence=1,
+            model=_model(api="session-model-call-test"),
+            context=context,
+            options=CallOptions(),
+        )
+        await runtime.prepare(preparation)
+        original = model_call_module.SessionModelCallPreparer._project_logical_messages
+
+        def change_after_projection(self, messages):
+            result = original(self, messages)
+            if change == "content":
+                tool.content[0] = TextPart(type="text", text="after")
+            elif change == "details":
+                tool.details["nested"][0] = "after"
+            else:
+                context.messages.append(
+                    UserMessage(role="user", content="after", timestamp=3.0)
+                )
+            return result
+
+        monkeypatch.setattr(
+            model_call_module.SessionModelCallPreparer,
+            "_project_logical_messages",
+            change_after_projection,
+        )
+        await runtime.prepare(replace(preparation, sequence=2))
+        sealed = session._last_model_input_context
+        assert sealed is not None
+        messages = sealed.logical_input["messages"]
+        if change == "content":
+            assert messages[0]["content"][0]["text"] == "after"
+        elif change == "details":
+            assert messages[0]["details"]["nested"][0] == "after"
+        else:
+            assert len(messages) == 2
+            assert messages[1]["content"] == "after"
+        await runtime.dispose()
 
     asyncio.run(scenario())
 

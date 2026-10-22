@@ -247,6 +247,10 @@ def _raw_matches_frozen_json(
     *,
     seen: set[int],
 ) -> bool:
+    if raw is frozen:
+        # Only the previous owned, recursively frozen context can supply this
+        # object. Identity proves the complete value without walking it again.
+        return True
     if isinstance(frozen, Mapping):
         if not isinstance(raw, Mapping) or len(raw) != len(frozen):
             return False
@@ -450,6 +454,15 @@ class ModelInputTranscriptCommitter(
     @property
     def commits(self) -> tuple[ModelInputCommitResult, ...]:
         return tuple(self._commits)
+
+    @property
+    def sealed_logical_messages(self) -> tuple[object, ...]:
+        """Expose owned, immutable message values for same-Session reuse."""
+
+        messages = self._context.logical_input["messages"]
+        if not isinstance(messages, tuple):
+            raise ModelInputIntegrityError("sealed Model Input messages are invalid")
+        return messages
 
     def _prepare_logical_canonical(self) -> tuple[str, str]:
         frozen = self._context.logical_input

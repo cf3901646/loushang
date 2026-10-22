@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+import math
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Protocol, cast
 
@@ -22,6 +23,17 @@ from loushang.ai.prepared_request import (
     PreparedRequestCommitter,
 )
 from loushang.ai.structured import StructuredOutputOptions
+from loushang.ai.types import (
+    AssistantMessage,
+    ImagePart,
+    Message,
+    TextPart,
+    ThinkingPart,
+    ToolCall,
+    ToolResultMessage,
+    Usage,
+    UserMessage,
+)
 from loushang.foundation.json import JSONValue, require_json_mapping, require_json_value
 from loushang.harness.capabilities import (
     CapabilityBundleProvider,
@@ -76,6 +88,176 @@ CurrentProfileFingerprintProvider = Callable[[], str]
 SourcePublicationProvider = Callable[[], ScopedSourcePublicationReference | None]
 RequestEvidenceProvider = Callable[[ModelCallPreparation], Mapping[str, object] | None]
 CommittedModelInputObserver = Callable[[str], None]
+
+
+@dataclass(frozen=True, slots=True)
+class _SealedMessageReuse:
+    message: Message
+    shape: tuple[object, ...] | None
+    sealed: object
+
+
+_UNSAFE_SHAPE = object()
+_MESSAGE_JSON_SHAPE_LIMIT = 64
+
+
+def _scalar_shape(value: object) -> tuple[object, ...] | object:
+    if value is None:
+        return (None,)
+    if type(value) is float:
+        return (float, repr(value)) if math.isfinite(value) else _UNSAFE_SHAPE
+    if type(value) in (str, int, bool):
+        return (type(value), value)
+    return _UNSAFE_SHAPE
+
+
+def _scalar_shapes(*values: object) -> tuple[tuple[object, ...], ...] | None:
+    shapes = tuple(_scalar_shape(value) for value in values)
+    if any(shape is _UNSAFE_SHAPE for shape in shapes):
+        return None
+    return cast(tuple[tuple[object, ...], ...], shapes)
+
+
+def _bounded_json_shape(
+    value: object, *, budget: list[int], seen: set[int]
+) -> tuple[object, ...] | None:
+    if budget[0] <= 0:
+        return None
+    budget[0] -= 1
+    primitive = _scalar_shape(value)
+    if primitive is not _UNSAFE_SHAPE:
+        return cast(tuple[object, ...], primitive)
+    if type(value) is not list and type(value) is not dict:
+        return None
+    identity = id(value)
+    if identity in seen:
+        return None
+    seen.add(identity)
+    try:
+        if isinstance(value, list):
+            list_items = tuple(
+                _bounded_json_shape(item, budget=budget, seen=seen) for item in value
+            )
+            return (
+                None if any(item is None for item in list_items) else (list, list_items)
+            )
+        dict_items: list[tuple[str, tuple[object, ...]]] = []
+        for key, item in cast(dict[object, object], value).items():
+            if type(key) is not str:
+                return None
+            shape = _bounded_json_shape(item, budget=budget, seen=seen)
+            if shape is None:
+                return None
+            dict_items.append((key, shape))
+        return (dict, tuple(dict_items))
+    finally:
+        seen.remove(identity)
+
+
+def _content_shape(value: object, *, budget: list[int]) -> tuple[object, ...] | None:
+    if type(value) is not list:
+        return None
+    parts: list[object] = []
+    for part in value:
+        if type(part) is TextPart:
+            fields = _scalar_shapes(part.type, part.text)
+            signature = _bounded_json_shape(
+                part.text_signature, budget=budget, seen=set()
+            )
+            if fields is None or signature is None:
+                return None
+            parts.append((TextPart, fields, signature))
+        elif type(part) is ImagePart:
+            fields = _scalar_shapes(part.type, part.data, part.mime_type)
+            if fields is None:
+                return None
+            parts.append((ImagePart, fields))
+        elif type(part) is ThinkingPart:
+            fields = _scalar_shapes(
+                part.type, part.thinking, part.thinking_signature, part.redacted
+            )
+            if fields is None:
+                return None
+            parts.append((ThinkingPart, fields))
+        elif type(part) is ToolCall:
+            fields = _scalar_shapes(
+                part.type, part.id, part.name, part.thought_signature
+            )
+            arguments = _bounded_json_shape(part.arguments, budget=budget, seen=set())
+            if fields is None or arguments is None:
+                return None
+            parts.append((ToolCall, fields, arguments))
+        else:
+            return None
+    return tuple(parts)
+
+
+def _sealed_message_shape(message: Message) -> tuple[object, ...] | None:
+    """Certify only message forms whose complete wire value is cheap to check."""
+
+    budget = [_MESSAGE_JSON_SHAPE_LIMIT]
+    if type(message) is UserMessage:
+        content = message.content
+        content_shape = (
+            (str, _scalar_shape(content))
+            if type(content) is str
+            else _content_shape(content, budget=budget)
+        )
+        fields = _scalar_shapes(message.role, message.timestamp)
+        if content_shape is None or fields is None:
+            return None
+        return (UserMessage, fields, content_shape)
+    if type(message) is ToolResultMessage:
+        content_shape = _content_shape(message.content, budget=budget)
+        details_shape = _bounded_json_shape(message.details, budget=budget, seen=set())
+        fields = _scalar_shapes(
+            message.role,
+            message.tool_call_id,
+            message.tool_name,
+            message.is_error,
+            message.timestamp,
+            message.terminate,
+        )
+        if content_shape is None or details_shape is None or fields is None:
+            return None
+        return (ToolResultMessage, fields, content_shape, details_shape)
+    if type(message) is AssistantMessage:
+        content_shape = _content_shape(message.content, budget=budget)
+        usage = message.usage
+        cost_shape = (
+            _bounded_json_shape(usage.cost, budget=budget, seen=set())
+            if type(usage) is Usage
+            else None
+        )
+        error_shape = _bounded_json_shape(message.error_info, budget=budget, seen=set())
+        if (
+            content_shape is None
+            or type(usage) is not Usage
+            or cost_shape is None
+            or error_shape is None
+        ):
+            return None
+        fields = _scalar_shapes(
+            message.role,
+            message.api,
+            message.provider,
+            message.endpoint,
+            message.model,
+            message.response_id,
+            usage.input,
+            usage.output,
+            usage.cache_read,
+            usage.cache_write,
+            usage.total_tokens,
+            message.stop_reason,
+            message.error_message,
+            message.timestamp,
+            message.response_model,
+        )
+        if fields is None:
+            return None
+        return (AssistantMessage, fields, content_shape, cost_shape, error_shape)
+    return None
 
 
 class ModelInputTranscriptPort(Protocol):
@@ -155,9 +337,62 @@ class SessionModelCallPreparer:
         self._request_evidence_provider = request_evidence_provider
         self._on_committed_evidence_free_input = on_committed_evidence_free_input
         self._last_prepared_request: PreparedModelRequest | None = None
+        self._sealed_message_cache: tuple[_SealedMessageReuse, ...] = ()
 
     def _retain_prepared_request(self, request: PreparedModelRequest) -> None:
         self._last_prepared_request = request
+
+    def _project_logical_messages(
+        self, messages: Sequence[Message]
+    ) -> tuple[list[object], tuple[tuple[object, ...] | None, ...], int]:
+        projected: list[object] = []
+        shapes: list[tuple[object, ...] | None] = []
+        prefix_matches = True
+        reused_prefix_count = 0
+        for index, message in enumerate(messages):
+            prior = (
+                self._sealed_message_cache[index]
+                if index < len(self._sealed_message_cache)
+                else None
+            )
+            if (
+                prefix_matches
+                and prior is not None
+                and prior.message is message
+                and prior.shape is not None
+            ):
+                projected.append(prior.sealed)
+                shapes.append(prior.shape)
+                reused_prefix_count += 1
+            else:
+                prefix_matches = False
+                projected.append(serialize_message(message))
+                shapes.append(_sealed_message_shape(message))
+        return projected, tuple(shapes), reused_prefix_count
+
+    @staticmethod
+    def _recheck_logical_messages(
+        messages: Sequence[Message],
+        projected: list[object],
+        shapes: tuple[tuple[object, ...] | None, ...],
+        reused_prefix_count: int,
+    ) -> tuple[tuple[tuple[object, ...] | None, ...], int]:
+        if len(messages) != len(projected):
+            projected[:] = [serialize_message(message) for message in messages]
+            return tuple(_sealed_message_shape(message) for message in messages), 0
+        for index in range(reused_prefix_count):
+            if _sealed_message_shape(messages[index]) != shapes[index]:
+                projected[index:] = [
+                    serialize_message(message) for message in messages[index:]
+                ]
+                return (
+                    shapes[:index]
+                    + tuple(
+                        _sealed_message_shape(message) for message in messages[index:]
+                    ),
+                    index,
+                )
+        return shapes, reused_prefix_count
 
     def __call__(self, preparation: ModelCallPreparation) -> CallOptions:
         if not isinstance(preparation, ModelCallPreparation):
@@ -177,7 +412,14 @@ class SessionModelCallPreparer:
                 self._projector.registration_inventory(),
                 self._registration_entries_provider(),
             )
-            logical_input = _logical_input(preparation)
+            (
+                logical_messages,
+                message_shapes,
+                reused_prefix_count,
+            ) = self._project_logical_messages(preparation.context.messages)
+            logical_input = _logical_input(
+                preparation, serialized_messages=logical_messages
+            )
             if self._request_evidence_provider is not None:
                 evidence = self._request_evidence_provider(preparation)
                 if evidence is not None:
@@ -185,15 +427,46 @@ class SessionModelCallPreparer:
                         evidence,
                         name="Model Input Resource evidence",
                     )
+            runtime_references = ModelInputRuntimeReferences.from_snapshots(
+                graph,
+                registrations,
+                profile_fingerprint=self._profile_fingerprint_provider(),
+            )
+            message_shapes, reused_prefix_count = self._recheck_logical_messages(
+                preparation.context.messages,
+                logical_messages,
+                message_shapes,
+                reused_prefix_count,
+            )
             committer = self._transcript.create_model_input_committer(
                 purpose=preparation.purpose,
                 logical_input=logical_input,
-                runtime_references=ModelInputRuntimeReferences.from_snapshots(
-                    graph,
-                    registrations,
-                    profile_fingerprint=self._profile_fingerprint_provider(),
-                ),
+                runtime_references=runtime_references,
             )
+            sealed_messages = committer.sealed_logical_messages
+            if len(sealed_messages) == len(preparation.context.messages):
+                self._sealed_message_cache = tuple(
+                    _SealedMessageReuse(
+                        message,
+                        (
+                            shape
+                            if index < reused_prefix_count
+                            or shape == _sealed_message_shape(message)
+                            else None
+                        ),
+                        sealed,
+                    )
+                    for index, (message, shape, sealed) in enumerate(
+                        zip(
+                            preparation.context.messages,
+                            message_shapes,
+                            sealed_messages,
+                            strict=True,
+                        )
+                    )
+                )
+            else:
+                self._sealed_message_cache = ()
             options = replace(
                 preparation.options,
                 prepared_request_committer=_CurrentSessionCommitter(
@@ -710,11 +983,19 @@ def _require_transcript_port(
         raise TypeError(f"{name} requires a Model Input transcript port")
 
 
-def _logical_input(preparation: ModelCallPreparation) -> dict[str, object]:
+def _logical_input(
+    preparation: ModelCallPreparation,
+    *,
+    serialized_messages: list[object] | None = None,
+) -> dict[str, object]:
     context = preparation.context
     return {
         "system_prompt": context.system_prompt,
-        "messages": [serialize_message(message) for message in context.messages],
+        "messages": (
+            serialized_messages
+            if serialized_messages is not None
+            else [serialize_message(message) for message in context.messages]
+        ),
         "tools": project_model_tools(context.tools or ()),
         "request_options": project_model_request_options(preparation.options),
     }

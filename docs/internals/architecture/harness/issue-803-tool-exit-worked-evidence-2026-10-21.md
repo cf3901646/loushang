@@ -1065,3 +1065,33 @@ candidate was removed from the worktree because it added change-tracking
 authority and a special render path for only a few milliseconds of local
 gain. Model preparation and durable request materialization remain the next
 targets.
+
+## Sealed logical-message reuse, 2026-10-22
+
+Session preparation now retains the previous Model Input's owned, immutable
+message values alongside the exact Agent message objects that produced them.
+Before reusing a prefix, it checks the complete wire-relevant shape of every
+message once, including bounded nested tool arguments, signatures, details,
+cost and error information. A changed message reserializes that message and
+the suffix. Unsupported values and nested JSON exceeding 64 nodes take the
+existing serialization path. The Model Input freezer accepts identity with
+its own prior sealed value as proof of equality, avoiding a second walk of
+that prefix. A post-seal check prevents a newly serialized message changed
+during preparation from receiving a stale reuse certificate.
+
+An initial version checked the same long prefix three times. Its hot Session
+preparation took 644ms and the whole tool-exit-to-Worked path took 2,015ms;
+the redundant checks erased the freeze saving. After reducing the hot path
+to one check, 1,675 messages were reused and hot Session preparation took
+236ms; tool exit to Worked took 1,765ms. A separate 20-keyboard-input run
+reused 1,679 messages, with 298ms Session preparation, 2,046ms to Worked,
+198ms maximum input echo delay and 677ms maximum event-loop delay. The hot
+Provider preparation in that run still took 489ms and the durable Model
+Input commit 261ms. These growing-session samples do not establish a p95;
+the 500ms Worked target and event-loop stalls remain open.
+
+Model Call, Model Input, Request Evidence and Agent Product contract tests
+passed with 189 tests and one existing skip. Ruff passed. Native reopening
+of both long-session results verified two snapshots and terminal usage
+records each, the exact tool output, unchanged authority and zero historical
+tool executions.
