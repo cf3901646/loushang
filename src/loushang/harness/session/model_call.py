@@ -337,10 +337,14 @@ class SessionModelCallPreparer:
         self._request_evidence_provider = request_evidence_provider
         self._on_committed_evidence_free_input = on_committed_evidence_free_input
         self._last_prepared_request: PreparedModelRequest | None = None
+        self._last_prepared_source: tuple[object, ...] = ()
         self._sealed_message_cache: tuple[_SealedMessageReuse, ...] = ()
 
-    def _retain_prepared_request(self, request: PreparedModelRequest) -> None:
+    def _retain_prepared_request(
+        self, request: PreparedModelRequest, source: tuple[object, ...]
+    ) -> None:
         self._last_prepared_request = request
+        self._last_prepared_source = source
 
     def _project_logical_messages(
         self, messages: Sequence[Message]
@@ -444,6 +448,25 @@ class SessionModelCallPreparer:
                 runtime_references=runtime_references,
             )
             sealed_messages = committer.sealed_logical_messages
+            prior_source = self._last_prepared_source
+            certified_provider_prefix_count = 0
+            if (
+                self._last_prepared_request is not None
+                and prior_source
+                and len(sealed_messages) == len(preparation.context.messages)
+                and len(sealed_messages) >= len(prior_source)
+                and isinstance(prior_source[-1], Mapping)
+                and prior_source[-1].get("role") == "user"
+                and all(
+                    current is previous
+                    for current, previous in zip(
+                        sealed_messages, prior_source, strict=False
+                    )
+                )
+            ):
+                # The Model Input committer only shares these recursively
+                # frozen nodes after proving the raw logical prefix exactly.
+                certified_provider_prefix_count = len(prior_source)
             if len(sealed_messages) == len(preparation.context.messages):
                 self._sealed_message_cache = tuple(
                     _SealedMessageReuse(
@@ -473,13 +496,25 @@ class SessionModelCallPreparer:
                     committer=committer,
                     is_current=self._is_current,
                     turn_performance=self._turn_performance,
-                    on_committed_prepared_request=self._retain_prepared_request,
+                    on_committed_prepared_request=(
+                        lambda request: self._retain_prepared_request(
+                            request, sealed_messages
+                        )
+                    ),
                     on_committed_model_input=(
                         self._on_committed_evidence_free_input
                         if RESOURCE_EVIDENCE_COMPONENT not in logical_input
                         else None
                     ),
                     prepared_request_reuse=self._last_prepared_request,
+                    certified_provider_prefix_count=(
+                        certified_provider_prefix_count
+                    ),
+                    current_provider_source_count=(
+                        len(sealed_messages)
+                        if len(sealed_messages) == len(preparation.context.messages)
+                        else -1
+                    ),
                 ),
             )
         except BaseException:
@@ -512,6 +547,8 @@ class _CurrentSessionCommitter(
         ) = None,
         on_committed_model_input: CommittedModelInputObserver | None = None,
         prepared_request_reuse: PreparedModelRequest | None = None,
+        certified_provider_prefix_count: int = 0,
+        current_provider_source_count: int = 0,
     ) -> None:
         self._committer = committer
         self._is_current = is_current
@@ -519,6 +556,8 @@ class _CurrentSessionCommitter(
         self._on_committed_prepared_request = on_committed_prepared_request
         self._on_committed_model_input = on_committed_model_input
         self.prepared_request_reuse = prepared_request_reuse
+        self.certified_provider_prefix_count = certified_provider_prefix_count
+        self.current_provider_source_count = current_provider_source_count
         self._latest_attempt_by_invocation: dict[str, tuple[int, str]] = {}
 
     async def commit_prepared_request(self, request: PreparedModelRequest) -> None:

@@ -795,6 +795,8 @@ def test_session_reuses_only_a_committed_prepared_request_prefix() -> None:
             super().__init__()
             self.prepared: list[PreparedModelRequest] = []
             self.candidates: list[PreparedModelRequest | None] = []
+            self.certified_prefixes: list[int] = []
+            self.source_counts: list[int] = []
 
         def prepare_request(self, request: ProviderRequest) -> PreparedModelRequest:
             candidate = getattr(
@@ -805,6 +807,13 @@ def test_session_reuses_only_a_committed_prepared_request_prefix() -> None:
                 None,
             )
             self.candidates.append(candidate)
+            committer = request.options.prepared_request_committer
+            self.certified_prefixes.append(
+                getattr(committer, "certified_provider_prefix_count", -1)
+            )
+            self.source_counts.append(
+                getattr(committer, "current_provider_source_count", -1)
+            )
             prepared = PreparedModelRequest.from_provider_request(
                 request,
                 payload={
@@ -836,10 +845,16 @@ def test_session_reuses_only_a_committed_prepared_request_prefix() -> None:
         try:
             await agent.prompt("first")
             await agent.prompt("second")
+            first_user = agent.state.messages[0]
+            assert isinstance(first_user, UserMessage)
+            agent.state.messages[0] = replace(first_user, content="changed")
+            await agent.prompt("third")
         finally:
             registry.unregister_api_adapters(source_id)
-        assert adapter.transport_calls == 2
-        assert adapter.candidates == [None, adapter.prepared[0]]
+        assert adapter.transport_calls == 3
+        assert adapter.candidates == [None, adapter.prepared[0], adapter.prepared[1]]
+        assert adapter.certified_prefixes == [0, 1, 0]
+        assert adapter.source_counts == [1, 3, 5]
         first_messages = adapter.prepared[0].payload["messages"]
         second_messages = adapter.prepared[1].payload["messages"]
         assert second_messages[0] is first_messages[0]
@@ -848,7 +863,7 @@ def test_session_reuses_only_a_committed_prepared_request_prefix() -> None:
             for entry in session.get_entries()
             if entry.kind == "model.input.prepared"
         ]
-        assert len(snapshot_ids) == 2
+        assert len(snapshot_ids) == 3
         for snapshot_id, prepared in zip(snapshot_ids, adapter.prepared, strict=True):
             rebuilt = session.rebuild_model_input(snapshot_id)
             assert rebuilt.prepared_payload == prepared.payload_for_transport()
