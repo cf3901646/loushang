@@ -93,6 +93,7 @@ def _validate_max_output_tokens_option(
 class OpenAIResponsesAdapter:
     api = "openai-responses"
     supports_structured_output = True
+    prepare_request_in_worker = True
 
     def __init__(self, *, client: Any | None = None) -> None:
         self._client = client

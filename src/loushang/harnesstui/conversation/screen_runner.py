@@ -56,6 +56,7 @@ from loushang.tui.terminal_diagnostics import format_terminal_diagnostics
 from loushang.tui.terminal_input import (
     ESCAPE_SEQUENCE_IDLE_TIMEOUT_MS,
     InputChunkReader,
+    read_input_chunk,
     read_input_chunk_or_render_tick,
 )
 from loushang.tui.terminal_session import TerminalSession
@@ -204,6 +205,15 @@ async def run_conversation_screen(
             )
         continuation.claim(app)
         input_chunk_reader = continuation.input_chunk_reader
+    read_chunk = input_chunk_reader or read_input_chunk
+    input_ready_at: float | None = None
+
+    async def read_timestamped(stream: TextIO) -> str:
+        nonlocal input_ready_at
+        data = await read_chunk(stream)
+        input_ready_at = time.monotonic()
+        return data
+
     router: ConversationInputRouterPort | None = None
     active_task: asyncio.Task[int | None] | None = None
     aborting_task: asyncio.Task[None] | None = None
@@ -467,7 +477,7 @@ async def run_conversation_screen(
                         )
                         else lifecycle.wait_task
                     ),
-                    input_chunk_reader=input_chunk_reader,
+                    input_chunk_reader=read_timestamped,
                     render_wakeup=render_wakeup,
                     return_on_render_wakeup=(
                         continuation is not None
@@ -531,7 +541,23 @@ async def run_conversation_screen(
                         exit_code=0,
                     )
                 else:
-                    input_events = _input_events_for_chunk(
+                    expired_events = (
+                        _flush_pending_input(
+                            reader,
+                            terminal_context=terminal_context,
+                        )
+                        if (
+                            reader.has_pending
+                            and pending_idle_deadline is not None
+                            and input_ready_at is not None
+                            and input_ready_at > pending_idle_deadline
+                        )
+                        else ()
+                    )
+                    # A busy turn can delay the idle callback past the next
+                    # read. Honor the old prefix deadline before feeding late
+                    # text, so a standalone Esc cannot swallow it as Alt+key.
+                    input_events = expired_events + _input_events_for_chunk(
                         reader,
                         data,
                         terminal_context=terminal_context,

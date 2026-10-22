@@ -135,6 +135,18 @@ def wrap_cells(text: str, *, width: int) -> list[str]:
 
     wrapped: list[str] = []
     for logical_line in strip_control_sequences(text).split("\n"):
+        if not logical_line:
+            wrapped.append("")
+            continue
+        # Printable ASCII has one cell per codepoint and no multi-codepoint
+        # graphemes. Preserve spaces and explicit empty rows while slicing in C.
+        # Controls, tabs and Unicode retain the general cluster-aware layout.
+        if logical_line.isascii() and logical_line.isprintable():
+            wrapped.extend(
+                logical_line[start : start + width]
+                for start in range(0, len(logical_line), width)
+            )
+            continue
         current = ""
         current_width = 0
         for cluster in _display_grapheme_clusters(logical_line):

@@ -10,12 +10,13 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 if TYPE_CHECKING:
     from loushang.harness.session.prompt_execution import PromptExecutionResult
 
-from loushang.agent import Agent
+from loushang.agent import Agent, ModelCallPreparation
 from loushang.ai.api_registry import (
     APIRegistry,
     get_default_api_registry,
 )
 from loushang.ai.model import ModelSelection
+from loushang.ai.options import CallOptions
 from loushang.ai.types import ImagePart
 from loushang.foundation.json import JSONValue
 from loushang.foundation.platform_paths import resolve_platform_paths
@@ -532,6 +533,9 @@ class AgentProductSession(AgentSessionAdapterMixin):
                 self.session_manager.get_context_message_bindings
             ),
             get_active_records=self.session_manager.get_active_entries,
+            get_append_only_records_since=(
+                self.session_manager.get_append_only_entries_since
+            ),
             rebuild_model_input=self.session_manager.rebuild_model_input,
         )
         if (
@@ -646,6 +650,11 @@ class AgentProductSession(AgentSessionAdapterMixin):
                 turn_performance=self._turn_start_performance,
                 request_evidence_provider=(
                     self._request_evidence_runtime.project_model_input
+                ),
+                on_committed_evidence_free_input=lambda snapshot_id: (
+                    self._request_evidence_runtime.note_committed_model_input(
+                        snapshot_id, has_resource_evidence=False
+                    )
                 ),
             )
         )
@@ -1557,7 +1566,28 @@ class AgentProductSession(AgentSessionAdapterMixin):
             raise primary
 
     def _install_agent_model_call_boundary(self) -> None:
-        prepare = self._model_call_runtime.prepare
+        async def prepare(preparation: ModelCallPreparation) -> CallOptions:
+            if (
+                not isinstance(preparation, ModelCallPreparation)
+                or preparation.options.prepared_request_committer is not None
+                or self._is_current_model_call_session() is not True
+            ):
+                return await self._model_call_runtime.prepare(preparation)
+            await self._ensure_session_graph_prepared()
+            # Include cooperative recovery in the existing first-start timing.
+            # Its milestone is idempotent when the synchronous preparer marks it.
+            self._turn_start_performance.model_call_prepare_started(preparation)
+            try:
+                await self._request_evidence_runtime.prepare_model_input_async()
+            except asyncio.CancelledError:
+                raise
+            except BaseException:
+                self._turn_start_performance.model_call_prepare_failed()
+                raise
+            # This boundary still checks current Session ownership and rebuilds
+            # the evidence projection against the current path before binding.
+            return await self._model_call_runtime.prepare(preparation)
+
         self.agent.prepare_model_call = prepare
         self._installed_agent_prepare_model_call = prepare
         requirement = self._previous_transport_requirement or bool(

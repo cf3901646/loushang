@@ -6,10 +6,10 @@ import asyncio
 import contextvars
 import threading
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import Any, overload
 
 from loushang.harnesstui.conversation.input_policy import ConversationCapabilities
 from loushang.harnesstui.conversation.reader import TranscriptReaderSurface
@@ -80,6 +80,30 @@ def _normalized_compaction_summary(summary: str) -> str:
     return summary.strip()
 
 
+@dataclass(frozen=True, slots=True)
+class _ScreenRows(Sequence[str]):
+    """Expose selection/hit-test text without flattening a segmented frame."""
+
+    lines: Sequence[RenderLine]
+
+    def __len__(self) -> int:
+        return len(self.lines)
+
+    def __iter__(self) -> Iterator[str]:
+        return (line.text for line in self.lines)
+
+    @overload
+    def __getitem__(self, index: int) -> str: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> tuple[str, ...]: ...
+
+    def __getitem__(self, index: int | slice) -> str | tuple[str, ...]:
+        if isinstance(index, slice):
+            return tuple(line.text for line in self.lines[index])
+        return self.lines[index].text
+
+
 @dataclass(slots=True)
 class ScreenConversationApp:
     """Coordinate product-neutral conversation state with a TUI screen."""
@@ -132,7 +156,9 @@ class ScreenConversationApp:
     )
     _focused_tool_index: int | None = field(default=None, init=False, repr=False)
     _focused_tool_key: str | int | None = field(default=None, init=False, repr=False)
-    _screen_rows: tuple[str, ...] = field(default=(), init=False, repr=False)
+    _screen_rows: _ScreenRows = field(
+        default_factory=lambda: _ScreenRows(()), init=False, repr=False
+    )
     _last_render_width: int | None = field(default=None, init=False, repr=False)
     _selection_anchor: tuple[int, int] | None = field(
         default=None, init=False, repr=False
@@ -599,7 +625,7 @@ class ScreenConversationApp:
             self._focused_tool_index = None
             self._focused_tool_key = None
             self._detail_anchor_revision = None
-        self._screen_rows = tuple(line.text for line in result.lines)
+        self._screen_rows = _ScreenRows(result.lines)
         if (
             self._selection_anchor is not None
             and self._selection_tip is not None

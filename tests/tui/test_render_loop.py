@@ -366,6 +366,68 @@ def test_segment_cache_sweeps_changed_views_without_changing_flat_output() -> No
     assert no_op.materialized_logical_line_count == 0
 
 
+def test_editor_repaint_reuses_long_history_without_rekeying_every_segment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    history = tuple(
+        _render_segment(f"history {index}", identity=f"history-{index}")
+        for index in range(2_000)
+    )
+    root = SegmentedRoot(
+        (*history, _render_segment("draft 1", identity="editor", revision=1))
+    )
+    loop = RenderLoop(root)
+    size = TerminalSize(columns=80, rows=24)
+    first = loop.plan(size)
+    loop.commit(first, size=size)
+    original_key = render_loop_module._render_segment_cache_key
+    key_calls = 0
+
+    def counting_key(segment: RenderLineSegmentLike):
+        nonlocal key_calls
+        key_calls += 1
+        return original_key(segment)
+
+    monkeypatch.setattr(render_loop_module, "_render_segment_cache_key", counting_key)
+    root.segments = (
+        *history,
+        _render_segment("draft 2", identity="editor", revision=2),
+    )
+    changed = loop.plan(size)
+
+    assert key_calls < 16
+    assert changed.materialized_logical_line_count == 1
+    assert changed.changed_line_range == (2_000, 2_000)
+    assert changed.current_logical_lines[0] == "history 0"
+    assert changed.current_logical_lines[-1] == "draft 2"
+
+
+def test_prefix_reuse_stops_at_uncacheable_segment() -> None:
+    stable = _render_segment("stable", identity="stable")
+    volatile = RenderLineSegment(
+        (RenderLine("volatile 1"),), identity="volatile", cacheable=False
+    )
+    editor = _render_segment("draft 1", identity="editor", revision=1)
+    root = SegmentedRoot((stable, volatile, editor))
+    loop = RenderLoop(root)
+    size = TerminalSize(columns=80, rows=24)
+    first = loop.plan(size)
+    loop.commit(first, size=size)
+
+    root.segments = (
+        stable,
+        RenderLineSegment(
+            (RenderLine("volatile 2"),), identity="volatile", cacheable=False
+        ),
+        _render_segment("draft 2", identity="editor", revision=2),
+    )
+    changed = loop.plan(size)
+
+    assert tuple(changed.current_logical_lines) == ("stable", "volatile 2", "draft 2")
+    assert changed.changed_line_range == (1, 2)
+    assert changed.materialized_logical_line_count == 2
+
+
 def test_failed_segmented_flush_reuses_cache_without_advancing_baseline() -> None:
     identity = object()
     root = SegmentedRoot(

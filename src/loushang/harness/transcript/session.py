@@ -85,6 +85,7 @@ class AgentTranscriptSession:
         self._clock = clock or _utc_now
         self._committer = TranscriptCommitter(transcript)
         self._commit_observer: CommitObserver | None = None
+        self._last_model_input_context: _ModelInputCommitContext | None = None
 
     def set_commit_observer(self, observer: CommitObserver | None) -> None:
         """Observe durable commits without participating in commit success."""
@@ -137,6 +138,30 @@ class AgentTranscriptSession:
         """Return the selected transcript path in commit order."""
 
         return list(self._transcript.active_path())
+
+    def get_append_only_entries_since(
+        self, record_id: str
+    ) -> tuple[AgentTranscriptRecord, ...] | None:
+        """Return the selected suffix only when record_id remains an ancestor."""
+
+        if not isinstance(record_id, str) or not record_id:
+            raise ValueError("append-only transcript lookup requires a record id")
+        suffix: list[AgentTranscriptRecord] = []
+        seen: set[str] = set()
+        current_id = self._transcript.leaf_id
+        while current_id is not None and current_id != record_id:
+            if current_id in seen:
+                return None
+            seen.add(current_id)
+            record = self._transcript.get(current_id)
+            if record is None:
+                return None
+            suffix.append(record)
+            current_id = record.parent_id
+        if current_id != record_id or self._transcript.get(record_id) is None:
+            return None
+        suffix.reverse()
+        return tuple(suffix)
 
     def get_context_message_bindings(
         self,
@@ -401,17 +426,31 @@ class AgentTranscriptSession:
             raise RuntimeError(
                 "Model Input requires committed logical facts in the transcript"
             )
+        context = _ModelInputCommitContext(
+            purpose=purpose,
+            source_leaf_id=source_leaf_id,
+            source_revision=self._transcript.revision,
+            logical_input=logical_input,
+            reuse_from=self._last_model_input_context,
+        )
+        self._last_model_input_context = context
+        codec_factory = self._model_input_binary_codec_factory()
         return ModelInputTranscriptCommitter(
             transcript=self._transcript,
-            context=_ModelInputCommitContext(
-                purpose=purpose,
-                source_leaf_id=source_leaf_id,
-                source_revision=self._transcript.revision,
-                logical_input=logical_input,
-            ),
+            context=context,
             runtime_references=runtime_references,
-            binary_codec=self._model_input_binary_codec(active_only=True),
+            binary_codec=(
+                None
+                if codec_factory is not None
+                else self._model_input_binary_codec(active_only=True)
+            ),
+            binary_codec_factory=codec_factory,
         )
+
+    def _model_input_binary_codec_factory(
+        self,
+    ) -> Callable[[], SessionModelInputBlobCodec] | None:
+        return None
 
     def rebuild_model_input(self, snapshot_id: str) -> RebuiltModelInput:
         """Reconstruct one committed request through the Session boundary."""

@@ -29,6 +29,7 @@ from loushang.tui.transcript import (
 )
 
 DEFAULT_STABLE_TRANSCRIPT_CACHE_ENTRY_LIMIT = 128
+_RECORD_SEPARATOR = RenderLine("")
 
 
 class TranscriptPresentation(Protocol):
@@ -161,12 +162,24 @@ class TranscriptRegion:
     _committed_render_segments: tuple[RenderLineSegment, ...] = field(
         default=(), init=False, repr=False
     )
+    _committed_render_lines: SegmentedRenderLines = field(
+        default_factory=SegmentedRenderLines, init=False, repr=False
+    )
+    _committed_render_lines_segments: tuple[RenderLineSegment, ...] | None = field(
+        default=None, init=False, repr=False
+    )
     _committed_block_context: tuple[object, ...] | None = field(
         default=None, init=False, repr=False
     )
     _committed_record_blocks: tuple[
         tuple[DisplayRecord, bool, tuple[str, ...]], ...
     ] = field(default=(), init=False, repr=False)
+    _committed_record_lines: tuple[tuple[RenderLine, ...], ...] = field(
+        default=(), init=False, repr=False
+    )
+    _committed_record_segments: tuple[RenderLineSegment | None, ...] = field(
+        default=(), init=False, repr=False
+    )
     _committed_separator_rows: frozenset[int] = field(
         default_factory=frozenset,
         init=False,
@@ -453,18 +466,25 @@ class TranscriptRegion:
             style_signature=style_signature,
             has_committed=committed is not None,
         )
-        segments = (*self._committed_render_segments, *draft_segments)
-        lines = SegmentedRenderLines.from_segments(segments)
-        if len(lines) <= max_height:
+        if self._committed_render_lines_segments is not self._committed_render_segments:
+            self._committed_render_lines = SegmentedRenderLines.from_segments(
+                self._committed_render_segments
+            )
+            self._committed_render_lines_segments = self._committed_render_segments
+        committed_lines = self._committed_render_lines
+        draft_lines = SegmentedRenderLines.from_segments(draft_segments)
+        committed_count = len(committed_lines)
+        total_count = committed_count + len(draft_lines)
+        if total_count <= max_height:
             self._tail_start = 0
-            return lines
+            return SegmentedRenderLines.concat(committed_lines, draft_lines)
 
-        start = len(lines) - max_height
+        start = total_count - max_height
         if self.anchor_tool_index is not None:
             anchor_row = self._committed_control_by_index.get(self.anchor_tool_index)
             if anchor_row is not None and not start <= anchor_row < start + max_height:
                 start = max(
-                    0, min(anchor_row - max_height + 1, len(lines) - max_height)
+                    0, min(anchor_row - max_height + 1, total_count - max_height)
                 )
         committed_rows = committed.line_count if committed is not None else 0
         starts_at_draft_separator = (
@@ -476,7 +496,12 @@ class TranscriptRegion:
         if start in self._committed_separator_rows or starts_at_draft_separator:
             start += 1
         self._tail_start = start
-        return lines[start : start + max_height]
+        stop = start + max_height
+        visible_committed = committed_lines[start : min(stop, committed_count)]
+        visible_draft = draft_lines[
+            max(0, start - committed_count) : max(0, stop - committed_count)
+        ]
+        return SegmentedRenderLines.concat(visible_committed, visible_draft)
 
     def _render_committed_segment(
         self,
@@ -518,7 +543,8 @@ class TranscriptRegion:
         # The final assistant and Worked divider normally arrive together
         # after the last streaming frame. Preserve the already rendered history
         # instead of rebuilding every line just to append that short suffix.
-        appended = self.records[len(previous_blocks) :]
+        appended_start = len(previous_blocks)
+        appended = self.records[appended_start:]
         if (
             previous_blocks
             and self._committed_segment is not None
@@ -537,42 +563,54 @@ class TranscriptRegion:
         ):
             previous_render_segments = self._committed_render_segments
             lines = list(self._committed_segment.lines)
-            suffix_lines: list[RenderLine] = []
             append_separator_rows = set(self._committed_separator_rows)
             appended_blocks = []
+            appended_line_blocks = []
+            appended_segment_blocks: list[RenderLineSegment | None] = []
             for record in appended:
                 block = self._render_record_lines(
                     record, width=width, style_signature=style_signature
                 )
                 appended_blocks.append((record, False, block))
+                rendered_lines = tuple(RenderLine(row) for row in block)
+                appended_line_blocks.append(rendered_lines)
                 if block:
+                    segment_lines = rendered_lines
                     if lines:
                         append_separator_rows.add(len(lines))
-                        separator = RenderLine("")
-                        lines.append(separator)
-                        suffix_lines.append(separator)
-                    rendered_lines = tuple(RenderLine(row) for row in block)
-                    lines.extend(rendered_lines)
-                    suffix_lines.extend(rendered_lines)
+                        segment_lines = (_RECORD_SEPARATOR, *rendered_lines)
+                    record_segment = RenderLineSegment(segment_lines)
+                    appended_segment_blocks.append(record_segment)
+                    lines.extend(segment_lines)
+                else:
+                    appended_segment_blocks.append(None)
             append_segment = RenderLineSegment(lines=tuple(lines), revision=key)
             self._committed_segment_key = key
             self._committed_segment = append_segment
-            if suffix_lines:
-                suffix_segment = RenderLineSegment(
-                    lines=tuple(suffix_lines), revision=key
-                )
-                self._committed_render_segments = (
-                    *previous_render_segments,
-                    suffix_segment,
-                )
-            else:
-                self._committed_render_segments = previous_render_segments
+            self._committed_render_segments = (
+                *previous_render_segments,
+                *(
+                    segment
+                    for segment in appended_segment_blocks
+                    if segment is not None
+                ),
+            )
             self._committed_record_blocks = (*previous_blocks, *appended_blocks)
+            self._committed_record_lines = (
+                *self._committed_record_lines,
+                *appended_line_blocks,
+            )
+            self._committed_record_segments = (
+                *self._committed_record_segments,
+                *appended_segment_blocks,
+            )
             self._committed_separator_rows = frozenset(append_separator_rows)
             return append_segment
 
         current_blocks: list[tuple[DisplayRecord, bool, tuple[str, ...]]] = []
-        rows: list[str] = []
+        current_line_blocks: list[tuple[RenderLine, ...]] = []
+        current_segment_blocks: list[RenderLineSegment | None] = []
+        rows: list[RenderLine] = []
         separator_rows: set[int] = set()
         controls: dict[int, int] = {}
         for index, record in enumerate(self.records):
@@ -586,32 +624,68 @@ class TranscriptRegion:
                 if expanded and isinstance(record, ToolExecutionRecord)
                 else record
             )
-            if (
-                index < len(previous_blocks)
+            previous_record_reused = (
+                0 <= index < len(previous_blocks)
                 and previous_blocks[index][0] is record
                 and previous_blocks[index][1] == expanded
-            ):
+            )
+            if previous_record_reused:
                 block = previous_blocks[index][2]
+                rendered_lines = self._committed_record_lines[index]
             else:
                 block = self._render_record_lines(
                     display_record, width=width, style_signature=style_signature
                 )
-            current_blocks.append((record, expanded, block))
+                rendered_lines = tuple(RenderLine(row) for row in block)
+            # Reallocating one tracked tuple per old record on each tool
+            # chunk also causes full-history garbage-collection pauses.
+            current_blocks.append(
+                previous_blocks[index]
+                if previous_record_reused
+                else (record, expanded, block)
+            )
+            current_line_blocks.append(rendered_lines)
             if not block:
+                current_segment_blocks.append(None)
                 continue
-            if rows:
-                separator_rows.add(len(rows))
-                rows.append("")
-            rows.extend(block)
+            has_separator = bool(rows)
+            control_text: str | None = None
             if detail_available:
                 label = "Show Less" if expanded else "Show Detail"
                 if index == self.focused_tool_index:
                     label = f"> {label} <"
-                controls[len(rows)] = index
-                rows.append(f"  [{label}]")
+                controls[len(rows) + int(has_separator) + len(rendered_lines)] = index
+                control_text = f"  [{label}]"
+            previous_segment = (
+                self._committed_record_segments[index]
+                if previous_record_reused
+                else None
+            )
+            if (
+                previous_segment is not None
+                and (previous_segment.lines[0] is _RECORD_SEPARATOR) == has_separator
+                and (
+                    control_text is None
+                    or previous_segment.lines[-1].text == control_text
+                )
+            ):
+                record_segment = previous_segment
+            else:
+                segment_lines = (
+                    (_RECORD_SEPARATOR, *rendered_lines)
+                    if has_separator
+                    else rendered_lines
+                )
+                if control_text is not None:
+                    segment_lines = (*segment_lines, RenderLine(control_text))
+                record_segment = RenderLineSegment(segment_lines)
+            if has_separator:
+                separator_rows.add(len(rows))
+            rows.extend(record_segment.lines)
+            current_segment_blocks.append(record_segment)
         segment = (
             RenderLineSegment(
-                lines=tuple(RenderLine(row) for row in rows),
+                lines=tuple(rows),
                 revision=key,
             )
             if rows
@@ -619,9 +693,13 @@ class TranscriptRegion:
         )
         self._committed_segment_key = key
         self._committed_segment = segment
-        self._committed_render_segments = (segment,) if segment is not None else ()
+        self._committed_render_segments = tuple(
+            segment for segment in current_segment_blocks if segment is not None
+        )
         self._committed_block_context = block_context
         self._committed_record_blocks = tuple(current_blocks)
+        self._committed_record_lines = tuple(current_line_blocks)
+        self._committed_record_segments = tuple(current_segment_blocks)
         self._committed_separator_rows = frozenset(separator_rows)
         self._committed_control_rows = controls
         self._committed_control_positions = tuple(controls)
@@ -835,8 +913,12 @@ class TranscriptRegion:
         self._committed_segment_key = None
         self._committed_segment = None
         self._committed_render_segments = ()
+        self._committed_render_lines = SegmentedRenderLines()
+        self._committed_render_lines_segments = None
         self._committed_block_context = None
         self._committed_record_blocks = ()
+        self._committed_record_lines = ()
+        self._committed_record_segments = ()
         self._committed_separator_rows = frozenset()
         self._clear_draft_segment_cache()
         self._cache_generation = self.window_generation

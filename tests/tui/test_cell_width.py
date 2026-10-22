@@ -312,6 +312,25 @@ def test_normalize_terminal_output_decomposes_thai_lao_am_vowels() -> None:
     assert visible_width(normalize_terminal_output("ຳabc")) == visible_width("ຳabc")
 
 
+def test_wrap_cells_printable_ascii_preserves_rows_without_grapheme_scan(
+    monkeypatch,
+) -> None:
+    def fail(_text: str) -> list[str]:
+        raise AssertionError("printable ASCII must not scan Unicode graphemes")
+
+    monkeypatch.setattr(cell_width, "_display_grapheme_clusters", fail)
+    assert wrap_cells("\x1b[31mabc def  \x1b[0m\n\nxyz\n", width=4) == [
+        "abc ",
+        "def ",
+        " ",
+        "",
+        "xyz",
+        "",
+    ]
+    assert wrap_cells("", width=1) == [""]
+    assert wrap_cells("a" * 20000, width=80) == ["a" * 80] * 250
+
+
 def test_wrap_cells_preserves_explicit_newlines_and_wraps_by_cell_width() -> None:
     assert wrap_cells("abcd", width=3) == ["abc", "d"]
     assert wrap_cells("中ab", width=3) == ["中a", "b"]

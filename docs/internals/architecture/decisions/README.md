@@ -84,6 +84,12 @@ draft/proposed and superseded groups only when they contain records.
 | [ARD-008: Preserve Workspace Compatibility Across Upgrades](accepted/ARD-008-workspace-upgrade-compatibility.md) | Accepted | Product startup, Plugin storage and Session recovery | Retain compatible storage owners for existing workspaces; future storage changes preserve ordinary startup and data without user resets. |
 | [ARD-009: Unified Loading Input And Terminal Adapters](accepted/ARD-009-unified-loading-input-and-terminal-adapters.md) | Accepted | Coding, HarnessTUI and TUI | Share loading ownership and adapt transferable native input; native macOS/Windows validation pending. |
 
+### Draft
+
+| Record | Status | Boundary | Decision question |
+| --- | --- | --- | --- |
+| [ARD-011: Stage The Immutable Prefix Of A Tool Continuation](draft/ARD-011-stage-tool-continuation-prefix.md) | Draft | Agent, AI, Harness and Coding | Can a proven append-only prefix move historical request and Model Input work into the tool interval while retaining the final durability barrier? |
+
 ## Reading And Change Rule
 
 For a cross-scope change:
