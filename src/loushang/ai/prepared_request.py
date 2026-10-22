@@ -623,6 +623,10 @@ def _raise_if_transport_cancelled() -> None:
 def _same_raw_json_as_frozen(raw: object, frozen: object) -> bool:
     """Prove an untrusted provider value equals one previously sealed value."""
 
+    # The prior request owns a recursively frozen tree. An adapter can reuse
+    # one of those exact nodes without walking its historical descendants.
+    if raw is frozen:
+        return True
     raw_type = type(raw)
     if raw_type is dict and type(frozen) is MappingProxyType:
         raw_mapping = cast(dict[object, object], raw)

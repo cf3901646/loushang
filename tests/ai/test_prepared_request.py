@@ -290,6 +290,41 @@ def test_prepared_request_reuses_only_an_exact_immutable_message_prefix() -> Non
     assert reordered.payload["messages"][0] is not previous.payload["messages"][0]
 
 
+def test_prepared_request_accepts_its_own_sealed_message_prefix() -> None:
+    previous = PreparedModelRequest.from_provider_request(
+        _request(),
+        payload={
+            "messages": [{"role": "user", "content": [{"text": "old"}]}],
+            "model": "faux-model",
+        },
+    )
+    suffix = {"role": "user", "content": [{"text": "new"}]}
+    payload = {
+        "messages": [previous.payload["messages"][0], suffix],
+        "model": "faux-model",
+    }
+    expected = PreparedModelRequest.from_provider_request(
+        _request(),
+        payload={
+            "messages": [
+                {"role": "user", "content": [{"text": "old"}]},
+                suffix,
+            ],
+            "model": "faux-model",
+        },
+    )
+    reused = PreparedModelRequest.from_provider_request(
+        _request(), payload=payload, reuse_from=previous
+    )
+
+    assert reused.payload["messages"][0] is previous.payload["messages"][0]
+    assert reused.canonical_payload == expected.canonical_payload
+    assert reused.payload_hash == expected.payload_hash
+    assert reused.metrics == expected.metrics
+    assert reused.binary_fields == expected.binary_fields
+    assert reused.payload_for_transport() == expected.payload_for_transport()
+
+
 @pytest.mark.parametrize("boundary", ["before_preparation", "after_preparation"])
 def test_prepared_invocation_services_cancellation_before_commit(boundary) -> None:
     async def scenario():
