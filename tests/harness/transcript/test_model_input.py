@@ -1440,7 +1440,9 @@ def test_model_input_append_reuses_verified_prefix_value_references(
             runtime_references=_runtime_references(),
         )
         value_lookups = 0
+        yield_checks = 0
         original_find = model_input_v2_module.ModelInputV2NodeIndex.find_value
+        original_yield = model_input_v2_module.ModelInputV2Writer._yield_if_needed
 
         def find_value(index, value_hash):
             nonlocal value_lookups
@@ -1452,10 +1454,21 @@ def test_model_input_append_reuses_verified_prefix_value_references(
             "find_value",
             find_value,
         )
+        async def count_yield(writer):
+            nonlocal yield_checks
+            yield_checks += 1
+            await original_yield(writer)
+
+        monkeypatch.setattr(
+            model_input_v2_module.ModelInputV2Writer,
+            "_yield_if_needed",
+            count_yield,
+        )
         request = _prepared(payload={"messages": next_messages})
         await second.commit_prepared_request(request)
 
         assert value_lookups < 10, "append rechecked every verified old value"
+        assert yield_checks < 20, f"append checked {yield_checks} verified old values"
         rebuilt = rebuild_model_input(transcript, second.commits[-1].snapshot_id)
         assert rebuilt.logical_input == next_logical
         assert rebuilt.prepared_payload == request.payload_for_transport()

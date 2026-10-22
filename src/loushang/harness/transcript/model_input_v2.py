@@ -1436,10 +1436,13 @@ class ModelInputV2Writer:
                 "Model Input v2 request exceeds the decoded-byte budget"
             )
         missing_plans: list[_ValuePlan] = []
-        for plan in self._value_plans.values():
+        unresolved_plans = (
+            plan
+            for plan in self._value_plans.values()
+            if plan.value_hash not in self._value_references
+        )
+        for plan in unresolved_plans:
             await self._yield_if_needed()
-            if plan.value_hash in self._value_references:
-                continue
             existing = self._index.find_value(plan.value_hash)
             if existing is None:
                 missing_plans.append(plan)
