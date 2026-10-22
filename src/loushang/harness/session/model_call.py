@@ -746,11 +746,23 @@ class SessionModelCallPreparer:
                 self._strict_prefix_messages,
                 self._strict_prefix_encoded,
             )
-            committer = self._transcript.create_model_input_committer(
-                purpose=preparation.purpose,
-                logical_input=logical_input,
-                runtime_references=runtime_references,
-            )
+            if owner_loop is None:
+                committer = self._transcript.create_model_input_committer(
+                    purpose=preparation.purpose,
+                    logical_input=logical_input,
+                    runtime_references=runtime_references,
+                )
+            else:
+                async def create_committer() -> ModelInputTranscriptCommitter:
+                    return self._transcript.create_model_input_committer(
+                        purpose=preparation.purpose,
+                        logical_input=logical_input,
+                        runtime_references=runtime_references,
+                    )
+
+                committer = asyncio.run_coroutine_threadsafe(
+                    create_committer(), owner_loop
+                ).result()
             sealed_messages = committer.sealed_logical_messages
             sealed_input = committer.sealed_logical_input
             prior_source = self._last_prepared_source

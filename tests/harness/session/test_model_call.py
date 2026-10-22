@@ -2191,11 +2191,22 @@ def test_concurrent_session_model_inputs_allow_only_one_transport() -> None:
     asyncio.run(scenario())
 
 
-def test_worker_preparation_projects_evidence_on_the_transcript_owner_loop() -> None:
+def test_worker_preparation_uses_the_transcript_owner_loop_for_owned_operations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     async def scenario() -> None:
         session = await _transcript_session()
         owner_loop = asyncio.get_running_loop()
         projected = []
+        created = []
+        create_committer = session.create_model_input_committer
+
+        def observe_create_committer(**kwargs: object):
+            assert asyncio.get_running_loop() is owner_loop
+            created.append(True)
+            return create_committer(**kwargs)
+
+        monkeypatch.setattr(session, "create_model_input_committer", observe_create_committer)
 
         def project_evidence(preparation: ModelCallPreparation) -> None:
             assert preparation.purpose == "main"
@@ -2222,6 +2233,7 @@ def test_worker_preparation_projects_evidence_on_the_transcript_owner_loop() -> 
             )
             assert options.prepared_request_committer is not None
             assert projected == [True]
+            assert created == [True]
         finally:
             await runtime.dispose()
 
