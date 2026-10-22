@@ -16,7 +16,11 @@ from loushang.ai.context import normalize_context, normalize_context_result
 from loushang.ai.json_codec import serialize_message
 from loushang.ai.model import Auth, Capabilities, Model, OpenAICompletionsConfig
 from loushang.ai.options import CallOptions, RetryOptions
-from loushang.ai.prepared_request import PreparedModelRequest, PreparedRequestLimits
+from loushang.ai.prepared_request import (
+    PreparedModelCallOutcome,
+    PreparedModelRequest,
+    PreparedRequestLimits,
+)
 from loushang.ai.protocols.openai_chat_completions import OpenAIChatCompletionsAdapter
 from loushang.ai.provider.protocol import ProviderRequest
 from loushang.ai.types import (
@@ -1192,12 +1196,21 @@ def test_session_incremental_normalization_matches_full_after_user_boundary(
             base_url="https://provider.test/v1",
             max_output_tokens=16,
         )
-        await first_committer.commit_prepared_request(
-            OpenAIChatCompletionsAdapter().prepare_request(first_request)
-        )
+        first_prepared = OpenAIChatCompletionsAdapter().prepare_request(first_request)
+        await first_committer.commit_prepared_request(first_prepared)
         assert runtime._consumer is not None
         preparer = runtime._consumer.facets.require(
             model_call_module.MODEL_INPUT_PREPARATION_FACET
+        )
+        assert preparer._normalized_cache_task is None
+        await first_committer.record_terminal_model_call(
+            PreparedModelCallOutcome(
+                invocation_id=first_prepared.invocation_id,
+                disposition="completed",
+                stop_reason="toolUse",
+                usage=Usage(0, 0, 0, 0, 0, None),
+            ),
+            usage_observed=False,
         )
         assert preparer._normalized_cache_task is not None
         await preparer._normalized_cache_task
@@ -1280,6 +1293,61 @@ def test_session_incremental_normalization_matches_full_after_user_boundary(
             == expected
         )
         assert lengths == [3]
+        await runtime.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_terminal_model_call_skips_unneeded_normalization_prewarm() -> None:
+    async def scenario() -> None:
+        session = await _transcript_session()
+        runtime = _model_call_runtime(session, is_current=lambda: True)
+        model = replace(
+            _model(api="openai-completions"),
+            capabilities=Capabilities(stream=True, tool_use=True, max_tokens=128),
+            adapter=OpenAICompletionsConfig(),
+        )
+        context = Context(
+            messages=[UserMessage(role="user", content="done", timestamp=1.0)]
+        )
+        options = await runtime.prepare(
+            ModelCallPreparation(
+                purpose="main",
+                sequence=1,
+                model=model,
+                context=context,
+                options=CallOptions(),
+            )
+        )
+        committer = options.prepared_request_committer
+        assert committer is not None
+        result = committer.normalize_owned_context(
+            committer.owned_sealed_context(context), model=model, pairing_mode="repair"
+        )
+        prepared = OpenAIChatCompletionsAdapter().prepare_request(
+            ProviderRequest(
+                model=model,
+                context=result.context,
+                options=options,
+                base_url="https://provider.test/v1",
+                max_output_tokens=16,
+            )
+        )
+        await committer.commit_prepared_request(prepared)
+        await committer.record_terminal_model_call(
+            PreparedModelCallOutcome(
+                invocation_id=prepared.invocation_id,
+                disposition="completed",
+                stop_reason="stop",
+                usage=Usage(0, 0, 0, 0, 0, None),
+            ),
+            usage_observed=False,
+        )
+        assert runtime._consumer is not None
+        preparer = runtime._consumer.facets.require(
+            model_call_module.MODEL_INPUT_PREPARATION_FACET
+        )
+        assert preparer._normalized_cache_task is None
         await runtime.dispose()
 
     asyncio.run(scenario())

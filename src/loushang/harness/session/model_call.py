@@ -945,6 +945,22 @@ class _CurrentSessionCommitter(
                     pass
         return normalize_context_result(context, model=model, pairing_mode=pairing_mode)
 
+    def _prewarm_normalized_prefix_for_tool(
+        self, outcome: PreparedModelCallOutcome
+    ) -> None:
+        if (
+            outcome.stop_reason == "toolUse"
+            and self._on_committed_normalization is not None
+            and self._normalization_model is not None
+            and self._normalization_pairing_mode is not None
+        ):
+            self._on_committed_normalization(
+                self._sealed_messages,
+                self.owned_sealed_context,
+                self._normalization_model,
+                self._normalization_pairing_mode,
+            )
+
     def verify_sealed_context(self, context: Context) -> None:
         """Reject a context changed after its durable logical projection."""
 
@@ -1030,17 +1046,6 @@ class _CurrentSessionCommitter(
         self.prepared_request_reuse = request
         if self._on_committed_prepared_request is not None:
             self._on_committed_prepared_request(request)
-        if (
-            self._on_committed_normalization is not None
-            and self._normalization_model is not None
-            and self._normalization_pairing_mode is not None
-        ):
-            self._on_committed_normalization(
-                self._sealed_messages,
-                self.owned_sealed_context,
-                self._normalization_model,
-                self._normalization_pairing_mode,
-            )
         if self._on_committed_model_input is not None:
             self._on_committed_model_input(snapshot_id)
         if self._turn_performance is not None:
@@ -1100,6 +1105,7 @@ class _CurrentSessionCommitter(
             )
         await self._committer.record_model_call_outcome(outcome)
         self._require_current()
+        self._prewarm_normalized_prefix_for_tool(outcome)
 
     async def record_terminal_model_call(
         self,
@@ -1136,6 +1142,7 @@ class _CurrentSessionCommitter(
             )
         await self._committer.record_terminal_model_call(outcome, usage=usage)
         self._require_current()
+        self._prewarm_normalized_prefix_for_tool(outcome)
 
     @property
     def model_input_snapshot_ids(self) -> tuple[str, ...]:
