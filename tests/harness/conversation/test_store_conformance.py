@@ -834,8 +834,10 @@ def test_file_background_head_write_does_not_delay_durable_append(
         try:
             receipt = await asyncio.wait_for(
                 store.append(
-                    key, _Record("record-1", "first"),
-                    expected_revision=0, operation_id="record-1",
+                    key,
+                    _Record("record-1", "first"),
+                    expected_revision=0,
+                    operation_id="record-1",
                 ),
                 timeout=1,
             )
@@ -854,11 +856,56 @@ def test_file_background_head_write_does_not_delay_durable_append(
 
         monkeypatch.setattr(file_store_module, "_try_load_store_head", count_load)
         await store.append(
-            key, _Record("record-2", "second"),
-            expected_revision=1, operation_id="record-2",
+            key,
+            _Record("record-2", "second"),
+            expected_revision=1,
+            operation_id="record-2",
         )
         assert loads == 0
         await store.drain_advisory_head_updates()
+        reopened = cast(
+            FileConversationStore[_Header, _Record], _file_factory(tmp_path)()
+        )
+        assert (await reopened.load(key)).snapshot.revision == 2
+
+    asyncio.run(scenario())
+
+
+def test_file_background_head_writes_coalesce_and_drain_without_delay(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = cast(
+        FileConversationStore[_Header, _Record],
+        _file_factory(tmp_path, background_head_updates=True)(),
+    )
+    key = ConversationKey("coding", "coalesced-head")
+    store._create_sync(key, _Header("Header"), operation_id=_operation("create", key))
+    writes: list[int] = []
+    original = store._write_head_if_current
+
+    def count_write(key, path, head):
+        writes.append(head.revision)
+        return original(key, path, head)
+
+    monkeypatch.setattr(store, "_write_head_if_current", count_write)
+
+    async def scenario() -> None:
+        await store.append(
+            key,
+            _Record("record-1", "first"),
+            expected_revision=0,
+            operation_id="record-1",
+        )
+        await store.append(
+            key,
+            _Record("record-2", "second"),
+            expected_revision=1,
+            operation_id="record-2",
+        )
+        assert writes == []
+        await asyncio.wait_for(store.drain_advisory_head_updates(), timeout=1)
+        assert writes == [2]
         reopened = cast(
             FileConversationStore[_Header, _Record], _file_factory(tmp_path)()
         )
@@ -943,14 +990,20 @@ def test_file_background_head_write_cannot_replace_newer_writer_head(
     async def scenario() -> None:
         try:
             await first.append(
-                key, _Record("record-1", "first"),
-                expected_revision=0, operation_id="record-1",
+                key,
+                _Record("record-1", "first"),
+                expected_revision=0,
+                operation_id="record-1",
             )
             assert await asyncio.to_thread(entered.wait, 1)
-            second = cast(FileConversationStore[_Header, _Record], _file_factory(tmp_path)())
+            second = cast(
+                FileConversationStore[_Header, _Record], _file_factory(tmp_path)()
+            )
             second._append_sync(
-                key, _Record("record-2", "second"),
-                expected_revision=1, operation_id="record-2",
+                key,
+                _Record("record-2", "second"),
+                expected_revision=1,
+                operation_id="record-2",
             )
         finally:
             release.set()

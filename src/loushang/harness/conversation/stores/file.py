@@ -83,6 +83,7 @@ _OPERATION_FILTER_FALSE_POSITIVE_BUDGET = 1e-5
 _OPERATION_FILTER_MAX_SEGMENTS = 32
 _RECENT_RECORD_LIMIT = 64
 _TOMBSTONE_MAX_BYTES = 64 * 1024
+_ADVISORY_HEAD_QUIET_SECONDS = 0.75
 
 
 @dataclass(frozen=True)
@@ -270,7 +271,9 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
         self._read_only = read_only
         self._operation_scope = operation_scope
         self._file_io = file_io
-        self._creation_witness: tuple[ConversationKey, str, _PublicationWitness] | None = None
+        self._creation_witness: (
+            tuple[ConversationKey, str, _PublicationWitness] | None
+        ) = None
         self._creation_witness_written = False
         self._create_path = create_path
         self._resolve_path = resolve_path
@@ -288,6 +291,10 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
         self._head_cache_lock = threading.Lock()
         self._background_head_updates = background_head_updates
         self._pending_head_updates: set[asyncio.Task[None]] = set()
+        self._queued_head_updates: dict[ConversationKey, tuple[Path, _StoreHead]] = {}
+        self._head_update_workers: dict[ConversationKey, asyncio.Task[None]] = {}
+        self._head_update_wakes: dict[ConversationKey, asyncio.Event] = {}
+        self._draining_head_updates = False
         self._snapshot_loader = snapshot_loader
         self._scan_snapshot_loader = scan_snapshot_loader or snapshot_loader
         self._delete_artifacts = delete_artifacts
@@ -350,24 +357,39 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
         self._require_writable()
         operation = require_operation_id(operation_id)
         if self._file_io is None or self._creation_witness is not None:
-            raise StoreDataError("creation identity requires one unused rooted FileStore")
+            raise StoreDataError(
+                "creation identity requires one unused rooted FileStore"
+            )
         path = self._checked_path(self._create_path(key))
         witness = self._file_io.retain_next_publication(path)
         self._creation_witness = key, operation, witness
 
-    def created_file_identity(self, key: ConversationKey, operation_id: str) -> tuple[int, int]:
+    def created_file_identity(
+        self, key: ConversationKey, operation_id: str
+    ) -> tuple[int, int]:
         """Read only the exact creation's still-pinned native receipt."""
         retained = self._creation_witness
-        if retained is None or retained[:2] != (key, operation_id) or not self._creation_witness_written:
-            raise StoreCommitOutcomeUnknown("create has no original file identity receipt")
+        if (
+            retained is None
+            or retained[:2] != (key, operation_id)
+            or not self._creation_witness_written
+        ):
+            raise StoreCommitOutcomeUnknown(
+                "create has no original file identity receipt"
+            )
         try:
             return retained[2].identity
         except OSError as exc:
-            raise StoreCommitOutcomeUnknown("create file identity witness is unavailable") from exc
+            raise StoreCommitOutcomeUnknown(
+                "create file identity witness is unavailable"
+            ) from exc
 
     async def _scoped_io(
-        self, target: ConversationKey | str, operation: Callable[..., ResultT],
-        *args: Any, **kwargs: Any,
+        self,
+        target: ConversationKey | str,
+        operation: Callable[..., ResultT],
+        *args: Any,
+        **kwargs: Any,
     ) -> ResultT:
         if self._operation_scope is None:
             return await _settled_io(operation, *args, **kwargs)
@@ -426,11 +448,35 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
     def _schedule_head_update(
         self, key: ConversationKey, path: Path, head: _StoreHead
     ) -> None:
+        self._queued_head_updates[key] = (path, head)
+        if key in self._head_update_workers:
+            if self._draining_head_updates:
+                self._head_update_wakes[key].set()
+            return
+        wake = asyncio.Event()
+        self._head_update_wakes[key] = wake
+
         async def write() -> None:
-            with suppress(Exception):
-                await asyncio.to_thread(self._write_head_if_current, key, path, head)
+            try:
+                while key in self._queued_head_updates:
+                    if not self._draining_head_updates:
+                        with suppress(asyncio.TimeoutError):
+                            await asyncio.wait_for(
+                                wake.wait(), timeout=_ADVISORY_HEAD_QUIET_SECONDS
+                            )
+                    wake.clear()
+                    pending = self._queued_head_updates.pop(key, None)
+                    if pending is not None:
+                        with suppress(Exception):
+                            await asyncio.to_thread(
+                                self._write_head_if_current, key, *pending
+                            )
+            finally:
+                self._head_update_workers.pop(key, None)
+                self._head_update_wakes.pop(key, None)
 
         task = asyncio.create_task(write())
+        self._head_update_workers[key] = task
         self._pending_head_updates.add(task)
         task.add_done_callback(self._pending_head_updates.discard)
 
@@ -454,17 +500,23 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
         """Join optional sidecar writes before releasing their rooted IO owner."""
 
         cancellation: asyncio.CancelledError | None = None
-        while self._pending_head_updates:
-            for task in tuple(self._pending_head_updates):
-                while not task.done():
+        self._draining_head_updates = True
+        for wake in self._head_update_wakes.values():
+            wake.set()
+        try:
+            while self._pending_head_updates:
+                for task in tuple(self._pending_head_updates):
+                    while not task.done():
+                        try:
+                            await asyncio.shield(task)
+                        except asyncio.CancelledError as error:
+                            cancellation = error
                     try:
-                        await asyncio.shield(task)
-                    except asyncio.CancelledError as error:
-                        cancellation = error
-                try:
-                    task.result()
-                finally:
-                    self._pending_head_updates.discard(task)
+                        task.result()
+                    finally:
+                        self._pending_head_updates.discard(task)
+        finally:
+            self._draining_head_updates = False
         if cancellation is not None:
             raise cancellation
 
@@ -503,8 +555,14 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
     ) -> DeletionReceipt:
         self._require_writable()
         if expected_file_identity is not None:
-            if (type(expected_file_identity) is not tuple or len(expected_file_identity) != 2
-                    or any(type(value) is not int or value < 0 for value in expected_file_identity)):
+            if (
+                type(expected_file_identity) is not tuple
+                or len(expected_file_identity) != 2
+                or any(
+                    type(value) is not int or value < 0
+                    for value in expected_file_identity
+                )
+            ):
                 raise ValueError("expected file identity must be a device/inode pair")
             if self._file_io is None:
                 raise StoreDataError("identity-bound deletion requires rooted file IO")
@@ -557,7 +615,9 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
                     )
                 if self._is_file(path):
                     current = _load_unlocked(journal)
-                    recorded_operation = _load_create_operation(path, rooted=journal.bound_file)
+                    recorded_operation = _load_create_operation(
+                        path, rooted=journal.bound_file
+                    )
                     if (
                         current.header == header
                         and current.records == durable_records
@@ -588,7 +648,9 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
                     except _JournalWriteEncodingError:
                         may_have_created = False
                         raise
-                    if self._creation_witness is not None and self._creation_witness[:2] == (key, operation):
+                    if self._creation_witness is not None and self._creation_witness[
+                        :2
+                    ] == (key, operation):
                         self._creation_witness_written = True
                     _write_create_operation(
                         path,
@@ -635,9 +697,7 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
         loader = self._scan_snapshot_loader if scan else self._snapshot_loader
         try:
             snapshot = (
-                loader(path)
-                if loader is not None
-                else self._new_journal(path).load()
+                loader(path) if loader is not None else self._new_journal(path).load()
             )
         except FileNotFoundError as exc:
             raise StoreNotFoundError(f"conversation {key!r} was not found") from exc
@@ -663,7 +723,8 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
         *,
         expected_revision: int,
         operation_id: str,
-        deferred_head_update: list[tuple[ConversationKey, Path, _StoreHead]] | None = None,
+        deferred_head_update: list[tuple[ConversationKey, Path, _StoreHead]]
+        | None = None,
     ) -> ConversationCommitResult:
         operation = require_operation_id(operation_id)
         expected = require_revision(expected_revision, name="expected revision")
@@ -683,9 +744,7 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
                     if projected_id is not None
                     else None
                 )
-                head = self._head_for_append(
-                    key, path, rooted=journal.bound_file
-                )
+                head = self._head_for_append(key, path, rooted=journal.bound_file)
                 needs_full_reconciliation = bool(
                     head is not None
                     and projected_id == operation
@@ -780,7 +839,12 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
                     ) from exc
                 if advanced_head is not None:
                     if deferred_head_update is None:
-                        _try_write_store_head(path, advanced_head, refresh_identity=True, rooted=journal.bound_file)
+                        _try_write_store_head(
+                            path,
+                            advanced_head,
+                            refresh_identity=True,
+                            rooted=journal.bound_file,
+                        )
                     else:
                         advanced_head = replace(
                             advanced_head,
@@ -845,9 +909,7 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
                 record_digests = tuple(
                     _record_digest(journal, record) for record in durable_records
                 )
-                head = self._head_for_append(
-                    key, path, rooted=journal.bound_file
-                )
+                head = self._head_for_append(key, path, rooted=journal.bound_file)
                 prepared = (
                     self._prepare_batch_from_head(
                         key,
@@ -1084,14 +1146,25 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
         expected = require_revision(expected_revision, name="expected revision")
         operation = require_operation_id(operation_id)
         resolved = self._resolve_path(key)
-        path = self._checked_path(resolved if resolved is not None else self._create_path(key))
+        path = self._checked_path(
+            resolved if resolved is not None else self._create_path(key)
+        )
         tombstone_path = self._tombstone_for(key, path)
-        binding = self._file_io.bind(tombstone_path, create_parent=True) if self._file_io is not None else nullcontext(None)
+        binding = (
+            self._file_io.bind(tombstone_path, create_parent=True)
+            if self._file_io is not None
+            else nullcontext(None)
+        )
         progress = _DeletionProgress()
         try:
             with binding as tombstone:
                 return self._delete_bound(
-                    key, path, tombstone_path, tombstone, expected=expected, operation=operation,
+                    key,
+                    path,
+                    tombstone_path,
+                    tombstone,
+                    expected=expected,
+                    operation=operation,
                     progress=progress,
                     expected_file_identity=expected_file_identity,
                 )
@@ -1105,8 +1178,14 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
             raise
 
     def _delete_bound(
-        self, key: ConversationKey, path: Path, tombstone_path: Path,
-        tombstone: RootedFile | None, *, expected: int, operation: str,
+        self,
+        key: ConversationKey,
+        path: Path,
+        tombstone_path: Path,
+        tombstone: RootedFile | None,
+        *,
+        expected: int,
+        operation: str,
         progress: _DeletionProgress,
         expected_file_identity: tuple[int, int] | None,
     ) -> DeletionReceipt:
@@ -1132,7 +1211,9 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
                         journal = self._new_journal(path, write=True)
                         with _exclusive_lock(journal) as journal:
                             if expected_file_identity is not None:
-                                self._require_delete_identity(journal.bound_file, expected_file_identity)
+                                self._require_delete_identity(
+                                    journal.bound_file, expected_file_identity
+                                )
                                 assert journal.bound_file is not None
                                 journal.bound_file.unlink_owned(expected_file_identity)
                             elif journal.bound_file is None:
@@ -1152,7 +1233,9 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
                 if not self._is_file(path):
                     raise StoreNotFoundError(f"conversation {key!r} was not found")
                 if expected_file_identity is not None:
-                    self._require_delete_identity(journal.bound_file, expected_file_identity)
+                    self._require_delete_identity(
+                        journal.bound_file, expected_file_identity
+                    )
                 snapshot = _load_unlocked(journal)
                 revision = len(snapshot.records)
                 if revision != expected:
@@ -1168,7 +1251,9 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
                 progress.may_have_committed = True
                 _write_tombstone(tombstone_path, receipt, rooted=tombstone)
                 if expected_file_identity is not None:
-                    self._require_delete_identity(journal.bound_file, expected_file_identity)
+                    self._require_delete_identity(
+                        journal.bound_file, expected_file_identity
+                    )
                     assert journal.bound_file is not None
                     journal.bound_file.unlink_owned(expected_file_identity)
                 elif journal.bound_file is None:
@@ -1189,12 +1274,16 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
         return receipt
 
     @staticmethod
-    def _require_delete_identity(rooted: RootedFile | None, identity: tuple[int, int]) -> None:
+    def _require_delete_identity(
+        rooted: RootedFile | None, identity: tuple[int, int]
+    ) -> None:
         if rooted is None:
             raise StoreDataError("identity-bound deletion requires a rooted Journal")
         status = rooted.stat()
         if (status.st_dev, status.st_ino) != identity:
-            raise StoreConflictError("conversation file identity changed before deletion")
+            raise StoreConflictError(
+                "conversation file identity changed before deletion"
+            )
 
     def _try_delete_artifacts(self, path: Path) -> None:
         if self._delete_artifacts is None:
@@ -1301,10 +1390,14 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
     def _checked_path(self, path: Path) -> Path:
         path = Path(path)
         if self._file_io is not None and path.parent != self._file_io.root:
-            raise StoreDataError("managed conversation must be a direct child of its root")
+            raise StoreDataError(
+                "managed conversation must be a direct child of its root"
+            )
         return path
 
-    def _new_journal(self, path: Path, *, write: bool = False) -> JsonlJournal[HeaderT, RecordT]:
+    def _new_journal(
+        self, path: Path, *, write: bool = False
+    ) -> JsonlJournal[HeaderT, RecordT]:
         result = (self._write_journal_factory if write else self._journal_factory)(path)
         if self._file_io is not None and result.file_io is not self._file_io:
             raise StoreDataError("managed Journal must borrow the Store's root IO")
@@ -1372,19 +1465,27 @@ def _exclusive_lock(
     journal: JsonlJournal[HeaderT, RecordT],
 ) -> Iterator[JsonlJournal[HeaderT, RecordT]]:
     if journal.file_io is not None:
-        with journal.file_io.bind(journal.path, create_parent=True, durable=journal.durability.fsync) as rooted:
+        with journal.file_io.bind(
+            journal.path, create_parent=True, durable=journal.durability.fsync
+        ) as rooted:
             rooted.acquire_lock(exclusive=True, suffix=journal.durability.lock_suffix)
             yield JsonlJournal(
-                journal.path, record_codec=journal.record_codec, header_codec=journal.header_codec,
-                format_profile=journal.format_profile, durability=_unlocked_durability(journal),
-                load_policy=journal.load_policy, bound_file=rooted,
+                journal.path,
+                record_codec=journal.record_codec,
+                header_codec=journal.header_codec,
+                format_profile=journal.format_profile,
+                durability=_unlocked_durability(journal),
+                load_policy=journal.load_policy,
+                bound_file=rooted,
             )
         return
     if journal.lock_factory is not None:
         with journal.lock_factory(journal.path, "exclusive"):
             yield journal
     else:
-        with journal_file_lock(journal.path, "exclusive", lock_suffix=journal.durability.lock_suffix):
+        with journal_file_lock(
+            journal.path, "exclusive", lock_suffix=journal.durability.lock_suffix
+        ):
             yield journal
 
 
@@ -1510,7 +1611,9 @@ def _record_digest(
     return hashlib.sha256(payload).hexdigest()
 
 
-def _journal_identity(path: Path, *, rooted: RootedFile | None = None) -> _JournalIdentity:
+def _journal_identity(
+    path: Path, *, rooted: RootedFile | None = None
+) -> _JournalIdentity:
     stat = path.stat() if rooted is None else rooted.stat()
     return _JournalIdentity(
         device=stat.st_dev,
@@ -1614,7 +1717,8 @@ def _create_operation_id(key: ConversationKey) -> str:
 
 def _load_create_operation(
     path: Path,
-    *, rooted: RootedFile | None = None,
+    *,
+    rooted: RootedFile | None = None,
 ) -> str | None:
     value = _load_store_metadata(path, rooted=rooted)
     if value is None:
@@ -1635,7 +1739,9 @@ def _write_create_operation(
     metadata: dict[str, object] = {"create_operation_id": operation_id}
     if head is not None:
         metadata["head"] = _encode_store_head(head)
-    _write_json_sidecar(_metadata_path(path), metadata, rooted=_metadata_ref(path, rooted))
+    _write_json_sidecar(
+        _metadata_path(path), metadata, rooted=_metadata_ref(path, rooted)
+    )
 
 
 def _metadata_ref(path: Path, rooted: RootedFile | None) -> RootedFile | None:
@@ -1653,10 +1759,16 @@ def _metadata_identity(
         return None
 
 
-def _load_store_metadata(path: Path, *, rooted: RootedFile | None = None) -> dict[str, object] | None:
+def _load_store_metadata(
+    path: Path, *, rooted: RootedFile | None = None
+) -> dict[str, object] | None:
     try:
         metadata = _metadata_ref(path, rooted)
-        value = json.loads(metadata.read_bytes() if metadata is not None else _metadata_path(path).read_text(encoding="utf-8"))
+        value = json.loads(
+            metadata.read_bytes()
+            if metadata is not None
+            else _metadata_path(path).read_text(encoding="utf-8")
+        )
     except FileNotFoundError:
         return None
     except OSError:
@@ -1708,7 +1820,9 @@ def _try_write_store_head(
         if refresh_identity:
             head = replace(head, identity=_journal_identity(path, rooted=rooted))
         metadata["head"] = _encode_store_head(head)
-        _write_json_sidecar(_metadata_path(path), metadata, rooted=_metadata_ref(path, rooted))
+        _write_json_sidecar(
+            _metadata_path(path), metadata, rooted=_metadata_ref(path, rooted)
+        )
     except Exception:
         return
 
@@ -1893,7 +2007,9 @@ def _store_head_checksum(value: dict[str, object]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _load_tombstone(target: Path, *, rooted: RootedFile | None = None) -> dict[str, object] | None:
+def _load_tombstone(
+    target: Path, *, rooted: RootedFile | None = None
+) -> dict[str, object] | None:
     value = _read_tombstone_json(target, rooted=rooted)
     if value is None:
         return None
@@ -1917,7 +2033,9 @@ def _validated_deletion_receipt(value: dict[str, object]) -> DeletionReceipt:
         raise StoreDataError("conversation deletion tombstone is invalid") from exc
 
 
-def _read_tombstone_json(target: Path, *, rooted: RootedFile | None = None) -> dict[str, object] | None:
+def _read_tombstone_json(
+    target: Path, *, rooted: RootedFile | None = None
+) -> dict[str, object] | None:
     if rooted is not None:
         try:
             value = json.loads(rooted.read_bytes(max_bytes=_TOMBSTONE_MAX_BYTES))
@@ -2016,7 +2134,9 @@ def _same_file_status(left: os.stat_result, right: os.stat_result) -> bool:
     )
 
 
-def _write_tombstone(path: Path, receipt: DeletionReceipt, *, rooted: RootedFile | None = None) -> None:
+def _write_tombstone(
+    path: Path, receipt: DeletionReceipt, *, rooted: RootedFile | None = None
+) -> None:
     _write_json_sidecar(
         path,
         {
@@ -2045,9 +2165,15 @@ def _decode_deletion_receipt(value: dict[str, object]) -> DeletionReceipt:
     )
 
 
-def _write_json_sidecar(path: Path, value: dict[str, object], *, rooted: RootedFile | None = None) -> None:
+def _write_json_sidecar(
+    path: Path, value: dict[str, object], *, rooted: RootedFile | None = None
+) -> None:
     if rooted is not None:
-        rooted.atomic_write((json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8"))
+        rooted.atomic_write(
+            (json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n").encode(
+                "utf-8"
+            )
+        )
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_suffix(path.suffix + ".tmp")
