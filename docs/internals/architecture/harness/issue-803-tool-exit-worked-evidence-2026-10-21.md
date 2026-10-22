@@ -1151,3 +1151,32 @@ claim. Even the optimistic Provider-only path remains about 1.4 seconds above
 the requested 500ms target. A cross-scope incremental source and projection
 contract is needed; see the proposed
 [Issue 803 incremental model-call pipeline](issue-803-incremental-model-call-pipeline.md).
+
+## Owned Provider prefix check, 2026-10-22
+
+`PreparedModelRequest` now accepts exact nodes from its previously owned,
+recursively frozen payload by identity when proving a reused message prefix.
+The former comparison rejected these immutable mapping nodes and rebuilt the
+entire payload. A regression failed before the change, then passed with exact
+canonical bytes, digest, metrics, binary fields and transport copy. The AI gate
+passed 884 offline tests. Ordinary mutable adapter values retain the existing
+recursive comparison and full-path fallback.
+
+A private offline adapter supplied the prior sealed Provider prefix to exercise
+the new Product check on a resumed Session with about 30,000 records and 1,700
+model messages. Its post-tool serialization was 0.70ms, the prepared-request
+phase 173ms, and the tool-exit-to-Worked interval 1,781ms. Maximum keyboard
+echo was 194ms and maximum event-loop delay 731ms. Native reopening verified
+both snapshots and terminal usage, the exact Tool output, unchanged authority
+and zero historical Tool executions. This is one diagnostic turn using an
+adapter-supplied prefix, not a default built-in adapter result or a p95 claim.
+The 500ms target remains unmet.
+
+The same trace spent 330ms in Session preparation, including 283ms rechecking
+historical message shapes; AI normalization took 171ms in a worker, Model Input
+commit 278ms, and the final transport copy 90ms. A candidate direct comparison
+against stored shapes passed the focused Session tests but was slightly slower
+on a 1,700-message synthetic sample (54.9ms versus 52.7ms median), so it was
+removed without a Product commit. The next accepted change needs to shorten
+the serial cross-layer chain while keeping the final source and publication
+barriers exact.
