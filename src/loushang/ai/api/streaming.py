@@ -277,18 +277,27 @@ async def _start_stream(
             tools=list(context.tools) if context.tools is not None else None,
         )
 
+        start_sealed_verification = getattr(
+            committer, "start_sealed_context_verification", None
+        )
+
         def normalize_sealed_context():
             result = normalize_context_result(
                 owned_context,
                 model=resolved_model,
                 pairing_mode=pairing_mode,
             )
-            verify_sealed_context = getattr(committer, "verify_sealed_context", None)
-            if callable(verify_sealed_context):
-                verify_sealed_context(owned_context)
+            if not callable(start_sealed_verification):
+                verify_sealed_context = getattr(
+                    committer, "verify_sealed_context", None
+                )
+                if callable(verify_sealed_context):
+                    verify_sealed_context(owned_context)
             return result
 
         normalization_result = await asyncio.to_thread(normalize_sealed_context)
+        if callable(start_sealed_verification):
+            start_sealed_verification(owned_context)
     else:
         normalization_result = normalize_context_result(
             context,

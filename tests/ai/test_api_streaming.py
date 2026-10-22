@@ -562,6 +562,58 @@ def test_session_owned_normalization_rejects_changed_sealed_context(
     asyncio.run(scenario())
 
 
+def test_session_owned_normalization_starts_verification_before_preparation() -> None:
+    order: list[str] = []
+
+    class SessionCommitter:
+        normalize_context_in_worker = True
+
+        def start_sealed_context_verification(self, context: Context) -> None:
+            assert context.messages[0].content == "sealed"
+            order.append("verify-start")
+
+        async def commit_prepared_request(self, request) -> None:
+            order.append("commit")
+
+    class PreparedProvider(_Provider):
+        def prepare_request(self, request: ProviderRequest) -> PreparedModelRequest:
+            order.append("prepare")
+            return PreparedModelRequest.from_provider_request(
+                request, payload={"messages": []}
+            )
+
+        async def invoke_prepared_raw(
+            self, request: ProviderRequest, prepared: PreparedModelRequest
+        ):
+            order.append("transport")
+            yield {"type": "response_done"}
+
+    _test_registry_with(PreparedProvider())
+    model = Model(
+        id="normalization-verification-start",
+        provider="selected-provider",
+        endpoint="selected-endpoint",
+        api="faux",
+        base_url="https://selected.example/v1",
+        auth=Auth(kind="none"),
+        capabilities=Capabilities(input=("text",), output=("text",), stream=True),
+    )
+
+    async def scenario() -> None:
+        await (
+            await stream(
+                model,
+                Context(
+                    messages=[UserMessage(role="user", content="sealed", timestamp=0.0)]
+                ),
+                CallOptions(prepared_request_committer=SessionCommitter()),
+            )
+        ).result()
+
+    asyncio.run(scenario())
+    assert order == ["verify-start", "prepare", "commit", "transport"]
+
+
 def test_cancelled_session_normalization_cannot_start_provider_transport(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
