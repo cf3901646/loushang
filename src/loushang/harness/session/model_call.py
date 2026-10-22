@@ -499,6 +499,8 @@ class _CurrentSessionCommitter(
 ):
     """Carry current-Session ownership through AI's final commit barrier."""
 
+    normalize_context_in_worker = True
+
     def __init__(
         self,
         *,

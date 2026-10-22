@@ -1111,3 +1111,23 @@ walks and preserve the durable barrier; changing the Worked label alone would
 hide the remaining work. Native reopening of this diagnostic run again
 verified both Model Input snapshots and terminal usage, the exact tool output,
 unchanged authority and zero historical tool executions.
+
+## Session-owned AI normalization offload, 2026-10-22
+
+The previous hot long-session call spent 307ms normalizing model messages on
+the event loop, including 26ms transforming tool pairings. Session-owned
+typed Context calls now copy only their outer message/tool arrays and run the
+same normalization in a worker when there is no trace callback. Direct SDK,
+custom Context and traced calls retain caller-thread behavior. Diagnostics,
+capability checks and provider admission still run after the worker returns.
+Cancellation while normalization is pending prevents provider invocation;
+the worker has no commit or transport authority.
+
+Successive 20-key offline turns measured maximum input echo delay of 475ms
+before this change and 218ms with it. Tool exit to Worked measured 2,335ms
+and 2,110ms, respectively. Normalization moved from the main thread to a
+worker; its measured duration changed from 307ms to 156ms under different
+load. These are directional observations, not a p95 or an isolated speedup.
+Native reopening of the changed run verified two Model Input snapshots and
+terminal usage records, the exact tool output, unchanged authority and zero
+historical tool executions. The 500ms Worked target remains open.

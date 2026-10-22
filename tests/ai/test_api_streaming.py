@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import threading
 from dataclasses import dataclass, field, replace
 from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from loushang.ai import CallOptions, ReasoningOptions, StructuredOutputOptions
+from loushang.ai import CallOptions, Context, ReasoningOptions, StructuredOutputOptions
 from loushang.ai.api.streaming import (
     complete,
     complete_structured,
@@ -28,6 +29,7 @@ from loushang.ai.model import (
     OpenAIResponsesConfig,
 )
 from loushang.ai.options import get_reasoning_effort, is_reasoning_requested
+from loushang.ai.prepared_request import PreparedModelRequest
 from loushang.ai.protocols.openai_chat_completions import OpenAIChatCompletionsAdapter
 from loushang.ai.protocols.openai_responses import OpenAIResponsesAdapter
 from loushang.ai.provider import ProviderRequest
@@ -418,6 +420,146 @@ def test_stream_passes_normalized_context_to_provider(
 
     normalized = _assert_normalized_provider_context(provider.context)
     assert normalized.messages[0].role == "user"
+
+
+def test_session_owned_normalization_keeps_event_loop_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from loushang.ai.api import streaming as streaming_module
+
+    class SessionCommitter:
+        normalize_context_in_worker = True
+
+        async def commit_prepared_request(self, request) -> None:
+            del request
+
+    class PreparedProvider(_Provider):
+        def prepare_request(self, request: ProviderRequest) -> PreparedModelRequest:
+            return PreparedModelRequest.from_provider_request(
+                request, payload={"messages": []}
+            )
+
+        async def invoke_prepared_raw(
+            self, request: ProviderRequest, prepared: PreparedModelRequest
+        ):
+            del prepared
+            self.context = request.context
+            yield {"type": "response_done"}
+
+    provider = PreparedProvider()
+    _test_registry_with(provider)
+    model = Model(
+        id="normalization-worker",
+        provider="selected-provider",
+        endpoint="selected-endpoint",
+        api="faux",
+        base_url="https://selected.example/v1",
+        auth=Auth(kind="none"),
+        capabilities=Capabilities(input=("text",), output=("text",), stream=True),
+    )
+    started = threading.Event()
+    release = threading.Event()
+    observed_thread: list[int] = []
+    original = streaming_module.normalize_context_result
+
+    def controlled_normalization(*args, **kwargs):
+        observed_thread.append(threading.get_ident())
+        started.set()
+        assert release.wait(1.0)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        streaming_module, "normalize_context_result", controlled_normalization
+    )
+
+    async def scenario() -> None:
+        main_thread = threading.get_ident()
+        request = asyncio.create_task(
+            stream(
+                model,
+                Context(messages=[UserMessage(role="user", content="hi", timestamp=0.0)]),
+                CallOptions(prepared_request_committer=SessionCommitter()),
+            )
+        )
+        try:
+            assert await asyncio.to_thread(started.wait, 1.0)
+            assert not request.done()
+            assert observed_thread != [main_thread]
+        finally:
+            release.set()
+        await (await request).result()
+        assert isinstance(provider.context, NormalizedContext)
+
+    asyncio.run(scenario())
+
+
+def test_cancelled_session_normalization_cannot_start_provider_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from loushang.ai.api import streaming as streaming_module
+
+    class SessionCommitter:
+        normalize_context_in_worker = True
+
+        async def commit_prepared_request(self, request) -> None:
+            del request
+
+    provider = _Provider()
+    _test_registry_with(provider)
+    model = Model(
+        id="cancel-normalization-worker",
+        provider="selected-provider",
+        endpoint="selected-endpoint",
+        api="faux",
+        base_url="https://selected.example/v1",
+        auth=Auth(kind="none"),
+        capabilities=Capabilities(input=("text",), output=("text",), stream=True),
+    )
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    original = streaming_module.normalize_context_result
+
+    def controlled_normalization(*args, **kwargs):
+        started.set()
+        assert release.wait(1.0)
+        try:
+            return original(*args, **kwargs)
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(
+        streaming_module, "normalize_context_result", controlled_normalization
+    )
+    adapter_calls: list[object] = []
+    original_adapter_call = streaming_module.call_api_adapter_stream
+
+    async def count_adapter_call(*args, **kwargs):
+        adapter_calls.append(args)
+        return await original_adapter_call(*args, **kwargs)
+
+    monkeypatch.setattr(streaming_module, "call_api_adapter_stream", count_adapter_call)
+
+    async def scenario() -> None:
+        task = asyncio.create_task(
+            stream(
+                model,
+                Context(messages=[UserMessage(role="user", content="hi", timestamp=0.0)]),
+                CallOptions(prepared_request_committer=SessionCommitter()),
+            )
+        )
+        assert await asyncio.to_thread(started.wait, 1.0)
+        task.cancel()
+        try:
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        finally:
+            release.set()
+        assert await asyncio.to_thread(finished.wait, 1.0)
+        assert adapter_calls == []
+        assert provider.context is None
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize(
