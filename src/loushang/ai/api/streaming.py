@@ -165,7 +165,10 @@ def _validate_capability(
         )
 
     supports_image_input = bool(getattr(capabilities, "supports_image_input", False))
-    if context_has_image_input(normalized_context.messages) and not supports_image_input:
+    if (
+        context_has_image_input(normalized_context.messages)
+        and not supports_image_input
+    ):
         raise UnsupportedCapabilityError(
             f"Model {model.id!r} does not support image input",
             model=getattr(model, "id", None),
@@ -273,12 +276,19 @@ async def _start_stream(
             messages=list(context.messages),
             tools=list(context.tools) if context.tools is not None else None,
         )
-        normalization_result = await asyncio.to_thread(
-            normalize_context_result,
-            owned_context,
-            model=resolved_model,
-            pairing_mode=pairing_mode,
-        )
+
+        def normalize_sealed_context():
+            result = normalize_context_result(
+                owned_context,
+                model=resolved_model,
+                pairing_mode=pairing_mode,
+            )
+            verify_sealed_context = getattr(committer, "verify_sealed_context", None)
+            if callable(verify_sealed_context):
+                verify_sealed_context(owned_context)
+            return result
+
+        normalization_result = await asyncio.to_thread(normalize_sealed_context)
     else:
         normalization_result = normalize_context_result(
             context,

@@ -477,7 +477,9 @@ def test_session_owned_normalization_keeps_event_loop_available(
         request = asyncio.create_task(
             stream(
                 model,
-                Context(messages=[UserMessage(role="user", content="hi", timestamp=0.0)]),
+                Context(
+                    messages=[UserMessage(role="user", content="hi", timestamp=0.0)]
+                ),
                 CallOptions(prepared_request_committer=SessionCommitter()),
             )
         )
@@ -489,6 +491,73 @@ def test_session_owned_normalization_keeps_event_loop_available(
             release.set()
         await (await request).result()
         assert isinstance(provider.context, NormalizedContext)
+
+    asyncio.run(scenario())
+
+
+def test_session_owned_normalization_rejects_changed_sealed_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from loushang.ai.api import streaming as streaming_module
+
+    class SessionCommitter:
+        normalize_context_in_worker = True
+
+        def verify_sealed_context(self, context: Context) -> None:
+            if context.messages[0].content[0].text != "sealed":
+                raise RuntimeError("sealed context changed")
+
+        async def commit_prepared_request(self, request) -> None:
+            pytest.fail("changed context reached durable commit")
+
+    class PreparedProvider(_Provider):
+        def prepare_request(self, request: ProviderRequest) -> PreparedModelRequest:
+            pytest.fail("changed context reached provider preparation")
+
+        async def invoke_prepared_raw(
+            self, request: ProviderRequest, prepared: PreparedModelRequest
+        ):
+            pytest.fail("changed context reached transport")
+            yield {"type": "response_done"}
+
+    provider = PreparedProvider()
+    _test_registry_with(provider)
+    model = Model(
+        id="normalization-seal",
+        provider="selected-provider",
+        endpoint="selected-endpoint",
+        api="faux",
+        base_url="https://selected.example/v1",
+        auth=Auth(kind="none"),
+        capabilities=Capabilities(input=("text",), output=("text",), stream=True),
+    )
+    context = Context(
+        messages=[
+            UserMessage(
+                role="user",
+                content=[TextPart(type="text", text="sealed")],
+                timestamp=0.0,
+            )
+        ]
+    )
+    original = streaming_module.normalize_context_result
+
+    def mutate_before_verification(*args, **kwargs):
+        result = original(*args, **kwargs)
+        context.messages[0].content[0] = TextPart(type="text", text="changed")
+        return result
+
+    monkeypatch.setattr(
+        streaming_module, "normalize_context_result", mutate_before_verification
+    )
+
+    async def scenario() -> None:
+        with pytest.raises(RuntimeError, match="sealed context changed"):
+            await stream(
+                model,
+                context,
+                CallOptions(prepared_request_committer=SessionCommitter()),
+            )
 
     asyncio.run(scenario())
 
@@ -544,7 +613,9 @@ def test_cancelled_session_normalization_cannot_start_provider_transport(
         task = asyncio.create_task(
             stream(
                 model,
-                Context(messages=[UserMessage(role="user", content="hi", timestamp=0.0)]),
+                Context(
+                    messages=[UserMessage(role="user", content="hi", timestamp=0.0)]
+                ),
                 CallOptions(prepared_request_committer=SessionCommitter()),
             )
         )
