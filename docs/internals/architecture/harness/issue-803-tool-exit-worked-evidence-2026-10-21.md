@@ -1095,3 +1095,19 @@ passed with 189 tests and one existing skip. Ruff passed. Native reopening
 of both long-session results verified two snapshots and terminal usage
 records each, the exact tool output, unchanged authority and zero historical
 tool executions.
+
+The next diagnostic run timestamped event-loop heartbeats and captured GC
+stacks. Its 933ms maximum loop delay coincided with a 932ms generation-2
+collection in a worker that was freezing the first long Model Input, 10.7s
+after prompt start and before the tool began at 16.5s. This establishes that
+the headline maximum loop delay in that run was not a tool-exit stall. After
+tool start, the largest measured loop delay was 254ms. The same run had
+413ms maximum input echo delay and 2,879ms tool exit to Worked under extra
+profiling and concurrent local load, so its end-to-end times are diagnostic
+rather than a controlled comparison. Post-tool delayed heartbeats coincided
+with tool-result append/render, the exact-message certificate walk, and
+Provider preparation. The next optimization must reduce those synchronous
+walks and preserve the durable barrier; changing the Worked label alone would
+hide the remaining work. Native reopening of this diagnostic run again
+verified both Model Input snapshots and terminal usage, the exact tool output,
+unchanged authority and zero historical tool executions.
