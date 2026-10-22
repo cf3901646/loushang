@@ -12,6 +12,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, overload
 
 from loushang.harnesstui.conversation.input_policy import ConversationCapabilities
+from loushang.harnesstui.conversation.loading_input import LOADING_MESSAGE
 from loushang.harnesstui.conversation.reader import TranscriptReaderSurface
 from loushang.harnesstui.conversation.screen_frame import ScreenFramePresentation
 from loushang.harnesstui.conversation.screen_state import (
@@ -74,6 +75,8 @@ from loushang.tui.ui_parts.transcript import (
 )
 
 ACTIVE_RENDER_INTERVAL_MS = 80
+LOADING_RENDER_INTERVAL_MS = 200
+LOADING_SPINNER_FRAMES = ("|", "/", "-", "\\")
 
 
 def _normalized_compaction_summary(summary: str) -> str:
@@ -549,6 +552,14 @@ class ScreenConversationApp:
 
     def next_frame_due_ms(self, *, after_ms: int) -> int | None:
         completion_due_ms = self.composer.next_frame_due_ms(after_ms=after_ms)
+        if self._loading_indicator_active():
+            loading_due_ms = (
+                after_ms // LOADING_RENDER_INTERVAL_MS + 1
+            ) * LOADING_RENDER_INTERVAL_MS
+            if completion_due_ms is None:
+                completion_due_ms = loading_due_ms
+            else:
+                completion_due_ms = min(completion_due_ms, loading_due_ms)
         if not self.state.running:
             return completion_due_ms
         active_due_ms = after_ms + ACTIVE_RENDER_INTERVAL_MS
@@ -983,6 +994,7 @@ class ScreenConversationApp:
             state=self.state,
             active_surface=self.active_surface,
             elapsed_seconds=self.elapsed_seconds(),
+            loading_indicator=self._loading_indicator(),
         )
 
     def _working_line(self) -> WorkingLine | None:
@@ -995,7 +1007,23 @@ class ScreenConversationApp:
         return self._frame_presentation.pending_queue(self.state)
 
     def _status_bar(self) -> StatusBar:
-        return self._frame_presentation.status_bar(self.state)
+        return self._frame_presentation.status_bar(
+            self.state, loading_indicator=self._loading_indicator()
+        )
+
+    def _loading_indicator(self) -> str | None:
+        loading_indicator = None
+        if self._loading_indicator_active():
+            frame = int(self.now() * 1000) // LOADING_RENDER_INTERVAL_MS
+            loading_indicator = LOADING_SPINNER_FRAMES[
+                frame % len(LOADING_SPINNER_FRAMES)
+            ]
+        return loading_indicator
+
+    def _loading_indicator_active(self) -> bool:
+        return (
+            self.state.startup_pending and self.state.status_message == LOADING_MESSAGE
+        )
 
 
 __all__ = ["ACTIVE_RENDER_INTERVAL_MS", "ScreenConversationApp"]

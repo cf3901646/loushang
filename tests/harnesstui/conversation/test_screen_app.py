@@ -8,6 +8,7 @@ from io import StringIO
 
 import pytest
 
+from loushang.harnesstui.conversation.loading_input import LOADING_MESSAGE
 from loushang.harnesstui.conversation.screen_app import ScreenConversationApp
 from loushang.harnesstui.conversation.screen_frame import (
     ScreenFrameCopy,
@@ -45,6 +46,44 @@ def _app() -> _TestScreenConversationApp:
         session_label="session",
         now=lambda: 2.0,
     )
+
+
+def test_loading_status_animates_on_timer_and_stops_after_loading() -> None:
+    clock = [1.0]
+    app = _TestScreenConversationApp(
+        model_label="model",
+        cwd="/workspace",
+        branch="main",
+        session_label="session",
+        now=lambda: clock[0],
+    )
+    app.state.startup_pending = True
+    app.state.status_message = LOADING_MESSAGE
+
+    def status(width: int = 80) -> str:
+        status_bar = app._bottom_frame().status_bar
+        assert status_bar is not None
+        result = status_bar.render(RenderConstraints(width=width, max_height=1))
+        return strip_control_sequences(result.lines[0].text)
+
+    first = status()
+    assert first[2:] == LOADING_MESSAGE
+    assert first[0] in "|/-\\"
+    assert app.next_frame_due_ms(after_ms=1000) == 1200
+
+    clock[0] = 1.2
+    second = status()
+    assert second[2:] == LOADING_MESSAGE
+    assert second[0] != first[0]
+    assert status(width=12).startswith(second[:2])
+    assert len(status(width=12)) <= 11
+
+    app.state.status_message = "Closing — waiting for preparation cleanup"
+    assert status() == app.state.status_message
+    assert app.next_frame_due_ms(after_ms=1200) is None
+
+    app.state.startup_pending = False
+    assert app.next_frame_due_ms(after_ms=1200) is None
 
 
 def test_input_frame_does_not_flatten_long_screen_history(monkeypatch) -> None:
