@@ -21,6 +21,7 @@ from loushang.ai.protocols.openai_chat_completions import OpenAIChatCompletionsA
 from loushang.ai.provider.protocol import ProviderRequest
 from loushang.ai.types import (
     AssistantMessage,
+    Message,
     TextPart,
     Tool,
     ToolCall,
@@ -1044,6 +1045,112 @@ def test_session_sealed_context_rejects_mutation_before_provider_normalization()
         assert not any(
             entry.kind == "model.input.prepared" for entry in session.get_entries()
         )
+        user.content[0] = TextPart(type="text", text="changed again")
+        owned = committer.owned_sealed_context(context)
+        assert owned.messages[0].content[0].text == "sealed"
+        assert owned.tools[0].parameters["properties"]["path"]["type"] == "string"
+        await runtime.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_strict_message_snapshot_detects_nested_json_and_number_type_changes() -> None:
+    original = UserMessage(
+        role="user",
+        content=[
+            TextPart(
+                type="text",
+                text="sealed",
+                text_signature={"nested": [0.0, 1]},
+            )
+        ],
+        timestamp=1.0,
+    )
+    snapshot = deepcopy(original)
+    assert model_call_module._strict_message_equal(original, snapshot)
+    original.content[0].text_signature["nested"][0] = -0.0
+    assert not model_call_module._strict_message_equal(original, snapshot)
+    original.content[0].text_signature["nested"][0] = 0.0
+    original.content[0].text_signature["nested"][1] = 1.0
+    assert not model_call_module._strict_message_equal(original, snapshot)
+    original.content[0].text_signature["nested"][1] = 1
+
+    class EqualString(str):
+        pass
+
+    original.content[0] = replace(original.content[0], text=EqualString("sealed"))
+    assert not model_call_module._strict_message_equal(original, snapshot)
+
+
+def test_committed_strict_snapshot_skips_historical_shape_walk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        session = await _transcript_session()
+        runtime = _model_call_runtime(session, is_current=lambda: True)
+        model = _model(api="openai-completions")
+        user = UserMessage(role="user", content="sealed", timestamp=1.0)
+        first_context = Context(messages=[user])
+        first_options = await runtime.prepare(
+            ModelCallPreparation(
+                purpose="main",
+                sequence=1,
+                model=model,
+                context=first_context,
+                options=CallOptions(),
+            )
+        )
+        first_committer = first_options.prepared_request_committer
+        assert first_committer is not None
+        first_prepared = PreparedModelRequest.from_provider_request(
+            ProviderRequest(
+                model=model,
+                context=normalize_context(first_context),
+                options=first_options,
+                base_url="https://provider.test/v1",
+                max_output_tokens=16,
+            ),
+            payload={"messages": []},
+        )
+        await first_committer.commit_prepared_request(first_prepared)
+        assert runtime._consumer is not None
+        preparer = runtime._consumer.facets.require(
+            model_call_module.MODEL_INPUT_PREPARATION_FACET
+        )
+        assert preparer._strict_snapshot_task is not None
+        await preparer._strict_snapshot_task
+        assert preparer._strict_message_snapshots[0] is not None
+
+        observed: list[Message] = []
+        original = model_call_module._sealed_message_shape
+
+        def count_shape(message):
+            observed.append(message)
+            return original(message)
+
+        monkeypatch.setattr(model_call_module, "_sealed_message_shape", count_shape)
+        second_context = Context(
+            messages=[
+                user,
+                UserMessage(role="user", content="next", timestamp=2.0),
+            ]
+        )
+        second_options = await runtime.prepare(
+            ModelCallPreparation(
+                purpose="main",
+                sequence=2,
+                model=model,
+                context=second_context,
+                options=CallOptions(),
+            )
+        )
+        assert second_options.prepared_request_committer is not None
+        second_options.prepared_request_committer.verify_sealed_context(second_context)
+        owned = second_options.prepared_request_committer.owned_sealed_context(
+            second_context
+        )
+        assert owned.messages[0] is preparer._strict_message_snapshots[0].message
+        assert user not in observed
         await runtime.dispose()
 
     asyncio.run(scenario())

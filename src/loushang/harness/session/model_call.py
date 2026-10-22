@@ -6,12 +6,14 @@ import asyncio
 import hashlib
 import json
 import math
+import pickle
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from typing import Any, Protocol, cast
 
 from loushang.agent import ModelCallPreparation
-from loushang.ai.json_codec import serialize_message
+from loushang.ai.json_codec import deserialize_message, serialize_message
 from loushang.ai.options import CallOptions
 from loushang.ai.prepared_request import (
     PreparedModelCallAttemptUsage,
@@ -30,6 +32,7 @@ from loushang.ai.types import (
     Message,
     TextPart,
     ThinkingPart,
+    Tool,
     ToolCall,
     ToolResultMessage,
     Usage,
@@ -82,7 +85,10 @@ from loushang.harness.transcript.model_input import (
     ModelInputTranscriptCommitter,
     RebuiltModelInput,
 )
-from loushang.harness.transcript.model_input_types import freeze_model_input_json
+from loushang.harness.transcript.model_input_types import (
+    freeze_model_input_json,
+    thaw_model_input_json,
+)
 
 CurrentSessionPredicate = Callable[[], bool]
 RegistrationEntriesProvider = Callable[[], tuple[RegistrationInventoryEntry, ...]]
@@ -97,6 +103,61 @@ class _SealedMessageReuse:
     message: Message
     shape: tuple[object, ...] | None
     sealed: object
+
+
+@dataclass(frozen=True, slots=True)
+class _StrictMessageSnapshot:
+    sealed: object
+    message: Message
+    encoded: bytes
+
+
+def _strict_message_equal(current: object, snapshot: object) -> bool:
+    if type(current) is not type(snapshot) or current != snapshot:
+        return False
+    try:
+        return pickle.dumps(current, protocol=5) == pickle.dumps(snapshot, protocol=5)
+    except Exception:
+        return False
+
+
+def _strict_snapshot_matches(
+    current: Message, snapshot: _StrictMessageSnapshot
+) -> bool:
+    if type(current) is not type(snapshot.message) or current != snapshot.message:
+        return False
+    try:
+        return pickle.dumps(current, protocol=5) == snapshot.encoded
+    except Exception:
+        return False
+
+
+def _build_strict_message_snapshots(
+    source: tuple[_SealedMessageReuse, ...],
+    previous: tuple[_StrictMessageSnapshot | None, ...],
+) -> tuple[_StrictMessageSnapshot | None, ...]:
+    snapshots: list[_StrictMessageSnapshot | None] = []
+    for index, entry in enumerate(source):
+        prior = previous[index] if index < len(previous) else None
+        if prior is not None and prior.sealed is entry.sealed:
+            snapshots.append(prior)
+            continue
+        try:
+            copied = deepcopy(entry.message)
+            if (
+                freeze_model_input_json(
+                    serialize_message(copied), name="strict Model Input message"
+                )
+                != entry.sealed
+            ):
+                snapshots.append(None)
+                continue
+            encoded = pickle.dumps(copied, protocol=5)
+        except (TypeError, ValueError, RecursionError, pickle.PicklingError):
+            snapshots.append(None)
+            continue
+        snapshots.append(_StrictMessageSnapshot(entry.sealed, copied, encoded))
+    return tuple(snapshots)
 
 
 _UNSAFE_SHAPE = object()
@@ -341,12 +402,44 @@ class SessionModelCallPreparer:
         self._last_prepared_request: PreparedModelRequest | None = None
         self._last_prepared_source: tuple[object, ...] = ()
         self._sealed_message_cache: tuple[_SealedMessageReuse, ...] = ()
+        self._strict_message_snapshots: tuple[_StrictMessageSnapshot | None, ...] = ()
+        self._strict_snapshot_task: (
+            asyncio.Task[tuple[_StrictMessageSnapshot | None, ...]] | None
+        ) = None
 
     def _retain_prepared_request(
-        self, request: PreparedModelRequest, source: tuple[object, ...]
+        self,
+        request: PreparedModelRequest,
+        source: tuple[object, ...],
+        message_cache: tuple[_SealedMessageReuse, ...],
     ) -> None:
         self._last_prepared_request = request
         self._last_prepared_source = source
+        task = asyncio.create_task(
+            asyncio.to_thread(
+                _build_strict_message_snapshots,
+                message_cache,
+                self._strict_message_snapshots,
+            )
+        )
+        self._strict_snapshot_task = task
+        task.add_done_callback(
+            lambda completed: self._finish_strict_snapshot(completed, source)
+        )
+
+    def _finish_strict_snapshot(
+        self,
+        task: asyncio.Task[tuple[_StrictMessageSnapshot | None, ...]],
+        source: tuple[object, ...],
+    ) -> None:
+        if task.cancelled():
+            return
+        try:
+            snapshots = task.result()
+        except BaseException:
+            return
+        if self._last_prepared_source is source:
+            self._strict_message_snapshots = snapshots
 
     def _project_logical_messages(
         self, messages: Sequence[Message]
@@ -382,11 +475,23 @@ class SessionModelCallPreparer:
         projected: list[object],
         shapes: tuple[tuple[object, ...] | None, ...],
         reused_prefix_count: int,
+        strict_snapshots: list[_StrictMessageSnapshot | None] | None = None,
     ) -> tuple[tuple[tuple[object, ...] | None, ...], int]:
         if len(messages) != len(projected):
             projected[:] = [serialize_message(message) for message in messages]
             return tuple(_sealed_message_shape(message) for message in messages), 0
         for index in range(reused_prefix_count):
+            snapshot = (
+                strict_snapshots[index]
+                if strict_snapshots is not None and index < len(strict_snapshots)
+                else None
+            )
+            if snapshot is not None and _strict_snapshot_matches(
+                messages[index], snapshot
+            ):
+                continue
+            if strict_snapshots is not None and index < len(strict_snapshots):
+                strict_snapshots[index] = None
             if _sealed_message_shape(messages[index]) != shapes[index]:
                 projected[index:] = [
                     serialize_message(message) for message in messages[index:]
@@ -438,11 +543,22 @@ class SessionModelCallPreparer:
                 registrations,
                 profile_fingerprint=self._profile_fingerprint_provider(),
             )
+            prior_strict_snapshots = [
+                (
+                    snapshot
+                    if index < len(self._sealed_message_cache)
+                    and snapshot is not None
+                    and snapshot.sealed is self._sealed_message_cache[index].sealed
+                    else None
+                )
+                for index, snapshot in enumerate(self._strict_message_snapshots)
+            ]
             message_shapes, reused_prefix_count = self._recheck_logical_messages(
                 preparation.context.messages,
                 logical_messages,
                 message_shapes,
                 reused_prefix_count,
+                prior_strict_snapshots,
             )
             committer = self._transcript.create_model_input_committer(
                 purpose=preparation.purpose,
@@ -493,6 +609,20 @@ class SessionModelCallPreparer:
                 )
             else:
                 self._sealed_message_cache = ()
+            message_cache = self._sealed_message_cache
+            matched_snapshots: list[_StrictMessageSnapshot | None] = []
+            for index, sealed in enumerate(sealed_messages):
+                snapshot = (
+                    prior_strict_snapshots[index]
+                    if index < len(prior_strict_snapshots)
+                    else None
+                )
+                matched_snapshots.append(
+                    snapshot
+                    if snapshot is not None and snapshot.sealed is sealed
+                    else None
+                )
+            strict_snapshots = tuple(matched_snapshots)
             options = replace(
                 preparation.options,
                 prepared_request_committer=_CurrentSessionCommitter(
@@ -501,7 +631,7 @@ class SessionModelCallPreparer:
                     turn_performance=self._turn_performance,
                     on_committed_prepared_request=(
                         lambda request: self._retain_prepared_request(
-                            request, sealed_messages
+                            request, sealed_messages, message_cache
                         )
                     ),
                     on_committed_model_input=(
@@ -520,6 +650,7 @@ class SessionModelCallPreparer:
                     sealed_message_shapes=tuple(
                         item.shape for item in self._sealed_message_cache
                     ),
+                    strict_message_snapshots=strict_snapshots,
                     sealed_system_prompt=sealed_input["system_prompt"],
                     sealed_tools=sealed_input["tools"],
                 ),
@@ -558,6 +689,7 @@ class _CurrentSessionCommitter(
         current_provider_source_count: int = 0,
         sealed_messages: tuple[object, ...] = (),
         sealed_message_shapes: tuple[tuple[object, ...] | None, ...] = (),
+        strict_message_snapshots: tuple[_StrictMessageSnapshot | None, ...] = (),
         sealed_system_prompt: object = None,
         sealed_tools: object = (),
     ) -> None:
@@ -571,10 +703,54 @@ class _CurrentSessionCommitter(
         self.current_provider_source_count = current_provider_source_count
         self._sealed_messages = sealed_messages
         self._sealed_message_shapes = sealed_message_shapes
+        self._strict_message_snapshots = strict_message_snapshots
         self._sealed_system_prompt = sealed_system_prompt
         self._sealed_tools = sealed_tools
         self._sealed_verification_task: asyncio.Task[None] | None = None
         self._latest_attempt_by_invocation: dict[str, tuple[int, str]] = {}
+
+    def owned_sealed_context(self, context: Context) -> Context:
+        """Build provider input from the same owned facts as Model Input."""
+
+        if type(context) is not Context:
+            raise TypeError("sealed Model Input requires a Context")
+        messages: list[Message] = []
+        for index, sealed in enumerate(self._sealed_messages):
+            snapshot = (
+                self._strict_message_snapshots[index]
+                if index < len(self._strict_message_snapshots)
+                else None
+            )
+            if snapshot is not None and snapshot.sealed is sealed:
+                try:
+                    if pickle.dumps(snapshot.message, protocol=5) == snapshot.encoded:
+                        messages.append(snapshot.message)
+                        continue
+                except Exception:
+                    pass
+            raw = thaw_model_input_json(sealed)
+            if not isinstance(raw, dict):
+                raise RuntimeError("sealed Model Input message is invalid")
+            messages.append(deserialize_message(raw))
+        raw_tools = thaw_model_input_json(self._sealed_tools)
+        if not isinstance(raw_tools, list):
+            raise RuntimeError("sealed Model Input tools are invalid")
+        tools = [
+            Tool(
+                name=cast(str, tool["name"]),
+                description=cast(str, tool["description"]),
+                parameters=cast(dict[str, Any], tool["parameters"]),
+            )
+            for tool in raw_tools
+            if isinstance(tool, dict)
+        ]
+        if len(tools) != len(raw_tools):
+            raise RuntimeError("sealed Model Input tools are invalid")
+        return Context(
+            system_prompt=cast(str | None, self._sealed_system_prompt),
+            messages=messages,
+            tools=tools,
+        )
 
     def verify_sealed_context(self, context: Context) -> None:
         """Reject a context changed after its durable logical projection."""
@@ -591,12 +767,25 @@ class _CurrentSessionCommitter(
             != self._sealed_tools
         ):
             raise RuntimeError("sealed Model Input context changed")
-        for message, shape, sealed in zip(
-            context.messages,
-            self._sealed_message_shapes,
-            self._sealed_messages,
-            strict=True,
+        for index, (message, shape, sealed) in enumerate(
+            zip(
+                context.messages,
+                self._sealed_message_shapes,
+                self._sealed_messages,
+                strict=True,
+            )
         ):
+            snapshot = (
+                self._strict_message_snapshots[index]
+                if index < len(self._strict_message_snapshots)
+                else None
+            )
+            if (
+                snapshot is not None
+                and snapshot.sealed is sealed
+                and _strict_snapshot_matches(message, snapshot)
+            ):
+                continue
             if shape is not None:
                 if _sealed_message_shape(message) != shape:
                     raise RuntimeError("sealed Model Input context changed")
