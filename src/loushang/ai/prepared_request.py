@@ -6,6 +6,7 @@ import json
 import math
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import InitVar, dataclass, field
+from queue import Empty, SimpleQueue
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, cast, runtime_checkable
 from uuid import uuid4
@@ -276,6 +277,9 @@ class PreparedModelRequest:
         Mapping[str, str],
     ] = field(init=False, repr=False, compare=False)
     _reused_message_prefix_count: int = field(init=False, repr=False, compare=False)
+    _transport_copies: SimpleQueue[dict[str, JSONValue]] = field(
+        default_factory=SimpleQueue, init=False, repr=False, compare=False
+    )
 
     def __post_init__(self, reuse_from: PreparedModelRequest | None) -> None:
         object.__setattr__(self, "_reused_message_prefix_count", 0)
@@ -411,7 +415,18 @@ class PreparedModelRequest:
             )
         # The sealed digest was calculated from this owned tree at creation.
         # Frozen containers and the envelope identity check keep it unchanged.
+        try:
+            return self._transport_copies.get_nowait()
+        except Empty:
+            pass
         return self._owned_payload_copy()
+
+    def _adopt_transport_copy(self, payload: dict[str, JSONValue]) -> None:
+        """Hand one privately prepared copy to the post-commit adapter call."""
+
+        if not self._owned_envelope_is_current():
+            raise RuntimeError("prepared model request envelope changed before transport")
+        self._transport_copies.put(payload)
 
     def owned_commit_projection(
         self,
@@ -559,7 +574,28 @@ async def invoke_prepared_request(
     if committer is not None:
         await _yield_preparation()
         _raise_if_transport_cancelled()
-    await commit_prepared_request(prepared, committer)
+    transport_copy_task: asyncio.Task[dict[str, JSONValue]] | None = None
+    if (
+        prepare_in_worker
+        and type(prepared) is PreparedModelRequest
+        and prepared.metrics.canonical_bytes >= 64 * 1024
+        and not prepared.binary_fields
+    ):
+        # The copy reads only the sealed envelope. It has no publication or
+        # transport authority; the durable barrier below remains first.
+        transport_copy_task = asyncio.create_task(
+            asyncio.to_thread(prepared._owned_payload_copy)
+        )
+        transport_copy_task.add_done_callback(_consume_transport_preparation)
+    try:
+        await commit_prepared_request(prepared, committer)
+        _raise_if_transport_cancelled()
+        if transport_copy_task is not None:
+            prepared._adopt_transport_copy(await transport_copy_task)
+    except BaseException:
+        if transport_copy_task is not None:
+            transport_copy_task.cancel()
+        raise
     _raise_if_transport_cancelled()
     source = adapter.invoke_prepared_raw(request, prepared)
     try:
@@ -570,6 +606,13 @@ async def invoke_prepared_request(
 
 
 def _consume_speculative_preparation(task: asyncio.Task[None]) -> None:
+    if not task.cancelled():
+        task.exception()
+
+
+def _consume_transport_preparation(
+    task: asyncio.Task[dict[str, JSONValue]],
+) -> None:
     if not task.cancelled():
         task.exception()
 

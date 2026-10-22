@@ -398,6 +398,68 @@ def test_opted_in_prepared_request_keeps_input_loop_responsive_and_commits_first
     asyncio.run(scenario())
 
 
+def test_large_transport_copy_is_prepared_during_durable_commit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        commit_started = asyncio.Event()
+        release_commit = asyncio.Event()
+        copy_started = threading.Event()
+        release_copy = threading.Event()
+        copy_threads: list[str] = []
+        original_copy = PreparedModelRequest._owned_payload_copy
+
+        def copy(request: PreparedModelRequest):
+            copy_threads.append(threading.current_thread().name)
+            copy_started.set()
+            assert release_copy.wait(2.0)
+            return original_copy(request)
+
+        monkeypatch.setattr(PreparedModelRequest, "_owned_payload_copy", copy)
+
+        class HoldingCommitter(_RecordingCommitter):
+            async def commit_prepared_request(
+                self, request: PreparedModelRequest
+            ) -> None:
+                commit_started.set()
+                await release_commit.wait()
+                await super().commit_prepared_request(request)
+
+        class WorkerAdapter(_PreparedAdapter):
+            prepare_request_in_worker = True
+
+            def prepare_request(self, request: ProviderRequest) -> PreparedModelRequest:
+                return PreparedModelRequest.from_provider_request(
+                    request,
+                    payload={
+                        "model": request.model.id,
+                        "messages": [{"role": "user", "content": "x" * 65536}],
+                    },
+                )
+
+        committer = HoldingCommitter()
+        adapter = WorkerAdapter(committer.events)
+        source = invoke_prepared_request(
+            adapter, _request(options=CallOptions(prepared_request_committer=committer))
+        )
+        task = asyncio.create_task(anext(source))
+        try:
+            await asyncio.wait_for(commit_started.wait(), 1.0)
+            assert await asyncio.to_thread(copy_started.wait, 0.5)
+            assert not committer.requests
+            assert adapter.transport_calls == 0
+        finally:
+            release_copy.set()
+            release_commit.set()
+        assert (await task)["type"] == "response_start"
+        await source.aclose()
+        assert len(copy_threads) == 1
+        assert copy_threads[0] != "MainThread"
+        assert committer.events == ["commit:1", "transport:1"]
+
+    asyncio.run(scenario())
+
+
 def test_cancelled_worker_preparation_cannot_commit_or_start_transport() -> None:
     async def scenario() -> None:
         committer = _RecordingCommitter()
@@ -529,6 +591,18 @@ def test_transport_payload_copies_remain_independent_of_source_and_each_other() 
     assert prepared.payload_for_transport() == {"messages": [{"content": ["hello"]}]}
     assert prepared.canonical_payload == canonical
     assert prepared.payload_hash == digest
+
+
+def test_prewarmed_transport_copy_is_used_once_and_remains_detached() -> None:
+    prepared = PreparedModelRequest.from_provider_request(
+        _request(), payload={"messages": [{"content": ["hello"]}]}
+    )
+    prepared._adopt_transport_copy(prepared._owned_payload_copy())
+    first = prepared.payload_for_transport()
+    first["messages"][0]["content"].append("changed")
+    assert prepared.payload_for_transport() == {
+        "messages": [{"content": ["hello"]}]
+    }
 
 
 def test_transport_rejects_replaced_owned_envelope_fields() -> None:
@@ -1023,6 +1097,33 @@ def test_committer_failure_makes_zero_transport_calls() -> None:
 
     adapter, committer, _error = asyncio.run(_run())
 
+    assert committer.events == ["commit:1"]
+    assert adapter.transport_calls == 0
+
+
+def test_failed_large_request_prewarm_cannot_start_transport() -> None:
+    class WorkerAdapter(_PreparedAdapter):
+        prepare_request_in_worker = True
+
+        def prepare_request(self, request: ProviderRequest) -> PreparedModelRequest:
+            return PreparedModelRequest.from_provider_request(
+                request,
+                payload={
+                    "model": request.model.id,
+                    "messages": [{"role": "user", "content": "x" * 65536}],
+                },
+            )
+
+    async def scenario() -> tuple[WorkerAdapter, _RecordingCommitter]:
+        committer = _RecordingCommitter(fail=True)
+        adapter = WorkerAdapter(committer.events)
+        request = _request(options=CallOptions(prepared_request_committer=committer))
+        stream = await call_api_adapter_stream(adapter, request)
+        with pytest.raises(AIProviderError):
+            await stream.result()
+        return adapter, committer
+
+    adapter, committer = asyncio.run(scenario())
     assert committer.events == ["commit:1"]
     assert adapter.transport_calls == 0
 
