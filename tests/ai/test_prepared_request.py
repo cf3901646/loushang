@@ -367,6 +367,27 @@ def test_prepared_request_reuses_multiple_large_suffixes_exactly(
     assert fallback.canonical_payload == full.canonical_payload
 
 
+def test_prepared_request_rechecks_incremental_digest_state() -> None:
+    previous = PreparedModelRequest.from_provider_request(
+        _request(),
+        payload={"model": "faux-model", "messages": [{"role": "user", "content": "旧"}]},
+    )
+    prefix_digest = previous._message_prefix_digest
+    assert prefix_digest is not None
+    prefix_digest.update(b"changed")
+    payload = {
+        "model": "faux-model",
+        "messages": [{"role": "user", "content": "旧"}, {"role": "user", "content": "新"}],
+    }
+    fallback = PreparedModelRequest.from_provider_request(
+        _request(), payload=payload, reuse_from=previous
+    )
+    full = PreparedModelRequest.from_provider_request(_request(), payload=payload)
+    assert fallback._reused_message_prefix_count == 0
+    assert fallback.payload_hash == full.payload_hash
+    assert fallback.metrics == full.metrics
+
+
 @pytest.mark.parametrize("boundary", ["before_preparation", "after_preparation"])
 def test_prepared_invocation_services_cancellation_before_commit(boundary) -> None:
     async def scenario():

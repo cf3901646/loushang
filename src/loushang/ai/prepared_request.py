@@ -42,6 +42,14 @@ PreparedModelCallDisposition: TypeAlias = Literal[
 PreparedRequestBinaryEncoding: TypeAlias = Literal["base64", "data_url"]
 
 
+class _DigestState(Protocol):
+    def copy(self) -> _DigestState: ...
+
+    def update(self, data: bytes) -> None: ...
+
+    def hexdigest(self) -> str: ...
+
+
 @dataclass(frozen=True, slots=True)
 class PreparedRequestBinaryField:
     """Provider-owned location of one encoded binary field in a frozen payload."""
@@ -275,6 +283,10 @@ class PreparedModelRequest:
     _message_array_close_offset: int | None = field(
         init=False, repr=False, compare=False
     )
+    _message_prefix_digest: _DigestState | None = field(
+        init=False, repr=False, compare=False
+    )
+    _message_prefix_hash: str | None = field(init=False, repr=False, compare=False)
     _owned_reuse: tuple[
         PreparedRequestMetrics,
         tuple[PreparedRequestBinaryField, ...],
@@ -387,6 +399,17 @@ class PreparedModelRequest:
         )
         object.__setattr__(self, "_canonical_fields", frozen_fields)
         object.__setattr__(self, "_message_array_close_offset", message_offset)
+        prefix_digest = (
+            hashlib.sha256(canonical_payload[:message_offset].encode("utf-8"))
+            if message_offset is not None
+            else None
+        )
+        object.__setattr__(self, "_message_prefix_digest", prefix_digest)
+        object.__setattr__(
+            self,
+            "_message_prefix_hash",
+            prefix_digest.hexdigest() if prefix_digest is not None else None,
+        )
         object.__setattr__(
             self,
             "_owned_reuse",
@@ -779,6 +802,12 @@ def _reuse_prepared_prefix(
         or type(prior_metrics.message_bytes) is not int
     ):
         return False
+    prior_prefix_digest = previous._message_prefix_digest
+    if (
+        prior_prefix_digest is None
+        or prior_prefix_digest.copy().hexdigest() != previous._message_prefix_hash
+    ):
+        return False
 
     suffix = cast(
         list[JSONValue], [_thaw_json(item) for item in messages[prior_count:]]
@@ -803,8 +832,12 @@ def _reuse_prepared_prefix(
             previous.canonical_payload[prior_offset:],
         )
     )
-    canonical_bytes = canonical.encode("utf-8")
-    digest = "sha256:" + hashlib.sha256(canonical_bytes).hexdigest()
+    added_bytes = added_messages.encode("utf-8")
+    prefix_digest = prior_prefix_digest.copy()
+    prefix_digest.update(added_bytes)
+    full_digest = prefix_digest.copy()
+    full_digest.update(previous.canonical_payload[prior_offset:].encode("utf-8"))
+    digest = "sha256:" + full_digest.hexdigest()
     suffix_image_bytes = _estimate_image_bytes(suffix)
     suffix_binary_fields = tuple(
         field
@@ -818,7 +851,7 @@ def _reuse_prepared_prefix(
     frozen_payload = MappingProxyType(owned)
     binary_fields = previous.binary_fields + suffix_binary_fields
     metrics = PreparedRequestMetrics(
-        canonical_bytes=len(canonical_bytes),
+        canonical_bytes=prior_metrics.canonical_bytes + len(added_bytes),
         estimated_wire_bytes=request.estimated_wire_bytes,
         message_bytes=prior_metrics.message_bytes + len(added_messages.encode("utf-8")),
         message_count=len(messages),
@@ -840,6 +873,8 @@ def _reuse_prepared_prefix(
     object.__setattr__(request, "_canonical_fields", frozen_fields)
     message_offset = prior_offset + len(added_messages)
     object.__setattr__(request, "_message_array_close_offset", message_offset)
+    object.__setattr__(request, "_message_prefix_digest", prefix_digest)
+    object.__setattr__(request, "_message_prefix_hash", prefix_digest.hexdigest())
     object.__setattr__(
         request,
         "_owned_reuse",
