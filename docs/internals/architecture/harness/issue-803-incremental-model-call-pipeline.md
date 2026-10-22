@@ -5,7 +5,9 @@
 - ID: `harness-kd-803`
 - Authority: candidate key design
 - Design status: proposed; no accepted contract is changed by this document
-- Implementation status: partial experiments only
+- Implementation status: incremental candidate path implemented on `perf/tool-exit-worked-803`;
+  the 30-turn offline native-screen gate passed at 468.42ms p95 on
+  2026-10-22; review remains open
 - Owner / scope: Harness Session, Agent sampling, AI normalization and provider preparation, Model Input persistence, and TUI observation
 - Method: local `archmethod` revision `0f9bd3f`
 - Governing contracts: [Session And Model-Call Closure Boundary](session-model-call-closure-boundary.md) and [Model Input Persistence And Capacity Recovery](model-input-persistence-capacity-recovery.md)
@@ -13,9 +15,9 @@
 
 ## Problem And Required Outcome
 
-An offline resumed Session with about 30,000 records and 1,680 model messages
-still takes roughly 1.8–2.3 seconds from tool exit to Worked. During that
-interval Session certification, AI normalization, provider conversion,
+At design entry, an offline resumed Session with about 30,000 records and
+1,680 model messages took roughly 1.8–2.3 seconds from tool exit to Worked.
+During that interval Session certification, AI normalization, provider conversion,
 prepared-request sealing, and Model Input publication traverse overlapping
 parts of the same history. Moving individual traversals to worker threads
 improves input response, but the work remains serial and competes for Python
@@ -114,7 +116,9 @@ establish the contract before extending it across providers.
   output, unchanged authority, and zero historical Tool executions.
 - Measure at least 30 offline tool continuations on a fixed long-session
   fixture, including keyboard input; report p50/p95 and event-loop and echo
-  delays. The 500ms p95 goal remains unproved until this gate passes.
+  delays. The candidate passed this gate in the native-screen runner: 30
+  continuations, 434.04ms p50 and 468.42ms p95, with exact native reopening.
+  Whole-turn GC pauses before Tool start remain outside this acceptance result.
 - Determine whether immutable source creation can avoid the current full
   bounded-shape recheck without exposing writable aliases. Resolve provider
   frontier state and canonical hash reuse before claiming an incremental hot

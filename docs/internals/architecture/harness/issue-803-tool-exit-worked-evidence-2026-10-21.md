@@ -1,6 +1,7 @@
 # Tool exit to Worked: focused latency evidence
 
-Status: measured; the current 500ms p95 goal is unmet. The original focused
+Status: the candidate branch meets the 500ms p95 goal in a 30-turn offline
+native-screen matrix; pre-tool GC pauses remain open. The original focused
 tool-completion investigation targeted 250ms. Broader experiments are recorded
 in `issue-803-responsiveness-evidence-2026-10-20.md`.
 
@@ -1208,3 +1209,55 @@ One optimistic candidate turn fell below 500ms, but the longer candidate took
 808ms and this adapter's prefix is diagnostic only. The representative
 built-in-adapter p95 target remains open; the Session, normalization and
 Provider projection chain still needs a certified shared prefix.
+
+## Incremental pipeline acceptance matrix, 2026-10-22
+
+The candidate on `perf/tool-exit-worked-803` now certifies the Session's
+normalized prefix after a durable Tool result, appends the built-in Chat
+adapter's stable provider prefix, and reuses exact owned message nodes in
+`PreparedModelRequest`. The Provider and logical Model Input envelopes retain
+incremental SHA-256 prefix states. Their final hashes, capacity metrics,
+binary-marker decisions and durable graph roots remain exact. Changed fields,
+mutated messages, uncertain frontiers and invalid cached states take the full
+path. Model Input is committed before transport; terminal facts and Agent end
+remain before Worked. The relevant final commits are `8c19128f` and
+`4bfe0893`, following the earlier Session, AI and v2 writer changes on this
+branch.
+
+Thirty sequential, unprofiled continuations ran against one growing,
+file-backed resumed Session. It grew from about 31,400 to 31,900 transcript
+records and from 203 to 208 MiB. Each of five controlled subprocess cases
+(silent, streamed, three consecutive Tools, large ASCII and Unicode output)
+ran six times. The native screen runner rendered and flushed terminal frames
+while 20 queued keyboard inputs exercised the tool-exit interval. The model
+used the built-in OpenAI Chat Completions adapter with an offline synthetic
+transport; network access was blocked. This matrix used in-memory terminal
+streams rather than a POSIX PTY, so its values are not a matched comparison
+with the earlier PTY measurements in this file. The interval starts when the
+last Tool service returns and ends at the first terminal flush after the
+Worked divider is committed. Separate screen tests verify that the divider
+appears in the visible frame.
+
+| Measure, 30 turns | Result |
+| --- | ---: |
+| Tool exit to Worked p50 | 434.04ms |
+| Tool exit to Worked p95, nearest rank | 468.42ms |
+| Tool exit to Worked maximum | 470.69ms |
+| Keyboard echo p95 / maximum | 95.25ms / 99.17ms |
+| Event-loop delay p95 / maximum after Tool exit | 74.6ms / 80.7ms |
+
+All 30 turns preserved the input draft and committed Model Input before
+transport. Native reopening verified all 60 exact Model Input snapshots and
+terminal usage records, 42 Tool outputs, unchanged authority bytes and mtime,
+and zero historical Tool executions. The focused Model Input and Session tests
+passed 138 tests with one existing skip; AI passed 894 offline tests; 30 screen
+and event-pacing tests passed. The 500ms p95 target is met for this specified
+long-session, offline native-screen matrix.
+
+The maximum event-loop delay across the *whole* turn was 473.2ms. Every one
+of the 60 observed generation-two GC collections occurred before Tool start;
+their maximum duration was 439.5ms. During Tool execution, event-loop delay
+reached 185.8ms, with p95 110.1ms. These pre-tool and tool-phase pauses are a
+remaining responsiveness issue and are excluded from the tool-exit-to-Worked
+acceptance claim. The matrix does not establish a sub-500ms p95 for every
+provider, terminal implementation or history size.
