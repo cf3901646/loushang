@@ -2197,6 +2197,7 @@ def test_worker_preparation_uses_the_transcript_owner_loop_for_owned_operations(
     async def scenario() -> None:
         session = await _transcript_session()
         owner_loop = asyncio.get_running_loop()
+        current_checked = []
         projected = []
         created = []
         create_committer = session.create_model_input_committer
@@ -2208,6 +2209,11 @@ def test_worker_preparation_uses_the_transcript_owner_loop_for_owned_operations(
 
         monkeypatch.setattr(session, "create_model_input_committer", observe_create_committer)
 
+        def is_current() -> bool:
+            assert asyncio.get_running_loop() is owner_loop
+            current_checked.append(True)
+            return True
+
         def project_evidence(preparation: ModelCallPreparation) -> None:
             assert preparation.purpose == "main"
             assert asyncio.get_running_loop() is owner_loop
@@ -2216,7 +2222,7 @@ def test_worker_preparation_uses_the_transcript_owner_loop_for_owned_operations(
 
         runtime = _model_call_runtime(
             session,
-            is_current=lambda: True,
+            is_current=is_current,
             request_evidence_provider=project_evidence,
         )
         try:
@@ -2232,6 +2238,7 @@ def test_worker_preparation_uses_the_transcript_owner_loop_for_owned_operations(
                 )
             )
             assert options.prepared_request_committer is not None
+            assert current_checked == [True]
             assert projected == [True]
             assert created == [True]
         finally:

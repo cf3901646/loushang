@@ -11,7 +11,7 @@ from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import suppress
 from copy import deepcopy
 from dataclasses import dataclass, replace
-from typing import Any, Protocol, cast
+from typing import Any, Protocol, TypeVar, cast
 
 from loushang.agent import ModelCallPreparation
 from loushang.ai.context import (
@@ -98,11 +98,25 @@ from loushang.harness.transcript.model_input_types import (
 )
 
 CurrentSessionPredicate = Callable[[], bool]
+_OwnedResult = TypeVar("_OwnedResult")
 RegistrationEntriesProvider = Callable[[], tuple[RegistrationInventoryEntry, ...]]
 CurrentProfileFingerprintProvider = Callable[[], str]
 SourcePublicationProvider = Callable[[], ScopedSourcePublicationReference | None]
 RequestEvidenceProvider = Callable[[ModelCallPreparation], Mapping[str, object] | None]
 CommittedModelInputObserver = Callable[[str], None]
+
+
+def _call_on_owner_loop(
+    owner_loop: asyncio.AbstractEventLoop | None,
+    callback: Callable[[], _OwnedResult],
+) -> _OwnedResult:
+    if owner_loop is None:
+        return callback()
+
+    async def invoke() -> _OwnedResult:
+        return callback()
+
+    return asyncio.run_coroutine_threadsafe(invoke(), owner_loop).result()
 
 
 @dataclass(frozen=True, slots=True)
@@ -681,7 +695,7 @@ class SessionModelCallPreparer:
     ) -> CallOptions:
         if not isinstance(preparation, ModelCallPreparation):
             raise TypeError("model-call preparation requires ModelCallPreparation")
-        if self._is_current() is not True:
+        if _call_on_owner_loop(owner_loop, self._is_current) is not True:
             raise RuntimeError("Session is not current; model transport is forbidden")
         if preparation.options.prepared_request_committer is not None:
             raise RuntimeError(
@@ -705,18 +719,10 @@ class SessionModelCallPreparer:
                 preparation, serialized_messages=logical_messages
             )
             if self._request_evidence_provider is not None:
-                if owner_loop is None:
-                    evidence = self._request_evidence_provider(preparation)
-                else:
-                    # Resume evidence can read the owned transcript Writer.
-                    # Its synchronous admission must run on the owning loop.
-                    async def project_evidence() -> Mapping[str, object] | None:
-                        assert self._request_evidence_provider is not None
-                        return self._request_evidence_provider(preparation)
-
-                    evidence = asyncio.run_coroutine_threadsafe(
-                        project_evidence(), owner_loop
-                    ).result()
+                evidence_provider = self._request_evidence_provider
+                evidence = _call_on_owner_loop(
+                    owner_loop, lambda: evidence_provider(preparation)
+                )
                 if evidence is not None:
                     logical_input[RESOURCE_EVIDENCE_COMPONENT] = require_json_mapping(
                         evidence,
@@ -746,23 +752,14 @@ class SessionModelCallPreparer:
                 self._strict_prefix_messages,
                 self._strict_prefix_encoded,
             )
-            if owner_loop is None:
-                committer = self._transcript.create_model_input_committer(
+            committer = _call_on_owner_loop(
+                owner_loop,
+                lambda: self._transcript.create_model_input_committer(
                     purpose=preparation.purpose,
                     logical_input=logical_input,
                     runtime_references=runtime_references,
-                )
-            else:
-                async def create_committer() -> ModelInputTranscriptCommitter:
-                    return self._transcript.create_model_input_committer(
-                        purpose=preparation.purpose,
-                        logical_input=logical_input,
-                        runtime_references=runtime_references,
-                    )
-
-                committer = asyncio.run_coroutine_threadsafe(
-                    create_committer(), owner_loop
-                ).result()
+                ),
+            )
             sealed_messages = committer.sealed_logical_messages
             sealed_input = committer.sealed_logical_input
             prior_source = self._last_prepared_source
