@@ -1093,7 +1093,9 @@ def test_committed_strict_snapshot_skips_historical_shape_walk(
         session = await _transcript_session()
         runtime = _model_call_runtime(session, is_current=lambda: True)
         model = _model(api="openai-completions")
-        user = UserMessage(role="user", content="sealed", timestamp=1.0)
+        user = UserMessage(
+            role="user", content=[TextPart(type="text", text="sealed")], timestamp=1.0
+        )
         first_context = Context(messages=[user])
         first_options = await runtime.prepare(
             ModelCallPreparation(
@@ -1106,6 +1108,11 @@ def test_committed_strict_snapshot_skips_historical_shape_walk(
         )
         first_committer = first_options.prepared_request_committer
         assert first_committer is not None
+        first_committer.normalize_owned_context(
+            first_committer.owned_sealed_context(first_context),
+            model=model,
+            pairing_mode="repair",
+        )
         first_prepared = PreparedModelRequest.from_provider_request(
             ProviderRequest(
                 model=model,
@@ -1121,12 +1128,31 @@ def test_committed_strict_snapshot_skips_historical_shape_walk(
         preparer = runtime._consumer.facets.require(
             model_call_module.MODEL_INPUT_PREPARATION_FACET
         )
+        assert preparer._strict_snapshot_task is None
+        await first_committer.record_terminal_model_call(
+            PreparedModelCallOutcome(
+                invocation_id=first_prepared.invocation_id,
+                disposition="completed",
+                stop_reason="toolUse",
+                usage=Usage(0, 0, 0, 0, 0, None),
+            ),
+            usage_observed=False,
+        )
         assert preparer._strict_snapshot_task is not None
         await preparer._strict_snapshot_task
         assert preparer._strict_message_snapshots[0] is not None
+        assert preparer._strict_prefix_encoded is not None
 
         observed: list[Message] = []
         original = model_call_module._sealed_message_shape
+        matches: list[Message] = []
+        original_match = model_call_module._strict_snapshot_matches
+
+        def count_match(message, snapshot):
+            matches.append(message)
+            return original_match(message, snapshot)
+
+        monkeypatch.setattr(model_call_module, "_strict_snapshot_matches", count_match)
 
         def count_shape(message):
             observed.append(message)
@@ -1149,12 +1175,29 @@ def test_committed_strict_snapshot_skips_historical_shape_walk(
             )
         )
         assert second_options.prepared_request_committer is not None
+        assert matches == []
         second_options.prepared_request_committer.verify_sealed_context(second_context)
         owned = second_options.prepared_request_committer.owned_sealed_context(
             second_context
         )
         assert owned.messages[0] is preparer._strict_message_snapshots[0].message
         assert user not in observed
+        user.content[0] = TextPart(type="text", text="changed")
+        third_options = await runtime.prepare(
+            ModelCallPreparation(
+                purpose="main",
+                sequence=3,
+                model=model,
+                context=second_context,
+                options=CallOptions(),
+            )
+        )
+        assert matches and all(message is user for message in matches)
+        assert third_options.prepared_request_committer is not None
+        assert (
+            third_options.prepared_request_committer.certified_provider_prefix_count
+            == 0
+        )
         await runtime.dispose()
 
     asyncio.run(scenario())
@@ -1203,6 +1246,7 @@ def test_session_incremental_normalization_matches_full_after_user_boundary(
             model_call_module.MODEL_INPUT_PREPARATION_FACET
         )
         assert preparer._normalized_cache_task is None
+        assert preparer._strict_snapshot_task is None
         await first_committer.record_terminal_model_call(
             PreparedModelCallOutcome(
                 invocation_id=first_prepared.invocation_id,
@@ -1348,6 +1392,7 @@ def test_terminal_model_call_skips_unneeded_normalization_prewarm() -> None:
             model_call_module.MODEL_INPUT_PREPARATION_FACET
         )
         assert preparer._normalized_cache_task is None
+        assert preparer._strict_snapshot_task is None
         await runtime.dispose()
 
     asyncio.run(scenario())

@@ -8,6 +8,7 @@ import json
 import math
 import pickle
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+from contextlib import suppress
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from typing import Any, Protocol, cast
@@ -119,6 +120,13 @@ class _StrictMessageSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class _StrictSnapshotBatch:
+    snapshots: tuple[_StrictMessageSnapshot | None, ...]
+    messages: tuple[Message, ...] | None
+    encoded: bytes | None
+
+
+@dataclass(frozen=True, slots=True)
 class _NormalizedPrefixCache:
     source: tuple[object, ...]
     key: str
@@ -206,7 +214,7 @@ def _strict_snapshot_matches(
 def _build_strict_message_snapshots(
     source: tuple[_SealedMessageReuse, ...],
     previous: tuple[_StrictMessageSnapshot | None, ...],
-) -> tuple[_StrictMessageSnapshot | None, ...]:
+) -> _StrictSnapshotBatch:
     snapshots: list[_StrictMessageSnapshot | None] = []
     for index, entry in enumerate(source):
         prior = previous[index] if index < len(previous) else None
@@ -228,7 +236,17 @@ def _build_strict_message_snapshots(
             snapshots.append(None)
             continue
         snapshots.append(_StrictMessageSnapshot(entry.sealed, copied, encoded))
-    return tuple(snapshots)
+    if all(snapshot is not None for snapshot in snapshots):
+        messages = tuple(
+            snapshot.message for snapshot in snapshots if snapshot is not None
+        )
+        prefix_encoded: bytes | None
+        try:
+            prefix_encoded = pickle.dumps(messages, protocol=5)
+        except Exception:
+            prefix_encoded = None
+        return _StrictSnapshotBatch(tuple(snapshots), messages, prefix_encoded)
+    return _StrictSnapshotBatch(tuple(snapshots), None, None)
 
 
 _UNSAFE_SHAPE = object()
@@ -472,11 +490,12 @@ class SessionModelCallPreparer:
         self._on_committed_evidence_free_input = on_committed_evidence_free_input
         self._last_prepared_request: PreparedModelRequest | None = None
         self._last_prepared_source: tuple[object, ...] = ()
+        self._last_prepared_message_cache: tuple[_SealedMessageReuse, ...] = ()
         self._sealed_message_cache: tuple[_SealedMessageReuse, ...] = ()
         self._strict_message_snapshots: tuple[_StrictMessageSnapshot | None, ...] = ()
-        self._strict_snapshot_task: (
-            asyncio.Task[tuple[_StrictMessageSnapshot | None, ...]] | None
-        ) = None
+        self._strict_prefix_messages: tuple[Message, ...] | None = None
+        self._strict_prefix_encoded: bytes | None = None
+        self._strict_snapshot_task: asyncio.Task[_StrictSnapshotBatch] | None = None
         self._normalized_cache: _NormalizedPrefixCache | None = None
         self._normalized_cache_task: (
             asyncio.Task[_NormalizedPrefixCache | None] | None
@@ -490,31 +509,23 @@ class SessionModelCallPreparer:
     ) -> None:
         self._last_prepared_request = request
         self._last_prepared_source = source
-        task = asyncio.create_task(
-            asyncio.to_thread(
-                _build_strict_message_snapshots,
-                message_cache,
-                self._strict_message_snapshots,
-            )
-        )
-        self._strict_snapshot_task = task
-        task.add_done_callback(
-            lambda completed: self._finish_strict_snapshot(completed, source)
-        )
+        self._last_prepared_message_cache = message_cache
 
     def _finish_strict_snapshot(
         self,
-        task: asyncio.Task[tuple[_StrictMessageSnapshot | None, ...]],
+        task: asyncio.Task[_StrictSnapshotBatch],
         source: tuple[object, ...],
     ) -> None:
         if task.cancelled():
             return
         try:
-            snapshots = task.result()
+            batch = task.result()
         except BaseException:
             return
         if self._last_prepared_source is source:
-            self._strict_message_snapshots = snapshots
+            self._strict_message_snapshots = batch.snapshots
+            self._strict_prefix_messages = batch.messages
+            self._strict_prefix_encoded = batch.encoded
 
     def _schedule_normalized_cache(
         self,
@@ -523,17 +534,34 @@ class SessionModelCallPreparer:
         model: Model,
         pairing_mode: PairingMode,
     ) -> None:
+        if self._last_prepared_source is not source:
+            return
+        strict_task = asyncio.create_task(
+            asyncio.to_thread(
+                _build_strict_message_snapshots,
+                self._last_prepared_message_cache,
+                self._strict_message_snapshots,
+            )
+        )
+        self._strict_snapshot_task = strict_task
+        strict_task.add_done_callback(
+            lambda completed: self._finish_strict_snapshot(completed, source)
+        )
         if model.api != "openai-completions":
             return
-        task = asyncio.create_task(
-            asyncio.to_thread(
+
+        async def build_normalized_cache() -> _NormalizedPrefixCache | None:
+            with suppress(Exception):
+                await strict_task
+            return await asyncio.to_thread(
                 _build_normalized_prefix_cache,
                 source,
                 owned_context,
                 model,
                 pairing_mode,
             )
-        )
+
+        task = asyncio.create_task(build_normalized_cache())
         self._normalized_cache_task = task
         task.add_done_callback(
             lambda completed: self._finish_normalized_cache(completed, source)
@@ -588,10 +616,38 @@ class SessionModelCallPreparer:
         shapes: tuple[tuple[object, ...] | None, ...],
         reused_prefix_count: int,
         strict_snapshots: list[_StrictMessageSnapshot | None] | None = None,
+        strict_prefix_messages: tuple[Message, ...] | None = None,
+        strict_prefix_encoded: bytes | None = None,
     ) -> tuple[tuple[tuple[object, ...] | None, ...], int]:
         if len(messages) != len(projected):
             projected[:] = [serialize_message(message) for message in messages]
             return tuple(_sealed_message_shape(message) for message in messages), 0
+        if (
+            reused_prefix_count > 0
+            and strict_prefix_messages is not None
+            and strict_prefix_encoded is not None
+            and len(strict_prefix_messages) == reused_prefix_count
+            and strict_snapshots is not None
+            and len(strict_snapshots) >= reused_prefix_count
+            and all(
+                snapshot is not None and type(message) is type(snapshot.message)
+                for message, snapshot in zip(
+                    messages[:reused_prefix_count],
+                    strict_snapshots[:reused_prefix_count],
+                    strict=False,
+                )
+            )
+        ):
+            try:
+                current_prefix = tuple(messages[:reused_prefix_count])
+                if (
+                    current_prefix == strict_prefix_messages
+                    and pickle.dumps(current_prefix, protocol=5)
+                    == strict_prefix_encoded
+                ):
+                    return shapes, reused_prefix_count
+            except Exception:
+                pass
         for index in range(reused_prefix_count):
             snapshot = (
                 strict_snapshots[index]
@@ -671,6 +727,8 @@ class SessionModelCallPreparer:
                 message_shapes,
                 reused_prefix_count,
                 prior_strict_snapshots,
+                self._strict_prefix_messages,
+                self._strict_prefix_encoded,
             )
             committer = self._transcript.create_model_input_committer(
                 purpose=preparation.purpose,
