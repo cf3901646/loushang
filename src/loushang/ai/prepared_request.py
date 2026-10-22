@@ -280,6 +280,9 @@ class PreparedModelRequest:
     _transport_copies: SimpleQueue[dict[str, JSONValue]] = field(
         default_factory=SimpleQueue, init=False, repr=False, compare=False
     )
+    _adapter_projection_state: object | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
 
     def __post_init__(self, reuse_from: PreparedModelRequest | None) -> None:
         object.__setattr__(self, "_reused_message_prefix_count", 0)
@@ -427,6 +430,11 @@ class PreparedModelRequest:
         if not self._owned_envelope_is_current():
             raise RuntimeError("prepared model request envelope changed before transport")
         self._transport_copies.put(payload)
+
+    def _retain_adapter_projection_state(self, state: object) -> None:
+        """Retain an adapter-local hint outside the durable request envelope."""
+
+        object.__setattr__(self, "_adapter_projection_state", state)
 
     def owned_commit_projection(
         self,
