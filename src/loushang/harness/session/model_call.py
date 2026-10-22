@@ -673,7 +673,12 @@ class SessionModelCallPreparer:
                 )
         return shapes, reused_prefix_count
 
-    def __call__(self, preparation: ModelCallPreparation) -> CallOptions:
+    def __call__(
+        self,
+        preparation: ModelCallPreparation,
+        *,
+        owner_loop: asyncio.AbstractEventLoop | None = None,
+    ) -> CallOptions:
         if not isinstance(preparation, ModelCallPreparation):
             raise TypeError("model-call preparation requires ModelCallPreparation")
         if self._is_current() is not True:
@@ -700,7 +705,18 @@ class SessionModelCallPreparer:
                 preparation, serialized_messages=logical_messages
             )
             if self._request_evidence_provider is not None:
-                evidence = self._request_evidence_provider(preparation)
+                if owner_loop is None:
+                    evidence = self._request_evidence_provider(preparation)
+                else:
+                    # Resume evidence can read the owned transcript Writer.
+                    # Its synchronous admission must run on the owning loop.
+                    async def project_evidence() -> Mapping[str, object] | None:
+                        assert self._request_evidence_provider is not None
+                        return self._request_evidence_provider(preparation)
+
+                    evidence = asyncio.run_coroutine_threadsafe(
+                        project_evidence(), owner_loop
+                    ).result()
                 if evidence is not None:
                     logical_input[RESOURCE_EVIDENCE_COMPONENT] = require_json_mapping(
                         evidence,
@@ -1226,12 +1242,17 @@ class SessionModelCallCapabilityConsumer:
         if self.facets.requirement != MODEL_INPUT_PREPARATION_REQUIREMENT:
             raise ValueError("model-call Consumer received the wrong facet view")
 
-    def prepare(self, preparation: ModelCallPreparation) -> CallOptions:
+    def prepare(
+        self,
+        preparation: ModelCallPreparation,
+        *,
+        owner_loop: asyncio.AbstractEventLoop | None = None,
+    ) -> CallOptions:
         preparer = cast(
             SessionModelCallPreparer,
             self.facets.require(MODEL_INPUT_PREPARATION_FACET),
         )
-        return preparer(preparation)
+        return preparer(preparation, owner_loop=owner_loop)
 
 
 @dataclass(frozen=True)
@@ -1487,7 +1508,11 @@ class SessionModelCallRuntime:
         await self._prepare_lock.acquire()
         try:
             worker = asyncio.create_task(
-                asyncio.to_thread(consumer.prepare, preparation)
+                asyncio.to_thread(
+                    consumer.prepare,
+                    preparation,
+                    owner_loop=asyncio.get_running_loop(),
+                )
             )
         except BaseException:
             self._prepare_lock.release()

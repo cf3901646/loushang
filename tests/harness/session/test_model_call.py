@@ -2191,6 +2191,43 @@ def test_concurrent_session_model_inputs_allow_only_one_transport() -> None:
     asyncio.run(scenario())
 
 
+def test_worker_preparation_projects_evidence_on_the_transcript_owner_loop() -> None:
+    async def scenario() -> None:
+        session = await _transcript_session()
+        owner_loop = asyncio.get_running_loop()
+        projected = []
+
+        def project_evidence(preparation: ModelCallPreparation) -> None:
+            assert preparation.purpose == "main"
+            assert asyncio.get_running_loop() is owner_loop
+            projected.append(True)
+            return None
+
+        runtime = _model_call_runtime(
+            session,
+            is_current=lambda: True,
+            request_evidence_provider=project_evidence,
+        )
+        try:
+            options = await runtime.prepare(
+                ModelCallPreparation(
+                    purpose="main",
+                    sequence=1,
+                    model=_model(api="test-api"),
+                    context=Context(
+                        messages=[UserMessage(role="user", content="hello", timestamp=1.0)]
+                    ),
+                    options=CallOptions(),
+                )
+            )
+            assert options.prepared_request_committer is not None
+            assert projected == [True]
+        finally:
+            await runtime.dispose()
+
+    asyncio.run(scenario())
+
+
 def test_cancelled_model_preparation_keeps_input_responsive_and_serializes_workers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2202,12 +2239,14 @@ def test_cancelled_model_preparation_keeps_input_responsive_and_serializes_worke
     def slow_prepare(
         consumer: SessionModelCallCapabilityConsumer,
         preparation: ModelCallPreparation,
+        *,
+        owner_loop: asyncio.AbstractEventLoop | None = None,
     ) -> CallOptions:
         nonlocal calls
         calls += 1
         entered.set()
         assert release.wait(1)
-        return original(consumer, preparation)
+        return original(consumer, preparation, owner_loop=owner_loop)
 
     monkeypatch.setattr(SessionModelCallCapabilityConsumer, "prepare", slow_prepare)
 
