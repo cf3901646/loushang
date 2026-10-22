@@ -1180,3 +1180,31 @@ on a 1,700-message synthetic sample (54.9ms versus 52.7ms median), so it was
 removed without a Product commit. The next accepted change needs to shorten
 the serial cross-layer chain while keeping the final source and publication
 barriers exact.
+
+## Transport copy overlapped with the commit barrier, 2026-10-22
+
+Large text-only requests prepared by an explicitly worker-safe adapter now
+copy their sealed Provider payload in a worker while the durable Model Input
+commit runs. The adapter receives this one-shot private copy only after the
+commit and cancellation checks succeed; later calls still obtain independent
+copies. Small requests, image payloads, traced calls and non-opted-in adapters
+keep their prior path. A regression first demonstrated that copying began only
+after the held commit; the new path passed overlap, copy-isolation and failed-
+commit tests. `make check-ai` passed 887 offline tests with 90.64% coverage.
+
+Two sequential long-session diagnostic pairs used the same growing, roughly
+30,000-record authority and a private offline adapter that supplied a sealed
+Provider prefix. The first baseline/candidate pair measured 1,891/808ms from
+Tool exit to Worked; the reverse-order candidate/baseline pair measured
+464/579ms. The first pair had a large cold-start and load difference, so these
+four turns cannot establish a p95 or an isolated end-to-end speedup. The
+post-commit transport copy measured 123 and 54ms in the baselines versus below
+0.01ms in both candidates. Model Input commits stayed ordered and completed
+before transport. Both candidate authorities reopened with two exact Model
+Input snapshots and terminal usage, one exact Tool output, unchanged authority
+and zero historical Tool executions.
+
+One optimistic candidate turn fell below 500ms, but the longer candidate took
+808ms and this adapter's prefix is diagnostic only. The representative
+built-in-adapter p95 target remains open; the Session, normalization and
+Provider projection chain still needs a certified shared prefix.
