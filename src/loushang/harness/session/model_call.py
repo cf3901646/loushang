@@ -25,6 +25,7 @@ from loushang.ai.prepared_request import (
 from loushang.ai.structured import StructuredOutputOptions
 from loushang.ai.types import (
     AssistantMessage,
+    Context,
     ImagePart,
     Message,
     TextPart,
@@ -81,6 +82,7 @@ from loushang.harness.transcript.model_input import (
     ModelInputTranscriptCommitter,
     RebuiltModelInput,
 )
+from loushang.harness.transcript.model_input_types import freeze_model_input_json
 
 CurrentSessionPredicate = Callable[[], bool]
 RegistrationEntriesProvider = Callable[[], tuple[RegistrationInventoryEntry, ...]]
@@ -448,6 +450,7 @@ class SessionModelCallPreparer:
                 runtime_references=runtime_references,
             )
             sealed_messages = committer.sealed_logical_messages
+            sealed_input = committer.sealed_logical_input
             prior_source = self._last_prepared_source
             certified_provider_prefix_count = 0
             if (
@@ -507,14 +510,18 @@ class SessionModelCallPreparer:
                         else None
                     ),
                     prepared_request_reuse=self._last_prepared_request,
-                    certified_provider_prefix_count=(
-                        certified_provider_prefix_count
-                    ),
+                    certified_provider_prefix_count=(certified_provider_prefix_count),
                     current_provider_source_count=(
                         len(sealed_messages)
                         if len(sealed_messages) == len(preparation.context.messages)
                         else -1
                     ),
+                    sealed_messages=sealed_messages,
+                    sealed_message_shapes=tuple(
+                        item.shape for item in self._sealed_message_cache
+                    ),
+                    sealed_system_prompt=sealed_input["system_prompt"],
+                    sealed_tools=sealed_input["tools"],
                 ),
             )
         except BaseException:
@@ -549,6 +556,10 @@ class _CurrentSessionCommitter(
         prepared_request_reuse: PreparedModelRequest | None = None,
         certified_provider_prefix_count: int = 0,
         current_provider_source_count: int = 0,
+        sealed_messages: tuple[object, ...] = (),
+        sealed_message_shapes: tuple[tuple[object, ...] | None, ...] = (),
+        sealed_system_prompt: object = None,
+        sealed_tools: object = (),
     ) -> None:
         self._committer = committer
         self._is_current = is_current
@@ -558,7 +569,43 @@ class _CurrentSessionCommitter(
         self.prepared_request_reuse = prepared_request_reuse
         self.certified_provider_prefix_count = certified_provider_prefix_count
         self.current_provider_source_count = current_provider_source_count
+        self._sealed_messages = sealed_messages
+        self._sealed_message_shapes = sealed_message_shapes
+        self._sealed_system_prompt = sealed_system_prompt
+        self._sealed_tools = sealed_tools
         self._latest_attempt_by_invocation: dict[str, tuple[int, str]] = {}
+
+    def verify_sealed_context(self, context: Context) -> None:
+        """Reject a context changed after its durable logical projection."""
+
+        if (
+            type(context) is not Context
+            or context.system_prompt != self._sealed_system_prompt
+            or len(context.messages) != len(self._sealed_messages)
+            or len(self._sealed_message_shapes) != len(self._sealed_messages)
+            or freeze_model_input_json(
+                project_model_tools(context.tools or ()),
+                name="current Model Input tools",
+            )
+            != self._sealed_tools
+        ):
+            raise RuntimeError("sealed Model Input context changed")
+        for message, shape, sealed in zip(
+            context.messages,
+            self._sealed_message_shapes,
+            self._sealed_messages,
+            strict=True,
+        ):
+            if shape is not None:
+                if _sealed_message_shape(message) != shape:
+                    raise RuntimeError("sealed Model Input context changed")
+            elif (
+                freeze_model_input_json(
+                    serialize_message(message), name="current Model Input message"
+                )
+                != sealed
+            ):
+                raise RuntimeError("sealed Model Input context changed")
 
     async def commit_prepared_request(self, request: PreparedModelRequest) -> None:
         self._require_current()

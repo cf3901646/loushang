@@ -154,9 +154,7 @@ class ModelInputCommitContext:
 
         parts = prefix + tuple(
             canonical_model_input_json(message, name=f"{name}.messages[{index}]")
-            for index, message in enumerate(
-                frozen_messages[len(prefix) :], len(prefix)
-            )
+            for index, message in enumerate(frozen_messages[len(prefix) :], len(prefix))
         )
         fields = []
         for key in sorted(self.logical_input):
@@ -464,6 +462,12 @@ class ModelInputTranscriptCommitter(
             raise ModelInputIntegrityError("sealed Model Input messages are invalid")
         return messages
 
+    @property
+    def sealed_logical_input(self) -> Mapping[str, object]:
+        """Expose the same owned values used by the durable commit."""
+
+        return self._context.logical_input
+
     def _prepare_logical_canonical(self) -> tuple[str, str]:
         frozen = self._context.logical_input
         logical = cast(
@@ -486,7 +490,9 @@ class ModelInputTranscriptCommitter(
             return
         task = self._logical_prewarm_task
         if task is None:
-            task = asyncio.create_task(asyncio.to_thread(self._prepare_logical_canonical))
+            task = asyncio.create_task(
+                asyncio.to_thread(self._prepare_logical_canonical)
+            )
             self._logical_prewarm_task = task
             task.add_done_callback(self._finish_logical_prewarm)
         prepared = await asyncio.shield(task)
@@ -534,9 +540,11 @@ class ModelInputTranscriptCommitter(
                     ):
                         # The exact built-in envelope is recursively frozen.
                         # Copy it off-loop so a long request cannot stall input.
-                        prepared_payload, model_visible_headers, canonical = (
-                            await asyncio.to_thread(_validate_prepared_request, request)
-                        )
+                        (
+                            prepared_payload,
+                            model_visible_headers,
+                            canonical,
+                        ) = await asyncio.to_thread(_validate_prepared_request, request)
                     else:
                         prepared_payload, model_visible_headers, canonical = (
                             _validate_prepared_request(request)
@@ -548,9 +556,7 @@ class ModelInputTranscriptCommitter(
                     await _yield_preparation()
                 self._require_current_transcript()
                 self._latest_metrics = request.metrics
-                logical_shared_prefix = bool(
-                    self._context._reused_message_prefix_count
-                )
+                logical_shared_prefix = bool(self._context._reused_message_prefix_count)
                 prepared_shared_prefix = (
                     type(request) is PreparedModelRequest
                     and request._reused_message_prefix_count > 0
@@ -598,13 +604,17 @@ class ModelInputTranscriptCommitter(
                                     logical_canonical.encode("utf-8")
                                 ).hexdigest()
                             )
-                    needs_binary_projection = bool(request.binary_fields) or any(
-                        marker in logical_canonical or marker in canonical
-                        for marker in (
-                            '"$loushang.sessionBlob"',
-                            '"$loushang.literal"',
+                    needs_binary_projection = (
+                        bool(request.binary_fields)
+                        or any(
+                            marker in logical_canonical or marker in canonical
+                            for marker in (
+                                '"$loushang.sessionBlob"',
+                                '"$loushang.literal"',
+                            )
                         )
-                    ) or '"type":"image"' in logical_canonical
+                        or '"type":"image"' in logical_canonical
+                    )
                     if (
                         needs_binary_projection
                         and self._binary_codec_factory is not None
@@ -938,14 +948,15 @@ class ModelInputTranscriptCommitter(
                     commit.snapshot_id for commit in self._commits
                 ),
             )
-            usage_commit, outcome_commit = (
-                await self._transcript._append_model_call_terminal_batch(
-                    usage,
-                    fact,
-                    max_encoded_record_bytes=self._max_encoded_record_bytes,
-                    expected_revision=self._expected_revision,
-                    expected_leaf_id=self._expected_leaf_id,
-                )
+            (
+                usage_commit,
+                outcome_commit,
+            ) = await self._transcript._append_model_call_terminal_batch(
+                usage,
+                fact,
+                max_encoded_record_bytes=self._max_encoded_record_bytes,
+                expected_revision=self._expected_revision,
+                expected_leaf_id=self._expected_leaf_id,
             )
             if usage_commit.receipt is None or outcome_commit.receipt is None:
                 raise ModelInputIntegrityError(

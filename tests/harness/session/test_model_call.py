@@ -422,7 +422,10 @@ def test_current_session_prepares_and_rebuilds_main_model_call() -> None:
         certified: list[str] = []
 
         def certify(snapshot_id: str) -> None:
-            assert session.rebuild_model_input(snapshot_id).snapshot.snapshot_id == snapshot_id
+            assert (
+                session.rebuild_model_input(snapshot_id).snapshot.snapshot_id
+                == snapshot_id
+            )
             certified.append(snapshot_id)
 
         supplemental_registration = RegistrationInventoryEntry(
@@ -920,9 +923,7 @@ def test_session_certificate_reuses_exact_builtin_chat_payload() -> None:
 
         assistant = AssistantMessage(
             role="assistant",
-            content=[
-                ToolCall(type="toolCall", id="call-1", name="read", arguments={})
-            ],
+            content=[ToolCall(type="toolCall", id="call-1", name="read", arguments={})],
             api="openai-completions",
             provider=model.provider_id,
             endpoint=model.endpoint_id,
@@ -953,13 +954,16 @@ def test_session_certificate_reuses_exact_builtin_chat_payload() -> None:
         )
         second_prepared = adapter.prepare_request(second_request)
         assert second_prepared._reused_message_prefix_count > 0
-        assert second_prepared.payload["messages"][0] is first_prepared.payload[
-            "messages"
-        ][0]
+        assert (
+            second_prepared.payload["messages"][0]
+            is first_prepared.payload["messages"][0]
+        )
         assert second_prepared.canonical_payload == expected.canonical_payload
         assert second_prepared.payload_hash == expected.payload_hash
         assert second_prepared.metrics == expected.metrics
-        assert second_prepared.payload_for_transport() == expected.payload_for_transport()
+        assert (
+            second_prepared.payload_for_transport() == expected.payload_for_transport()
+        )
         await second_options.prepared_request_committer.commit_prepared_request(
             second_prepared
         )
@@ -980,13 +984,62 @@ def test_session_certificate_reuses_exact_builtin_chat_payload() -> None:
     asyncio.run(scenario())
 
 
+def test_session_sealed_context_rejects_mutation_before_provider_normalization() -> (
+    None
+):
+    async def scenario() -> None:
+        session = await _transcript_session()
+        runtime = _model_call_runtime(session, is_current=lambda: True)
+        user = UserMessage(
+            role="user",
+            content=[TextPart(type="text", text="sealed")],
+            timestamp=1.0,
+        )
+        tool = Tool(
+            name="read",
+            description="Read",
+            parameters={"type": "object", "properties": {"path": {"type": "string"}}},
+        )
+        context = Context(messages=[user], tools=[tool])
+        options = await runtime.prepare(
+            ModelCallPreparation(
+                purpose="main",
+                sequence=1,
+                model=_model(api="openai-completions"),
+                context=context,
+                options=CallOptions(),
+            )
+        )
+        committer = options.prepared_request_committer
+        assert committer is not None
+        committer.verify_sealed_context(context)
+        user.content[0] = TextPart(type="text", text="changed")
+        with pytest.raises(RuntimeError, match="sealed Model Input context changed"):
+            committer.verify_sealed_context(context)
+        user.content[0] = TextPart(type="text", text="sealed")
+        context.messages.append(
+            UserMessage(role="user", content="extra", timestamp=2.0)
+        )
+        with pytest.raises(RuntimeError, match="sealed Model Input context changed"):
+            committer.verify_sealed_context(context)
+        context.messages.pop()
+        with pytest.raises(RuntimeError, match="sealed Model Input context changed"):
+            committer.verify_sealed_context(replace(context, system_prompt="changed"))
+        tool.parameters["properties"]["path"]["type"] = "integer"
+        with pytest.raises(RuntimeError, match="sealed Model Input context changed"):
+            committer.verify_sealed_context(context)
+        await runtime.dispose()
+
+    asyncio.run(scenario())
+
+
 def test_resource_evidence_is_request_bound_durable_and_resumable() -> None:
     async def scenario() -> None:
         session = await _transcript_session()
         certified: list[str] = []
-        message_record_id, transcript_message = (
-            session.get_context_message_bindings()[0]
-        )
+        message_record_id, transcript_message = session.get_context_message_bindings()[
+            0
+        ]
         evidence = PreparedResourceEvidence(
             model_visible_text="hello",
             skills=(_skill_evidence_payload(),),
@@ -1059,9 +1112,7 @@ def test_resource_evidence_is_request_bound_durable_and_resumable() -> None:
                 model=_model(api=adapter.api),
                 context=Context(
                     system_prompt="durable system prompt",
-                    messages=[
-                        UserMessage(role="user", content="hello", timestamp=1.0)
-                    ],
+                    messages=[UserMessage(role="user", content="hello", timestamp=1.0)],
                 ),
                 options=CallOptions(),
             )
@@ -1087,9 +1138,7 @@ def test_resource_evidence_is_request_bound_durable_and_resumable() -> None:
 
         compacted = SessionRequestEvidenceRuntime(
             get_context_message_bindings=lambda records=None: (
-                ()
-                if records is None
-                else session.get_context_message_bindings(records)
+                () if records is None else session.get_context_message_bindings(records)
             ),
             get_active_records=session.get_active_entries,
             rebuild_model_input=session.rebuild_model_input,
@@ -1193,9 +1242,9 @@ def test_anchored_resource_evidence_resume_skips_snapshot_rebuild() -> None:
 def test_resource_evidence_recovery_is_strict_and_transactional() -> None:
     async def scenario() -> None:
         session = await _transcript_session()
-        message_record_id, transcript_message = (
-            session.get_context_message_bindings()[0]
-        )
+        message_record_id, transcript_message = session.get_context_message_bindings()[
+            0
+        ]
         evidence = PreparedResourceEvidence(
             model_visible_text="hello",
             skills=(_skill_evidence_payload(),),
@@ -1253,12 +1302,19 @@ def test_resource_evidence_recovery_is_strict_and_transactional() -> None:
             for entry in session.get_active_entries()
             if entry.kind == "model.input.prepared"
         )
-        assert session.rebuild_model_input(snapshot_id).logical_input[
-            RESOURCE_EVIDENCE_COMPONENT
-        ] == component
-        with pytest.raises(RequestEvidenceIntegrityError, match="repeats a message index"):
+        assert (
+            session.rebuild_model_input(snapshot_id).logical_input[
+                RESOURCE_EVIDENCE_COMPONENT
+            ]
+            == component
+        )
+        with pytest.raises(
+            RequestEvidenceIntegrityError, match="repeats a message index"
+        ):
             resumed.audit_snapshot_resource_evidence(snapshot_id)
-        with pytest.raises(RequestEvidenceIntegrityError, match="repeats a message index"):
+        with pytest.raises(
+            RequestEvidenceIntegrityError, match="repeats a message index"
+        ):
             resumed.project_model_input(preparation)
 
         session.branch(message_record_id)
