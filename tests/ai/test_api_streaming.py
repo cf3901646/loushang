@@ -614,6 +614,65 @@ def test_session_owned_normalization_starts_verification_before_preparation() ->
     assert order == ["verify-start", "prepare", "commit", "transport"]
 
 
+def test_session_sealed_context_is_normalized_off_loop_for_provider() -> None:
+    main_thread = threading.get_ident()
+    observed_threads: list[int] = []
+
+    class SessionCommitter:
+        normalize_context_in_worker = True
+
+        def owned_sealed_context(self, context: Context) -> Context:
+            observed_threads.append(threading.get_ident())
+            assert context.messages[0].content == "changed"
+            return Context(
+                messages=[UserMessage(role="user", content="sealed", timestamp=0.0)]
+            )
+
+        async def commit_prepared_request(self, request) -> None:
+            del request
+
+    class PreparedProvider(_Provider):
+        def prepare_request(self, request: ProviderRequest) -> PreparedModelRequest:
+            self.context = request.context
+            return PreparedModelRequest.from_provider_request(
+                request, payload={"messages": []}
+            )
+
+        async def invoke_prepared_raw(
+            self, request: ProviderRequest, prepared: PreparedModelRequest
+        ):
+            yield {"type": "response_done"}
+
+    provider = PreparedProvider()
+    _test_registry_with(provider)
+    model = Model(
+        id="normalization-owned-seal",
+        provider="selected-provider",
+        endpoint="selected-endpoint",
+        api="faux",
+        base_url="https://selected.example/v1",
+        auth=Auth(kind="none"),
+        capabilities=Capabilities(input=("text",), output=("text",), stream=True),
+    )
+
+    async def scenario() -> None:
+        await (
+            await stream(
+                model,
+                Context(
+                    messages=[
+                        UserMessage(role="user", content="changed", timestamp=0.0)
+                    ]
+                ),
+                CallOptions(prepared_request_committer=SessionCommitter()),
+            )
+        ).result()
+
+    asyncio.run(scenario())
+    assert observed_threads and observed_threads[0] != main_thread
+    assert provider.context.messages[0].content[0].text == "sealed"
+
+
 def test_cancelled_session_normalization_cannot_start_provider_transport(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
