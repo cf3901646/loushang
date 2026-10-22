@@ -1028,6 +1028,22 @@ def test_session_sealed_context_rejects_mutation_before_provider_normalization()
         tool.parameters["properties"]["path"]["type"] = "integer"
         with pytest.raises(RuntimeError, match="sealed Model Input context changed"):
             committer.verify_sealed_context(context)
+        committer.start_sealed_context_verification(context)
+        prepared = PreparedModelRequest.from_provider_request(
+            ProviderRequest(
+                model=_model(api="openai-completions"),
+                context=normalize_context(context),
+                options=options,
+                base_url="https://provider.test/v1",
+                max_output_tokens=16,
+            ),
+            payload={"messages": []},
+        )
+        with pytest.raises(RuntimeError, match="sealed Model Input context changed"):
+            await committer.commit_prepared_request(prepared)
+        assert not any(
+            entry.kind == "model.input.prepared" for entry in session.get_entries()
+        )
         await runtime.dispose()
 
     asyncio.run(scenario())

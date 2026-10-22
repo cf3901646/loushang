@@ -573,6 +573,7 @@ class _CurrentSessionCommitter(
         self._sealed_message_shapes = sealed_message_shapes
         self._sealed_system_prompt = sealed_system_prompt
         self._sealed_tools = sealed_tools
+        self._sealed_verification_task: asyncio.Task[None] | None = None
         self._latest_attempt_by_invocation: dict[str, tuple[int, str]] = {}
 
     def verify_sealed_context(self, context: Context) -> None:
@@ -607,7 +608,23 @@ class _CurrentSessionCommitter(
             ):
                 raise RuntimeError("sealed Model Input context changed")
 
+    def start_sealed_context_verification(self, context: Context) -> None:
+        if self._sealed_verification_task is not None:
+            raise RuntimeError("sealed Model Input verification already started")
+        task = asyncio.create_task(
+            asyncio.to_thread(self.verify_sealed_context, context)
+        )
+        self._sealed_verification_task = task
+        task.add_done_callback(self._finish_sealed_verification)
+
+    @staticmethod
+    def _finish_sealed_verification(task: asyncio.Task[None]) -> None:
+        if not task.cancelled():
+            task.exception()
+
     async def commit_prepared_request(self, request: PreparedModelRequest) -> None:
+        if self._sealed_verification_task is not None:
+            await self._sealed_verification_task
         self._require_current()
         if self._turn_performance is not None:
             self._turn_performance.model_input_commit_started(request)
