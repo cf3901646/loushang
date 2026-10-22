@@ -45,8 +45,8 @@ from loushang.harness.transcript.model_input_v2_types import (
     ModelInputNodeReference,
     ModelInputSequenceTailNode,
     ModelInputSnapshotV2,
+    _create_model_input_json_value_from_canonical,
     create_model_input_json_chunk,
-    create_model_input_json_value,
     create_model_input_mapping_root_from_hash,
     create_model_input_sequence_tail,
     estimate_model_input_node_wire_bytes,
@@ -269,9 +269,7 @@ class ModelInputV2NodeIndex:
             self._authority_verified_value_hashes.copy()
         )
         staged._verified_sequence_states = self._verified_sequence_states.copy()
-        staged._verified_sequence_references = (
-            self._verified_sequence_references.copy()
-        )
+        staged._verified_sequence_references = self._verified_sequence_references.copy()
         return staged
 
     @classmethod
@@ -914,8 +912,8 @@ class ModelInputV2Writer:
                 self._existing_resolver = ModelInputV2Resolver(active_records)
             else:
                 try:
-                    self._existing_resolver = (
-                        cached_resolver._with_extended_ancestry(active_records)
+                    self._existing_resolver = cached_resolver._with_extended_ancestry(
+                        active_records
                     )
                 except ModelInputIntegrityError:
                     # A changed record object cannot inherit cached authority.
@@ -967,8 +965,7 @@ class ModelInputV2Writer:
             key: replace(
                 plan,
                 item_references=tuple(
-                    self._value_references[item.value_hash]
-                    for item in plan.item_plans
+                    self._value_references[item.value_hash] for item in plan.item_plans
                 ),
             )
             for key, plan in self._sequence_plan_updates.items()
@@ -1147,14 +1144,10 @@ class ModelInputV2Writer:
                         reused_items[name] = sequence_plans[
                             sequence_state
                         ].reused_prefix_count
-                mapping_hash, hash_prefix = (
-                    _hash_canonical_mapping_fields_incremental(
-                        canonical_fields,
-                        previous=self._index_cache.mapping_hash_prefixes.get(
-                            mapping_index
-                        ),
-                        reused_items=reused_items,
-                    )
+                mapping_hash, hash_prefix = _hash_canonical_mapping_fields_incremental(
+                    canonical_fields,
+                    previous=self._index_cache.mapping_hash_prefixes.get(mapping_index),
+                    reused_items=reused_items,
                 )
                 if hash_prefix is not None:
                     self._mapping_hash_prefix_updates[mapping_index] = hash_prefix
@@ -1336,9 +1329,9 @@ class ModelInputV2Writer:
                     sequence_plans.setdefault(state, plan)
                     mapping_sequences[(mapping_index, name)] = state
                 else:
-                    mapping_value_hashes[(mapping_index, name)] = (
-                        self._collect_value(value).value_hash
-                    )
+                    mapping_value_hashes[(mapping_index, name)] = self._collect_value(
+                        value
+                    ).value_hash
         return (
             sequence_plans,
             mapping_sequences,
@@ -1371,8 +1364,7 @@ class ModelInputV2Writer:
                 while (
                     reused_count < reusable_count
                     and reused_count < len(cached_source)
-                    and immutable_source[reused_count]
-                    is cached_source[reused_count]
+                    and immutable_source[reused_count] is cached_source[reused_count]
                 ):
                     reused_count += 1
             while reused_count < reusable_count and (
@@ -1514,8 +1506,10 @@ class ModelInputV2Writer:
                         "Model Input v2 JSON chunk was not materialized"
                     )
                 chunk_refs.append(indexed.reference)
-            node = create_model_input_json_value(
-                plan.value,
+            node = _create_model_input_json_value_from_canonical(
+                plan.canonical,
+                value_hash=plan.value_hash,
+                decoded_bytes=plan.encoded_bytes,
                 chunk_refs=chunk_refs,
             )
             value_nodes[plan.value_hash] = node
@@ -1647,8 +1641,7 @@ def _hash_canonical_mapping_fields_incremental(
         and preceding == previous.preceding_fields
         and len(sequence_items) >= len(previous.item_canonicals)
         and reused_items.get(sequence_name, 0) >= len(previous.item_canonicals)
-        and sequence_items[: len(previous.item_canonicals)]
-        == previous.item_canonicals
+        and sequence_items[: len(previous.item_canonicals)] == previous.item_canonicals
     )
     if can_reuse and previous is not None:
         digest = previous.digest_before_close.copy()
@@ -1753,8 +1746,7 @@ class ModelInputV2Resolver:
         current = tuple(records)
         previous_count = len(self._records)
         if len(current) < previous_count or any(
-            old is not new
-            for old, new in zip(self._records, current, strict=False)
+            old is not new for old, new in zip(self._records, current, strict=False)
         ):
             raise ModelInputIntegrityError(
                 "Model Input v2 resolver left its selected ancestry"

@@ -34,6 +34,7 @@ from loushang.harness.transcript.model_input_v2 import (
     _hash_canonical_mapping_fields_incremental,
 )
 from loushang.harness.transcript.model_input_v2_types import (
+    MODEL_INPUT_V2_CHUNK_CHARACTERS,
     MODEL_INPUT_V2_PAYLOAD_VERSION,
     ModelInputMappingEntry,
     ModelInputNodeBundle,
@@ -91,8 +92,7 @@ def test_mapping_root_hash_streams_sequence_without_changing_canonical_identity(
     mapping = {"messages": messages, "empty": [], "meta": {"z": 2, "a": "🚀"}}
     fields = {
         "messages": tuple(
-            canonical_model_input_json(item, name="test message")
-            for item in messages
+            canonical_model_input_json(item, name="test message") for item in messages
         ),
         "empty": (),
         "meta": canonical_model_input_json(mapping["meta"], name="test metadata"),
@@ -182,6 +182,44 @@ def _reference(record_id: str, ordinal: int, node) -> ModelInputNodeReference:
         node_kind=node.node_kind,
         content_hash=node.content_hash,
     )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [{"role": "user", "content": "short"}, {"output": "中🚀" * 30_000}],
+)
+def test_planned_value_keeps_exact_inline_and_chunked_node_identity(value) -> None:
+    from loushang.harness.transcript.model_input_v2_types import (
+        _create_model_input_json_value_from_canonical,
+    )
+
+    canonical = canonical_model_input_json(value, name="planned test value")
+    chunks = (
+        tuple(
+            create_model_input_json_chunk(text)
+            for text in split_model_input_canonical_json(canonical)
+        )
+        if len(canonical) > MODEL_INPUT_V2_CHUNK_CHARACTERS
+        else ()
+    )
+    refs = tuple(
+        _reference("chunks", index, chunk) for index, chunk in enumerate(chunks)
+    )
+    expected = create_model_input_json_value(value, chunk_refs=refs)
+    actual = _create_model_input_json_value_from_canonical(
+        canonical,
+        value_hash=hash_model_input_json(value, name="planned test value"),
+        decoded_bytes=len(canonical.encode("utf-8")),
+        chunk_refs=refs,
+    )
+    assert actual == expected
+    with pytest.raises(ValueError, match="planned Model Input JSON value changed"):
+        _create_model_input_json_value_from_canonical(
+            canonical,
+            value_hash="sha256:" + "0" * 64,
+            decoded_bytes=len(canonical.encode("utf-8")),
+            chunk_refs=refs,
+        )
 
 
 def _v2_graph():
