@@ -12,7 +12,7 @@ import pytest
 from loushang.agent import Agent, ModelCallPreparation
 from loushang.ai import Context, stream
 from loushang.ai.api_registry import get_default_api_registry
-from loushang.ai.context import normalize_context
+from loushang.ai.context import normalize_context, normalize_context_result
 from loushang.ai.json_codec import serialize_message
 from loushang.ai.model import Auth, Capabilities, Model, OpenAICompletionsConfig
 from loushang.ai.options import CallOptions, RetryOptions
@@ -1151,6 +1151,135 @@ def test_committed_strict_snapshot_skips_historical_shape_walk(
         )
         assert owned.messages[0] is preparer._strict_message_snapshots[0].message
         assert user not in observed
+        await runtime.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_session_incremental_normalization_matches_full_after_user_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        session = await _transcript_session()
+        runtime = _model_call_runtime(session, is_current=lambda: True)
+        model = replace(
+            _model(api="openai-completions"),
+            capabilities=Capabilities(stream=True, tool_use=True, max_tokens=128),
+            adapter=OpenAICompletionsConfig(),
+        )
+        user = UserMessage(role="user", content="first", timestamp=1.0)
+        tool = Tool(name="read", description="Read", parameters={"type": "object"})
+        first_context = Context(messages=[user], tools=[tool])
+        first_options = await runtime.prepare(
+            ModelCallPreparation(
+                purpose="main",
+                sequence=1,
+                model=model,
+                context=first_context,
+                options=CallOptions(),
+            )
+        )
+        first_committer = first_options.prepared_request_committer
+        assert first_committer is not None
+        first_owned = first_committer.owned_sealed_context(first_context)
+        first_result = first_committer.normalize_owned_context(
+            first_owned, model=model, pairing_mode="repair"
+        )
+        first_request = ProviderRequest(
+            model=model,
+            context=first_result.context,
+            options=first_options,
+            base_url="https://provider.test/v1",
+            max_output_tokens=16,
+        )
+        await first_committer.commit_prepared_request(
+            OpenAIChatCompletionsAdapter().prepare_request(first_request)
+        )
+        assert runtime._consumer is not None
+        preparer = runtime._consumer.facets.require(
+            model_call_module.MODEL_INPUT_PREPARATION_FACET
+        )
+        assert preparer._normalized_cache_task is not None
+        await preparer._normalized_cache_task
+        assert preparer._normalized_cache is not None
+
+        assistant = AssistantMessage(
+            role="assistant",
+            content=[ToolCall(type="toolCall", id="fresh", name="read", arguments={})],
+            api="openai-completions",
+            provider=model.provider_id,
+            endpoint=model.endpoint_id,
+            model=model.id,
+            response_id=None,
+            usage=Usage(0, 0, 0, 0, 0, None),
+            stop_reason="toolUse",
+            error_message=None,
+            timestamp=2.0,
+        )
+        result = ToolResultMessage(
+            role="toolResult",
+            tool_call_id="fresh",
+            tool_name="read",
+            content=[TextPart(type="text", text="done")],
+            is_error=False,
+            timestamp=3.0,
+        )
+        second_context = Context(messages=[user, assistant, result], tools=[tool])
+        second_options = await runtime.prepare(
+            ModelCallPreparation(
+                purpose="main",
+                sequence=2,
+                model=model,
+                context=second_context,
+                options=CallOptions(),
+            )
+        )
+        second_committer = second_options.prepared_request_committer
+        assert second_committer is not None
+        second_owned = second_committer.owned_sealed_context(second_context)
+        expected = normalize_context_result(
+            second_owned, model=model, pairing_mode="repair"
+        )
+        lengths: list[int] = []
+        original = model_call_module.normalize_context_result
+
+        def count_normalization(context, **kwargs):
+            lengths.append(len(context.messages))
+            return original(context, **kwargs)
+
+        monkeypatch.setattr(
+            model_call_module, "normalize_context_result", count_normalization
+        )
+        actual = second_committer.normalize_owned_context(
+            second_owned, model=model, pairing_mode="repair"
+        )
+        assert actual == expected
+        assert lengths == [2]
+
+        lengths.clear()
+        changed_model = replace(model, id="different-model")
+        second_committer.normalize_owned_context(
+            second_owned, model=changed_model, pairing_mode="repair"
+        )
+        assert lengths == [3]
+
+        lengths.clear()
+        second_committer.normalize_owned_context(
+            second_owned, model=model, pairing_mode="strict"
+        )
+        assert lengths == [3]
+
+        lengths.clear()
+        cached_user = preparer._normalized_cache.result.context.messages[0]
+        assert isinstance(cached_user, UserMessage)
+        cached_user.content[0] = TextPart(type="text", text="tampered")
+        assert (
+            second_committer.normalize_owned_context(
+                second_owned, model=model, pairing_mode="repair"
+            )
+            == expected
+        )
+        assert lengths == [3]
         await runtime.dispose()
 
     asyncio.run(scenario())

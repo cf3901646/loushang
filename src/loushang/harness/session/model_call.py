@@ -13,8 +13,14 @@ from dataclasses import dataclass, replace
 from typing import Any, Protocol, cast
 
 from loushang.agent import ModelCallPreparation
+from loushang.ai.context import (
+    NormalizationResult,
+    NormalizedContext,
+    normalize_context_result,
+)
 from loushang.ai.json_codec import deserialize_message, serialize_message
-from loushang.ai.options import CallOptions
+from loushang.ai.model import Model
+from loushang.ai.options import CallOptions, PairingMode
 from loushang.ai.prepared_request import (
     PreparedModelCallAttemptUsage,
     PreparedModelCallAttemptUsageRecorder,
@@ -110,6 +116,71 @@ class _StrictMessageSnapshot:
     sealed: object
     message: Message
     encoded: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class _NormalizedPrefixCache:
+    source: tuple[object, ...]
+    key: str
+    result: NormalizationResult
+    encoded: bytes
+    prior_tool_ids: frozenset[str]
+
+
+def _normalization_key(model: Model, pairing_mode: PairingMode) -> str | None:
+    try:
+        return json.dumps(
+            {
+                "model": model.to_raw(),
+                "model_id": model.id,
+                "provider_id": model.provider_id,
+                "endpoint_id": model.endpoint_id,
+                "api": model.api,
+                "pairing_mode": pairing_mode,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def _tool_ids(messages: Sequence[Message]) -> frozenset[str]:
+    ids: set[str] = set()
+    for message in messages:
+        if type(message) is AssistantMessage:
+            ids.update(part.id for part in message.content if type(part) is ToolCall)
+        elif type(message) is ToolResultMessage:
+            ids.add(message.tool_call_id)
+    return frozenset(ids)
+
+
+def _build_normalized_prefix_cache(
+    source: tuple[object, ...],
+    owned_context: Callable[[Context], Context],
+    model: Model,
+    pairing_mode: PairingMode,
+) -> _NormalizedPrefixCache | None:
+    key = _normalization_key(model, pairing_mode)
+    if key is None:
+        return None
+    context = owned_context(Context())
+    if len(context.messages) != len(source):
+        return None
+    result = normalize_context_result(context, model=model, pairing_mode=pairing_mode)
+    if (
+        not result.context.messages
+        or type(result.context.messages[-1]) is not UserMessage
+    ):
+        return None
+    ids = _tool_ids(context.messages) | _tool_ids(result.context.messages)
+    try:
+        encoded = pickle.dumps(result.context.messages, protocol=5)
+    except Exception:
+        return None
+    return _NormalizedPrefixCache(source, key, result, encoded, ids)
 
 
 def _strict_message_equal(current: object, snapshot: object) -> bool:
@@ -406,6 +477,10 @@ class SessionModelCallPreparer:
         self._strict_snapshot_task: (
             asyncio.Task[tuple[_StrictMessageSnapshot | None, ...]] | None
         ) = None
+        self._normalized_cache: _NormalizedPrefixCache | None = None
+        self._normalized_cache_task: (
+            asyncio.Task[_NormalizedPrefixCache | None] | None
+        ) = None
 
     def _retain_prepared_request(
         self,
@@ -440,6 +515,43 @@ class SessionModelCallPreparer:
             return
         if self._last_prepared_source is source:
             self._strict_message_snapshots = snapshots
+
+    def _schedule_normalized_cache(
+        self,
+        source: tuple[object, ...],
+        owned_context: Callable[[Context], Context],
+        model: Model,
+        pairing_mode: PairingMode,
+    ) -> None:
+        if model.api != "openai-completions":
+            return
+        task = asyncio.create_task(
+            asyncio.to_thread(
+                _build_normalized_prefix_cache,
+                source,
+                owned_context,
+                model,
+                pairing_mode,
+            )
+        )
+        self._normalized_cache_task = task
+        task.add_done_callback(
+            lambda completed: self._finish_normalized_cache(completed, source)
+        )
+
+    def _finish_normalized_cache(
+        self,
+        task: asyncio.Task[_NormalizedPrefixCache | None],
+        source: tuple[object, ...],
+    ) -> None:
+        if task.cancelled():
+            return
+        try:
+            cache = task.result()
+        except BaseException:
+            return
+        if self._last_prepared_source is source:
+            self._normalized_cache = cache
 
     def _project_logical_messages(
         self, messages: Sequence[Message]
@@ -651,6 +763,8 @@ class SessionModelCallPreparer:
                         item.shape for item in self._sealed_message_cache
                     ),
                     strict_message_snapshots=strict_snapshots,
+                    normalized_prefix_cache=self._normalized_cache,
+                    on_committed_normalization=self._schedule_normalized_cache,
                     sealed_system_prompt=sealed_input["system_prompt"],
                     sealed_tools=sealed_input["tools"],
                 ),
@@ -690,6 +804,19 @@ class _CurrentSessionCommitter(
         sealed_messages: tuple[object, ...] = (),
         sealed_message_shapes: tuple[tuple[object, ...] | None, ...] = (),
         strict_message_snapshots: tuple[_StrictMessageSnapshot | None, ...] = (),
+        normalized_prefix_cache: _NormalizedPrefixCache | None = None,
+        on_committed_normalization: (
+            Callable[
+                [
+                    tuple[object, ...],
+                    Callable[[Context], Context],
+                    Model,
+                    PairingMode,
+                ],
+                None,
+            ]
+            | None
+        ) = None,
         sealed_system_prompt: object = None,
         sealed_tools: object = (),
     ) -> None:
@@ -704,6 +831,10 @@ class _CurrentSessionCommitter(
         self._sealed_messages = sealed_messages
         self._sealed_message_shapes = sealed_message_shapes
         self._strict_message_snapshots = strict_message_snapshots
+        self._normalized_prefix_cache = normalized_prefix_cache
+        self._on_committed_normalization = on_committed_normalization
+        self._normalization_model: Model | None = None
+        self._normalization_pairing_mode: PairingMode | None = None
         self._sealed_system_prompt = sealed_system_prompt
         self._sealed_tools = sealed_tools
         self._sealed_verification_task: asyncio.Task[None] | None = None
@@ -751,6 +882,68 @@ class _CurrentSessionCommitter(
             messages=messages,
             tools=tools,
         )
+
+    def normalize_owned_context(
+        self,
+        context: Context,
+        *,
+        model: Model,
+        pairing_mode: PairingMode,
+    ) -> NormalizationResult:
+        self._normalization_model = model
+        self._normalization_pairing_mode = pairing_mode
+        cache = self._normalized_prefix_cache
+        prior_count = self.certified_provider_prefix_count
+        key = _normalization_key(model, pairing_mode)
+        if (
+            model.api == "openai-completions"
+            and cache is not None
+            and key is not None
+            and cache.key == key
+            and prior_count > 0
+            and prior_count == len(cache.source)
+            and len(context.messages) > prior_count
+            and type(cache.result.context.messages[-1]) is UserMessage
+            and all(
+                sealed is previous
+                for sealed, previous in zip(
+                    self._sealed_messages, cache.source, strict=False
+                )
+            )
+        ):
+            suffix = context.messages[prior_count:]
+            if type(suffix[0]) is AssistantMessage and not (
+                _tool_ids(suffix) & cache.prior_tool_ids
+            ):
+                try:
+                    if (
+                        pickle.dumps(cache.result.context.messages, protocol=5)
+                        == cache.encoded
+                    ):
+                        suffix_result = normalize_context_result(
+                            Context(
+                                system_prompt=context.system_prompt,
+                                messages=suffix,
+                                tools=context.tools,
+                            ),
+                            model=model,
+                            pairing_mode=pairing_mode,
+                        )
+                        if not suffix_result.diagnostics:
+                            return NormalizationResult(
+                                context=NormalizedContext(
+                                    system_prompt=context.system_prompt,
+                                    messages=(
+                                        cache.result.context.messages
+                                        + suffix_result.context.messages
+                                    ),
+                                    tools=suffix_result.context.tools,
+                                ),
+                                diagnostics=cache.result.diagnostics,
+                            )
+                except Exception:
+                    pass
+        return normalize_context_result(context, model=model, pairing_mode=pairing_mode)
 
     def verify_sealed_context(self, context: Context) -> None:
         """Reject a context changed after its durable logical projection."""
@@ -837,6 +1030,17 @@ class _CurrentSessionCommitter(
         self.prepared_request_reuse = request
         if self._on_committed_prepared_request is not None:
             self._on_committed_prepared_request(request)
+        if (
+            self._on_committed_normalization is not None
+            and self._normalization_model is not None
+            and self._normalization_pairing_mode is not None
+        ):
+            self._on_committed_normalization(
+                self._sealed_messages,
+                self.owned_sealed_context,
+                self._normalization_model,
+                self._normalization_pairing_mode,
+            )
         if self._on_committed_model_input is not None:
             self._on_committed_model_input(snapshot_id)
         if self._turn_performance is not None:
