@@ -96,6 +96,7 @@ class ScreenFramePresentation:
         state: ScreenConversationState,
         active_surface: Any | None,
         elapsed_seconds: float,
+        loading_indicator: str | None = None,
     ) -> BottomFrame:
         component.composer = composer
         component.surface = active_surface
@@ -105,7 +106,7 @@ class ScreenFramePresentation:
         )
         component.pending_queue = self.pending_queue(state)
         component.status_bar = (
-            self.status_bar(state)
+            self.status_bar(state, loading_indicator=loading_indicator)
             if state.statusline_visible or state.startup_pending
             else None
         )
@@ -157,12 +158,20 @@ class ScreenFramePresentation:
             return None
         return PendingQueueView(sections=tuple(sections))
 
-    def status_bar(self, state: ScreenConversationState) -> StatusBar:
+    def status_bar(
+        self,
+        state: ScreenConversationState,
+        *,
+        loading_indicator: str | None = None,
+    ) -> StatusBar:
         if state.startup_pending:
+            message = state.status_message or "Loading session"
+            if loading_indicator is not None:
+                message = f"{loading_indicator} {message}"
             return StatusBar(
                 (
                     StatusField(
-                        state.status_message or "Loading session",
+                        message,
                         priority=100,
                         token="message",
                     ),

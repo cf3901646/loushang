@@ -23,6 +23,7 @@ from loushang.harnesstui.conversation.screen_runner import (
     run_conversation_screen,
 )
 from loushang.harnesstui.conversation.startup_host import ScreenConversationStartup
+from loushang.tui import strip_control_sequences
 from loushang.tui.core import RenderResult
 from loushang.tui.terminal import TerminalSize
 from loushang.tui.terminal_backends.posix import PosixTerminalInputReader
@@ -94,6 +95,19 @@ def test_real_screen_echoes_while_main_thread_runs_synchronous_python():
         assert state.app.render_requester is None
         assert state.submission_backlog_pending
         assert "\x1b[?1049l" not in output.getvalue()
+
+
+def test_idle_loading_screen_animates_without_input():
+    with running_surface() as (_, _, _, output):
+        deadline = time.monotonic() + 2
+        visible_frames: set[str] = set()
+        while len(visible_frames) < 2 and time.monotonic() < deadline:
+            visible = strip_control_sequences(output.getvalue())
+            visible_frames.update(
+                frame for frame in "|/-\\" if f"{frame} Loading session" in visible
+            )
+            time.sleep(0.005)
+        assert len(visible_frames) >= 2
 
 
 def test_idle_escape_clears_visible_draft_without_another_input():
