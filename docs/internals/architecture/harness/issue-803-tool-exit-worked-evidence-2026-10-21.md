@@ -1131,3 +1131,23 @@ load. These are directional observations, not a p95 or an isolated speedup.
 Native reopening of the changed run verified two Model Input snapshots and
 terminal usage records, the exact tool output, unchanged authority and zero
 historical tool executions. The 500ms Worked target remains open.
+
+## Provider-prefix counterfactual, 2026-10-22
+
+A private offline probe reused the previous prepared request's immutable
+provider-message prefix by identity and serialized only the new suffix. This
+was a diagnostic monkeypatch outside the Product tree, not a Product change:
+it assumed an append-only normalized context rather than proving an adapter
+frontier. Native reopening nevertheless verified both resulting Model Input
+snapshots and terminal usage records, the exact Tool output, unchanged
+authority, and zero historical Tool executions.
+
+The hot fake-adapter serialization fell from 214ms to below 1ms. Its complete
+prepared-request step fell from 479ms to 188ms because canonical construction,
+hashing, and sealing still cost time. Tool exit to Worked moved from 2,110ms
+to 1,918ms across successive growing-session, 20-key runs; maximum input
+echo was 218ms and 270ms. Changing load prevents an isolated effect or p95
+claim. Even the optimistic Provider-only path remains about 1.4 seconds above
+the requested 500ms target. A cross-scope incremental source and projection
+contract is needed; see the proposed
+[Issue 803 incremental model-call pipeline](issue-803-incremental-model-call-pipeline.md).
