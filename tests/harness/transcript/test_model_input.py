@@ -1034,6 +1034,56 @@ def test_model_input_reserved_literal_alone_sets_projection_version(tmp_path) ->
     asyncio.run(scenario())
 
 
+def test_incremental_logical_hash_preserves_literal_projection(tmp_path) -> None:
+    async def scenario() -> None:
+        transcript = await _memory_transcript()
+        logical = {
+            "system_prompt": "system prompt",
+            "messages": [],
+            "tools": [],
+            "request_options": {},
+        }
+        first = ModelInputCommitContext(
+            purpose="main_turn",
+            source_leaf_id=transcript.leaf_id,
+            source_revision=transcript.revision,
+            logical_input=logical,
+        )
+        first._canonical_owned_logical_input(
+            model_input_module._logical_input_for_materialization(first.logical_input)
+        )
+        logical["messages"] = [
+            {"role": "user", "content": {"$loushang.literal": "unchanged"}}
+        ]
+        context = ModelInputCommitContext(
+            purpose="main_turn",
+            source_leaf_id=transcript.leaf_id,
+            source_revision=transcript.revision,
+            logical_input=logical,
+            reuse_from=first,
+        )
+        codec = SessionModelInputBlobCodec(
+            SessionBlobStore(tmp_path / "data", "model-input-conversation")
+        )
+        committer = ModelInputTranscriptCommitter(
+            transcript=transcript,
+            context=context,
+            runtime_references=_runtime_references(),
+            binary_codec=codec,
+        )
+        await committer.prewarm_logical_input()
+        assert committer._prewarmed_logical_canonical is not None
+        assert committer._prewarmed_logical_canonical[0] is None
+        await committer.commit_prepared_request(_prepared())
+        rebuilt = rebuild_model_input(
+            transcript, committer.commits[-1].snapshot_id, binary_codec=codec
+        )
+        assert rebuilt.snapshot.binary_projection_version == 1
+        assert rebuilt.logical_input == logical
+
+    asyncio.run(scenario())
+
+
 def test_model_input_commit_emits_one_aggregate_performance_event(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3040,6 +3090,108 @@ def test_logical_canonical_reuses_only_verified_message_prefix(
     assert changed.logical_input["messages"][10] is not second.logical_input[
         "messages"
     ][10]
+
+
+def test_owned_logical_canonical_hash_reuses_exact_append_only_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import hashlib
+
+    messages = [{"role": "user", "content": '历史\\"文' * 4000}]
+    logical = {
+        "alpha_component": {"messages": [{"text": "嵌套"}]},
+        "system_prompt": "系统",
+        "messages": messages,
+        "tools": [{"name": "工具"}],
+        "request_options": {},
+    }
+    previous = ModelInputCommitContext(
+        purpose="main_turn",
+        source_leaf_id="one",
+        source_revision=1,
+        logical_input=logical,
+    )
+    previous._canonical_owned_logical_input(
+        model_input_module._logical_input_for_materialization(previous.logical_input)
+    )
+    original = model_input_module.canonical_model_input_json
+    for index, suffix in enumerate(
+        (
+            {"role": "assistant", "content": '回答\\"一'},
+            {"role": "toolResult", "content": "输出二"},
+            {"role": "user", "content": {"type": "image", "data": "图"}},
+        ),
+        start=2,
+    ):
+        messages = [*messages, suffix]
+        current = ModelInputCommitContext(
+            purpose="main_turn",
+            source_leaf_id=str(index),
+            source_revision=index,
+            logical_input={**logical, "messages": messages},
+            reuse_from=previous,
+        )
+        historical_calls = 0
+
+        def counted(value: object, *, name: str) -> str:
+            nonlocal historical_calls
+            if name.startswith("logical Model Input.messages["):
+                historical_calls += 1
+            return original(value, name=name)
+
+        with monkeypatch.context() as patcher:
+            patcher.setattr(model_input_module, "canonical_model_input_json", counted)
+            canonical, digest = current._canonical_owned_logical_input(
+                model_input_module._logical_input_for_materialization(
+                    current.logical_input
+                )
+            )
+        expected = original(
+            thaw_model_input_json(current.logical_input), name="logical Model Input"
+        )
+        assert canonical is None
+        assert (
+            digest == "sha256:" + hashlib.sha256(expected.encode("utf-8")).hexdigest()
+        )
+        assert historical_calls <= 1
+        for marker in model_input_module._LOGICAL_BINARY_MARKERS:
+            assert (marker in expected) == (marker in current._owned_binary_markers)
+        previous = current
+
+    changed = ModelInputCommitContext(
+        purpose="main_turn",
+        source_leaf_id="changed",
+        source_revision=5,
+        logical_input={**logical, "messages": messages, "system_prompt": "新系统"},
+        reuse_from=previous,
+    )
+    canonical, digest = changed._canonical_owned_logical_input(
+        model_input_module._logical_input_for_materialization(changed.logical_input)
+    )
+    expected = original(
+        thaw_model_input_json(changed.logical_input), name="logical Model Input"
+    )
+    assert canonical == expected
+    assert digest == "sha256:" + hashlib.sha256(expected.encode("utf-8")).hexdigest()
+
+    prefix_digest = previous._owned_prefix_digest
+    assert prefix_digest is not None
+    prefix_digest.update(b"corrupt")
+    appended = [*messages, {"role": "user", "content": "after cache change"}]
+    fallback = ModelInputCommitContext(
+        purpose="main_turn", source_leaf_id="fallback", source_revision=6,
+        logical_input={**logical, "messages": appended}, reuse_from=previous,
+    )
+    fallback_canonical, fallback_digest = fallback._canonical_owned_logical_input(
+        model_input_module._logical_input_for_materialization(fallback.logical_input)
+    )
+    fallback_expected = original(
+        thaw_model_input_json(fallback.logical_input), name="logical Model Input"
+    )
+    assert fallback_canonical == fallback_expected
+    assert fallback_digest == "sha256:" + hashlib.sha256(
+        fallback_expected.encode("utf-8")
+    ).hexdigest()
 
 
 def test_session_append_reuses_verified_logical_prefix_at_writer(

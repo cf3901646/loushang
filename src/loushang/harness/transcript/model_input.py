@@ -9,7 +9,7 @@ import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import InitVar, dataclass, field, replace
 from types import MappingProxyType
-from typing import cast
+from typing import Protocol, cast
 from uuid import uuid4
 
 from loushang.ai.prepared_request import (
@@ -65,6 +65,19 @@ from loushang.harness.transcript.unit_of_work import AgentTranscriptUnitOfWork
 
 ModelInputLogicalProjection = dict[str, object]
 _MODEL_INPUT_PERFORMANCE_LOG = get_log(__name__).bind(component="ModelInputCommit")
+_LOGICAL_BINARY_MARKERS = (
+    '"$loushang.sessionBlob"',
+    '"$loushang.literal"',
+    '"type":"image"',
+)
+
+
+class _DigestState(Protocol):
+    def copy(self) -> _DigestState: ...
+
+    def update(self, data: bytes) -> None: ...
+
+    def hexdigest(self) -> str: ...
 
 
 @dataclass(frozen=True)
@@ -84,6 +97,32 @@ class ModelInputCommitContext:
     )
     _reused_message_prefix_count: int = field(
         default=0, init=False, repr=False, compare=False
+    )
+    _owned_reuse_from: ModelInputCommitContext | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
+    _owned_canonical: str | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
+    _owned_digest: str | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
+    _owned_message_offset: int | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
+    _owned_prefix_digest: _DigestState | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
+    _owned_prefix_hash: str | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
+    _owned_other_fields: Mapping[str, str] | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
+    _owned_tail: str | None = field(default=None, init=False, repr=False, compare=False)
+    _owned_prefix_tail: str = field(default="", init=False, repr=False, compare=False)
+    _owned_binary_markers: frozenset[str] = field(
+        default=frozenset(), init=False, repr=False, compare=False
     )
 
     def __post_init__(self, reuse_from: ModelInputCommitContext | None) -> None:
@@ -120,6 +159,8 @@ class ModelInputCommitContext:
                         break
                     reused += 1
                 object.__setattr__(self, "_reused_message_prefix_count", reused)
+                if reused == len(previous_messages):
+                    object.__setattr__(self, "_owned_reuse_from", reuse_from)
                 if reuse_from._message_canonical_parts is not None:
                     object.__setattr__(
                         self,
@@ -169,6 +210,143 @@ class ModelInputCommitContext:
         canonical = "{" + ",".join(fields) + "}"
         object.__setattr__(self, "_message_canonical_parts", parts)
         return canonical
+
+    def _canonical_owned_logical_input(
+        self, value: dict[str, JSONValue]
+    ) -> tuple[str | None, str]:
+        """Hash an exact sealed append without materializing historical text."""
+
+        previous = self._owned_reuse_from
+        messages = self.logical_input["messages"]
+        assert isinstance(messages, tuple)
+        other_fields = {
+            name: canonical_model_input_json(item, name=f"logical Model Input.{name}")
+            for name, item in self.logical_input.items()
+            if name != "messages"
+        }
+        if (
+            previous is not None
+            and previous._owned_tail is not None
+            and previous._owned_other_fields == other_fields
+            and previous._owned_message_offset is not None
+            and previous._owned_prefix_digest is not None
+            and previous._owned_prefix_digest.copy().hexdigest()
+            == previous._owned_prefix_hash
+            and previous._message_canonical_parts is not None
+            and len(previous._message_canonical_parts)
+            == self._reused_message_prefix_count
+            and previous._owned_tail.startswith("]")
+        ):
+            suffix = tuple(
+                canonical_model_input_json(
+                    message,
+                    name=f"logical Model Input.messages[{index}]",
+                )
+                for index, message in enumerate(
+                    messages[self._reused_message_prefix_count :],
+                    self._reused_message_prefix_count,
+                )
+            )
+            added = (
+                "," if self._reused_message_prefix_count and suffix else ""
+            ) + ",".join(suffix)
+            prefix_digest = previous._owned_prefix_digest.copy()
+            prefix_digest.update(added.encode("utf-8"))
+            full_digest = prefix_digest.copy()
+            full_digest.update(previous._owned_tail.encode("utf-8"))
+            digest = "sha256:" + full_digest.hexdigest()
+            object.__setattr__(
+                self,
+                "_message_canonical_parts",
+                previous._message_canonical_parts + suffix,
+            )
+            self._retain_owned_canonical(
+                None,
+                digest,
+                previous._owned_message_offset + len(added),
+                prefix_digest,
+                other_fields,
+                tail=previous._owned_tail,
+                prefix_tail=(previous._owned_prefix_tail + added)[-32:],
+                binary_markers=previous._owned_binary_markers.union(
+                    marker
+                    for marker in _LOGICAL_BINARY_MARKERS
+                    if marker in added
+                    or marker in previous._owned_prefix_tail + added[:32]
+                    or marker in added[-32:] + previous._owned_tail[:32]
+                ),
+            )
+            object.__setattr__(self, "_owned_reuse_from", None)
+            return None, digest
+
+        canonical = self._canonical_logical_input_json(value)
+        digest = "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        parts = self._message_canonical_parts
+        fallback_offset: int | None = None
+        if parts is not None:
+            position = 1
+            for index, name in enumerate(sorted(self.logical_input)):
+                if index:
+                    position += 1
+                position += len(json.dumps(name, ensure_ascii=False)) + 1
+                if name == "messages":
+                    fallback_offset = (
+                        position + 1 + sum(map(len, parts)) + max(0, len(parts) - 1)
+                    )
+                    break
+                position += len(other_fields[name])
+        fallback_prefix_digest = (
+            hashlib.sha256(canonical[:fallback_offset].encode("utf-8"))
+            if fallback_offset is not None
+            and canonical[fallback_offset : fallback_offset + 1] == "]"
+            else None
+        )
+        self._retain_owned_canonical(
+            canonical,
+            digest,
+            fallback_offset if fallback_prefix_digest is not None else None,
+            fallback_prefix_digest,
+            other_fields,
+            tail=canonical[fallback_offset:]
+            if fallback_prefix_digest is not None
+            else None,
+            prefix_tail=canonical[max(0, fallback_offset - 32) : fallback_offset]
+            if fallback_prefix_digest is not None and fallback_offset is not None
+            else "",
+            binary_markers=frozenset(
+                marker for marker in _LOGICAL_BINARY_MARKERS if marker in canonical
+            ),
+        )
+        object.__setattr__(self, "_owned_reuse_from", None)
+        return canonical, digest
+
+    def _retain_owned_canonical(
+        self,
+        canonical: str | None,
+        digest: str,
+        offset: int | None,
+        prefix_digest: _DigestState | None,
+        other_fields: Mapping[str, str],
+        *,
+        tail: str | None,
+        prefix_tail: str,
+        binary_markers: frozenset[str],
+    ) -> None:
+        object.__setattr__(self, "_owned_canonical", canonical)
+        object.__setattr__(self, "_owned_digest", digest)
+        object.__setattr__(self, "_owned_message_offset", offset)
+        object.__setattr__(self, "_owned_prefix_digest", prefix_digest)
+        object.__setattr__(
+            self,
+            "_owned_prefix_hash",
+            prefix_digest.hexdigest() if prefix_digest is not None else None,
+        )
+        object.__setattr__(
+            self, "_owned_other_fields", MappingProxyType(dict(other_fields))
+        )
+        object.__setattr__(self, "_owned_tail", tail)
+        object.__setattr__(self, "_owned_prefix_tail", prefix_tail)
+        object.__setattr__(self, "_owned_binary_markers", frozenset(binary_markers))
 
 
 def _freeze_logical_input_with_prefix(
@@ -446,8 +624,8 @@ class ModelInputTranscriptCommitter(
         self._attempt_usage_observations: set[ModelCallAttemptUsage] = set()
         self._terminal_attempt_usage_keys: set[tuple[str, int, str]] = set()
         self._lock = asyncio.Lock()
-        self._logical_prewarm_task: asyncio.Task[tuple[str, str]] | None = None
-        self._prewarmed_logical_canonical: tuple[str, str] | None = None
+        self._logical_prewarm_task: asyncio.Task[tuple[str | None, str]] | None = None
+        self._prewarmed_logical_canonical: tuple[str | None, str] | None = None
 
     @property
     def commits(self) -> tuple[ModelInputCommitResult, ...]:
@@ -468,7 +646,7 @@ class ModelInputTranscriptCommitter(
 
         return self._context.logical_input
 
-    def _prepare_logical_canonical(self) -> tuple[str, str]:
+    def _prepare_logical_canonical(self) -> tuple[str | None, str]:
         frozen = self._context.logical_input
         logical = cast(
             dict[str, JSONValue],
@@ -478,9 +656,7 @@ class ModelInputTranscriptCommitter(
                 else thaw_model_input_json(frozen)
             ),
         )
-        canonical = self._context._canonical_logical_input_json(logical)
-        digest = "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-        return canonical, digest
+        return self._context._canonical_owned_logical_input(logical)
 
     async def prewarm_logical_input(self) -> None:
         """Prepare the sealed logical hash while provider payloads are built."""
@@ -499,7 +675,9 @@ class ModelInputTranscriptCommitter(
         self._require_current_transcript()
         self._prewarmed_logical_canonical = prepared
 
-    def _finish_logical_prewarm(self, task: asyncio.Task[tuple[str, str]]) -> None:
+    def _finish_logical_prewarm(
+        self, task: asyncio.Task[tuple[str | None, str]]
+    ) -> None:
         if not task.cancelled():
             task.exception()
 
@@ -607,13 +785,22 @@ class ModelInputTranscriptCommitter(
                     needs_binary_projection = (
                         bool(request.binary_fields)
                         or any(
-                            marker in logical_canonical or marker in canonical
+                            marker in canonical
+                            or (
+                                marker in logical_canonical
+                                if logical_canonical is not None
+                                else marker in self._context._owned_binary_markers
+                            )
                             for marker in (
                                 '"$loushang.sessionBlob"',
                                 '"$loushang.literal"',
                             )
                         )
-                        or '"type":"image"' in logical_canonical
+                        or (
+                            '"type":"image"' in logical_canonical
+                            if logical_canonical is not None
+                            else '"type":"image"' in self._context._owned_binary_markers
+                        )
                     )
                     if (
                         needs_binary_projection
