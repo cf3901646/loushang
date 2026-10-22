@@ -12,14 +12,17 @@ import pytest
 from loushang.agent import Agent, ModelCallPreparation
 from loushang.ai import Context, stream
 from loushang.ai.api_registry import get_default_api_registry
+from loushang.ai.context import normalize_context
 from loushang.ai.json_codec import serialize_message
-from loushang.ai.model import Auth, Capabilities, Model
+from loushang.ai.model import Auth, Capabilities, Model, OpenAICompletionsConfig
 from loushang.ai.options import CallOptions, RetryOptions
 from loushang.ai.prepared_request import PreparedModelRequest, PreparedRequestLimits
+from loushang.ai.protocols.openai_chat_completions import OpenAIChatCompletionsAdapter
 from loushang.ai.provider.protocol import ProviderRequest
 from loushang.ai.types import (
     AssistantMessage,
     TextPart,
+    Tool,
     ToolCall,
     ToolResultMessage,
     Usage,
@@ -865,6 +868,111 @@ def test_session_reuses_only_a_committed_prepared_request_prefix() -> None:
         ]
         assert len(snapshot_ids) == 3
         for snapshot_id, prepared in zip(snapshot_ids, adapter.prepared, strict=True):
+            rebuilt = session.rebuild_model_input(snapshot_id)
+            assert rebuilt.prepared_payload == prepared.payload_for_transport()
+        await runtime.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_session_certificate_reuses_exact_builtin_chat_payload() -> None:
+    async def scenario() -> None:
+        session = await _transcript_session()
+        runtime = _model_call_runtime(session, is_current=lambda: True)
+        model = replace(
+            _model(api="openai-completions"),
+            capabilities=Capabilities(stream=True, tool_use=True, max_tokens=128),
+            adapter=OpenAICompletionsConfig(),
+        )
+        adapter = OpenAIChatCompletionsAdapter()
+        tool = Tool(name="read", description="Read", parameters={"type": "object"})
+        user = UserMessage(role="user", content="hello", timestamp=1.0)
+        first_context = Context(messages=[user], tools=[tool])
+
+        async def prepare(
+            context: Context, sequence: int
+        ) -> tuple[CallOptions, ProviderRequest]:
+            options = await runtime.prepare(
+                ModelCallPreparation(
+                    purpose="main",
+                    sequence=sequence,
+                    model=model,
+                    context=context,
+                    options=CallOptions(),
+                )
+            )
+            return options, ProviderRequest(
+                model=model,
+                context=normalize_context(
+                    context, model=model, pairing_mode=options.pairing_mode
+                ),
+                options=options,
+                base_url="https://provider.test/v1",
+                max_output_tokens=16,
+            )
+
+        first_options, first_request = await prepare(first_context, 1)
+        first_prepared = adapter.prepare_request(first_request)
+        assert first_options.prepared_request_committer is not None
+        await first_options.prepared_request_committer.commit_prepared_request(
+            first_prepared
+        )
+
+        assistant = AssistantMessage(
+            role="assistant",
+            content=[
+                ToolCall(type="toolCall", id="call-1", name="read", arguments={})
+            ],
+            api="openai-completions",
+            provider=model.provider_id,
+            endpoint=model.endpoint_id,
+            model=model.id,
+            response_id=None,
+            usage=Usage(0, 0, 0, 0, 0, None),
+            stop_reason="toolUse",
+            error_message=None,
+            timestamp=2.0,
+        )
+        result = ToolResultMessage(
+            role="toolResult",
+            tool_call_id="call-1",
+            tool_name="read",
+            content=[TextPart(type="text", text="done")],
+            is_error=False,
+            timestamp=3.0,
+        )
+        second_context = Context(messages=[user, assistant, result], tools=[tool])
+        second_options, second_request = await prepare(second_context, 2)
+        assert second_options.prepared_request_committer is not None
+        assert (
+            second_options.prepared_request_committer.certified_provider_prefix_count
+            == 1
+        )
+        expected = adapter.prepare_request(
+            replace(second_request, options=CallOptions())
+        )
+        second_prepared = adapter.prepare_request(second_request)
+        assert second_prepared._reused_message_prefix_count > 0
+        assert second_prepared.payload["messages"][0] is first_prepared.payload[
+            "messages"
+        ][0]
+        assert second_prepared.canonical_payload == expected.canonical_payload
+        assert second_prepared.payload_hash == expected.payload_hash
+        assert second_prepared.metrics == expected.metrics
+        assert second_prepared.payload_for_transport() == expected.payload_for_transport()
+        await second_options.prepared_request_committer.commit_prepared_request(
+            second_prepared
+        )
+
+        snapshot_ids = [
+            entry.payload.snapshot_id
+            for entry in session.get_entries()
+            if entry.kind == "model.input.prepared"
+        ]
+        assert len(snapshot_ids) == 2
+        for snapshot_id, prepared in zip(
+            snapshot_ids, (first_prepared, second_prepared), strict=True
+        ):
             rebuilt = session.rebuild_model_input(snapshot_id)
             assert rebuilt.prepared_payload == prepared.payload_for_transport()
         await runtime.dispose()
