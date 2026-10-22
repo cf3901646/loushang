@@ -281,6 +281,7 @@ async def _start_stream(
             committer, "start_sealed_context_verification", None
         )
         owned_sealed_context = getattr(committer, "owned_sealed_context", None)
+        normalize_owned_context = getattr(committer, "normalize_owned_context", None)
 
         def normalize_sealed_context():
             source_context = (
@@ -290,10 +291,18 @@ async def _start_stream(
             )
             if type(source_context) is not Context:
                 raise TypeError("Session sealed context must be a Context")
-            result = normalize_context_result(
-                source_context,
-                model=resolved_model,
-                pairing_mode=pairing_mode,
+            result = (
+                normalize_owned_context(
+                    source_context,
+                    model=resolved_model,
+                    pairing_mode=pairing_mode,
+                )
+                if callable(normalize_owned_context)
+                else normalize_context_result(
+                    source_context,
+                    model=resolved_model,
+                    pairing_mode=pairing_mode,
+                )
             )
             if not callable(owned_sealed_context) and not callable(
                 start_sealed_verification

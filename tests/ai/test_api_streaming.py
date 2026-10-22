@@ -19,7 +19,11 @@ from loushang.ai.api_registry import (
     get_default_api_registry,
 )
 from loushang.ai.auth import ApiKeyAuth
-from loushang.ai.context import NormalizedContext, normalize_context
+from loushang.ai.context import (
+    NormalizedContext,
+    normalize_context,
+    normalize_context_result,
+)
 from loushang.ai.errors import AIRateLimitError, UnsupportedCapabilityError
 from loushang.ai.model import (
     Auth,
@@ -617,6 +621,7 @@ def test_session_owned_normalization_starts_verification_before_preparation() ->
 def test_session_sealed_context_is_normalized_off_loop_for_provider() -> None:
     main_thread = threading.get_ident()
     observed_threads: list[int] = []
+    normalized_calls: list[int] = []
 
     class SessionCommitter:
         normalize_context_in_worker = True
@@ -626,6 +631,12 @@ def test_session_sealed_context_is_normalized_off_loop_for_provider() -> None:
             assert context.messages[0].content == "changed"
             return Context(
                 messages=[UserMessage(role="user", content="sealed", timestamp=0.0)]
+            )
+
+        def normalize_owned_context(self, context: Context, *, model, pairing_mode):
+            normalized_calls.append(len(context.messages))
+            return normalize_context_result(
+                context, model=model, pairing_mode=pairing_mode
             )
 
         async def commit_prepared_request(self, request) -> None:
@@ -670,6 +681,7 @@ def test_session_sealed_context_is_normalized_off_loop_for_provider() -> None:
 
     asyncio.run(scenario())
     assert observed_threads and observed_threads[0] != main_thread
+    assert normalized_calls == [1]
     assert provider.context.messages[0].content[0].text == "sealed"
 
 
