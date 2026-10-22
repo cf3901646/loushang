@@ -867,6 +867,56 @@ def test_file_background_head_write_does_not_delay_durable_append(
     asyncio.run(scenario())
 
 
+def test_file_background_head_write_does_not_delay_durable_batch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from threading import Event
+
+    from loushang.harness.conversation.stores import file as file_store_module
+
+    store = cast(
+        FileConversationStore[_Header, _Record],
+        _file_factory(tmp_path, background_head_updates=True)(),
+    )
+    key = ConversationKey("coding", "background-batch-head")
+    store._create_sync(key, _Header("Header"), operation_id=_operation("create", key))
+    entered = Event()
+    release = Event()
+    original = file_store_module._try_write_store_head
+
+    def held_write(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(file_store_module, "_try_write_store_head", held_write)
+
+    async def scenario() -> None:
+        records = (_Record("record-1", "first"), _Record("record-2", "second"))
+        try:
+            result = await asyncio.wait_for(
+                store.append_batch(
+                    key,
+                    records,
+                    expected_revision=0,
+                    operation_ids=("record-1", "record-2"),
+                ),
+                timeout=1,
+            )
+            assert tuple(item.revision for item in result.receipts) == (1, 2)
+            assert await asyncio.to_thread(entered.wait, 1)
+        finally:
+            release.set()
+        await store.drain_advisory_head_updates()
+        reopened = cast(
+            FileConversationStore[_Header, _Record], _file_factory(tmp_path)()
+        )
+        assert (await reopened.load(key)).snapshot.records == records
+
+    asyncio.run(scenario())
+
+
 def test_file_background_head_write_cannot_replace_newer_writer_head(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

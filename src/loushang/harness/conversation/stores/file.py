@@ -477,14 +477,21 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
         operation_ids: Sequence[str],
     ) -> ConversationBatchCommitResult:
         self._require_writable()
-        return await self._scoped_io(
+        deferred: list[tuple[ConversationKey, Path, _StoreHead]] | None = (
+            [] if self._background_head_updates else None
+        )
+        result = await self._scoped_io(
             key,
             self._append_batch_sync,
             key,
             tuple(records),
             expected_revision=expected_revision,
             operation_ids=tuple(operation_ids),
+            deferred_head_update=deferred,
         )
+        if deferred:
+            self._schedule_head_update(*deferred[0])
+        return result
 
     async def delete(
         self,
@@ -806,6 +813,9 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
         *,
         expected_revision: int,
         operation_ids: Sequence[str],
+        deferred_head_update: (
+            list[tuple[ConversationKey, Path, _StoreHead]] | None
+        ) = None,
     ) -> ConversationBatchCommitResult:
         durable_records = tuple(records)
         operations = tuple(require_operation_id(value) for value in operation_ids)
@@ -900,12 +910,21 @@ class FileConversationStore(Generic[HeaderT, RecordT]):
                             f"append batch outcome for conversation {key!r} is unknown"
                         ) from exc
                     if advanced_head is not None:
-                        _try_write_store_head(
-                            path,
-                            advanced_head,
-                            refresh_identity=True,
-                            rooted=journal.bound_file,
-                        )
+                        if deferred_head_update is None:
+                            _try_write_store_head(
+                                path,
+                                advanced_head,
+                                refresh_identity=True,
+                                rooted=journal.bound_file,
+                            )
+                        else:
+                            advanced_head = replace(
+                                advanced_head,
+                                identity=_journal_identity(
+                                    path, rooted=journal.bound_file
+                                ),
+                            )
+                            deferred_head_update.append((key, path, advanced_head))
                         self._remember_head_after_append(
                             key, path, advanced_head, rooted=journal.bound_file
                         )
