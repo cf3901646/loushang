@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import sys
+import traceback
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -149,6 +150,8 @@ def test_resume_publication_requires_exact_commit_current_graph_and_owner_checks
                 handle_failure = session.agent._handle_run_failure
 
                 async def capture_failure(error, *, aborted):
+                    if isinstance(error, RuntimeError) and str(error) == "no running event loop":
+                        traceback.print_exception(error)
                     failures.append(repr(error))
                     await handle_failure(error, aborted=aborted)
 
