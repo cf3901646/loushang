@@ -287,6 +287,12 @@ register_api_provider(custom_adapter)
 `AIErrorInfo.code` 始终是 `AIErrorCode`。provider 异常会映射为 typed error，
 并提供稳定的 retryable、status、request ID 和 JSON-safe details。
 
+无法进一步分类的错误会在公开消息中给出安全线索。例如 HTTP 402 显示为
+`Provider quota or payment required (HTTP 402).`，HTTP 400 显示为
+`Provider request failed (HTTP 400).`，本地 SDK 的 `ValueError` 显示为
+`Provider request failed (ValueError).`。公开消息不包含 provider 异常原文或响应正文；
+可结合错误码、HTTP 状态和 request ID 继续排查。
+
 usage-only terminal chunk 和厂商 partial usage 会被正确归一化，reasoning token 不会
 重复计数。缺少必要价格 metadata 时，cost 保持 unknown。
 
