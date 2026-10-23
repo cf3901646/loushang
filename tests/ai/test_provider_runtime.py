@@ -293,8 +293,8 @@ def test_provider_runtime_converts_adapter_exceptions_to_error_events() -> None:
     events = asyncio.run(_run())
 
     assert [event["type"] for event in events] == ["error"]
-    assert events[0]["error"].error_message == "Provider request failed."
-    assert events[0]["error_info"]["message"] == "Provider request failed."
+    assert events[0]["error"].error_message == "Provider request failed (RuntimeError)."
+    assert events[0]["error_info"]["message"] == "Provider request failed (RuntimeError)."
     assert events[0]["error_info"]["provider"] == "provider-a"
     assert events[0]["error_info"]["endpoint"] == "openai-responses"
     assert events[0]["error_info"]["model"] == "model-a"

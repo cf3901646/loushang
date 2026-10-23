@@ -966,6 +966,31 @@ def test_anthropic_transport_header_cannot_enter_frozen_behavior_headers() -> No
     assert "secret-credential-value" not in prepared.model_visible_headers.values()
 
 
+def test_anthropic_client_uses_one_credential_placeholder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import anthropic
+
+    class ClientObserved(Exception):
+        pass
+
+    def client_constructor(**kwargs: object) -> None:
+        assert kwargs["api_key"] == ""
+        assert "auth_token" not in kwargs
+        raise ClientObserved
+
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", client_constructor)
+    request = _request(api="anthropic-messages")
+    adapter = AnthropicMessagesAdapter()
+    prepared = adapter.prepare_request(request)
+
+    async def run() -> None:
+        with pytest.raises(ClientObserved):
+            await anext(adapter.invoke_prepared_raw(request, prepared))
+
+    asyncio.run(run())
+
+
 def test_prepared_barrier_commits_before_each_retry_transport() -> None:
     async def _run() -> tuple[_PreparedAdapter, _RecordingCommitter]:
         events: list[str] = []

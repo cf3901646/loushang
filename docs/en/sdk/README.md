@@ -305,6 +305,13 @@ Built-in production adapters are:
 to typed errors with stable retryability, status, request ID, and JSON-safe
 details.
 
+The public message includes a safe clue when a failure has no more specific
+classification. For example, HTTP 402 appears as `Provider quota or payment
+required (HTTP 402).`, HTTP 400 as `Provider request failed (HTTP 400).`, and a
+local SDK `ValueError` as `Provider request failed (ValueError).` Provider
+exception messages and response bodies are not shown in the public message;
+inspect the error code, status, and request ID for further diagnosis.
+
 Usage-only terminal chunks and provider-specific partial usage are normalized
 without double-counting reasoning tokens. Cost is unknown when required pricing
 metadata is absent.

@@ -431,7 +431,6 @@ class AnthropicMessagesAdapter(AnthropicMessagesProtocol):
         if self._client is None:
             client = AsyncAnthropic(  # type: ignore[call-arg]
                 api_key="",
-                auth_token="",
                 base_url=request.base_url,
             )
             owns_client = True
