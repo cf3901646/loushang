@@ -85,6 +85,17 @@ assert not any(name.startswith('loushang.harness') for name in sys.modules)
     )
 
 
+def test_loading_screen_import_defers_action_host_and_command_catalog(tmp_path):
+    _probe(
+        tmp_path,
+        """
+import loushang.coding.cli.screen_startup
+assert 'loushang.harness.commands' not in sys.modules
+assert 'loushang.harnesstui.conversation.host' not in sys.modules
+""",
+    )
+
+
 @pytest.mark.parametrize("invocation", ["explicit", "process-argv", "module"])
 def test_canonical_version_never_loads_application(tmp_path, invocation):
     _probe(
