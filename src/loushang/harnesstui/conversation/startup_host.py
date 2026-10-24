@@ -6,14 +6,9 @@ import asyncio
 import inspect
 from collections.abc import Awaitable, Callable
 from contextvars import Context, copy_context
-from typing import Any, TextIO
+from typing import TYPE_CHECKING, Any, TextIO
 
 from loushang.harnesstui.conversation.control import ConversationActionHost
-from loushang.harnesstui.conversation.host import (
-    ConversationScreenRunProfile,
-    bind_action_host_to_screen_runner,
-    open_conversation_screen_runtime,
-)
 from loushang.harnesstui.conversation.input import (
     ConversationInputResult,
     ConversationInputRouter,
@@ -36,6 +31,9 @@ from loushang.harnesstui.conversation.screen_runner import (
 )
 from loushang.tui.input import InputEvent
 from loushang.tui.keybindings import KeybindingConfig, KeybindingManager
+
+if TYPE_CHECKING:
+    from loushang.harnesstui.conversation.host import ConversationScreenRunProfile
 
 
 def startup_failure_summary(error: BaseException) -> str:
@@ -273,6 +271,11 @@ class ScreenConversationStartup:
             raise RuntimeError("invalid or late screen attachment")
         if self.router is None or self.router.disposed:
             raise RuntimeError("screen input owner is unavailable")
+        from loushang.harnesstui.conversation.host import (
+            bind_action_host_to_screen_runner,
+            open_conversation_screen_runtime,
+        )
+
         with open_conversation_screen_runtime(profile) as factory:
             callbacks = bind_action_host_to_screen_runner(action_host)
             self.handlers = {
